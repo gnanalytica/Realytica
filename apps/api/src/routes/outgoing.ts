@@ -9,7 +9,11 @@
  * POST   /:draftId/write       ask the model for a body, for a draft that has none
  * POST   /:draftId/approve     approve it for sending, by name
  * POST   /:draftId/reopen      take the approval back
- * POST   /:draftId/exported    a Word file of it was made
+ * POST   /:draftId/exported    a Word file of it is about to be handed over
+ *
+ * The last three carry the draft as the person was shown it (`seen`). Where
+ * the draft has changed since, the answer is 409 and nothing is done: an
+ * approval is of the words a person read.
  * DELETE /:draftId
  *
  * For the firm's own people: somebody working from a grant is answered as if
@@ -30,6 +34,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import {
   OUTGOING_BODY,
+  OUTGOING_CHANGED,
   OUTGOING_DRAFT,
   OUTGOING_KINDS,
   OUTGOING_KIND_LABEL,
@@ -153,7 +158,14 @@ function projectOf(req: Request, res: Response): DdProject | undefined {
 
 function fail(res: Response, err: unknown, status = 400): void {
   const message = err instanceof Error ? err.message : 'Request failed';
-  res.status(/^No draft by that id/.test(message) ? 404 : status).json({ error: message });
+  // A draft that changed after the person opened it is a conflict: the page reads it again.
+  res.status(/^No draft by that id/.test(message) ? 404 : message.startsWith(OUTGOING_CHANGED) ? 409 : status).json({ error: message });
+}
+
+/** The draft as the person acting was shown it (`outgoingSeen`), as their page sent it. One that sends none was shown nothing this can vouch for. */
+function seenBy(req: Request): string {
+  const seen = (req.body as { seen?: unknown } | undefined)?.seen;
+  return typeof seen === 'string' ? seen : '';
 }
 
 /** The drafts as one person is shown them: with whether a model is set up, and what this person may do. */
@@ -238,7 +250,7 @@ outgoingRouter.post('/:draftId/approve', async (req, res) => {
     return;
   }
   try {
-    approveOutgoing(project, (req.params as Params).draftId ?? '', { actor: actorOf(me), ...(me.name ? { name: me.name } : {}) });
+    approveOutgoing(project, (req.params as Params).draftId ?? '', { actor: actorOf(me), ...(me.name ? { name: me.name } : {}), seen: seenBy(req) });
   } catch (err) {
     fail(res, err, 409);
     return;
@@ -251,7 +263,7 @@ outgoingRouter.post('/:draftId/reopen', async (req, res) => {
   const project = projectOf(req, res);
   if (!project) return;
   try {
-    reopenOutgoing(project, (req.params as Params).draftId ?? '', actorOf(principalOf(req)));
+    reopenOutgoing(project, (req.params as Params).draftId ?? '', { actor: actorOf(principalOf(req)), seen: seenBy(req) });
   } catch (err) {
     fail(res, err);
     return;
@@ -264,7 +276,7 @@ outgoingRouter.post('/:draftId/exported', async (req, res) => {
   const project = projectOf(req, res);
   if (!project) return;
   try {
-    const draft = noteOutgoingExported(project, (req.params as Params).draftId ?? '', actorOf(principalOf(req)));
+    const draft = noteOutgoingExported(project, (req.params as Params).draftId ?? '', { actor: actorOf(principalOf(req)), seen: seenBy(req) });
     await store.save();
     res.json({ noted: `${OUTGOING_KIND_LABEL[draft.kind]} exported` });
   } catch (err) {

@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { seedDemoProject, type DdProject, type ProjectGrant } from '@realytica/shared';
+import { addAction, seedDemoProject, type DdProject, type ProjectGrant } from '@realytica/shared';
 
 const JWKS_URL = 'https://example.test/jwks-reach';
 const ISSUER = 'https://securetoken.google.com/realytica-reach';
@@ -218,6 +218,31 @@ describe('what a granted collaborator can see through the API', () => {
     // inside them: the firm's own people read it, and nobody who has not signed in.
     assert.equal((await call('GET', `/api/projects/${theirs.id}/memory`, { token: dev() })).status, 200);
     assert.equal((await call('GET', `/api/projects/${theirs.id}/memory`)).status, 401);
+  });
+
+  it('is told of an action past its date only where their own copy of the project holds the action', async () => {
+    // An action nothing in the grant reaches, long past its date. Saving the project raises the alert for it.
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    const action = addAction(live, { title: 'Ramesh to settle the dispute with the neighbour', kind: 'remediation', owner: 'Ramesh', priority: 'medium', dueDate: '2020-01-10' }, 'dev@builders.in');
+    live.updatedAt = new Date().toISOString();
+    await store.save();
+    const raised = (live.alerts ?? []).find((alert) => alert.key.startsWith(`action:${action.id}:`))!;
+    try {
+      const firm = (await call('GET', `/api/projects/${theirs.id}`, { token: dev() })).body as DdProject;
+      assert.ok((firm.alerts ?? []).some((alert) => alert.id === raised.id), 'the firm reads it');
+      const seen = (await call('GET', `/api/projects/${theirs.id}`, { token: sam() })).body as DdProject;
+      assert.doesNotMatch(JSON.stringify(seen.alerts ?? []), /Ramesh/, 'their copy of the project does not hold it');
+      const marked = await call('POST', `/api/projects/${theirs.id}/alerts/read`, { token: sam(), body: { ids: 'all' } });
+      assert.equal(marked.status, 200);
+      assert.doesNotMatch(JSON.stringify(marked.body), /Ramesh/, 'and marking alerts read does not hand it over');
+      assert.ok(!raised.readBy.includes('sam@site.in'), 'nor mark as read what they were never shown');
+    } finally {
+      live.actions = live.actions.filter((held) => held.id !== action.id);
+      live.alerts = (live.alerts ?? []).filter((alert) => alert.id !== raised.id);
+      live.updatedAt = new Date().toISOString();
+      await store.save();
+    }
   });
 });
 

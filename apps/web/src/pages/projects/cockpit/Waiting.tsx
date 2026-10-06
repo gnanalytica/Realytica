@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SiteEntryLines } from '../../../components/chat/SiteEntryLines';
-import { ArrowRight, ChevronRight, FileText, Undo2, X } from 'lucide-react';
+import { ArrowRight, ChevronRight, FileText } from 'lucide-react';
 import {
   proposalChanges,
   turnChips,
@@ -284,35 +284,3 @@ export function WaitingHere({
   );
 }
 
-/**
- * The way back from an instruction.
- *
- * Something the person told the chat to do runs at once — it is their
- * decision — so instead of asking first, the canvas offers to take it back
- * for a few seconds after.
- */
-export function UndoBar({ label, busy, onUndo, onDismiss }: { label: string; busy: boolean; onUndo: () => void; onDismiss: () => void }) {
-  // Centred by a full-width row rather than a translate: the rise-in animation owns `transform`.
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
-    <div
-      role="status"
-      className="pointer-events-auto flex min-w-0 max-w-full animate-rise-in items-center gap-2 rounded-full bg-ink py-1.5 pl-4 pr-1.5 text-[13px] text-ink-inverse shadow-pop"
-    >
-      <span className="min-w-0 truncate">{label}</span>
-      <button
-        type="button"
-        onClick={onUndo}
-        disabled={busy}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-semibold hover:bg-white/15 disabled:opacity-60 coarse:min-h-11"
-      >
-        <Undo2 size={13} aria-hidden />
-        Undo
-      </button>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss" className="rounded-full p-1 opacity-70 hover:opacity-100 coarse:min-h-11 coarse:min-w-11">
-        <X size={13} aria-hidden />
-      </button>
-    </div>
-    </div>
-  );
-}

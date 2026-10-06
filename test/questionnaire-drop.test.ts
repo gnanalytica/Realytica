@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
+import { deflateRawSync } from 'node:zlib';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,6 +22,8 @@ import {
   addQuestionnaire,
   createProject,
   parseQuestionnaireRows,
+  questionnaireCsv,
+  withinQuestionnaireLimits,
   proposeFacts,
   questionStatus,
   questionnaireOrPaper,
@@ -70,10 +73,10 @@ function withDeed(): { p: DdProject; deedId: string } {
   return { p, deedId: deed.id };
 }
 
-async function drop(projectId: string, files: Array<[string, Buffer, string]>): Promise<Array<Record<string, any>>> {
+async function drop(projectId: string, files: Array<[string, Buffer, string]>, question = ''): Promise<Array<Record<string, any>>> {
   const form = new FormData();
   for (const [name, bytes, type] of files) form.append('files', new Blob([bytes], { type }), name);
-  form.append('question', '');
+  form.append('question', question);
   const res = await fetch(`${base}/api/projects/${projectId}/chat/files`, { method: 'POST', body: form });
   return (await res.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, any>);
 }
@@ -143,6 +146,60 @@ describe('a questionnaire as a file', () => {
   });
 });
 
+/** A zip of one packed entry that says of itself that it unpacks to nothing: a file can say anything about its own size. */
+function zipOf(name: string, data: Buffer): Buffer {
+  const packed = deflateRawSync(data);
+  const n = Buffer.from(name);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(8, 8);
+  local.writeUInt32LE(packed.length, 18);
+  local.writeUInt16LE(n.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(packed.length, 20);
+  central.writeUInt16LE(n.length, 28);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(46 + n.length, 12);
+  end.writeUInt32LE(30 + n.length + packed.length, 16);
+  return Buffer.concat([local, n, packed, central, n, end]);
+}
+
+describe('how much is taken in as one questionnaire', () => {
+  it('holds five hundred questions of six hundred characters, opens no workbook past four megabytes, and says what was left out', async () => {
+    const many = { header: [], questions: Array.from({ length: 60_000 }, (_, i) => ({ text: `What is item ${i + 1}?` })) };
+    const cut = withinQuestionnaireLimits(many);
+    assert.deepEqual([cut.parsed.questions.length, cut.leftOut], [500, 'Only the first 500 of its 60,000 questions were taken in: one questionnaire holds no more.']);
+    const long = withinQuestionnaireLimits({ header: [], questions: [{ text: 'x'.repeat(3_000_000) }] });
+    assert.deepEqual([long.parsed.questions[0]!.text.length, long.leftOut], [600, 'One question was longer than 600 characters and was cut there.']);
+    assert.equal(withinQuestionnaireLimits({ header: [], questions: QUESTIONS.map((text) => ({ text })) }).leftOut, undefined, 'nothing is said of a questionnaire that was taken in whole');
+
+    // Whichever door it comes by, and said where the questionnaire is shown and in the chat.
+    const p = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0049');
+    const sheet = addQuestionnaire(p, { title: 'Everything', parsed: many }, 'tester');
+    assert.equal(sheet.questions.length, 500);
+    assert.match(questionnaireSaid(sheet), /500 questions\..*Only the first 500 of its 60,000 questions were taken in/);
+
+    // A workbook is unpacked under a limit before it is opened, whatever it says of its own size.
+    const { readQuestionnaireFile, QuestionnaireTooLarge } = await import('../apps/api/src/documents/questionnaire-file');
+    await assert.rejects(
+      readQuestionnaireFile({ originalname: 'everything.xlsx', buffer: zipOf('xl/worksheets/sheet1.xml', Buffer.alloc(5 * 1024 * 1024, 0x20)) }),
+      (err: Error) => err instanceof QuestionnaireTooLarge && /too large to open as a questionnaire: its sheets hold more than 4 MB/.test(err.message),
+    );
+    const csv = `Question,Answer\n${Array.from({ length: 900 }, (_, i) => `What is item ${i + 1}?,`).join('\n')}`;
+    const read = (await readQuestionnaireFile({ originalname: 'queries.csv', buffer: Buffer.from(csv) }))!;
+    assert.deepEqual([read.parsed.questions.length, read.leftOut], [500, 'Only the first 500 of its 900 questions were taken in: one questionnaire holds no more.']);
+
+    // The older CSV download: an answer a spreadsheet would run as a formula is written as words.
+    sheet.questions[0]!.answer = '=HYPERLINK("http://example.test","x")';
+    assert.match(questionnaireCsv(p, sheet), /"'=HYPERLINK\(""http:\/\/example\.test"",""x""\)"/);
+  });
+});
+
 describe('answers suggested from the file', () => {
   it('are only what stands, each with the paper and page behind it, and wait for a person', () => {
     const { p, deedId } = withDeed();
@@ -161,7 +218,9 @@ describe('what a dropped file is', () => {
 
   it('is told from the file: a questionnaire, a paper, or not told', () => {
     assert.equal(questionnaireOrPaper({ fileName: 'scan.pdf', parsed: questions(8, 8), recognised: true }), 'paper', 'a paper the reader knows is a paper, whatever it numbers');
-    assert.equal(questionnaireOrPaper({ fileName: 'TDD questionnaire.docx', parsed: questions(2, 0) }), 'questionnaire', 'its name says so');
+    assert.equal(questionnaireOrPaper({ fileName: 'TDD questionnaire.docx', parsed: questions(2, 0) }), 'unsure', 'only its name says so: asked, not assumed');
+    assert.equal(questionnaireOrPaper({ fileName: 'Reply to queries - vendor.pdf', parsed: questions(4, 0) }), 'unsure', 'a letter of numbered replies is not taken for a questionnaire by its name');
+    assert.equal(questionnaireOrPaper({ fileName: 'TDD questionnaire.docx', parsed: questions(6, 5) }), 'questionnaire', 'what is in it says so');
     assert.equal(questionnaireOrPaper({ fileName: 'sheet.xlsx', parsed: questions(3, 0), namedColumn: true }), 'questionnaire', 'a Question column says so');
     assert.equal(questionnaireOrPaper({ fileName: 'list.txt', parsed: questions(6, 5) }), 'questionnaire', 'most of its items read as questions');
     assert.equal(questionnaireOrPaper({ fileName: 'letter.txt', parsed: questions(9, 3) }), 'unsure', 'a few questions among other lines: a person is asked');
@@ -180,7 +239,7 @@ describe('what a dropped file is', () => {
     const ask = async (fileName: string, text: string, more: Partial<Parameters<typeof whatWasDropped>[0]> = {}) => (await whatWasDropped({ project: p, ...asDropped(fileName, text), fresh: true, whole: true, ...more })).as;
 
     assert.equal(await ask('site meeting.txt', notes), 'notes', 'notes with open questions in them are notes');
-    assert.equal(await ask('queries from the lender.txt', notes), 'questionnaire', 'a file that says it is a questionnaire is one');
+    assert.equal(await ask('queries from the lender.txt', notes), 'notes', 'and a name alone does not make them a questionnaire');
     assert.equal(await ask('list.txt', QUESTIONS.concat('What is the road width?').join('\n')), 'questionnaire');
     assert.equal(await ask('letter.txt', ['Dear Sir,', 'We write about the land at Navilugudda.', 'The papers were sent last week.', ...QUESTIONS.slice(0, 3), 'We look forward to your reply.', 'Yours faithfully'].join('\n')), 'unsure', 'asked, where nothing else claims it');
     assert.equal(await ask('list.txt', QUESTIONS.join('\n'), { whole: false }), 'paper', 'an outside collaborator’s file is a paper');
@@ -207,6 +266,25 @@ describe('a questionnaire dropped in the chat', () => {
     assert.deepEqual([taken.as, taken.said, taken.department], ['questionnaire', 'A questionnaire: 4 questions', 'construction'], 'and the desk is told, with the way to the questions');
     assert.equal(project.chatProposals.filter((c) => c.kind === 'file_evidence').length, 0, 'nor left noted as a file not read');
     assert.deepEqual(project.audit.filter((a) => a.entityType === 'questionnaire').map((a) => a.action), ['questionnaire_added', 'answers_suggested']);
+    // The file it came from is kept, and can be opened again.
+    const sheet = project.questionnaires![0]!;
+    assert.ok(sheet.fileKey, 'the questionnaire keeps the key of its file');
+    const sent = await fetch(`${base}/api/projects/${p.id}/questionnaires/${sheet.id}/file`);
+    assert.deepEqual([sent.status, (await sent.arrayBuffer()).byteLength], [200, (await workbook()).length]);
+  });
+
+  it('asks about a letter that only its name calls queries, and honours “a paper” typed with the file', async () => {
+    const p = await seeded(createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0050'));
+    const letter = Buffer.from(['Reply to your queries', '1. The vendor confirms the boundaries as shown.', '2. The tax is paid to date.', '3. No notice has been received.', '4. Possession is with the vendor.'].join('\n'));
+    const name = 'Reply to queries - vendor.txt';
+    const first = (await drop(p.id, [[name, letter, 'text/plain']])).find((l) => l.type === 'result')!;
+    assert.equal(first.assistantTurn.text, `I could not tell whether ${name} is a questionnaire to answer or a paper to file. Which is it?`);
+    assert.equal((first.project as DdProject).questionnaires?.length ?? 0, 0, 'it is not taken in on its name');
+
+    const again = (await drop(p.id, [[name, letter, 'text/plain']], `File “${name}” as a paper`)).find((l) => l.type === 'result')!;
+    const project = again.project as DdProject;
+    assert.equal(project.questionnaires?.length ?? 0, 0, 'what the person said it is, is what it is');
+    assert.equal(project.evidence.filter((e) => e.attachments.some((a) => a.fileName === name)).length, 1, 'filed as the paper it is');
   });
 
   it('is asked about, with two answers to press, when the file does not say what it is', async () => {

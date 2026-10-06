@@ -73,6 +73,10 @@ export interface Questionnaire {
   department?: DepartmentKey;
   /** The file it was read from, when it was. */
   fileName?: string;
+  /** Where that file is kept, when it was kept: the file a questionnaire came from can be opened again. */
+  fileKey?: string;
+  /** What of the file was not taken in, and why: said where the questionnaire is shown. */
+  leftOut?: string;
   /** The facts at the head of the sheet: property, developer, city. */
   header: Array<{ label: string; value: string }>;
   questions: QuestionnaireQuestion[];
@@ -97,6 +101,56 @@ export interface OutlineLine {
 export interface ParsedQuestionnaire {
   header: Array<{ label: string; value: string }>;
   questions: Array<{ section?: string; text: string; answer?: string }>;
+}
+
+/**
+ * How much one questionnaire may hold. A sheet of sixty thousand rows was
+ * taken in as sixty thousand questions, and every reply that carried the
+ * project grew by megabytes; one line of three megabytes was one question.
+ * A real questionnaire runs to a few hundred questions of a line or two.
+ */
+export const QUESTIONNAIRE_LIMITS = {
+  /** Questions kept; the rest are left out and counted. */
+  questions: 500,
+  /** Characters of one question, as the page's own form allows. */
+  questionChars: 600,
+  /** Characters of an answer that came with the sheet. */
+  answerChars: 4000,
+  /** Facts kept from the head of the sheet. */
+  headerFacts: 20,
+  /** Characters of text read for questions, from a text file, a CSV or a PDF's pages. */
+  textChars: 400_000,
+} as const;
+
+const cutAt = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+
+/**
+ * A questionnaire cut to what one may hold, and what was left out and why,
+ * in a sentence for the person who sent it. Nothing is left out silently.
+ */
+export function withinQuestionnaireLimits(parsed: ParsedQuestionnaire): { parsed: ParsedQuestionnaire; leftOut?: string } {
+  const max = QUESTIONNAIRE_LIMITS;
+  const kept = parsed.questions.slice(0, max.questions);
+  const long = kept.filter((q) => q.text.length > max.questionChars).length;
+  const longAnswers = kept.filter((q) => (q.answer?.length ?? 0) > max.answerChars).length;
+  const said = [
+    parsed.questions.length > kept.length
+      ? `Only the first ${max.questions.toLocaleString('en-IN')} of its ${parsed.questions.length.toLocaleString('en-IN')} questions were taken in: one questionnaire holds no more.`
+      : '',
+    long ? `${long === 1 ? 'One question was' : `${long} questions were`} longer than ${max.questionChars} characters and ${long === 1 ? 'was' : 'were'} cut there.` : '',
+    longAnswers ? `${longAnswers === 1 ? 'One answer was' : `${longAnswers} answers were`} cut at ${max.answerChars.toLocaleString('en-IN')} characters.` : '',
+  ].filter(Boolean);
+  return {
+    parsed: {
+      header: parsed.header.slice(0, max.headerFacts).map((h) => ({ label: cutAt(h.label, 80), value: cutAt(h.value, 400) })),
+      questions: kept.map((q) => ({
+        ...(q.section ? { section: cutAt(q.section, 120) } : {}),
+        text: cutAt(q.text, max.questionChars),
+        ...(q.answer ? { answer: cutAt(q.answer, max.answerChars) } : {}),
+      })),
+    },
+    ...(said.length ? { leftOut: said.join(' ') } : {}),
+  };
 }
 
 const HEADER_LINE = /^([A-Za-z][A-Za-z /&.'()-]{1,40}):\s*(.*)$/;
@@ -300,10 +354,11 @@ export function namesQuestionnaire(fileName: string): boolean {
  * Whether a dropped file is a questionnaire or a paper to file.
  *
  * A paper the reader recognises (a deed, a khata, an order) is a paper,
- * whatever it numbers. Otherwise the file is a questionnaire when it says so:
- * its name, a sheet with a Question column, or a list most of whose items
- * read as questions. Where a fair number of lines read as questions and that
- * is all there is to go on, it is not decided here: the person is asked.
+ * whatever it numbers. Otherwise the file is a questionnaire when what is in
+ * it says so: a sheet with a Question column, or a list most of whose items
+ * read as questions. Where only its name says so, or a fair number of lines
+ * read as questions and that is all there is to go on, it is not decided
+ * here: the person is asked.
  */
 export function questionnaireOrPaper(input: {
   fileName: string;
@@ -317,9 +372,10 @@ export function questionnaireOrPaper(input: {
   const questions = input.parsed?.questions ?? [];
   if (!questions.length) return 'paper';
   const asked = questions.filter((q) => looksLikeQuestion(q.text)).length;
-  if (namesQuestionnaire(input.fileName) && questions.length >= 2) return 'questionnaire';
   if (input.namedColumn && questions.length >= 2) return 'questionnaire';
   if (questions.length >= 5 && asked >= questions.length * 0.6) return 'questionnaire';
+  // Its name says so and its words do not: "Reply to queries - vendor.pdf" is a letter with four numbered replies. Asked, never assumed.
+  if (namesQuestionnaire(input.fileName) && questions.length >= 2) return 'unsure';
   if (asked >= 3 && asked >= questions.length * 0.3) return 'unsure';
   return 'paper';
 }
@@ -403,7 +459,11 @@ export interface AddQuestionnaireInput {
   title: string;
   department?: DepartmentKey;
   fileName?: string;
+  /** Where the file is kept, when it is. */
+  fileKey?: string;
   parsed: ParsedQuestionnaire;
+  /** What the reader of the file already left out, to be said with what is left out here. */
+  leftOut?: string;
 }
 
 /**
@@ -411,17 +471,22 @@ export interface AddQuestionnaireInput {
  * source is the seller's: it came with the sheet, nobody here has checked it.
  */
 export function addQuestionnaire(project: DdProject, input: AddQuestionnaireInput, actor: string): Questionnaire {
-  const title = input.title.trim();
+  const title = input.title.trim().slice(0, 160);
   if (!title) throw new Error('Give the questionnaire a name.');
   if (!input.parsed.questions.length) throw new Error('No questions were found in that. Paste one question per line, or a sheet with a Question column.');
+  // Whichever door it came by, it holds no more than one questionnaire may.
+  const { parsed, leftOut } = withinQuestionnaireLimits(input.parsed);
+  const notTaken = [input.leftOut, leftOut].filter(Boolean).join(' ');
   const at = nowIso();
   const questionnaire: Questionnaire = {
     id: newId('qnr'),
     title,
     department: input.department && input.department !== 'construction' ? input.department : undefined,
     fileName: input.fileName,
-    header: input.parsed.header.filter((h) => h.label && h.value),
-    questions: input.parsed.questions.map((q, i) => ({
+    ...(input.fileKey ? { fileKey: input.fileKey } : {}),
+    ...(notTaken ? { leftOut: notTaken } : {}),
+    header: parsed.header.filter((h) => h.label && h.value),
+    questions: parsed.questions.map((q, i) => ({
       id: newId('q'),
       order: i,
       section: q.section,
@@ -659,7 +724,7 @@ export function questionnaireSaid(questionnaire: Questionnaire): string {
     sum.unanswered ? `${sum.unanswered} ${sum.unanswered === 1 ? 'is' : 'are'} open` : '',
   ].filter(Boolean);
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : (parts[0] ?? '');
-  return `Took in the questionnaire “${questionnaire.title}”: ${sum.total} question${sum.total === 1 ? '' : 's'}.${list ? ` ${list.charAt(0).toUpperCase()}${list.slice(1)}.` : ''}`;
+  return `Took in the questionnaire “${questionnaire.title}”: ${sum.total} question${sum.total === 1 ? '' : 's'}.${list ? ` ${list.charAt(0).toUpperCase()}${list.slice(1)}.` : ''}${questionnaire.leftOut ? ` ${questionnaire.leftOut}` : ''}`;
 }
 
 /* ==================================================================== */
@@ -697,8 +762,15 @@ export function questionnaireSummary(questionnaire: Questionnaire): Questionnair
   };
 }
 
+/**
+ * One cell of the CSV. A cell that begins with = + - or @ is run as a formula
+ * by a spreadsheet that opens the file, and an answer is words somebody typed
+ * or a paper states: it is written with an apostrophe before it, which a
+ * spreadsheet shows as the words themselves.
+ */
 function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 function proofLine(project: DdProject, proof: readonly AnswerProof[]): string {

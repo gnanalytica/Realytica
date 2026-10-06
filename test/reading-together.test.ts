@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { addEvidence, applyProjectChat, attachEvidenceFile, createProject, landIngestFile, proposedFacts, reviewFacts, type ChatIngestFile, type DdProject } from '@realytica/shared';
+import { addEvidence, applyProjectChat, attachEvidenceFile, createAssessment, createProject, landIngestFile, proposedFacts, reviewFacts, type ChatIngestFile, type DdProject } from '@realytica/shared';
 import { PAPERS_AT_ONCE, together } from '../apps/api/src/documents/together';
 
 let server: Server;
@@ -186,6 +186,30 @@ describe('papers read together', () => {
     assert.equal(row.facts!.find((f) => f.key === 'extent_khata')!.review, 'rejected', 'the reply does not bring it back');
     assert.equal(row.attachments.length, 1, 'nor file the paper twice');
     assert.equal(p.audit.filter((a) => a.action === 'read' && a.entityId === rowId).length, 1, 'nor write the reading down twice');
+  });
+
+  it('offer a paper’s checks the row as it stands when the reply is written, not the reading as it was read', () => {
+    const p = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0047');
+    createAssessment(p, { ddType: 'acquisition', name: 'Acquisition', owner: 'tester', targetType: 'project' });
+    const fact = (key: string, value: string | number) => ({ key, label: key, value, display: String(value), page: 1, quote: `${key}: ${value}` });
+    const paper: ChatIngestFile = {
+      fileName: 'khata.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k-khata-2',
+      read: { type: 'khata', label: 'Khata certificate and extract', confidence: 0.9, method: 'text', summary: 'A khata.', facts: [fact('survey_numbers', '73/4'), fact('extent_khata', 2450)], flags: [], rowHints: [], scopes: [], evidenceKind: 'document' },
+    };
+    const rowId = landIngestFile(p, paper, 'tester')!;
+    // While the other papers of the drop are still being read: the survey number is set aside, and the extent corrected.
+    reviewFacts(p, rowId, ['survey_numbers'], 'reject', 'tester');
+    reviewFacts(p, rowId, ['extent_khata'], 'accept', 'tester', { value: 2540, display: '2,540 sqm' });
+    applyProjectChat(p, '', { ingest: [{ ...paper, landed: true }] });
+    const offered = p.chatProposals.filter((c) => c.kind === 'record_check_fields' && c.status === 'proposed').map((c) => c.payload.values);
+    assert.deepEqual(offered, [{ extent_khata: 2540 }], 'the value set aside is offered to no check, and the corrected one as it was corrected');
+
+    // A paper whose row has gone since it landed is filed again, values and all.
+    const q = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0048');
+    const gone = landIngestFile(q, paper, 'tester')!;
+    q.evidence = q.evidence.filter((e) => e.id !== gone);
+    applyProjectChat(q, '', { ingest: [{ ...paper, landed: true }] });
+    assert.equal(proposedFacts(q.evidence.find((e) => e.attachments.some((a) => a.storageKey === 'k-khata-2'))!).length, 2);
   });
 
   it('filed on the register are each put on their row, and saved, as they are read', async () => {

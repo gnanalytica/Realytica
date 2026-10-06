@@ -9,8 +9,10 @@
  * `exceljs` is loaded only when a workbook is read or written: it is large,
  * and most requests have nothing to do with it.
  */
+import { inflateRawSync } from 'node:zlib';
 import {
   QUESTIONNAIRE_COLUMNS,
+  QUESTIONNAIRE_LIMITS,
   parseQuestionnaire,
   parseQuestionnaireCsv,
   parseQuestionnairePages,
@@ -18,6 +20,7 @@ import {
   parseQuestionnaireText,
   questionnaireRows,
   questionnaireSummary,
+  withinQuestionnaireLimits,
   type DdProject,
   type ParsedQuestionnaire,
   type Questionnaire,
@@ -33,9 +36,81 @@ export const QUESTIONNAIRE_FILE_SAID =
   'A questionnaire is read from Excel (.xlsx), Word (.docx), PDF, a spreadsheet saved as .csv, or plain text. Save it as one of those, or paste the questions.';
 
 export interface ReadQuestionnaire {
+  /** The questions, cut to what one questionnaire may hold (`QUESTIONNAIRE_LIMITS`). */
   parsed: ParsedQuestionnaire;
   /** A sheet that names its Question column: what tells a questionnaire from any other table. */
   namedColumn?: boolean;
+  /** What of the file was not taken in, and why, in a sentence. Absent when all of it was. */
+  leftOut?: string;
+}
+
+/** A file too large to be opened as a questionnaire. Its message is for the person who sent it. */
+export class QuestionnaireTooLarge extends Error {}
+
+/**
+ * How much of a workbook is opened: its sheets and the words they share, as
+ * they are once unpacked. A questionnaire of five hundred questions is a few
+ * hundred kilobytes. A sheet of 150,000 rows was 2.4 MB in the file, took
+ * 425 MB to open and held the server for over a second, so nothing past this
+ * is handed to the workbook reader at all.
+ */
+const WORKBOOK_AT_MOST_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Refuses a workbook whose sheets unpack to more than may be opened.
+ *
+ * Told by unpacking them here under a limit, not by the sizes the file gives
+ * for itself: a file can say anything about its own size. The zip's index is
+ * walked with every offset checked, as `docx-outline` walks a Word file's.
+ */
+function workbookMayBeOpened(zip: Buffer): void {
+  const tooLarge = () => new QuestionnaireTooLarge('That workbook is too large to open as a questionnaire: its sheets hold more than 4 MB. Save the sheet of questions as a file of its own and send that.');
+  // End of central directory: the last 22 bytes, plus up to 64 KB of comment.
+  let end = -1;
+  for (let at = zip.length - 22; at >= Math.max(0, zip.length - 22 - 0xffff); at -= 1) {
+    if (zip.readUInt32LE(at) === 0x06054b50) {
+      end = at;
+      break;
+    }
+  }
+  if (end < 0) throw new Error('That does not look like an Excel workbook.');
+  const entries = zip.readUInt16LE(end + 10);
+  let at = zip.readUInt32LE(end + 16);
+  let room = WORKBOOK_AT_MOST_BYTES;
+  for (let n = 0; n < entries && at + 46 <= zip.length; n += 1) {
+    if (zip.readUInt32LE(at) !== 0x02014b50) break;
+    const method = zip.readUInt16LE(at + 10);
+    const compressed = zip.readUInt32LE(at + 20);
+    const nameLen = zip.readUInt16LE(at + 28);
+    const name = zip.toString('utf8', at + 46, at + 46 + nameLen);
+    const local = zip.readUInt32LE(at + 42);
+    at += 46 + nameLen + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+    if (!/^xl\/(?:worksheets\/[^/]+\.xml|sharedStrings\.xml)$/i.test(name)) continue;
+    if (compressed === 0xffffffff || local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) throw tooLarge();
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const data = zip.subarray(start, start + compressed);
+    let size: number;
+    try {
+      size = method === 8 ? inflateRawSync(data, { maxOutputLength: room + 1 }).length : data.length;
+    } catch {
+      throw tooLarge();
+    }
+    room -= size;
+    if (room < 0) throw tooLarge();
+  }
+}
+
+/** Text read for questions, to the length that is read, and whether any was left unread. */
+function textRead(text: string): { text: string; leftOut?: string } {
+  const max = QUESTIONNAIRE_LIMITS.textChars;
+  return text.length > max ? { text: text.slice(0, max), leftOut: `Only its first ${max.toLocaleString('en-IN')} characters were read for questions.` } : { text };
+}
+
+/** A reading cut to what one questionnaire may hold, with everything left out on the way said together. */
+function within(parsed: ParsedQuestionnaire, more: { namedColumn?: boolean; leftOut?: string } = {}): ReadQuestionnaire {
+  const cut = withinQuestionnaireLimits(parsed);
+  const leftOut = [more.leftOut, cut.leftOut].filter(Boolean).join(' ');
+  return { parsed: cut.parsed, ...(more.namedColumn !== undefined ? { namedColumn: more.namedColumn } : {}), ...(leftOut ? { leftOut } : {}) };
 }
 
 /**
@@ -45,18 +120,21 @@ export interface ReadQuestionnaire {
  */
 export async function readQuestionnaireFile(file: { originalname: string; buffer: Buffer }, pages?: readonly string[]): Promise<ReadQuestionnaire | null> {
   const name = file.originalname.toLowerCase();
-  if (name.endsWith('.docx')) return { parsed: parseQuestionnaire(docxOutline(file.buffer)) };
+  if (name.endsWith('.docx')) return within(parseQuestionnaire(docxOutline(file.buffer)));
   if (name.endsWith('.xlsx')) return readWorkbook(file.buffer);
   if (name.endsWith('.pdf')) {
-    const text = pages ?? (await readDocumentText(new Uint8Array(file.buffer), 'application/pdf', file.originalname)).pages;
-    return { parsed: parseQuestionnairePages(text) };
+    const words = pages ?? (await readDocumentText(new Uint8Array(file.buffer), 'application/pdf', file.originalname)).pages;
+    const read = textRead(words.join('\n'));
+    return within(parseQuestionnairePages([read.text]), { leftOut: read.leftOut });
   }
-  const text = file.buffer.toString('utf8');
+  if (!/\.(?:csv|tsv|txt|md)$/.test(name)) return null;
+  // No more of the file is turned into words than is read: four bytes a character at most.
+  const read = textRead(file.buffer.subarray(0, QUESTIONNAIRE_LIMITS.textChars * 4 + 4).toString('utf8'));
+  const leftOut = read.leftOut ?? (file.buffer.length > QUESTIONNAIRE_LIMITS.textChars * 4 + 4 ? textRead('x'.repeat(QUESTIONNAIRE_LIMITS.textChars + 1)).leftOut : undefined);
   if (name.endsWith('.csv') || name.endsWith('.tsv')) {
-    return { parsed: parseQuestionnaireCsv(text), namedColumn: /\b(?:question|query)/i.test(text.split(/\r?\n/, 1)[0] ?? '') };
+    return within(parseQuestionnaireCsv(read.text), { namedColumn: /\b(?:question|query)/i.test(read.text.split(/\r?\n/, 1)[0] ?? ''), leftOut });
   }
-  if (name.endsWith('.txt') || name.endsWith('.md')) return { parsed: parseQuestionnaireText(text) };
-  return null;
+  return within(parseQuestionnaireText(read.text), { leftOut });
 }
 
 /**
@@ -66,6 +144,7 @@ export async function readQuestionnaireFile(file: { originalname: string; buffer
  * written form.
  */
 async function readWorkbook(buffer: Buffer): Promise<ReadQuestionnaire> {
+  workbookMayBeOpened(buffer);
   const { default: ExcelJS } = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
   // exceljs is typed for an older Buffer than this Node's; the bytes are the same.
@@ -84,7 +163,7 @@ async function readWorkbook(buffer: Buffer): Promise<ReadQuestionnaire> {
     if (!best || (parsed.named && !best.named) || (parsed.named === best.named && parsed.questions.length > best.questions.length)) best = parsed;
   }
   const { named, ...parsed } = best ?? { header: [], questions: [], named: false };
-  return { parsed, namedColumn: named };
+  return within(parsed, { namedColumn: named });
 }
 
 /* ==================================================================== */

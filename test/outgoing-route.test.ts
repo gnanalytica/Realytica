@@ -4,10 +4,11 @@
  * `outgoing.test.ts` holds the rules. This holds the wiring: that a reply
  * asked for in the chat is made by the chat's rules and written by a model
  * that is sent the record's words and nothing else; that what the model
- * writes is held to those words before it is kept; that a named approval, a
- * change after it and an export each leave their line in the trail; and
- * that the Word file says what the draft says, with DRAFT, NOT APPROVED in
- * its header until somebody has approved it.
+ * writes is held to those words before it is kept; that an approval is of
+ * the draft the approver was shown, and one changed since answers 409; that
+ * a named approval, a change after it and an export each leave their line in
+ * the trail; and that the Word file says what the draft says, with DRAFT,
+ * NOT APPROVED in its header until somebody has approved it.
  *
  * The letter, the parties and the numbers are invented.
  */
@@ -20,7 +21,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { OUTGOING_NOT_APPROVED, addEvidence, attachEvidenceFile, createProject, outgoingDocument, proposeFacts, type DdProject, type EvidenceRecord, type OutgoingDraft } from '@realytica/shared';
+import { OUTGOING_NOT_APPROVED, addEvidence, attachEvidenceFile, createProject, outgoingDocument, outgoingSeen, proposeFacts, type DdProject, type EvidenceRecord, type OutgoingDraft } from '@realytica/shared';
 import { outgoingDocx } from '../apps/web/src/lib/outgoing-docx';
 
 const LETTER = [
@@ -201,14 +202,26 @@ describe('a reply asked for in the chat', () => {
     assert.match(page, /Sources\s+1\. Contractor’s letter on the delay, page 1: “.*14 March 2027.*”\s+2\. Contractor’s letter on the delay, page 2: Extension claimed: 47 days/);
     assert.doesNotMatch(page, /Approved for sending/);
 
-    // Approved by name, with the time.
-    const approved = await call('POST', `${at}/${draftId}/approve`);
+    // An approval is of the words the approver was shown. She read the draft above, it was changed to say something else, and then she pressed approve.
+    await call('PUT', `${at}/${draftId}`, { body: 'We accept that the delay is ours and waive any claim over it.' });
+    for (const sent of [{ seen: outgoingSeen(made) }, {}]) {
+      const stale = await call('POST', `${at}/${draftId}/approve`, sent);
+      assert.deepEqual([stale.status, stale.body.error], [409, 'This draft was changed after you opened it. Read it again before you approve.']);
+    }
+    assert.equal(kept.outgoing![0]!.status, 'draft', 'nothing she did not read was approved');
+    const again = ((await call('PUT', `${at}/${draftId}`, { body: made.body })).body.drafts as OutgoingDraft[])[0]!;
+
+    // Approved by name, with the time: the draft as she reads it now.
+    const approved = await call('POST', `${at}/${draftId}/approve`, { seen: outgoingSeen(again) });
     const one = (approved.body.drafts as OutgoingDraft[])[0]!;
     assert.deepEqual([approved.status, one.status, Boolean(one.approvedBy), Boolean(one.approvedAt), approved.body.mayApprove], [200, 'approved', true, true, true]);
     const approvedFile = await partsOf(await outgoingDocx(outgoingDocument(kept, one)));
     assert.ok(!Object.values(approvedFile).some((xml) => xml.includes(OUTGOING_NOT_APPROVED)), 'an approved file does not say it is a draft');
     assert.match(wordsOf(approvedFile['word/document.xml']!), new RegExp(`Approved for sending by ${(one.approvedName ?? one.approvedBy)!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} on `));
-    assert.equal((await call('POST', `${at}/${draftId}/exported`)).status, 200);
+    // A file is handed over only for the draft it was made from: a copy read before the approval makes none, and its approval is not that copy's to take back.
+    assert.equal((await call('POST', `${at}/${draftId}/exported`, { seen: outgoingSeen(again) })).status, 409);
+    assert.equal((await call('POST', `${at}/${draftId}/reopen`, { seen: outgoingSeen(again) })).status, 409);
+    assert.equal((await call('POST', `${at}/${draftId}/exported`, { seen: outgoingSeen(one) })).status, 200);
 
     // A change after approval puts it back to draft.
     const changed = await call('PUT', `${at}/${draftId}`, { body: `${one.body}\nWe will answer the claim once it is received.` });
@@ -216,8 +229,8 @@ describe('a reply asked for in the chat', () => {
     assert.deepEqual([changed.status, back.status, back.approvedBy, back.approvedAt], [200, 'draft', undefined, undefined]);
 
     // A figure typed against a source that does not give it stops the approval, and says why.
-    await call('PUT', `${at}/${draftId}`, { body: `You claim an extension of 74 days. [${days}]` });
-    const refused = await call('POST', `${at}/${draftId}/approve`);
+    const wrong = ((await call('PUT', `${at}/${draftId}`, { body: `You claim an extension of 74 days. [${days}]` })).body.drafts as OutgoingDraft[])[0]!;
+    const refused = await call('POST', `${at}/${draftId}/approve`, { seen: outgoingSeen(wrong) });
     assert.equal(refused.status, 409);
     assert.match(refused.body.error, /writes a figure its source does not/);
 

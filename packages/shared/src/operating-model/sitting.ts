@@ -93,8 +93,10 @@ export const STATUS_REPORT = 'status_report';
 export const PLAN_SAID = 'plan';
 /** The line a plan leaves in the thread for a step it ran, with what the step did. */
 export const PLAN_STEP = 'plan_step';
+/** The reply that says what an undo put back, and what it left with why. It offers nothing to accept. */
+export const UNDO_SAID = 'undo';
 
-const NOTHING_DONE = new Set([NOTHING_ACCEPTED, NOTHING_SET_ASIDE, NOTHING_TO_READ, MEMORY_LINT, MEMORY_ANSWER, MEETINGS_LISTED, STATUS_REPORT, PLAN_SAID, PLAN_STEP]);
+const NOTHING_DONE = new Set([NOTHING_ACCEPTED, NOTHING_SET_ASIDE, NOTHING_TO_READ, MEMORY_LINT, MEMORY_ANSWER, MEETINGS_LISTED, STATUS_REPORT, PLAN_SAID, PLAN_STEP, UNDO_SAID]);
 
 const saidNothingWasDone = (turn: ProjectChatTurn): boolean => Boolean(turn.toolCalls?.some((call) => NOTHING_DONE.has(call.name)));
 

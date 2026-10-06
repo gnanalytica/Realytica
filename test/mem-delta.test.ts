@@ -180,8 +180,8 @@ function lived() {
   applyRevenueMap(project, mapRead(PARCEL, '2026-09-06T06:00:00.000Z'), LEAD);
   applyRevenueMap(project, mapRead(NEXT_PARCEL, '2026-09-06T06:05:00.000Z'), LEAD);
   removeRevenueMapRead(project, NEXT_PARCEL, LEAD);
-  // An undo, as the route that makes one records it: what was put back is named in words, which memory does not keep.
-  recordAuditEvent(project, { actor: LEAD, action: 'undo', entityType: 'project', entityId: project.id, oldValue: 'Accepted the extent' });
+  // An undo, as the chat that makes one records it: what was put back is named in words, which memory does not keep, and by the record it was put back on, which it does.
+  recordAuditEvent(project, { actor: LEAD, action: 'undo', entityType: 'project', entityId: project.id, oldValue: 'Accepted the extent', about: [action.id] });
   // The notes of a meeting kept, and a report made and then issued under a name.
   const { meeting } = keepMeeting(project, { file: { storageKey: 'notes.txt', fileName: 'notes.txt', mimeType: 'text/plain', sizeBytes: 60 }, came: 'pasted', reading: readMeetingNotes('Meeting notes\nPresent: A Person, B Person\nDecision: wait for the earlier deed.') }, LEAD);
   const report = issueReport(project, generateReport(project, { kind: 'open_risk_action', generatedBy: LEAD }, LEAD).id, LEAD);
@@ -260,7 +260,7 @@ describe('what memory is told of a project', () => {
     const undone = only(entries, 'undone');
     assert.equal(undone.sourceId, project.audit.find((event) => event.action === 'undo')!.id, 'an undo is an event of its own');
     assert.equal(undone.by, memWho(project.id, LEAD));
-    assert.deepEqual([undone.about, undone.label], [[], undefined], 'and holds none of the words that say what was put back');
+    assert.deepEqual([undone.about, undone.label], [[project.actions[0]!.id], undefined], 'and holds the record it put something back on, and none of the words that say what');
 
     const note = only(entries, 'edit_noted');
     assert.equal(note.sourceId, noted[0]!.id, 'a work-pane note is told from the line that says what changed');

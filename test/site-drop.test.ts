@@ -23,6 +23,7 @@ import {
   isVoiceNote,
   noteLength,
   pictureOrPaper,
+  projectToIdentity,
   readVoiceNote,
   siteEntryCardSaid,
   siteEntryProposed,
@@ -31,7 +32,7 @@ import {
   type DdProject,
 } from '@realytica/shared';
 import { exifTakenAt, localDay } from '../apps/web/src/lib/taken-at';
-import { TooLargeToSend, mustFitOneMessage, pictureShare } from '../apps/web/src/lib/send-limits';
+import { DRAWN_AT, PAPER_LONG_SIDE, TooLargeToSend, mustFitOneMessage, pictureShare } from '../apps/web/src/lib/send-limits';
 
 let server: Server;
 let transcriber: Server;
@@ -39,6 +40,9 @@ let base: string;
 let dataDir: string;
 /** What the stand-in transcriber answers with, and what it was last asked. */
 let words = '';
+/** How long the stand-in keeps any other call waiting before it refuses it, and when it last did. */
+let readerWaitsMs = 0;
+let readerAnsweredAt = 0;
 const asked: Array<{ url: string; key: string | undefined; model: string; format: string; bytes: number }> = [];
 
 const ENGLISH = 'Good evening sir. Yesterday we finished the slab shuttering on the third floor. We had 12 masons and 8 helpers on site. The steel delivery is delayed, two tonnes not received from the supplier. It rained in the afternoon.';
@@ -133,9 +137,12 @@ before(async () => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
-      // Only the transcription is answered: anything else a model would be asked gets nothing from this machine.
+      // Only the transcription is answered: anything else a model would be asked gets nothing from this machine, at once or after a wait.
       if (!req.url?.endsWith('/v1/audio/transcriptions')) {
-        res.writeHead(404).end();
+        setTimeout(() => {
+          readerAnsweredAt = Date.now();
+          res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'a stand-in reads nothing' } }));
+        }, readerWaitsMs);
         return;
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { model: string; input_audio: { data: string; format: string } };
@@ -176,8 +183,10 @@ describe('what kind of file a note or a picture is', () => {
 
   it('tells a picture of the site from a paper that was photographed by the words on it, and asks in between', () => {
     const page = Array.from({ length: 60 }, (_, i) => `word${i}`).join(' ');
-    assert.equal(pictureOrPaper({ recognised: false, words: '' }), 'photo');
-    assert.equal(pictureOrPaper({ recognised: false, words: 'SITE OFFICE Navilugudda Builders' }), 'photo', 'a signboard is still the site');
+    assert.equal(pictureOrPaper({ recognised: false, words: '', view: 0.2 }), 'photo', 'no words on it, and plainly a view: not mostly one flat tone');
+    assert.equal(pictureOrPaper({ recognised: false, words: 'SITE OFFICE Navilugudda Builders', view: 0.2 }), 'photo', 'a signboard is still the site');
+    assert.equal(pictureOrPaper({ recognised: false, words: '', view: 0.9 }), 'unsure', 'no words and mostly one tone: a page OCR could not read looks like this, so it is asked about');
+    assert.equal(pictureOrPaper({ recognised: false, words: '' }), 'unsure', 'and so is a picture nobody measured');
     assert.equal(pictureOrPaper({ recognised: false, words: page }), 'paper', 'a page of text photographed is a paper');
     assert.equal(pictureOrPaper({ recognised: true, words: '' }), 'paper', 'and so is one the reader recognises');
     assert.equal(pictureOrPaper({ recognised: false, words: page.split(' ').slice(0, 20).join(' ') }), 'unsure');
@@ -335,6 +344,69 @@ describe('a voice note dropped in the chat', () => {
   });
 });
 
+describe('a drop that something goes wrong in', () => {
+  it('has its reply without waiting for the photo reader, whose suggestion is written when it comes', async () => {
+    const off = gateway(true);
+    readerWaitsMs = 1500;
+    readerAnsweredAt = 0;
+    try {
+      const p = await seeded();
+      const lines = await drop(p.id, [['site-north-face.png', blankPng(), 'image/png']], [{ day: '2026-10-06', view: 0.2 }]);
+      const repliedAt = Date.now();
+      assert.match(lines.find((l) => l.type === 'result')!.assistantTurn.text, /^A site photograph, filed under 6 Oct 2026/);
+      const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
+      await afterReplyWorkDone();
+      assert.ok(readerAnsweredAt > repliedAt, 'the reply was written while the reader was still being waited for');
+      const { store } = await import('../apps/api/src/store');
+      const row = store.data.projects!.find((x) => x.id === p.id)!.evidence.find((e) => e.attachments.some((a) => a.fileName === 'site-north-face.png'))!;
+      assert.ok(row.attachments[0]!.observation, 'and what the reader said, here that it read nothing, is on the photograph afterwards');
+      // The reader has a limit of its own: one that does not answer is given up, and the photograph says why it was not read.
+      const { PHOTO_READ_LIMIT_MS, runPhotoIntelligence } = await import('../packages/agents/src/agents/photo-intelligence');
+      assert.equal(PHOTO_READ_LIMIT_MS, 60_000);
+      const began = Date.now();
+      const gaveUp = await runPhotoIntelligence({ projectId: p.id, evidenceId: row.id, attachmentId: row.attachments[0]!.id, fileName: 'site-north-face.png', mimeType: 'image/png', fileBytes: blankPng(), identity: projectToIdentity(p), timeoutMs: 200 });
+      assert.ok(Date.now() - began < 1200, 'given up at its limit, well before the reader would have answered');
+      assert.deepEqual([gaveUp.run.status, /did not answer within/.test(gaveUp.run.error ?? '')], ['failed', true]);
+    } finally {
+      readerWaitsMs = 0;
+      off();
+    }
+  });
+
+  it('still lands the rest, and ends its reply saying what happened, when one file fails as it lands', async () => {
+    const off = gateway(false);
+    const { store } = await import('../apps/api/src/store');
+    const save = store.save.bind(store);
+    const p = await seeded();
+    /** Which saves fail: the first one that would write a photograph of this project, then every one, then none. */
+    let failing: 'first photograph' | 'all' | 'none' = 'first photograph';
+    store.save = async () => {
+      const photographs = store.data.projects!.find((x) => x.id === p.id)!.evidence.filter((e) => e.kind === 'photograph').length;
+      if (failing === 'all' || (failing === 'first photograph' && photographs === 1)) {
+        if (failing === 'first photograph') failing = 'none';
+        throw new Error('the disk said no');
+      }
+      return save();
+    };
+    try {
+      const lines = await drop(p.id, [['a.png', blankPng(), 'image/png'], ['b.png', blankPng(48), 'image/png']], [{ day: '2026-10-06', view: 0.2 }, { day: '2026-10-06', view: 0.2 }]);
+      const result = lines.find((l) => l.type === 'result');
+      assert.ok(result, 'the reply ends');
+      const text = String(result!.assistantTurn.text);
+      assert.equal((text.match(/something went wrong as it was put on the file/g) ?? []).length, 1, 'the file that failed is named');
+      assert.equal((text.match(/A site photograph, filed under 6 Oct 2026/g) ?? []).length, 1, 'and the one behind it landed all the same');
+
+      // Nothing can be saved at all: the reply still ends, and says so.
+      failing = 'all';
+      const none = await drop(p.id, [['c.png', blankPng(), 'image/png']], [{ day: '2026-10-06', view: 0.2 }]);
+      assert.deepEqual(none.filter((l) => l.type === 'error' || l.type === 'result').map((l) => [l.type, l.error]), [['error', 'These files could not be taken in just now. Drop them again.']]);
+    } finally {
+      store.save = save;
+      off();
+    }
+  });
+});
+
 describe('a photograph of the site', () => {
   it('reads the moment the camera wrote in the file, in the browser as on the server', async () => {
     const { readExifCapture } = await import('../apps/api/src/exif');
@@ -349,6 +421,7 @@ describe('a photograph of the site', () => {
     const MB = 1024 * 1024;
     const deployed = { maxFileBytes: 4 * MB, maxRequestBytes: 4 * MB };
     assert.equal(pictureShare(deployed, 1, 0), 1.5 * MB, 'one photograph: no larger than it is worth sending at');
+    assert.ok(PAPER_LONG_SIDE === 2000 && DRAWN_AT.every(([side]) => side >= PAPER_LONG_SIDE), 'and none is drawn under what a reader needs of a photographed page, however many go together');
     assert.equal(Math.round(pictureShare(deployed, 3, 0) / 1024), Math.round((3.6 * MB) / 3 / 1024), 'three share the room three ways');
     assert.ok(pictureShare(deployed, 6, 1 * MB) * 6 + 1 * MB <= 4 * MB, 'beside a voice note, six still fit');
     assert.equal(pictureShare(deployed, 0, 0), 0);
@@ -379,14 +452,27 @@ describe('a photograph of the site', () => {
     const off = gateway(false);
     try {
       const p = await seeded();
-      const lines = await drop(p.id, [['site-east-face.png', blankPng(), 'image/png']], [{ day: '2026-10-06' }]);
+      // Nobody measured it and no words were read off it: asked about, not taken for a view. A page too dark for OCR looks the same.
+      const unmeasured = (await drop(p.id, [['IMG_0001.png', blankPng(), 'image/png']], [{ day: '2026-10-06' }])).find((l) => l.type === 'result')!;
+      assert.equal(unmeasured.assistantTurn.text, 'I could not tell whether IMG_0001.png is a photograph of the site or a paper to file. Which is it?');
+      assert.equal((unmeasured.project as DdProject).evidence.filter((e) => e.attachments.length).length, 0);
+
+      const lines = await drop(p.id, [['site-east-face.png', blankPng(), 'image/png']], [{ day: '2026-10-06', view: 0.2, shrunkTo: 2400 }]);
       const result = lines.find((l) => l.type === 'result')!;
       const project = result.project as DdProject;
       const row = project.evidence.find((e) => e.attachments.some((a) => a.fileName === 'site-east-face.png'))!;
       assert.deepEqual([row.kind, row.workstream, row.title, (row.facts ?? []).length], ['photograph', 'construction.progress', 'Site photograph, 6 Oct 2026', 0]);
-      assert.equal(result.assistantTurn.text, 'A site photograph, filed under 6 Oct 2026, the day it was dropped: its file carries no date.');
+      assert.equal(
+        result.assistantTurn.text,
+        'A site photograph, filed under 6 Oct 2026, the day it was dropped: its file carries no date.\n\nOne picture was made smaller before it was sent, to 2,400 pixels on the long side. The smaller copy is what is kept here.',
+        'and the person is told when the copy kept is a smaller one',
+      );
       assert.deepEqual(lines.filter((l) => l.type === 'reading' && l.event === 'taken').map((l) => l.as), ['photo']);
-      assert.equal(project.chatProposals.filter((c) => c.kind === 'file_evidence').length, 0, 'no card files it a second time');
+      assert.deepEqual(
+        project.chatProposals.filter((c) => c.kind === 'file_evidence').map((c) => c.payload.fileName),
+        ['IMG_0001.png'],
+        'no card files it a second time: the only file card is the note that holds the picture still asked about',
+      );
 
       const { whatWasDropped, droppedAnswer, droppedChoices, unsureSaid } = await import('../apps/api/src/documents/questionnaire-drop');
       const some = Array.from({ length: 20 }, (_, i) => `word${i}`).join(' ');

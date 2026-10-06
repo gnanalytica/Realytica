@@ -423,8 +423,8 @@ function entriesOfEvent(project: DdProject, event: AuditEvent): MemEntry[] {
     const removed = event.oldValue?.match(MAP_READ);
     if (removed) return [tell('map_read_removed', parcel(removed[1]))];
   }
-  // What an instruction changed was put back. The events it wrote stay in the trail, and so in memory: this says they no longer stand.
-  if (event.entityType === 'project' && event.action === 'undo') return [tell('undone', [])];
+  // What a message changed was put back. The events it wrote stay in the trail, and so in memory: this says they no longer stand, and on which records.
+  if (event.entityType === 'project' && event.action === 'undo') return [tell('undone', event.about ?? [])];
   return [];
 }
 

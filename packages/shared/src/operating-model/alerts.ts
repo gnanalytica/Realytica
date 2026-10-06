@@ -131,6 +131,28 @@ export function syncAlerts(project: DdProject, now = new Date()): ProjectAlert[]
   return raised;
 }
 
+/**
+ * The alerts a reader's own copy of a project holds: the open ones that copy
+ * raises from what is on it, in that copy's words.
+ *
+ * An alert is written from the whole file. One about an action past its date
+ * says what the action is and the meeting it came from, so handed as it is to
+ * somebody the action or the meeting is withheld from, it tells them both. A
+ * copy keeps an alert only where its own records raise the same condition,
+ * and words it as they do: nothing in it is from a record the copy does not
+ * hold. Of who has read it, the copy keeps its own reader and nobody else.
+ */
+export function alertsOfCopy(alerts: readonly ProjectAlert[] | undefined, copy: DdProject, reader: string, now = new Date()): ProjectAlert[] {
+  const raised = new Map(alertConditions(copy, now).map((condition) => [condition.key, condition]));
+  const me = reader.trim().toLowerCase();
+  return (alerts ?? []).flatMap((alert) => {
+    const own = alert.resolvedAt ? undefined : raised.get(alert.key);
+    if (!own) return [];
+    const { to: _to, ...rest } = alert;
+    return [{ ...rest, title: own.title, detail: own.detail, readBy: alert.readBy.filter((email) => email.trim().toLowerCase() === me), ...(own.to?.length ? { to: own.to } : {}) }];
+  });
+}
+
 export function markAlertsRead(project: DdProject, ids: readonly string[] | 'all', reader: string): number {
   let n = 0;
   for (const alert of project.alerts ?? []) {

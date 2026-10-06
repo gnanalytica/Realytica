@@ -29,6 +29,7 @@ import {
 } from '@realytica/shared';
 import { MeetingNotesLink } from '../../components/meetings/MeetingNotes';
 import { AiMark, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Spinner, Textarea, cn, useToast } from '../../components/ui/kit';
+import { ApiRequestError } from '../../lib/api';
 import { outgoingApi, saveOutgoingDocx, type OutgoingShown } from '../../lib/outgoing-api';
 import { useMe } from '../../lib/useMe';
 import { useRoster } from '../../lib/useRoster';
@@ -186,6 +187,15 @@ export default function OutgoingPage() {
   const who = (actor: string) => roster.find((person) => sameEmail(person.email, actor))?.name ?? actor.split('@')[0] ?? actor;
 
   const [busy, setBusy] = useState<string | null>(null);
+  /** What went wrong, said. A draft somebody changed since this page read it is read again, so the person acts on what it says now. */
+  const said = useCallback(
+    (e: unknown, failedAs: string) => {
+      const changed = e instanceof ApiRequestError && e.status === 409;
+      toast(e instanceof Error ? e.message : failedAs, changed ? 'warning' : 'critical');
+      if (changed) setTries((n) => n + 1);
+    },
+    [toast],
+  );
   /** One change to a draft: made, drawn, and said when it fails. */
   const change = useCallback(
     async (what: string, act: () => Promise<OutgoingShown>, failedAs: string): Promise<OutgoingShown | undefined> => {
@@ -196,13 +206,13 @@ export default function OutgoingPage() {
         if (shown.said) toast(shown.said, 'warning');
         return shown;
       } catch (e) {
-        toast(e instanceof Error ? e.message : failedAs, 'critical');
+        said(e, failedAs);
         return undefined;
       } finally {
         setBusy(null);
       }
     },
-    [apply, toast],
+    [apply, said, toast],
   );
 
   /* A new draft. */
@@ -412,7 +422,7 @@ export default function OutgoingPage() {
     try {
       await saveOutgoingDocx(project, draft);
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'The Word file could not be made', 'critical');
+      said(e, 'The Word file could not be made');
     } finally {
       setBusy(null);
     }
@@ -475,7 +485,7 @@ export default function OutgoingPage() {
               Edit
             </Button>
             {approved ? (
-              <Button size="sm" onClick={() => void change('reopen', () => outgoingApi.reopen(project.id, draft.id), 'The approval could not be taken back')} loading={busy === 'reopen'} disabled={Boolean(busy)}>
+              <Button size="sm" onClick={() => void change('reopen', () => outgoingApi.reopen(project.id, draft), 'The approval could not be taken back')} loading={busy === 'reopen'} disabled={Boolean(busy)}>
                 Take approval back
               </Button>
             ) : mayApprove ? (
@@ -669,7 +679,7 @@ export default function OutgoingPage() {
               variant="primary"
               loading={busy === 'approve'}
               onClick={() => {
-                void change('approve', () => outgoingApi.approve(project.id, draft.id), 'It could not be approved').then(() => setConfirm(null));
+                void change('approve', () => outgoingApi.approve(project.id, draft), 'It could not be approved').then(() => setConfirm(null));
               }}
             >
               Approve

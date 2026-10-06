@@ -10,6 +10,24 @@
 /** A photograph past this is made smaller before it is sent, however much room there is. */
 const SHRINK_ABOVE_BYTES = 1.5 * 1024 * 1024;
 
+/**
+ * What the reader needs of a page that was photographed: about 2,000 pixels
+ * on its long side, which is an A4 sheet at some 170 dots to the inch. Under
+ * that the small print of a deed is lost to OCR and to a model alike.
+ *
+ * The browser cannot tell a photographed paper from a view of the site, and
+ * only the copy it sends is kept. So no picture is drawn smaller than this,
+ * whatever it is of and however many go together: pictures that will not fit
+ * one message at this size are sent in smaller groups, not made unreadable.
+ */
+export const PAPER_LONG_SIDE = 2000;
+
+/** The sizes a picture is drawn at, largest first, with how hard it is pressed. None is under what the reader needs. */
+export const DRAWN_AT: ReadonlyArray<readonly [longSide: number, quality: number]> = [
+  [2400, 0.85],
+  [PAPER_LONG_SIDE, 0.82],
+];
+
 /** What one message may carry here: one file, and all its files together. */
 export interface SendLimits {
   maxFileBytes: number;
@@ -34,12 +52,13 @@ export function mustFitOneMessage(files: ReadonlyArray<{ size: number }>, limits
 }
 
 /**
- * How large each photograph may be for all of them to go in one message with
- * whatever else is being sent: an even share of the room, never more than a
- * photograph is worth sending at, and never so little that it shows nothing.
+ * How large each photograph would have to be for all of them to go in one
+ * message with whatever else is being sent: an even share of the room, never
+ * more than a photograph is worth sending at. A picture over its share is
+ * drawn smaller, down to what the reader needs and no further (`DRAWN_AT`).
  */
 export function pictureShare(limits: SendLimits, pictures: number, otherBytes: number): number {
   if (!pictures) return 0;
   const room = Math.max(0, limits.maxRequestBytes * 0.9 - otherBytes);
-  return Math.max(120 * 1024, Math.min(SHRINK_ABOVE_BYTES, limits.maxFileBytes * 0.8, room / pictures));
+  return Math.min(SHRINK_ABOVE_BYTES, limits.maxFileBytes * 0.8, room / pictures);
 }

@@ -272,6 +272,20 @@ describe('a model’s wording of the lines', () => {
     assert.deepEqual(statusWordingHeld(lines, 'not a list'), []);
   });
 
+  it('is not kept where it changes where a thing stands, or says something else around the line’s title and figures', () => {
+    const kept = (text: string) => statusWordingHeld(lines, [{ n: 2, text }]).map((held) => held.as);
+    // Each of these keeps the title and both figures of the line, which used to be all that was asked.
+    assert.deepEqual(kept('Done on time: “Send the survey sketch”, 15 Sep 2026.'), [], 'overdue turned into done');
+    assert.deepEqual(kept('The title is clear and the bank may release the funds; see “Send the survey sketch”, 15 Sep 2026.'), [], 'another sentence around the title');
+    assert.deepEqual(kept('Not overdue: “Send the survey sketch”, due 15 Sep 2026.'), [], 'a “not” put in');
+    assert.deepEqual(kept('Overdue: “Send the survey sketch”, due 15 Oct 2026.'), [], 'the month changed');
+    // The whole line, and then something the record does not say: most of these words are not the line's.
+    assert.deepEqual(kept('Overdue: “Send the survey sketch”, due 15 Sep 2026, and the lender should look for another borrower.'), []);
+    // The same thing said more plainly is kept.
+    const plain = '“Send the survey sketch” is overdue. It was due on 15 Sep 2026.';
+    assert.deepEqual(kept(plain), [plain]);
+  });
+
   it('replaces a line’s words and nothing else, only while the line stands, and can be turned off', () => {
     const { project, ids } = plot();
     applyProjectChat(project, 'Write the status report for September 2026', { actor: LEAD });

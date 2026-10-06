@@ -27,6 +27,7 @@
  *    access to that" rather than an emptiness that reads as a fact.
  */
 
+import { alertsOfCopy } from './alerts';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
 import type {
   ActionRecord,
@@ -215,6 +216,9 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     chatProposals: [],
     // Who met and what was said at the firm's own meetings is the same.
     meetings: [],
+    // A questionnaire's answers are drawn from every paper on the file, each with the paper, the page and its words:
+    // none of it is shown to somebody who may not see those papers.
+    questionnaires: [],
     aiDrafts: [],
     orchestratorRuns: [],
     capabilityRuns: [],
@@ -227,6 +231,15 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     // So does the last instruction somebody gave the chat, and only staff can take it back.
     lastUndo: undefined,
   };
+
+  // An alert is written from the whole file: an overdue action's says what the action is and the meeting it came from.
+  // This copy keeps the alerts its own records raise, in its own words (`alertsOfCopy`), so none tells of what was taken out above.
+  // Where they cannot be worked out, the copy holds none: an alert left as the whole file wrote it is the leak.
+  try {
+    view.alerts = alertsOfCopy(project.alerts, view, access.email);
+  } catch {
+    view.alerts = [];
+  }
 
   const writableCheckIds = grantCanWrite(grant) ? checkIds : new Set<string>();
 

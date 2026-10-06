@@ -14,7 +14,7 @@ export interface VoiceInfo {
 export function voiceNotice(voice: VoiceInfo | undefined): string {
   if (!voice) return '';
   return voice.available
-    ? `A voice note is kept on this project and sent to ${voice.model} at ${voice.host} to be put into words. The sound goes nowhere else.`
+    ? `A voice note is kept on this project and sent to ${voice.model} at ${voice.host} to be put into words. The sound goes nowhere else. Its words are then read by this project’s reading model, to sort them into the entry.`
     : 'A voice note is kept on this project. No transcriber is set up here, so it is not put into words and is sent nowhere.';
 }
 

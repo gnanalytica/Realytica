@@ -16,7 +16,6 @@ import {
   DEPARTMENTS,
   isVoiceNote,
   meetingNotesFor,
-  namesQuestionnaire,
   pictureOrPaper,
   questionnaireDepartment,
   questionnaireOrPaper,
@@ -26,7 +25,7 @@ import {
   type DdProject,
   type Questionnaire,
 } from '@realytica/shared';
-import { QUESTIONNAIRE_FILE, readQuestionnaireFile, type ReadQuestionnaire } from './questionnaire-file';
+import { QUESTIONNAIRE_FILE, QuestionnaireTooLarge, readQuestionnaireFile, type ReadQuestionnaire } from './questionnaire-file';
 
 /** Whether a questionnaire is read from a file of this name at all. */
 export function mayBeQuestionnaire(fileName: string): boolean {
@@ -35,8 +34,8 @@ export function mayBeQuestionnaire(fileName: string): boolean {
 
 /** What a dropped file is. */
 export type Dropped =
-  /** A paper about the property: read, and put on the register. */
-  | { as: 'paper' }
+  /** A paper about the property: read, and put on the register. `why` where it might have been a questionnaire and could not be opened as one. */
+  | { as: 'paper'; why?: string }
   /** The notes of a meeting, or words that may be (`sure` false): the chat's meeting rules keep them, or ask. */
   | { as: 'notes'; sure: boolean }
   /** A list of questions to answer: taken in as a questionnaire. */
@@ -59,12 +58,15 @@ export type Dropped =
  *
  * 0. Sound is a voice note, whatever it is called.
  * 1. What a person said it is, where they were asked.
- * 1a. A picture with few words on it is a photograph of the site; one with a
- *    page of words is a paper that was photographed; in between, asked here.
+ * 1a. A picture with a page of words on it is a paper that was photographed.
+ *    One with few or none is a photograph of the site only where it plainly
+ *    is a view (the page that sent it measured that it is not mostly one flat
+ *    tone, as a sheet of paper is). Otherwise it is asked about here: a page
+ *    too dark or too blurred for OCR reads as no words at all.
  * 2. A paper the reader recognises (a deed, a khata, an order) is a paper,
  *    unless it is laid out as the notes of a meeting, and then the chat asks.
- * 3. A file that says it is a questionnaire, by its name or by a sheet's
- *    Question column, is one.
+ * 3. A sheet that names a Question column is a questionnaire. A file's name
+ *    alone is not enough: it is asked about (rule 7).
  * 4. Notes of a meeting (`meetingNotesFor`), where their words say so.
  * 5. A list most of whose items read as questions is a questionnaire.
  * 6. Words that may be notes: the meeting rules ask.
@@ -85,28 +87,33 @@ export async function whatWasDropped(input: {
   whole: boolean;
   /** A PDF's words page by page, where they were read. */
   pages?: readonly string[];
+  /** For a picture: how much of it is one flat tone, as the page that sent it measured. Absent when nobody measured. */
+  view?: number;
 }): Promise<Dropped> {
   const { paper, file } = input;
   if (input.said === 'paper' || !input.whole) return { as: 'paper' };
   if (isVoiceNote(paper)) return { as: 'voice' };
   if (input.said === 'photo') return { as: 'photo' };
+  /** Why the file could not be opened as a questionnaire, where it was too large to be: said to the person, since it is then filed as a paper. */
+  let why: string | undefined;
   const questions = async (): Promise<ReadQuestionnaire | null> => {
     if (!mayBeQuestionnaire(file.originalname)) return null;
     try {
       return await readQuestionnaireFile(file, input.pages);
-    } catch {
+    } catch (err) {
       // A file that will not open as a questionnaire is a paper like any other.
+      if (err instanceof QuestionnaireTooLarge) why = err.message;
       return null;
     }
   };
   if (input.said === 'questionnaire') {
     const read = await questions();
-    return read ? { as: 'questionnaire', read } : { as: 'paper' };
+    return read?.parsed.questions.length ? { as: 'questionnaire', read } : { as: 'paper', ...(why ? { why } : {}) };
   }
   const recognised = Boolean(paper.read && paper.read.type !== 'other' && paper.read.confidence >= 0.35);
   // A picture just dropped: of the site, or of a paper. A filed picture read again stays what it was filed as.
   if (input.fresh && (/^image\//i.test(paper.mimeType) || /\.(?:jpe?g|png|webp|heic|heif)$/i.test(paper.fileName))) {
-    const picture = pictureOrPaper({ recognised, words: paper.excerpt ?? '' });
+    const picture = pictureOrPaper({ recognised, words: paper.excerpt ?? '', view: input.view });
     if (picture === 'photo') return { as: 'photo' };
     if (picture === 'unsure') return { as: 'unsure', between: 'photo', read: null };
     return { as: 'paper' };
@@ -115,14 +122,15 @@ export async function whatWasDropped(input: {
   if (recognised && meetingNotesFor(input.project, paper) === 'no') return { as: 'paper' };
   const read = input.fresh ? await questions() : null;
   const asQuestions = questionnaireOrPaper({ fileName: file.originalname, parsed: read?.parsed ?? null, namedColumn: read?.namedColumn });
-  const saysSo = namesQuestionnaire(file.originalname) || Boolean(read?.namedColumn);
+  // What is in the file, never its name alone: a letter named "Reply to queries" is asked about (`questionnaireOrPaper`).
+  const saysSo = Boolean(read?.namedColumn);
   if (read && asQuestions === 'questionnaire' && saysSo) return { as: 'questionnaire', read };
   const notes = meetingNotesFor(input.project, paper);
   if (notes === 'yes') return { as: 'notes', sure: true };
   if (read && asQuestions === 'questionnaire') return { as: 'questionnaire', read };
   if (notes === 'maybe') return { as: 'notes', sure: false };
   if (asQuestions === 'unsure') return { as: 'unsure', between: 'questionnaire', read };
-  return { as: 'paper' };
+  return { as: 'paper', ...(why ? { why } : {}) };
 }
 
 /** The two answers to "what is it?", as sentences the chat reads back (`droppedAnswer`). */

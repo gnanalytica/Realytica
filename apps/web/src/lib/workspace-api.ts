@@ -142,8 +142,9 @@ export const workspaceApi = {
    * Saves the answered questionnaire to the reader's disk, as an Excel workbook or a PDF, each answer with its source.
    * Fetched with the session's token and handed to the browser as a download: a plain link would send no token.
    */
-  saveQuestionnaire: async (projectId: string, questionnaireId: string, format: 'xlsx' | 'pdf', name: string): Promise<void> => {
-    const res = await fetchWithAuth(`/api/projects/${projectId}/questionnaires/${questionnaireId}/export?format=${format}`);
+  saveQuestionnaire: async (projectId: string, questionnaireId: string, format: 'xlsx' | 'pdf' | 'file', name: string): Promise<void> => {
+    // 'file' is the file the questionnaire was taken in from, as it was sent, under its own name.
+    const res = await fetchWithAuth(`/api/projects/${projectId}/questionnaires/${questionnaireId}/${format === 'file' ? 'file' : `export?format=${format}`}`);
     if (!res.ok) {
       const said = (await res.json().catch(() => null)) as { error?: string } | null;
       throw new Error(said?.error ?? `The questionnaire could not be taken out: ${res.status}`);
@@ -151,7 +152,7 @@ export const workspaceApi = {
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${name}.${format}`;
+    a.download = format === 'file' ? name : `${name}.${format}`;
     document.body.appendChild(a);
     a.click();
     a.remove();

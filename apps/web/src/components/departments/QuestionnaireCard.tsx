@@ -516,10 +516,11 @@ export function QuestionnaireCard({
   }
 
   /** The answered sheet as a file to send back: Excel or PDF, each answer with its source. */
-  async function save(format: 'xlsx' | 'pdf') {
+  async function save(format: 'xlsx' | 'pdf' | 'file') {
     setBusy(true);
     try {
-      await workspaceApi.saveQuestionnaire(project.id, questionnaire!.id, format, `${project.reference}-${questionnaire!.title}`.replace(/[\\/:*?"<>|]+/g, '-'));
+      const name = format === 'file' ? (questionnaire!.fileName ?? 'questionnaire') : `${project.reference}-${questionnaire!.title}`;
+      await workspaceApi.saveQuestionnaire(project.id, questionnaire!.id, format, name.replace(/[\\/:*?"<>|]+/g, '-'));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not take the questionnaire out', 'critical');
     } finally {
@@ -556,6 +557,11 @@ export function QuestionnaireCard({
             <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => void copy()}>
               Copy
             </Button>
+            {questionnaire.fileKey ? (
+              <Button size="sm" variant="ghost" icon={<Download size={13} />} disabled={busy} title="The file it was taken in from, as it was sent" onClick={() => void save('file')}>
+                As sent
+              </Button>
+            ) : null}
             {(['xlsx', 'pdf'] as const).map((format) => (
               <Button key={format} size="sm" variant="ghost" icon={<Download size={13} />} disabled={busy} onClick={() => void save(format)}>
                 {format === 'xlsx' ? 'Excel' : 'PDF'}
@@ -573,6 +579,7 @@ export function QuestionnaireCard({
         }
       />
       <CardBody className="space-y-3">
+        {questionnaire.leftOut ? <p className="rounded-lg bg-warning/10 px-3 py-2 text-[13px] text-ink">{questionnaire.leftOut}</p> : null}
         <div className="flex flex-wrap items-center gap-4">
           <CompletenessRing score={summary.percent} size={92} label="Answered" />
           <div className="min-w-0 flex-1 space-y-2">

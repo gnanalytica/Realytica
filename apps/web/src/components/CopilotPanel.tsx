@@ -3,7 +3,7 @@ import { AttachControls, type VoiceInfo } from './chat/AttachControls';
 import { TooLargeToSend } from '../lib/site-capture';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, X } from 'lucide-react';
-import { PLAN_STEP, askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread } from '@realytica/shared';
+import { PLAN_STEP, askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread, undoSentence } from '@realytica/shared';
 import type { AgentStep, ChatChoice, ChatTurnPlace, ChoicePin, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { AiMark, Badge, Button, Modal, cn } from './ui/kit';
@@ -11,6 +11,7 @@ import { EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AnswerBody } from './chat/AnswerBody';
 import { ChatList } from './chat/ChatList';
 import { PlanCard, openPlans, stopPlan, type PlanShown } from './chat/PlanCard';
+import { TurnChanges } from './chat/TurnChanges';
 import { chatDay, chatRows, liveChatId, liveTurns } from './chat/chat-list';
 import { TurnVisual } from './chat/TurnVisual';
 import { relativeTime } from '../lib/format';
@@ -745,7 +746,7 @@ export function CopilotPanel({
 
   // Chat opens by default even when empty: it is what the composer below is
   // for, and landing on a log nobody asked for is how this started.
-  const shown = (tab === 'chat' ? viewed : []) as unknown as CopilotTurn[];
+  const shown = useMemo(() => (tab === 'chat' ? viewed : []) as unknown as CopilotTurn[], [tab, viewed]);
 
   /*
    * Plans. One that is not over is read from the project's run ledger when
@@ -1038,7 +1039,27 @@ export function CopilotPanel({
                 onOpenDocument={onOpenDocument}
                 extras={renderTurnExtras?.(turn)}
                 plansDrawn={Boolean(planProject)}
-                under={planUnder.at.has(turn.id) ? planCard(planUnder.at.get(turn.id)!, { said: turn.text }) : undefined}
+                under={
+                  <>
+                    {planUnder.at.has(turn.id) ? planCard(planUnder.at.get(turn.id)!, { said: turn.text }) : null}
+                    {turn.changed ? (
+                      <TurnChanges
+                        changed={turn.changed}
+                        busy={busy}
+                        onUndo={
+                          onPickChoice
+                            ? () => {
+                                // The undo is said in the chat that is current: that is the one to be looking at when it comes.
+                                setViewing(null);
+                                const changed = turn.changed!;
+                                void onPickChoice(undoSentence(changed), { undo: { turnId: turn.id } });
+                              }
+                            : undefined
+                        }
+                      />
+                    ) : null}
+                  </>
+                }
               />
               </div>
             ))}

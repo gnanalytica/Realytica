@@ -52,20 +52,26 @@ export function audioFormat(file: { fileName: string; mimeType?: string }): 'wav
   return undefined;
 }
 
+/** A picture this much one flat tone is not plainly a view of anything: a sheet of paper is mostly its paper. */
+export const FLAT_TONE_OF_A_PAGE = 0.6;
+
 /**
- * Whether an image is a picture of the site or a paper that was photographed,
- * told from the words read on it.
+ * Whether an image is a picture of the site or a paper that was photographed.
  *
- * A paper the reader recognises is a paper. A page of text photographed has
- * words by the dozen; a site has a signboard at most. In between it is not
- * decided here, and the person is asked once.
+ * A paper the reader recognises is a paper, and so is a picture with words by
+ * the dozen on it. A picture with few words or none is a photograph of the
+ * site only where it plainly is a view: `view` is how much of it is one flat
+ * tone, measured by the page that sent it, and a view is not mostly one tone.
+ * Without that it is not decided here, and the person is asked once. A page
+ * photographed in poor light gives OCR no words at all, and taken for a view
+ * it would never reach a reader that could read it.
  */
-export function pictureOrPaper(input: { recognised: boolean; words: string }): 'photo' | 'paper' | 'unsure' {
+export function pictureOrPaper(input: { recognised: boolean; words: string; view?: number }): 'photo' | 'paper' | 'unsure' {
   if (input.recognised) return 'paper';
   const words = (input.words.match(/[\p{L}\p{M}]{3,}/gu) ?? []).length;
   if (words >= 40) return 'paper';
-  if (words <= 8) return 'photo';
-  return 'unsure';
+  if (words > 8) return 'unsure';
+  return input.view !== undefined && input.view < FLAT_TONE_OF_A_PAGE ? 'photo' : 'unsure';
 }
 
 /* ==================================================================== */

@@ -88,6 +88,7 @@ function audit(
     newValue: event.newValue,
     ...(event.factKey ? { factKey: event.factKey } : {}),
     ...(event.fields ? { fields: event.fields } : {}),
+    ...(event.about?.length ? { about: event.about } : {}),
   });
 }
 

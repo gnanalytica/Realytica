@@ -296,8 +296,8 @@ async function askCopilotStreaming(
 }
 
 /** What a chat turn reports while it runs: its steps, and any document being read. */
-/** A chat turn's result, and — when the person's instruction changed the file — how to take it back. */
-export type ProjectChatResponse = ProjectChatResult & { project: DdProject; undo?: { token: string; label: string } };
+/** A chat turn's result, with the project as the turn left it. What the turn changed is on its reply (`changed`), and is undone from there. */
+export type ProjectChatResponse = ProjectChatResult & { project: DdProject };
 
 export interface ProjectChatListeners {
   onStep?: (step: AgentStep) => void;
@@ -1183,9 +1183,6 @@ export const api = {
     }),
   setAsideWaiting: (projectId: string, proposalId: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/set-aside`, { method: 'POST', body: JSON.stringify({}) }),
-  /** Take back the last instruction given in the chat. */
-  undoInstruction: (projectId: string, token: string) =>
-    request<{ project: DdProject }>(`/projects/${projectId}/undo/${token}`, { method: 'POST', body: JSON.stringify({}) }),
   orchestrateProject: (projectId: string, actor?: string) =>
     request<{ run: OrchestratorRun; drafts: AiDraft[]; project: DdProject }>(`/projects/${projectId}/orchestrate`, {
       method: 'POST',

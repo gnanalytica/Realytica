@@ -18,7 +18,8 @@
  * reads, edits and issues under their name. A model may reword its lines
  * where one is set up, and is held to them (`statusWordingHeld`): its words
  * replace the words of a line code wrote and nothing else, so it can add no
- * line, drop none, and change no date, person or source.
+ * line, drop none, and change no date, person or source, nor what a line
+ * says of where a thing stands.
  */
 
 import { approvalsRegister } from './approvals';
@@ -680,17 +681,76 @@ const figures = (text: string): string[] => (text.match(/\d[\d,]*(?:\.\d+)?/g) ?
 /** The titles a line quotes. */
 const quoted = (text: string): string[] => text.match(/“[^”]*”/g) ?? [];
 
+/** The words of a line outside the titles it quotes, lower case. A shortened "not" is read as the word. */
+const wordsOutside = (text: string): string[] =>
+  text
+    .replace(/“[^”]*”/g, ' ')
+    .toLowerCase()
+    .replace(/n['’]t\b/g, ' not')
+    .match(/\p{L}+/gu) ?? [];
+
+/** Words that only join a line's other words and say nothing of their own. */
+const JOINING = new Set(
+  'the and but for from with per its was were are has have had been being this that these those also now then than which who whom whose will would there here into onto over under about after before both each any all some such only just very more most less still since until while when where'.split(' '),
+);
+
+/** A word without the ending that makes it a plural or puts it in another tense, so that "accepted" and "accepts" count as one word. */
+const stemOf = (word: string): string => (word.length > 4 ? word.replace(/(?:ing|ed|es|s)$/, '') : word).replace(/e$/, '');
+
+/** A line's own words: what it says outside the titles it quotes, without its figures and the words that only join. */
+const ownWords = (text: string): Set<string> => new Set(wordsOutside(text).filter((word) => word.length >= 3 && !JOINING.has(word)).map(stemOf));
+
+/** How many of these words are among those. */
+const among = (these: ReadonlySet<string>, those: ReadonlySet<string>): number => [...these].filter((word) => those.has(word)).length;
+
+const IS_MONTH = new RegExp(`^${MONTH}$`);
+/** The months a line names, by their number: Sep and September are one month. */
+const monthsNamed = (text: string): string => [...new Set(wordsOutside(text).filter((word) => IS_MONTH.test(word)).map(monthOf))].sort().join('|');
+
+/** The start of each word by which a line says where a thing stands: done, overdue, waiting, accepted, filed, read, open, and the rest. */
+const STANDING = /^(?:done|overdue|late|laps|expir|valid|wait|accept|approv|reject|refus|open|clos|decid|pending|issu|filed|filing|read|receiv|promis|plann|complet|finish|settl|clear|resolv|record|cancel|withdr|paid|sign|sent|releas|grant|confirm|agree|delay|early|ahead|behind)/;
+/** The words that turn one of those into its opposite. */
+const DENYING = new Set(['not', 'no', 'none', 'never', 'nothing', 'nobody', 'neither', 'nor', 'without', 'yet']);
+
+/**
+ * What a line says of where things stand: its standing words and the words
+ * that deny them, as written, in the order it first says them. "Accepted" and
+ * "accepting" are two standings, and so are "expired" and "expiring". Only
+ * the ending of a plural is let go, so "1 value waits" and "2 values wait"
+ * stand the same.
+ */
+const standingSaid = (text: string): string =>
+  [...new Set(wordsOutside(text).filter((word) => DENYING.has(word) || STANDING.test(word)).map((word) => (word.length > 4 && !word.endsWith('ss') ? word.replace(/s$/, '') : word)))].join('|');
+
 /**
  * A model's wording of some lines, held to the lines.
  *
  * `lines` are the lines as code wrote them, numbered from one, and `said` is
  * what a model answered: a list of `{ n, text }`. A wording is kept for a
  * line only when it names a line that exists, is one line of a sensible
- * length, has every figure of the line and no other, and quotes every title
- * the line quotes and no other. So a model cannot add a line, cannot drop
- * one, and cannot change a date, an amount or the name of a paper. The
- * person, the day and what is behind a line are not in the words it rewords
- * at all.
+ * length, and still says what the line says:
+ *
+ * - it has every figure of the line and no other, names the months the line
+ *   names and no other, and quotes every title the line quotes and no other;
+ * - it says the same of where things stand (`standingSaid`): it adds no
+ *   "done", "overdue", "waiting" or "accepted" the line does not have, drops
+ *   none it has, puts no "not" in and takes none out, and says them in the
+ *   line's order;
+ * - most of the line's own words are in it, and most of its own words are the
+ *   line's (`ownWords`). Most is two in three. A rewording has to be free to
+ *   swap a word or two for a plainer one, and at two in three a line of three
+ *   telling words may lose one. At a half, a line of two could keep one and
+ *   bring one in, which is another sentence. Counted both ways, because a
+ *   wording that keeps the whole line and then says something more has said
+ *   something the record did not.
+ *
+ * The figures and titles alone are not enough: the titles are a paper's name
+ * or a line of somebody's notes, quoted inside the line a model is given, and
+ * a wording that keeps them can still say the opposite around them. So a
+ * model cannot add a line, cannot drop one, and cannot change a date, an
+ * amount, the name of a paper or where a thing stands. Wherever its wording
+ * fails any of this, the line stays as code wrote it. The person, the day and
+ * what is behind a line are not in the words it rewords at all.
  */
 export function statusWordingHeld(lines: readonly string[], said: unknown): Array<{ said: string; as: string }> {
   const out = new Map<string, string>();
@@ -700,8 +760,11 @@ export function statusWordingHeld(lines: readonly string[], said: unknown): Arra
     const line = lines[n - 1]!;
     const as = text.replace(/\s+/g, ' ').trim();
     if (!as || as === line || as.length > STATUS_WORDING_LINE || out.has(line)) continue;
-    if (figures(as).join('|') !== figures(line).join('|')) continue;
+    if (figures(as).join('|') !== figures(line).join('|') || monthsNamed(as) !== monthsNamed(line)) continue;
     if ([...quoted(as)].sort().join('|') !== [...quoted(line)].sort().join('|')) continue;
+    if (standingSaid(as) !== standingSaid(line)) continue;
+    const [its, ours] = [ownWords(as), ownWords(line)];
+    if (among(ours, its) * 3 < ours.size * 2 || among(its, ours) * 3 < its.size * 2) continue;
     out.set(line, as);
   }
   return [...out].map(([line, as]) => ({ said: line, as }));

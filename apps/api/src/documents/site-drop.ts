@@ -44,6 +44,10 @@ export interface DropCaptured {
   takenAt?: string;
   /** For sound: how long it runs. */
   seconds?: number;
+  /** For a picture: how much of it is one flat tone, 0 to 1, as the browser measured it. A page is mostly its paper; a site is not. */
+  view?: number;
+  /** For a picture the browser made smaller before sending: its long side now, in pixels. */
+  shrunkTo?: number;
 }
 
 /** What the page sent with its files, in the order of the files. Anything that is not what it should be is left out. */
@@ -60,7 +64,9 @@ export function capturedFrom(raw: unknown, count: number): DropCaptured[] {
     const day = typeof one.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(one.day) ? one.day : undefined;
     const takenAt = typeof one.takenAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(one.takenAt) ? one.takenAt.slice(0, 19) : undefined;
     const seconds = typeof one.seconds === 'number' && Number.isFinite(one.seconds) && one.seconds > 0 && one.seconds < 86_400 ? one.seconds : undefined;
-    return { ...(day ? { day } : {}), ...(takenAt ? { takenAt } : {}), ...(seconds ? { seconds } : {}) };
+    const view = typeof one.view === 'number' && one.view >= 0 && one.view <= 1 ? one.view : undefined;
+    const shrunkTo = typeof one.shrunkTo === 'number' && Number.isInteger(one.shrunkTo) && one.shrunkTo > 0 && one.shrunkTo < 100_000 ? one.shrunkTo : undefined;
+    return { ...(day ? { day } : {}), ...(takenAt ? { takenAt } : {}), ...(seconds ? { seconds } : {}), ...(view !== undefined ? { view } : {}), ...(shrunkTo ? { shrunkTo } : {}) };
   });
 }
 

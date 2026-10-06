@@ -73,7 +73,7 @@ import { StagePill, StageTimeline } from '../../components/departments/StageTime
 import { AlertsBell } from '../../components/departments/AlertsBell';
 import type { PhaseOpen } from '../../components/project/PhaseRecord';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
-import { TurnWaiting, UndoBar, WaitingHere } from './cockpit/Waiting';
+import { TurnWaiting, WaitingHere } from './cockpit/Waiting';
 
 function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
   return (
@@ -300,9 +300,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const [deskOpen, setDeskOpen] = useState(false);
   const [deskPin, setDeskPin] = useState<string | null>(null);
   const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
-  /* The last instruction the chat carried out, for a few seconds after: the way to take it back. */
-  const [undo, setUndo] = useState<{ token: string; label: string } | null>(null);
-  const [undoing, setUndoing] = useState(false);
   /* A decision on the canvas in flight. */
   const [deciding, setDeciding] = useState(false);
   const projectRef = useRef(project);
@@ -465,7 +462,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       setHighlightIds(ids);
       const waitingNow = response.proposals.filter((p) => p.status === 'proposed').length;
       setLiveLabel(response.commands[0] ?? (waitingNow ? `${waitingNow} waiting on the canvas` : null));
-      setUndo(response.undo ?? null);
       const lastNav = response.navigations.at(-1);
       const targetRaw = lastNav?.target ?? null;
       const target = isProjectCockpitPane(targetRaw)
@@ -577,8 +573,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       setAsking(true);
       setChatSteps([]);
       setMobileSurface('chat');
-      // A choice that accepts or sets aside pins the cards and papers it means, and one under a plan pins the plan. They go with it whole.
-      const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision || pinned?.plan
+      // A choice that accepts or sets aside pins the cards and papers it means, one under a plan pins the plan, and Undo pins the reply it undoes. They go with it whole.
+      const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision || pinned?.plan || pinned?.undo
         ? pinned
         : {
             ddId: params.ddId,
@@ -619,6 +615,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         const ready = await readyToSend(files ?? [], limits ?? { maxFileBytes: LARGE_FILE_BYTES, maxRequestBytes: LARGE_FILE_BYTES });
         // Said before anything is sent, and the files stay with the person: one message here has a size.
         mustFitOneMessage(ready.files, limits, LARGE_FILE_BYTES);
+        // A picture made smaller is said to be, as it goes: the smaller copy is the one that will be kept.
+        if (ready.shrunk) {
+          const to = Math.min(...ready.captured.flatMap((c) => (c.shrunkTo ? [c.shrunkTo] : [])));
+          onStep({ id: `smaller-${Date.now()}`, at: new Date().toISOString(), kind: 'tool_result', label: `${ready.shrunk === 1 ? 'One picture was' : `${ready.shrunk} pictures were`} made smaller to send (${to.toLocaleString('en-IN')} pixels on the long side)` });
+        }
         const big = ready.files.filter((f) => f.size >= LARGE_FILE_BYTES);
         const small = ready.files.filter((f) => f.size < LARGE_FILE_BYTES);
         const captured = ready.files.flatMap((f, n) => (f.size < LARGE_FILE_BYTES ? [ready.captured[n] ?? {}] : []));
@@ -777,30 +778,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     },
     [project.id, setProject, toast],
   );
-
-  /* The way back stays a few seconds, then goes: an old undo is a trap, not a convenience. */
-  useEffect(() => {
-    if (!undo) return;
-    const t = window.setTimeout(() => setUndo(null), 15000);
-    return () => window.clearTimeout(t);
-  }, [undo]);
-
-  const takeBack = useCallback(async () => {
-    if (!undo) return;
-    setUndoing(true);
-    try {
-      const { project: next } = await api.undoInstruction(project.id, undo.token);
-      setProject(next);
-      setHighlightIds([]);
-      setLiveLabel(null);
-      toast('Undone', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'That could not be undone', 'critical');
-    } finally {
-      setUndo(null);
-      setUndoing(false);
-    }
-  }, [undo, project.id, setProject, toast]);
 
   /*
    * A question carried in an address (`?ask=`) waits in the message box, for
@@ -1067,7 +1044,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </RouteErrorBoundary>
         </div>
       )}
-      {undo ? <UndoBar label={undo.label} busy={undoing} onUndo={() => void takeBack()} onDismiss={() => setUndo(null)} /> : null}
     </>
   );
 

@@ -71,6 +71,9 @@ export function rowsToRead(project: DdProject, again: boolean, withModel = false
     (e) =>
       e.attachments.length > 0
       && !NOT_RELIED_ON.has(e.status)
+      // A photograph of the site is no paper nobody has read: it was filed as a picture, with what it was taken for, and
+      // what it shows is the photo reader's to say. Sent down here it was read by OCR for words it does not have.
+      && !(e.kind === 'photograph' && Boolean(e.attachments[e.attachments.length - 1]!.capture?.purpose))
       && (again
         || (!(e.facts ?? []).length && (!e.modelReadAt || (e.modelReadVersion ?? 1) < MODEL_READER_VERSION))
         || (withModel && needsReadingAgain(e.attachments[e.attachments.length - 1]!.reading)))

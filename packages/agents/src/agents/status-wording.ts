@@ -8,9 +8,11 @@
  *
  * Nothing it answers is used on its word. The caller holds every wording to
  * the line it was made for (`statusWordingHeld` in the shared package): a
- * wording is kept only for a line that exists, with every figure and every
- * quoted title of that line and no other. So the answer here can add no
- * line, drop none, and change no date, amount or name of a paper.
+ * wording is kept only for a line that exists, with every figure, month and
+ * quoted title of that line and no other, the same words for where things
+ * stand, and most of the line's own words. So the answer here can add no
+ * line, drop none, and change no date, amount or name of a paper, nor turn
+ * "overdue" into "done".
  *
  * Never throws. A model that cannot be reached, runs out of time or answers
  * something else has reworded nothing, and the lines stand as code wrote them.
@@ -33,7 +35,7 @@ const SYSTEM = `You reword the lines of a status report on a property project so
 
 Rules:
 1. Reword each numbered line as one plain sentence. Keep its meaning exactly. Add nothing the line does not say and leave nothing out.
-2. Keep every number, date and amount exactly as written, and keep everything inside “quotation marks” exactly as written, quotation marks included.
+2. Keep every number, date and amount exactly as written, and keep everything inside “quotation marks” exactly as written, quotation marks included. Keep the words that say where a thing stands (done, overdue, waiting, accepted, filed, read, open, not yet) exactly as written and in the same order, and most of the line's other words.
 3. Do not add a line. Do not join two lines. Do not explain, advise or draw a conclusion.
 4. No jargon and no filler. Under 240 characters a line.
 5. A line that is already plain is left out of your answer.

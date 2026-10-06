@@ -40,6 +40,7 @@ import { z } from 'zod';
 import {
   acknowledgeRevisit,
   actorOf,
+  alertsOfCopy,
   addEvidence,
   addLink,
   addMilestones,
@@ -100,6 +101,7 @@ import {
   type ScopeKey,
   type DepartmentRole,
 } from '@realytica/shared';
+import { viewFor } from '../auth/access';
 import { needs, principalOf } from '../auth/middleware';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -496,7 +498,8 @@ projectWorkspaceRouter.get<Params>('/site', (req, res) => {
     progress: progressSummary(project),
     gate: constructionGate(project),
     log: log.slice(0, 30).map((e) => ({ ...e, photos: e.photos.map((p, i) => ({ index: i, fileName: p.fileName, caption: p.caption, takenAt: p.takenAt, point: p.point })) })),
-    alerts: openAlerts(project).filter((a) => a.department === 'construction').slice(0, 20),
+    // The reader's own copy of the alerts: somebody working from a grant is not told of an action or a meeting withheld from them.
+    alerts: openAlerts(viewFor(req, project).project).filter((a) => a.department === 'construction').slice(0, 20),
   });
 });
 
@@ -616,12 +619,17 @@ projectWorkspaceRouter.post<Params>('/alerts/read', async (req, res) => {
     res.status(400).json({ error: 'Say which alerts.' });
     return;
   }
-  const n = markAlertsRead(project, parsed.data.ids, principalOf(req).email.toLowerCase());
+  const reader = principalOf(req).email.toLowerCase();
+  // Somebody working from a grant marks, and is answered with, the alerts their own copy of the project holds and no others.
+  const view = viewFor(req, project);
+  const mine = view.complete ? undefined : new Set((view.project.alerts ?? []).map((alert) => alert.id));
+  const ids = !mine ? parsed.data.ids : parsed.data.ids === 'all' ? [...mine] : parsed.data.ids.filter((id) => mine.has(id));
+  const n = markAlertsRead(project, ids, reader);
   if (n) {
     touch(project);
     await store.save();
   }
-  res.json({ read: n, alerts: openAlerts(project) });
+  res.json({ read: n, alerts: openAlerts(mine ? { ...view.project, alerts: alertsOfCopy(project.alerts, view.project, reader) } : project) });
 });
 
 const linkEnd = z.object({
@@ -862,7 +870,7 @@ const questionnaireTextSchema = z.object({ title: z.string().trim().min(1).max(1
 async function parseQuestionnaireFile(file: Express.Multer.File) {
   const read = await readQuestionnaireFile(file);
   if (!read) throw new Error(QUESTIONNAIRE_FILE_SAID);
-  return read.parsed;
+  return read;
 }
 
 projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.single('file'), async (req, res) => {
@@ -880,7 +888,8 @@ projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.singl
     let record;
     if (file) {
       const title = typeof req.body?.title === 'string' && req.body.title.trim() ? String(req.body.title).trim().slice(0, 160) : file.originalname.replace(/\.[a-z0-9]+$/i, '');
-      record = addQuestionnaire(project, { title, department, fileName: file.originalname, parsed: await parseQuestionnaireFile(file) }, actorOf(principalOf(req)));
+      const read = await parseQuestionnaireFile(file);
+      record = addQuestionnaire(project, { title, department, fileName: file.originalname, parsed: read.parsed, leftOut: read.leftOut }, actorOf(principalOf(req)));
     } else {
       const parsed = questionnaireTextSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -890,10 +899,11 @@ projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.singl
       const looksCsv = /^[^\n]*\b(question|query)\b[^\n]*[,\t]/i.test(parsed.data.text);
       record = addQuestionnaire(project, { title: parsed.data.title, department, parsed: looksCsv ? parseQuestionnaireCsv(parsed.data.text) : parseQuestionnaireText(parsed.data.text) }, actorOf(principalOf(req)));
     }
-    noteProjectEdit(project, `Imported the questionnaire “${record.title}”: ${record.questions.length} question(s).`, { actor: actorOf(principalOf(req)) });
+    // What was left out of it is said with it, here and on the questionnaire itself.
+    noteProjectEdit(project, `Imported the questionnaire “${record.title}”: ${record.questions.length} question(s).${record.leftOut ? ` ${record.leftOut}` : ''}`, { actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
-    res.status(201).json({ project, questionnaireId: record.id });
+    res.status(201).json({ project, questionnaireId: record.id, ...(record.leftOut ? { leftOut: record.leftOut } : {}) });
   } catch (err) {
     failed(res, err, 'Could not read that questionnaire');
   }
@@ -981,6 +991,33 @@ projectWorkspaceRouter.post<QParams>('/questionnaires/:questionnaireId/confirm',
     res.json({ project, confirmed });
   } catch (err) {
     failed(res, err, 'Could not confirm those answers');
+  }
+});
+
+/**
+ * The file a questionnaire was taken in from, where it was kept: the one
+ * dropped in the chat. So that what was sent can be read beside what was
+ * made of it.
+ */
+projectWorkspaceRouter.get<QParams>('/questionnaires/:questionnaireId/file', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!roleIn(req, project, sheetDepartment(project, req.params.questionnaireId))) {
+    res.status(403).json({ error: 'That needs a place in the department the questionnaire belongs to.' });
+    return;
+  }
+  try {
+    const questionnaire = findQuestionnaire(project, req.params.questionnaireId);
+    const bytes = questionnaire.fileKey ? await storageAdapter.getDocument(project.id, questionnaire.fileKey) : null;
+    if (!bytes) {
+      res.status(404).json({ error: 'The file this questionnaire came from was not kept.' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${(questionnaire.fileName ?? 'questionnaire').replace(/[^A-Za-z0-9._ -]+/g, ' ').trim() || 'questionnaire'}"`);
+    res.send(Buffer.from(bytes));
+  } catch (err) {
+    failed(res, err, 'Could not open that file');
   }
 });
 

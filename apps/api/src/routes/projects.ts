@@ -120,6 +120,9 @@ import {
   STATUS_REPORT,
   PLAN_SAID,
   PLAN_STEP,
+  UNDO_SAID,
+  asksToUndo,
+  lastUndoable,
   planChoices,
   planCountSaid,
   NOTHING_TO_READ,
@@ -209,12 +212,13 @@ import { mergeModelReading, needsModelReading, readIngestLocally } from '../docu
 import { PAPERS_AT_ONCE, together } from '../documents/together';
 import { droppedUnread, isNotReadYetCard, notReadYetCard } from '../documents/dropped';
 import { droppedAnswer, droppedChoices, takenInSaid, unsureSaid, whatWasDropped, type Dropped } from '../documents/questionnaire-drop';
+import type { ReadQuestionnaire } from '../documents/questionnaire-file';
 import { wordsOfDocx } from '../documents/docx-outline';
 import { capturedFrom, fileSitePhoto, readSitePhoto, takeVoiceNote, type DropCaptured } from '../documents/site-drop';
 import { transcriptionCapability } from '@realytica/agents';
 import { MODEL_READER_VERSION, isVoiceNote, type ChatProposal, type EvidenceRecord } from '@realytica/shared';
 // The questionnaire's own calls, kept beside the reader's: a file dropped in the chat may be one.
-import { DROPPED_WITHOUT_WORDS, addQuestionnaire, findQuestionnaire, meetingNotesFor as meetingNotesOf, questionnaireDepartment, suggestFromFile, type ParsedQuestionnaire } from '@realytica/shared';
+import { DROPPED_WITHOUT_WORDS, addQuestionnaire, findQuestionnaire, meetingNotesFor as meetingNotesOf, questionnaireDepartment, suggestFromFile } from '@realytica/shared';
 import { keepPageTexts } from '../documents/page-text';
 import { confirmProposedType, correctProposedType, readOntoRegister, setAsideProposedType, type RegisterUpload } from '../documents/register-read';
 import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead, straightToModel } from '../documents/reread';
@@ -238,6 +242,7 @@ import { wordStatusReport } from '../status-report';
 import { planTurnFor, runPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
 import { runPlanStep, type PlanSetting, type StepDone } from '../runs/plan-steps';
 import { changePlan, planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
+import { forgetTurnChanges, keepTurnChanges, recordBefore, undoTurn } from '../chat-changes';
 import { outgoingAskedWritten } from './outgoing';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
@@ -1338,7 +1343,10 @@ async function planTurn(
     stampSession(result, asked.sessionId, { continues: asked.continues, place: asked.place });
     return result;
   };
+  const turnsBefore = project.conversation.length;
   const saved = async (): Promise<void> => {
+    // The turns this request wrote are this person's.
+    mergeConversation(project, project, setting.actor, turnsBefore);
     project.updatedAt = new Date().toISOString();
     await store.save();
   };
@@ -1346,6 +1354,7 @@ async function planTurn(
   if ('direct' in planned) {
     step(planned.direct.label);
     const before = project.conversation.length;
+    const stood = recordBefore(project);
     let done: StepDone;
     try {
       done = await runPlanStep({ ...setting, step: planned.direct, mustEnd: async () => false, progress: async () => undefined, wrote: () => undefined });
@@ -1362,6 +1371,8 @@ async function planTurn(
       if (!turn.place && asked.place) turn.place = asked.place;
     }
     project.conversation.splice(project.conversation.length - 1, 0, ...left);
+    // What the step changed is kept with the reply that says what it did.
+    await keepTurnChanges(project, stood, result.assistantTurn);
     await saved();
     line({ type: 'result', ...result, project });
     res.end();
@@ -1381,6 +1392,48 @@ async function planTurn(
   res.end();
 }
 
+/**
+ * A turn of the chat that undoes a message: the one a pressed Undo names, or
+ * for "undo" typed alone the last reply of this chat that changed something
+ * and has not been undone. The undo is itself a message, in the chat the
+ * person is in, and says what it put back.
+ */
+async function undoAsked(
+  req: Request,
+  res: Response,
+  project: DdProject,
+  asked: { question: string; turnId?: string; viewContext?: string; place?: ChatPlace; sessionId?: string; continues?: string; sessionStartedAt?: string },
+): Promise<void> {
+  refreshProjectDerived(project);
+  const { line } = beginNdjson(res);
+  const who = actorOf(req);
+  const sessionId = ownSitting(project, asked.sessionId, who);
+  const continues = carriedChat(project, asked.continues);
+  const turnsBefore = project.conversation.length;
+  // This chat's turns: this sitting and the chat it carries on, and this person's only. A caller that keeps no sittings means the whole of their thread.
+  const mine = project.conversation.filter((turn) => (!turn.actor || turn.actor === who) && (!sessionId || turn.sessionId === sessionId || (continues !== undefined && turn.sessionId === continues)));
+  const turnId = asked.turnId ?? lastUndoable(mine)?.id;
+  const undone = turnId ? await undoTurn(project, turnId, who) : ({ done: false, text: 'Nothing this chat changed is there to undo.' } as const);
+  const result = applyProjectChat(project, asked.question, {
+    actor: who,
+    viewContext: asked.viewContext,
+    place: asked.place,
+    chat: { sessionId, continues, startedAt: asked.sessionStartedAt, actor: who },
+    // The reply says all of it in its own words: no line is drawn under it to say it again.
+    reply: { text: undone.text, tool: UNDO_SAID, summary: '', commands: undone.done ? undone.commands : [] },
+  });
+  stampSession(result, sessionId, { continues, place: asked.place });
+  mergeConversation(project, project, who, turnsBefore);
+  // What stands as accepted may have changed: memory's own account of the project is made again.
+  if (undone.done) await rememberProject(project);
+  project.updatedAt = new Date().toISOString();
+  await store.save();
+  // Only once the record is saved without them: the files the message added that nothing points at any more.
+  if (undone.done) await undone.afterSave();
+  line({ type: 'result', ...result, project });
+  res.end();
+}
+
 projectsRouter.post('/:projectId/chat', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -1396,6 +1449,24 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const sitting = parsed.data.sitting;
   // Where the person is: the page and its stage, or the pane alone from a client that sends no more.
   const place = chatPlaceFrom(parsed.data.place, parsed.data.viewContext);
+  /*
+   * Undo. The Undo under a reply names the reply, and "undo" typed alone
+   * means the last thing this chat changed. What that message changed is put
+   * back where it still stands as the message left it, and the chat says
+   * what went back and what did not, with why. For the firm's own people.
+   */
+  if (!sitting?.decision && (sitting?.undo || asksToUndo(question)) && viewFor(req, project).project === project) {
+    await undoAsked(req, res, project, {
+      question,
+      turnId: sitting?.undo?.turnId,
+      viewContext: parsed.data.viewContext,
+      place,
+      sessionId: parsed.data.sessionId,
+      continues: parsed.data.continues,
+      sessionStartedAt: parsed.data.sessionStartedAt,
+    });
+    return;
+  }
   /*
    * Plans. A job over many records, or of more than one kind of step, is
    * shown as its steps before any of it starts. And a sentence, or a pressed
@@ -1559,6 +1630,9 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
    */
   let asked = question;
   let meeting: MeetingGiven | undefined;
+  // The record as it stood, so that what this message changes can be listed under its reply and undone on its own.
+  // Taken here for notes of a meeting, which are read and kept before the chat's rules run, and for everything else just before they do.
+  let stood = notes && canvas === project ? recordBefore(project) : null;
   if (notes) {
     line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: notes.kind === 'answer' && notes.said !== 'notes' ? 'Letting the held words go' : 'Reading the notes of the meeting' } satisfies AgentStep });
     const turn = await meetingTurn(project, question, notes);
@@ -1752,8 +1826,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   } catch {
     sides = undefined;
   }
-  // The file as it stood, so an instruction that changes it can be undone.
-  const undoBefore = canvas === project ? fileState(project) : null;
+  if (canvas === project) stood ??= recordBefore(project);
   const result = applyProjectChat(canvas, asked, {
     actor,
     viewContext: parsed.data.viewContext,
@@ -1843,105 +1916,17 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   }
   mergeConversation(project, canvas, actor, turnsBefore);
   if (result.commands.some((c) => /approved|accepted/i.test(c))) await rememberProject(project);
-  const undo = undoBefore ? await keepUndo(project, undoBefore, result.commands[0] ?? 'the last change') : undefined;
-  // Who asked and where is written after the turn was first saved, and the undo after memory's own save:
+  // What this message changed is kept with its reply: listed under it, and undone on its own, later.
+  await keepTurnChanges(project, stood, result.assistantTurn);
+  // Who asked and where is written after the turn was first saved, and what it changed after memory's own save:
   // the record has to count as changed for both to reach storage.
   project.updatedAt = new Date().toISOString();
   await store.save();
-  line({ type: 'result', ...result, project: canvas, ...(undo ? { undo } : {}) });
+  line({ type: 'result', ...result, project: canvas });
   res.end();
 });
 
-/*
- * Undo, for what a person told the chat to do.
- *
- * Their own instruction runs at once — it is their decision — so the canvas
- * offers to take it back instead of asking first. The file as it stood is
- * kept beside the project; undoing puts it back, but only if nothing else
- * has changed the file since, and never the conversation, which records what
- * was said either way. One instruction back, not a history: the snapshot an
- * older instruction kept is dropped when a newer one is kept.
- */
-function fileState(project: DdProject): string {
-  return JSON.stringify(project);
-}
-
-/**
- * The file without what talking about it changes — the conversation, the
- * audit trail, the clock — and, given `known`, only the cards that were
- * already there: a reply that merely proposes something has changed nothing
- * a person would want back.
- */
-function substance(project: DdProject, known?: ReadonlySet<string>): string {
-  const { conversation: _c, updatedAt: _u, audit: _a, lastUndo: _l, chatProposals, ...rest } = project;
-  const cards = (chatProposals ?? []).filter((p) => !known || known.has(p.id)).map((p) => [p.id, p.status, p.payload]);
-  return JSON.stringify({ ...rest, cards });
-}
-
 const fingerprint = (text: string) => createHash('sha256').update(text).digest('hex');
-
-async function keepUndo(project: DdProject, before: string, label: string): Promise<{ token: string; label: string } | undefined> {
-  const was = JSON.parse(before) as DdProject;
-  const known = new Set((was.chatProposals ?? []).map((p) => p.id));
-  if (substance(was, known) === substance(project, known)) return undefined;
-  const token = randomUUID();
-  try {
-    await storageAdapter.putDocument(project.id, `undo-${token}.json`, Buffer.from(before), 'application/json');
-  } catch {
-    return undefined;
-  }
-  const previous = project.lastUndo?.token;
-  project.lastUndo = { token, label, state: fingerprint(substance(project)), at: new Date().toISOString() };
-  if (previous) void storageAdapter.deleteDocument(project.id, `undo-${previous}.json`).catch(() => undefined);
-  return { token, label };
-}
-
-projectsRouter.post('/:projectId/undo/:token', async (req, res) => {
-  const project = findProject(req.params.projectId);
-  if (!project) {
-    res.status(404).json({ error: 'Project not found' });
-    return;
-  }
-  try {
-    assertWorkspaceWork(req, project, 'Undoing an instruction');
-  } catch (err) {
-    fail(res, err);
-    return;
-  }
-  const last = project.lastUndo;
-  if (!last || last.token !== req.params.token) {
-    res.status(404).json({ error: 'There is nothing to undo.' });
-    return;
-  }
-  if (fingerprint(substance(project)) !== last.state) {
-    res.status(409).json({ error: 'The file has changed since, so this can no longer be undone in one step.' });
-    return;
-  }
-  const raw = await storageAdapter.getDocument(project.id, `undo-${last.token}.json`);
-  if (!raw) {
-    res.status(404).json({ error: 'There is nothing to undo.' });
-    return;
-  }
-  const actor = actorOf(req);
-  const before = JSON.parse(raw.toString('utf8')) as DdProject;
-  const conversation = project.conversation;
-  const audit = project.audit;
-  for (const key of Object.keys(project)) delete (project as unknown as Record<string, unknown>)[key];
-  Object.assign(project, before, { conversation, audit, lastUndo: undefined });
-  recordAuditEvent(project, { actor, action: 'undo', entityType: 'project', entityId: project.id, oldValue: last.label });
-  project.conversation.push({
-    id: `cht_${randomUUID()}`,
-    role: 'assistant',
-    text: `Undone: ${last.label.charAt(0).toLowerCase()}${last.label.slice(1)}.`,
-    at: new Date().toISOString(),
-    actor,
-    citedEvidenceIds: [],
-  } as ProjectChatTurn);
-  refreshProjectDerived(project);
-  await store.save();
-  await storageAdapter.deleteDocument(project.id, `undo-${last.token}.json`).catch(() => undefined);
-  res.json({ project });
-});
 
 /* ---------------------------------------------------------------------- */
 /* Deciding on the canvas                                                  */
@@ -2191,6 +2176,8 @@ interface IngestFields {
    * could not tell a questionnaire from a paper and asked.
    */
   dropAs?: ReadonlyMap<string, 'questionnaire' | 'paper' | 'photo'>;
+  /** The same, said in words with the file as it is dropped: "File “x.pdf” as a paper" typed beside the file. */
+  saidOf?: { fileName: string; as: 'questionnaire' | 'paper' | 'photo' };
   viewContext?: string;
   /** The page the documents were dropped on. */
   place?: ChatPlace;
@@ -2250,7 +2237,16 @@ async function savedAsRead(project: DdProject, file: ChatIngestFile): Promise<vo
 async function ingestTurn(req: Request, res: Response, project: DdProject, files: IngestUpload[], fields: IngestFields): Promise<void> {
   const work = readAndFile(req, res, project, files, fields);
   finishAfterReply(work.catch(() => undefined));
-  await work;
+  try {
+    await work;
+  } catch (err) {
+    // Whatever a drop meets before a file of it is read, its reply ends: one left open is a page that waits for ever.
+    console.warn(`[reading] a drop could not be taken in: ${(err as Error).message}`);
+    if (!res.writableEnded) {
+      res.write(`${JSON.stringify({ type: 'error', error: 'These files could not be taken in just now. Drop them again.' })}\n`);
+      res.end();
+    }
+  }
 }
 
 async function readAndFile(req: Request, res: Response, project: DdProject, files: IngestUpload[], fields: IngestFields): Promise<void> {
@@ -2353,6 +2349,26 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   let photosFiled = 0;
 
   /** One line on the stream and one on the desk for a file that is no paper: what became of it. */
+  /**
+   * One thing put on the file after the one before it. A link that fails is
+   * that file's failure and nobody else's: it is said in the reply, and the
+   * papers behind it still land. Before this one failed save left the chain
+   * broken, so nothing after it landed and the reply never ended.
+   */
+  const link = (fileName: string, work: () => Promise<void>): Promise<void> => {
+    const mine = landing.then(work).catch((err: unknown) => {
+      console.warn(`[reading] ${fileName} could not be put on the file: ${(err as Error).message}`);
+      refused.push(`${fileName}: something went wrong as it was put on the file. Check it is in the documents; if it is not, say “Read the filed documents”.`);
+    });
+    landing = mine;
+    return mine;
+  };
+  /** A photograph's reading that goes on after the reply: the suggestion it leaves arrives when it arrives. */
+  const late: Array<Promise<void>> = [];
+  /** Settled once the reply has been written and saved, so that what arrives late is written after it and never through it. */
+  let replied!: () => void;
+  const afterReply = new Promise<void>((done) => (replied = done));
+
   const tookAs = (row: ChatIngestFile, as: 'voice' | 'photo', said: string): void => {
     reading({ type: 'reading', event: 'taken', key: row.storageKey, as, said: said.replace(/\.$/, '') });
     line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_result', label: `${row.fileName}: ${said.charAt(0).toLowerCase()}${said.slice(1).replace(/\.$/, '')}` } });
@@ -2366,7 +2382,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   const voice = async (index: number, row: ChatIngestFile, file: IngestUpload): Promise<'taken'> => {
     reading({ type: 'reading', event: 'start', key: row.storageKey, fileName: row.fileName, mimeType: row.mimeType, sizeBytes: row.sizeBytes, index, total: files.length });
     const heard = await takeVoiceNote({ project, file: row, bytes: file.buffer, actor, captured: file.captured });
-    const mine = (landing = landing.then(async () => {
+    await link(row.fileName, async () => {
       await store.syncProject(project.id, { force: true });
       if (heard.card) {
         for (const held of new Set([project, canvas])) (held.chatProposals ??= []).push(heard.card);
@@ -2385,8 +2401,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       await store.save();
       fromSite.push({ index, said: heard.said });
       tookAs(row, 'voice', heard.said);
-    }));
-    await mine;
+    });
     return 'taken';
   };
 
@@ -2397,7 +2412,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
    */
   const photo = async (index: number, row: ChatIngestFile, file: IngestUpload): Promise<'taken'> => {
     let filed: EvidenceRecord | undefined;
-    const mine = (landing = landing.then(async () => {
+    await link(row.fileName, async () => {
       await store.syncProject(project.id, { force: true });
       const { row: on, said } = fileSitePhoto({ project: canvas, file: row, bytes: file.buffer, actor, captured: file.captured });
       filed = on;
@@ -2409,23 +2424,32 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       fromSite.push({ index, said: `${said}.` });
       reading({ type: 'reading', event: 'filed', key: row.storageKey, row: on });
       tookAs(row, 'photo', said);
-    }));
-    await mine;
+    });
     if (!filed) return 'taken';
     const on = filed;
-    try {
-      const write = await readSitePhoto({ project: canvas, row: on, bytes: file.buffer, actor });
-      if (write) {
-        await (landing = landing.then(async () => {
-          write();
-          project.updatedAt = new Date().toISOString();
-          await store.save();
-          reading({ type: 'reading', event: 'filed', key: row.storageKey, row: on });
-        }));
-      }
-    } catch (err) {
-      console.warn(`[reading] the photograph ${row.fileName} was filed and not read: ${(err as Error).message}`);
-    }
+    /*
+     * What the photograph shows is read without the reply waiting for it. The
+     * reader has a time limit of its own, and its suggestion is written once
+     * the reply is saved: a drop of photographs used to have no reply, and no
+     * cards, for as long as a reader took to answer.
+     */
+    late.push(
+      (async () => {
+        try {
+          const write = await readSitePhoto({ project: canvas, row: on, bytes: file.buffer, actor });
+          if (!write) return;
+          await afterReply;
+          await link(row.fileName, async () => {
+            await store.syncProject(project.id, { force: true });
+            write();
+            project.updatedAt = new Date().toISOString();
+            await store.save();
+          });
+        } catch (err) {
+          console.warn(`[reading] the photograph ${row.fileName} was filed and not read: ${(err as Error).message}`);
+        }
+      })(),
+    );
     return 'taken';
   };
 
@@ -2434,10 +2458,10 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
    * no longer a file waiting to be filed. Its answers are suggested once
    * every paper of the drop is on the file.
    */
-  const takeIn = async (index: number, row: ChatIngestFile, parsed: ParsedQuestionnaire): Promise<void> => {
+  const takeIn = async (index: number, row: ChatIngestFile, from: ReadQuestionnaire): Promise<void> => {
     try {
       await store.syncProject(project.id, { force: true });
-      const record = addQuestionnaire(project, { title: row.fileName.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '), department: fields.place?.department, fileName: row.fileName, parsed }, actor);
+      const record = addQuestionnaire(project, { title: row.fileName.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '), department: fields.place?.department, fileName: row.fileName, fileKey: row.storageKey, parsed: from.parsed, leftOut: from.leftOut }, actor);
       dropNotes([row.storageKey]);
       project.updatedAt = new Date().toISOString();
       await store.save();
@@ -2457,9 +2481,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       reading({ type: 'reading', event: 'read', key: row.storageKey, facts: [], failure: `Not read yet: ${between === 'photo' ? 'a photograph of the site' : 'a questionnaire'}, or a paper to file? Say which in the chat.` });
       return 'asked';
     }
-    const parsed = sorted.read.parsed;
-    const mine = (landing = landing.then(() => takeIn(index, row, parsed)));
-    await mine;
+    const from = sorted.read;
+    await link(row.fileName, () => takeIn(index, row, from));
     return 'taken';
   };
 
@@ -2476,8 +2499,14 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       await keepPageTexts(project.id, [paper]);
       await store.syncProject(project.id, { force: true });
       const evidenceId = landIngestFile(canvas, paper, actor, sitting);
-      // On its row now: no longer a file waiting to be filed, unread.
-      for (const held of new Set([project, canvas])) {
+      /*
+       * On its row now: no longer a file waiting to be filed, unread. Not for
+       * an outside collaborator's paper. The row it lands on is on their copy
+       * of the project, which is thrown away with the request, so on the
+       * project itself the paper is still on no row: its note stays there,
+       * where the firm sees it and can file or read it.
+       */
+      for (const held of canvas === project ? [project] : [canvas]) {
         held.chatProposals = (held.chatProposals ?? []).filter((card) => !(isNotReadYetCard(card) && card.payload.storageKey === paper.storageKey));
       }
       // How much of the file was read goes with the file, onto its row.
@@ -2536,18 +2565,23 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
        * Decided once, in one place (`whatWasDropped`), from the file as it was
        * just read, and before a model is asked or anything is put on a row.
        */
+      // What a person said the file is: pressed for a file held earlier, or typed with the file as it is dropped again.
+      const said = fields.dropAs?.get(storageKey) ?? (fields.saidOf?.fileName === row.fileName ? fields.saidOf.as : undefined);
       const what = await whatWasDropped({
         project,
         paper,
         file,
-        said: fields.dropAs?.get(storageKey),
-        fresh: !file.storageKey || fields.dropAs?.get(storageKey) === 'questionnaire',
+        said,
+        fresh: !file.storageKey || said === 'questionnaire',
         whole: canvas === project,
         pages: pageTexts,
+        view: file.captured?.view,
       });
       if (what.as === 'questionnaire' || what.as === 'unsure') return await settle(index, row, what);
       if (what.as === 'photo') return await photo(index, row, file);
       if (what.as === 'notes') notes = what.sure ? 'yes' : 'maybe';
+      // It might have been a questionnaire and could not be opened as one: said, since it is filed as a paper.
+      if (what.as === 'paper' && what.why) refused.push(`${row.fileName}: ${what.why}`);
       reading({
         type: 'reading',
         event: 'read',
@@ -2623,11 +2657,17 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     read[index] = paper;
     // Notes of a meeting are no paper: the turn keeps them as a meeting, or asks. Their pages are still kept, with the turn.
     if (notes !== 'no') return 'read';
-    const mine = (landing = landing.then(() => land(paper, index)));
-    await mine;
+    await link(row.fileName, () => land(paper, index));
     return 'read';
   });
   await landing;
+
+  /*
+   * The reply. Whatever goes wrong in writing it, the stream ends and says
+   * what became of each file: a reply left open is a page that waits for
+   * ever, with papers on the file it never hears of.
+   */
+  try {
 
   const enriched = read.filter((paper): paper is ChatIngestFile => paper !== undefined);
   let unread = lanes.filter((lane) => lane.status === 'fulfilled' && lane.value === 'left').length;
@@ -2640,10 +2680,12 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
    */
   await store.syncProject(project.id, { force: true });
   turnsBefore = project.conversation.length;
-  // Every paper read is filed by this turn or was filed as it landed: none is left waiting as a file unread.
-  for (const held of new Set([project, canvas])) {
+  // Every paper read is filed by this turn or was filed as it landed: none is left waiting as a file unread. On the project
+  // itself an outside collaborator's papers are on no row, and their notes stay (see `land`).
+  for (const held of canvas === project ? [project] : [canvas]) {
     held.chatProposals = (held.chatProposals ?? []).filter((card) => !(isNotReadYetCard(card) && enriched.some((paper) => paper.storageKey === card.payload.storageKey)));
   }
+  const waitsForTheFirm = canvas === project ? 0 : enriched.length;
   // The rows this drop added sit on the register in the order dropped, whichever paper was read first.
   const added = [...new Set(landedOn.filter((id): id is string => id !== undefined && !before.has(id)))];
   const slots = canvas.evidence.flatMap((e, at) => (added.includes(e.id) ? [at] : []));
@@ -2659,9 +2701,15 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       suggestFromFile(project, id, actor);
       return findQuestionnaire(project, id);
     });
+  // Pictures made smaller before they were sent: said, since the smaller copy is the one that is kept.
+  const smaller = dropped.flatMap(({ file }) => (file.captured?.shrunkTo ? [file.captured.shrunkTo] : []));
   const sorted = [
     ...questionnaires.map(takenInSaid),
     ...fromSite.sort((a, b) => a.index - b.index).map(({ said }) => said),
+    ...(smaller.length
+      ? [`${smaller.length === 1 ? 'One picture was' : `${smaller.length} pictures were`} made smaller before ${smaller.length === 1 ? 'it was' : 'they were'} sent, to ${Math.min(...smaller).toLocaleString('en-IN')} pixels on the long side. The smaller ${smaller.length === 1 ? 'copy is' : 'copies are'} what is kept here.`]
+      : []),
+    ...(waitsForTheFirm ? [`${waitsForTheFirm === 1 ? 'It is' : 'They are'} kept, and ${waitsForTheFirm === 1 ? 'waits' : 'wait'} for the firm to put on the register.`] : []),
     ...refused,
     ...unsure.sort((a, b) => a.index - b.index).map(({ fileName, between }) => unsureSaid(fileName, between)),
   ];
@@ -2708,6 +2756,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   }
   // How much of each file was read goes with the file: onto its row where it has one, else onto the card that will file it.
   keepReadings(canvas, enriched);
+  // What this drop changed is kept with its reply, against the file as it stood before the drop: listed under it, and undone on its own.
+  if (canvas === project) await keepTurnChanges(project, asItStood, result.assistantTurn);
   /*
    * The reply's receipt says how far the file moved, and the papers were put
    * on it as they were read, before this turn. So it is counted from the file
@@ -2749,6 +2799,19 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   await store.save();
   line({ type: 'result', ...result, project: canvas });
   res.end();
+  } catch (err) {
+    console.warn(`[reading] the reply to a drop could not be written: ${(err as Error).message}`);
+    const became = dropped.map(({ index, row }) => {
+      const on = Boolean(read[index]?.landed || landedOn[index] || taken.some((t) => t.index === index) || fromSite.some((f) => f.index === index));
+      return `${row.fileName}: ${on ? 'on the file' : 'kept, and not yet on the file'}`;
+    });
+    line({ type: 'error', error: `The reply could not be written. ${became.join('. ')}. Say “Read the filed documents” for anything not yet on the file.` });
+    if (!res.writableEnded) res.end();
+  } finally {
+    replied();
+  }
+  // What a photograph shows may still be being read: its suggestion is written when it comes, after the reply.
+  await Promise.allSettled(late);
 }
 
 projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), async (req, res) => {
@@ -2767,6 +2830,7 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
   const captured = capturedFrom(body.captured, files.length);
   await ingestTurn(req, res, project, files.map((file, i) => ({ originalname: file.originalname, mimetype: file.mimetype, size: file.size, buffer: file.buffer, captured: captured[i] })), {
     question: typeof body.question === 'string' ? body.question : '',
+    saidOf: droppedAnswer(typeof body.question === 'string' ? body.question : '') ?? undefined,
     viewContext: typeof body.viewContext === 'string' ? body.viewContext : undefined,
     place: placeFromForm(body.place) ?? chatPlaceFrom(undefined, typeof body.viewContext === 'string' ? body.viewContext : undefined),
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
@@ -2931,8 +2995,11 @@ projectsRouter.delete('/:projectId/chat', async (req, res) => {
     fail(res, err);
     return;
   }
+  const gone = [...project.conversation];
   clearProjectConversation(project);
   await store.save();
+  // Nothing is left to undo these from.
+  await forgetTurnChanges(project.id, gone);
   res.status(204).end();
 });
 

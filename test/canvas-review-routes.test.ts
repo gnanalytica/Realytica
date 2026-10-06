@@ -21,6 +21,7 @@ import {
   createProject,
   type ChatIngestFile,
   type DdProject,
+  type ProjectChatTurn,
 } from '@realytica/shared';
 
 let server: Server;
@@ -38,7 +39,7 @@ async function call(method: string, route: string, body?: unknown): Promise<{ st
 }
 
 /** The chat answers in NDJSON; the last line carries the result. `sitting` is the chat it is asked in and when that began, as the page sends them. */
-async function chat(projectId: string, question: string, sitting: { sessionId?: string; sessionStartedAt?: string } = {}): Promise<Record<string, unknown>> {
+async function chat(projectId: string, question: string, sitting: { sessionId?: string; sessionStartedAt?: string; sitting?: Record<string, unknown> } = {}): Promise<Record<string, unknown>> {
   const res = await fetch(`${base}/api/projects/${projectId}/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -247,32 +248,34 @@ describe('where a model is configured', () => {
 });
 
 describe('undo', () => {
-  it('is offered for an instruction, not for a question', async () => {
+  /** Press Undo under a reply: the reply goes beside the sentence, and the sentence is not read. */
+  const undo = (projectId: string, turn: { id: string }): Promise<Record<string, unknown>> => chat(projectId, 'Undo that message', { sitting: { undo: { turnId: turn.id } } });
+
+  it('is offered under an instruction that changed the file, not under a question', async () => {
     const p = await seeded(false);
     const asked = await chat(p.id, 'what is the budget?');
-    assert.equal(asked.undo, undefined, 'a question changed nothing to take back');
+    assert.equal((asked.assistantTurn as ProjectChatTurn).changed, undefined, 'a question changed nothing to take back');
 
     const done = await chat(p.id, 'approve all');
-    const undo = done.undo as { token: string; label: string } | undefined;
-    assert.ok(undo?.token, 'an instruction that changed the file can be taken back');
+    const reply = done.assistantTurn as ProjectChatTurn;
+    assert.ok(reply.changed?.kept && reply.changed.lines.length > 0, 'an instruction that changed the file lists what it changed');
     assert.equal((done.project as DdProject).assessments.length, 1);
 
-    const back = await call('POST', `/api/projects/${p.id}/undo/${undo!.token}`);
-    assert.equal(back.status, 200);
-    const restored = back.body.project as DdProject;
+    const back = await undo(p.id, reply);
+    const restored = back.project as DdProject;
     assert.equal(restored.assessments.length, 0, 'the DD is gone again');
     assert.ok(restored.chatProposals.some((c) => c.kind === 'start_dd' && c.status === 'proposed'), 'and waits again');
-    assert.match(restored.conversation.at(-1)!.text, /^Undone: /);
+    assert.match(restored.conversation.at(-1)!.text, /^Undone/);
     assert.ok(restored.conversation.some((t) => t.text === 'approve all'), 'what was said stays said');
 
-    const twice = await call('POST', `/api/projects/${p.id}/undo/${undo!.token}`);
-    assert.equal(twice.status, 404, 'one instruction, taken back once');
+    const twice = await undo(p.id, reply);
+    assert.match((twice.assistantTurn as ProjectChatTurn).text, /already undone/, 'one message, undone once');
+    assert.equal((twice.project as DdProject).assessments.length, 0);
   });
 
-  it('is refused once anything else has changed the file', async () => {
+  it('is not refused once something else has changed the file, and leaves that alone', async () => {
     const p = await seeded(false);
     const done = await chat(p.id, 'approve all');
-    const undo = done.undo as { token: string };
     const project = done.project as DdProject;
     const row = project.evidence.find((e) => (e.facts ?? []).some((f) => f.review === 'proposed'));
     const waiting = project.chatProposals.find((c) => c.status === 'proposed');
@@ -280,7 +283,11 @@ describe('undo', () => {
     else if (waiting) await call('POST', `/api/projects/${p.id}/proposals/${waiting.id}/set-aside`);
     else assert.fail('something should still be waiting after the DD started');
 
-    const refused = await call('POST', `/api/projects/${p.id}/undo/${undo.token}`);
-    assert.equal(refused.status, 409);
+    const back = await undo(p.id, done.assistantTurn as ProjectChatTurn);
+    const after = back.project as DdProject;
+    // What the person decided afterwards stands, whatever the undo could put back around it.
+    if (row) assert.ok(after.evidence.find((e) => e.id === row.id)!.facts!.every((f) => f.review !== 'proposed'), 'the values set aside since are still set aside');
+    else assert.equal(after.chatProposals.find((c) => c.id === waiting!.id)!.status, 'rejected', 'the card set aside since is still set aside');
+    assert.match((back.assistantTurn as ProjectChatTurn).text, /^(?:Undone|Nothing was undone\.)/, 'and the chat says what went back and what did not');
   });
 });

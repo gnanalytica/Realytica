@@ -665,6 +665,8 @@ export const projectChatBodySchema = z.object({
           step: z.number().int().min(1).max(20).optional(),
         })
         .optional(),
+      /** The Undo under a reply: the reply whose changes are put back, by its id. It reads no words. */
+      undo: z.object({ turnId: z.string().max(120) }).optional(),
     })
     .optional(),
 });

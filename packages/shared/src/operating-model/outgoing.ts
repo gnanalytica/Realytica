@@ -22,8 +22,10 @@
  *
  * A draft changes nothing on the record. A person reads it and changes it
  * on the page. It goes out only after a lead or a signer on the project
- * approves it by name, and a change after that puts it back to draft. The
- * app sends nothing: the Word file is a person's to send.
+ * approves it by name, and a change after that puts it back to draft. An
+ * approval is of the draft the approver was shown (`outgoingSeen`): one that
+ * has changed since is not approved until it is read again. The app sends
+ * nothing: the Word file is a person's to send.
  *
  * Kept pure. This file is imported by the chat's rules, so nothing at its
  * top level calls into another module.
@@ -625,6 +627,43 @@ export function setOutgoingBody(project: DdProject, draftId: string, body: strin
   return draft;
 }
 
+/**
+ * A draft as a person is shown it, in one text: everything of its own that
+ * its file says. Who it is to, its subject and its body, the sources behind
+ * its statements, and whether it is approved, by whom and when. Two copies of
+ * a draft give the same text only where they say the same.
+ *
+ * Whoever approves a draft, takes an approval back or makes its file sends
+ * this for the copy on their screen, and it is set against the draft as it
+ * stands (`shownStill`). So an approval is of the words a person read, never
+ * of words that arrived after they opened it. It is the words themselves and
+ * not a digest of them: no two drafts share one, so none can be made to.
+ */
+export function outgoingSeen(draft: OutgoingDraft): string {
+  return JSON.stringify([
+    draft.kind,
+    draft.ref,
+    draft.dated,
+    draft.to,
+    draft.subject,
+    draft.about ? `${draft.about.kind}:${draft.about.id}` : '',
+    draft.body,
+    draft.status,
+    draft.approvedBy ?? '',
+    draft.approvedName ?? '',
+    draft.approvedAt ?? '',
+    draft.sources.map((source) => [source.n, source.kind, source.id, source.itemId ?? '', source.title, source.page ?? 0, source.says, source.quote ?? '', source.passage ? 1 : 0, source.waiting ? 1 : 0]),
+  ]);
+}
+
+/** What somebody is told when the draft they act on is not the draft they were shown. */
+export const OUTGOING_CHANGED = 'This draft was changed after you opened it.';
+
+/** Refuses an act on a draft that no longer says what the person acting was shown. `before` names the act they are to read it again for. */
+function shownStill(draft: OutgoingDraft, seen: string, before: string): void {
+  if (seen !== outgoingSeen(draft)) throw new Error(`${OUTGOING_CHANGED} Read it again before you ${before}.`);
+}
+
 /** Why a draft cannot be approved as it stands, in words for a person. Empty when it can. */
 export function outgoingNeeds(project: DdProject, draft: OutgoingDraft): string[] {
   const needs: string[] = [];
@@ -644,11 +683,15 @@ export function outgoingNeeds(project: DdProject, draft: OutgoingDraft): string[
 
 /**
  * Approves a draft for sending, by name, and keeps the time. Whether this
- * person may is the caller's to ask first (`mayApproveOutgoing`). The trail
- * keeps a line (`outgoing_approved`). The day on the draft becomes this day.
+ * person may is the caller's to ask first (`mayApproveOutgoing`). `seen` is
+ * the draft as the approver was shown it (`outgoingSeen`): a draft that has
+ * changed since is not approved, and they are told to read it again. The
+ * trail keeps a line (`outgoing_approved`). The day on the draft becomes
+ * this day.
  */
-export function approveOutgoing(project: DdProject, draftId: string, approver: { actor: string; name?: string }, at = new Date().toISOString()): OutgoingDraft {
+export function approveOutgoing(project: DdProject, draftId: string, approver: { actor: string; name?: string; seen: string }, at = new Date().toISOString()): OutgoingDraft {
   const draft = draftOn(project, draftId);
+  shownStill(draft, approver.seen, 'approve');
   if (draft.status === 'approved') return draft;
   const needs = outgoingNeeds(project, draft);
   if (needs.length) throw new Error(needs[0]);
@@ -661,17 +704,25 @@ export function approveOutgoing(project: DdProject, draftId: string, approver: {
   return draft;
 }
 
-/** Takes an approval back: the draft is a draft again. */
-export function reopenOutgoing(project: DdProject, draftId: string, actor: string, at = new Date().toISOString()): OutgoingDraft {
+/** Takes an approval back: the draft is a draft again. Only the approval the person was shown (`seen`): one given since, to other words, is not theirs to take back unread. */
+export function reopenOutgoing(project: DdProject, draftId: string, by: { actor: string; seen: string }, at = new Date().toISOString()): OutgoingDraft {
   const draft = draftOn(project, draftId);
-  backToDraft(project, draft, actor, at, 'approval taken back');
+  shownStill(draft, by.seen, 'take the approval back');
+  backToDraft(project, draft, by.actor, at, 'approval taken back');
   return draft;
 }
 
-/** A Word file of the draft was made. The trail says whether what left was a draft or approved (`outgoing_exported`). */
-export function noteOutgoingExported(project: DdProject, draftId: string, actor: string, at = new Date().toISOString()): OutgoingDraft {
+/**
+ * A Word file of the draft is about to be handed over. `seen` is the draft
+ * the file was made from. Where the draft no longer says that, no file is to
+ * leave: one that says it is approved is made from the approved words and
+ * from no others. The trail says whether what left was a draft or approved
+ * (`outgoing_exported`).
+ */
+export function noteOutgoingExported(project: DdProject, draftId: string, by: { actor: string; seen: string }, at = new Date().toISOString()): OutgoingDraft {
   const draft = draftOn(project, draftId);
-  recordAuditEvent(project, { at, actor, action: 'outgoing_exported', entityType: 'outgoing', entityId: draft.id, newValue: draft.status === 'approved' ? 'approved' : 'draft, not approved' });
+  shownStill(draft, by.seen, 'export it');
+  recordAuditEvent(project, { at, actor: by.actor, action: 'outgoing_exported', entityType: 'outgoing', entityId: draft.id, newValue: draft.status === 'approved' ? 'approved' : 'draft, not approved' });
   return draft;
 }
 

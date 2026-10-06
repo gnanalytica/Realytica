@@ -8,6 +8,11 @@
  * An alert that names a person, as one about an action past its date does,
  * goes to that person too, when they are a member here (`alertNamed`).
  *
+ * Nobody is sent what they could not read in the app (`mayHear`): the firm's
+ * own people are told of any alert, and somebody working from a grant only of
+ * one their own copy of the project holds. A name on an alert is matched
+ * among those people and nobody else.
+ *
  * Email goes through Resend when `REALYTICA_RESEND_API_KEY` is set; push
  * through Expo's push service to the phones those people paired. Neither is
  * required: with nothing configured, alerts stay in the app and on the phone's
@@ -15,7 +20,8 @@
  */
 
 import { readEnv } from '@realytica/agents';
-import { departmentRole, sameEmail, type DdProject, type DepartmentKey, type ProjectAlert } from '@realytica/shared';
+import { departmentRole, projectView, reachesEveryProject, sameEmail, type DdProject, type DepartmentKey, type ProjectAlert } from '@realytica/shared';
+import { liveGrant } from './auth/access';
 import { store } from './store';
 
 const SEND_TIMEOUT_MS = 6_000;
@@ -43,20 +49,47 @@ export function alertRecipients(project: DdProject, department: DepartmentKey): 
 }
 
 /**
+ * Whether somebody may be told of an alert by mail or on their phone: what
+ * they could read of it in the app, and no more. The firm's own people may be
+ * told of any alert. Somebody working from a grant, on the project's team or
+ * not, only of one their own copy of the project holds (`projectView`), so
+ * an action, a paper or a meeting withheld from them does not reach them
+ * this way either. Anybody else, of none.
+ */
+export function mayHear(project: DdProject, alert: ProjectAlert, email: string): boolean {
+  const tenantId = project.tenantId ?? store.data.tenants?.[0]?.id;
+  const member = (store.data.memberships ?? []).find((held) => held.tenantId === tenantId && sameEmail(held.email, email));
+  if (member && reachesEveryProject(member.role)) return true;
+  const grant = tenantId ? liveGrant(tenantId, project.id, email) : undefined;
+  if (!grant) return false;
+  return (projectView(project, { kind: 'granted', grant, email }).project.alerts ?? []).some((held) => held.key === alert.key);
+}
+
+/**
  * The people an alert names, as addresses to send to. An alert about an
  * action past its date names who the action is on, in the words the record
- * has: an address, or a name. Either is a person here only when it is a
- * member of the project's team or of the workspace, and a name only when
- * exactly one member goes by it, in full or by first name. Nobody is guessed
- * at, and nothing is sent to an address the workspace does not know.
+ * has: an address, or a name. Either is a person here only among those who
+ * may be told of the alert (`mayHear`): the firm's own people, and somebody
+ * outside only when their grant reaches what it is about. A name is a person
+ * only when exactly one of them goes by it, in full or by first name. Where
+ * two do, nobody is sent it by name, and the department's lead still is.
+ * Nobody is guessed at, and nothing is sent to an address the workspace does
+ * not know.
  */
-export function alertNamed(project: DdProject, names: readonly string[] | undefined): string[] {
+export function alertNamed(project: DdProject, alert: ProjectAlert): string[] {
+  const names = alert.to;
   if (!names?.length) return [];
   const tenantId = project.tenantId ?? store.data.tenants?.[0]?.id;
+  const told = new Map<string, boolean>();
+  const mayBeTold = (email: string): boolean => {
+    const key = email.toLowerCase();
+    if (!told.has(key)) told.set(key, mayHear(project, alert, email));
+    return told.get(key)!;
+  };
   const people = [
     ...(project.team ?? []).map((member) => ({ email: member.email, name: member.name })),
     ...(store.data.memberships ?? []).filter((member) => member.tenantId === tenantId).map((member) => ({ email: member.email, name: member.name })),
-  ];
+  ].filter((person) => mayBeTold(person.email));
   const out = new Set<string>();
   for (const raw of names) {
     const said = raw.trim().toLowerCase();
@@ -114,7 +147,8 @@ async function sendPush(project: DdProject, alert: ProjectAlert, to: string[]): 
 export async function notifyRaised(project: DdProject, raised: ProjectAlert[]): Promise<void> {
   for (const alert of raised.filter(worthSending)) {
     try {
-      const to = [...new Set([...alertRecipients(project, alert.department), ...alertNamed(project, alert.to)])];
+      // A lead or a signer from outside the firm is held to the same rule as a name: only what their own copy of the project holds.
+      const to = [...new Set([...alertRecipients(project, alert.department), ...alertNamed(project, alert)])].filter((email) => mayHear(project, alert, email));
       const [mailed, pushed] = await Promise.all([sendEmail(project, alert, to), sendPush(project, alert, to)]);
       if (mailed || pushed) alert.sentAt = new Date().toISOString();
     } catch (err) {

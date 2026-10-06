@@ -6,7 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
-import { proofOf, proposeOnRow, standingAsRead, waitingAsRead } from './fact-review';
+import { proofOf, proposeOnRow, standingAsRead, standingFacts, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
@@ -592,7 +592,12 @@ export function proposalsFromIngest(
       const source = { fileName: file.fileName, evidenceId: classified.evidence?.id, storageKey: file.storageKey, documentLabel: read.label };
       // A document as it is read is the one moment its disagreement with what is recorded is worth raising.
       // To the checks go the values that stand. A model's, and one two readers differ on, wait on the row.
-      out.push(...factFillProposals(project, standingAsRead(read), source, actor, out, { differences: true }));
+      // A paper put on its row as it was read (`landed`) has been in front of people since. A value set aside or corrected there
+      // meanwhile is what the paper states now, so its checks are offered the row as it stands, never the reading as it was read.
+      const onRow = file.landed && classified.evidence?.attachments.some((a) => a.storageKey === file.storageKey) ? classified.evidence : undefined;
+      const brought = new Set([...standingAsRead(read), ...waitingAsRead(read)].map((fact) => fact.key));
+      const offered = onRow ? standingFacts(onRow).filter((fact) => brought.has(fact.key)) : standingAsRead(read);
+      out.push(...factFillProposals(project, offered, source, actor, out, { differences: true }));
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }
@@ -734,7 +739,9 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     // one the row already accepts is not asked again. Put there once the row
     // says what the paper is, so a value its kind does not carry never waits.
     // Not a second time where this very reading was put on the row as the paper was read (`landIngestFile`).
-    if (Array.isArray(payload.facts) && payload.facts.length && payload.landed !== true) {
+    // Only where the row still holds it: a paper whose row has gone since it landed is filed again here, values and all.
+    const landedHere = payload.landed === true && evidence.attachments.some((a) => a.storageKey === payload.storageKey);
+    if (Array.isArray(payload.facts) && payload.facts.length && !landedHere) {
       evidence.facts = proposeOnRow(evidence, payload.facts as DocumentFact[]);
       recordAuditEvent(project, { actor, action: 'read', entityType: 'evidence', entityId: evidence.id, newValue: `${payload.facts.length} value(s)` });
     }

@@ -51,6 +51,7 @@ import {
   type PlanWant,
   type ProjectChatTurn,
 } from '@realytica/shared';
+import { keepTurnChanges, recordBefore } from '../chat-changes';
 import { READ_FILED_REQUEST } from '../documents/reread';
 import { store } from '../store';
 import { planStepNarrowed, planStepsFor, runPlanStep, type PlanSetting } from './plan-steps';
@@ -329,6 +330,8 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
     step.state = 'running';
     await keep();
     input.onStep?.(`Step ${n} of ${inPlan.length}: ${step.label}`);
+    // The record as it stood before the step: what the step changed is kept with the line that ticks it off, and is undone on its own.
+    const stood = recordBefore(project);
     try {
       const done = await runPlanStep({
         ...input,
@@ -344,7 +347,8 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
       step.said = done.said;
       step.state = done.complete ? 'done' : 'to_do';
       if (done.complete) step.endedAt = new Date().toISOString();
-      planSays(project, plan, `Step ${n} of ${inPlan.length} ${done.complete ? 'done' : 'stopped part way'}. ${step.label}: ${done.said}`, { tool: PLAN_STEP, summary: `${done.complete ? 'Done' : 'Part done'}: ${step.label}` });
+      const tick = planSays(project, plan, `Step ${n} of ${inPlan.length} ${done.complete ? 'done' : 'stopped part way'}. ${step.label}: ${done.said}`, { tool: PLAN_STEP, summary: `${done.complete ? 'Done' : 'Part done'}: ${step.label}` });
+      await keepTurnChanges(project, stood, tick);
       await saved();
       await keep();
       if (!done.complete) break;
@@ -352,7 +356,9 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
       step.state = 'failed';
       step.said = err instanceof Error ? err.message : 'It could not be done.';
       plan.stoppedBecause = `Step ${n} could not be done: ${step.said}`;
-      planSays(project, plan, `Step ${n} of ${inPlan.length} could not be done. ${step.label}: ${step.said}`, { tool: PLAN_STEP, summary: `Not done: ${step.label}` });
+      const tick = planSays(project, plan, `Step ${n} of ${inPlan.length} could not be done. ${step.label}: ${step.said}`, { tool: PLAN_STEP, summary: `Not done: ${step.label}` });
+      // A step that failed part way may have changed something before it did.
+      await keepTurnChanges(project, stood, tick);
       await saved();
       break;
     }

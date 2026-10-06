@@ -2709,6 +2709,8 @@ export interface ChoicePin {
    * button pressed under an old plan acts on that plan and on no other.
    */
   plan?: { id: string; act: 'run' | 'cancel' | 'stop' | 'carry_on' | 'take_out'; step?: number };
+  /** On the Undo under a reply: the reply whose changes are put back, by its id. The sentence beside it is not read. */
+  undo?: { turnId: string };
 }
 
 export interface CopilotTurn {
@@ -2752,6 +2754,8 @@ export interface CopilotTurn {
   unanswered?: string;
   /** The plan this turn shows or reports on, by its id in the run ledger. See `ProjectChatTurn`. */
   planId?: string;
+  /** On a project's chat: what this reply changed on the record, and whether it has been undone. */
+  changed?: import('./operating-model/turn-changes').TurnChanged;
 }
 
 /* ------------------------------------------------------------------ */

@@ -1130,6 +1130,8 @@ export interface AuditEvent {
   factKey?: string;
   /** On a change to the project's own fields: the fields it set. */
   fields?: string[];
+  /** On an undo: the records it put something back on, by their ids. */
+  about?: string[];
 }
 
 export interface ValuationApproachResult {
@@ -1496,6 +1498,13 @@ export interface ProjectChatTurn {
    * turn written an hour ago shows the plan as it stands now.
    */
   planId?: string;
+  /**
+   * What this reply changed on the record, as the lines a person reads, and
+   * whether it has been undone. What it takes to put the changes back is
+   * kept beside the project and not here (`turn-changes.ts`). Absent on a
+   * reply that changed nothing.
+   */
+  changed?: import('./turn-changes').TurnChanged;
 }
 
 export type ChatProposalKind =
@@ -2013,10 +2022,10 @@ export interface DdProject {
   orchestratorRuns: OrchestratorRun[];
   audit: AuditEvent[];
   /**
-   * The last instruction given in the chat that changed the file, and how to
-   * take it back. The file as it stood is kept beside the project under
-   * `token`; `state` fingerprints the file just after, so an undo is refused
-   * once anything else has changed it.
+   * Written by an earlier build, which kept one whole copy of the file for
+   * the last instruction. Nothing reads it now: what each message changed is
+   * kept with the message (`ProjectChatTurn.changed`, `turn-changes.ts`). It
+   * stays on the type because records written then still carry it.
    */
   lastUndo?: { token: string; label: string; state: string; at: string };
   /**

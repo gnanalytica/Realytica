@@ -29,6 +29,7 @@ import {
   outgoingBodyHeld,
   outgoingDocument,
   outgoingNeeds,
+  outgoingSeen,
   outgoingSources,
   outgoingStatements,
   paperPassages,
@@ -246,17 +247,29 @@ describe('a draft', () => {
     assert.equal(may('ravi@firm.test', 'staff'), true);
 
     assert.deepEqual(outgoingNeeds(p, draft), ['Say who it goes to.', 'It has no body yet.']);
-    assert.throws(() => approveOutgoing(p, draft.id, { actor: 'asha@firm.test' }), /who it goes to/);
+    assert.throws(() => approveOutgoing(p, draft.id, { actor: 'asha@firm.test', seen: outgoingSeen(draft) }), /who it goes to/);
     editOutgoing(p, draft.id, { to: 'The Sub-Registrar', body: 'The deed was registered on 9 July 2021. [2]\nKindly send a certified copy.' }, 'ravi@firm.test');
-    approveOutgoing(p, draft.id, { actor: 'asha@firm.test', name: 'Asha Rao' }, '2026-10-07T10:00:00.000Z');
+
+    // An approval is of the words the approver read. Changed after she opened it, the draft is not approved until she reads it again.
+    const read = outgoingSeen(draft);
+    editOutgoing(p, draft.id, { body: 'The deed was registered on 9 July 2021. [2]\nWe waive any claim over the access road.' }, 'ravi@firm.test');
+    assert.throws(() => approveOutgoing(p, draft.id, { actor: 'asha@firm.test', seen: read }), { message: 'This draft was changed after you opened it. Read it again before you approve.' });
+    assert.throws(() => approveOutgoing(p, draft.id, { actor: 'asha@firm.test', seen: '' }), /changed after you opened it/, 'and one that says nothing of what was read is not approved either');
+    assert.equal(draft.status, 'draft');
+    editOutgoing(p, draft.id, { body: 'The deed was registered on 9 July 2021. [2]\nKindly send a certified copy.' }, 'ravi@firm.test');
+
+    approveOutgoing(p, draft.id, { actor: 'asha@firm.test', name: 'Asha Rao', seen: outgoingSeen(draft) }, '2026-10-07T10:00:00.000Z');
     assert.deepEqual([draft.status, draft.approvedBy, draft.approvedName, draft.approvedAt, draft.dated], ['approved', 'asha@firm.test', 'Asha Rao', '2026-10-07T10:00:00.000Z', '2026-10-07']);
 
-    noteOutgoingExported(p, draft.id, 'ravi@firm.test');
+    // A file is made from the draft as it stands, and an approval is taken back by somebody who was shown it: neither from a copy read before it was approved.
+    assert.throws(() => noteOutgoingExported(p, draft.id, { actor: 'ravi@firm.test', seen: read }), /Read it again before you export it\./);
+    assert.throws(() => reopenOutgoing(p, draft.id, { actor: 'ravi@firm.test', seen: read }), /Read it again before you take the approval back\./);
+    noteOutgoingExported(p, draft.id, { actor: 'ravi@firm.test', seen: outgoingSeen(draft) });
     editOutgoing(p, draft.id, { body: 'The deed was registered on 9 July 2021. [2]' }, 'ravi@firm.test');
     // What was approved is not what it now says, and the body is the person's own now.
     assert.deepEqual([draft.status, draft.approvedBy, draft.approvedAt, draft.written], ['draft', undefined, undefined, 'person']);
-    approveOutgoing(p, draft.id, { actor: 'asha@firm.test' });
-    reopenOutgoing(p, draft.id, 'asha@firm.test');
+    approveOutgoing(p, draft.id, { actor: 'asha@firm.test', seen: outgoingSeen(draft) });
+    reopenOutgoing(p, draft.id, { actor: 'asha@firm.test', seen: outgoingSeen(draft) });
     assert.deepEqual(
       p.audit.filter((e) => e.entityType === 'outgoing').map((e) => [e.action, e.actor, e.newValue]),
       [
@@ -286,7 +299,7 @@ describe('a draft', () => {
     // A person sets the value aside on the paper: the draft's source no longer stands.
     row.facts!.find((f) => f.key === 'consideration')!.review = 'rejected';
     assert.deepEqual(outgoingNeeds(p, draft), ['Source 1 no longer stands on the record. Change the statement or take its mark off.']);
-    assert.throws(() => approveOutgoing(p, draft.id, { actor: 'asha@firm.test' }), /no longer stands/);
+    assert.throws(() => approveOutgoing(p, draft.id, { actor: 'asha@firm.test', seen: outgoingSeen(draft) }), /no longer stands/);
   });
 });
 
@@ -314,7 +327,7 @@ describe('the file that goes out', () => {
     ]);
     assert.deepEqual(file.sources, ['Sale deed 2021, page 2: Registered on: 9 Jul 2021 (“registered on 09-07-2021”)', 'Sale deed 2021, page 1: Sale consideration: Rs 3.19 Cr (“for a total sale consideration of Rs. 3,18,50,000”)']);
 
-    approveOutgoing(p, draft.id, { actor: 'asha@firm.test', name: 'Asha Rao' }, '2026-10-07T10:00:00.000Z');
+    approveOutgoing(p, draft.id, { actor: 'asha@firm.test', name: 'Asha Rao', seen: outgoingSeen(draft) }, '2026-10-07T10:00:00.000Z');
     const sent = outgoingDocument(p, draft);
     assert.deepEqual([sent.banner, sent.approval, sent.fileName], [undefined, 'Approved for sending by Asha Rao on 7 Oct 2026.', 'RYT-0042-OUT-1 Reply.docx']);
   });
