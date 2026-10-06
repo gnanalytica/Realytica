@@ -70,6 +70,9 @@ after(async () => {
   server?.close();
   const { releaseOcr } = await import('../apps/api/src/documents/read-text');
   await releaseOcr();
+  // A paper whose page was closed is still read after the reply: let that end before its directory goes.
+  const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
+  await afterReplyWorkDone();
   rmSync(dataDir, { recursive: true, force: true });
 });
 

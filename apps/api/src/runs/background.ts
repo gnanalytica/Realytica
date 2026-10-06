@@ -73,9 +73,23 @@ function platformWaitUntil(): WaitUntil | null {
  * own failures: nothing is listening for them.
  */
 export function finishAfterReply(work: Promise<unknown>): void {
+  const ended = work.catch(() => undefined).finally(() => unfinished.delete(ended));
+  unfinished.add(ended);
   const waitUntil = platformWaitUntil();
   if (waitUntil) waitUntil(work);
-  else void work.catch(() => undefined);
+}
+
+/** The work no reply waits for that has not ended yet. */
+const unfinished = new Set<Promise<unknown>>();
+
+/**
+ * Resolves once every piece of work handed to `finishAfterReply` has ended,
+ * work it started meanwhile included. For whoever is about to take away what
+ * that work writes to: a test removing its data directory, a process shutting
+ * down. Nothing a request calls.
+ */
+export async function afterReplyWorkDone(): Promise<void> {
+  while (unfinished.size) await Promise.all([...unfinished]);
 }
 
 export interface BackgroundStart {
