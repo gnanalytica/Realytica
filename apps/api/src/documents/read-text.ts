@@ -560,10 +560,46 @@ function linesRunUp(img: PageImage): boolean {
 
 type Worker = import('tesseract.js').Worker;
 
-const workers = new Map<string, Promise<Worker>>();
+/**
+ * The OCR workers for one set of languages: the ones nobody is using, how many
+ * there are in all, and the pages waiting for one.
+ */
+interface OcrPool {
+  idle: Worker[];
+  size: number;
+  waiting: Array<{ take: (worker: Worker) => void; fail: (err: unknown) => void }>;
+}
+const pools = new Map<string, OcrPool>();
+/** Pages being recognised now, over every pool. */
+let recognising = 0;
 let idleTimer: NodeJS.Timeout | null = null;
 /** An OCR worker is a thread holding a language model; let it go when idle. */
 const IDLE_MS = 90_000;
+
+/**
+ * How many pages are recognised at once, over every paper being read.
+ *
+ * Recognition is the processor's work, so more at once than there are
+ * processors to do it reads nothing sooner. Measured on 6 October 2026 on an
+ * eight-core laptop, with three copies of an invented ten-page scan (eight
+ * pages each by OCR): one after another 18.4 s; together with one page at a
+ * time 15.1 s, with two 8.7 s, with three 7.0 s. With three unlike scans, one
+ * of which takes 92 s by itself, the three together take as long as that one
+ * (94 s against 104 s one after another), and the other two are read in 7 s
+ * instead of waiting behind it; with one page at a time the second waited
+ * 43 s.
+ *
+ * So as many as there are processors, and no more than three: that is the
+ * most papers read together (`PAPERS_AT_ONCE`), and each paper sends one page
+ * at a time, so a fourth worker would never be asked for. Each worker holds
+ * a language model in memory. A deployment can say otherwise in
+ * REALYTICA_OCR_PAGES_AT_ONCE.
+ */
+export function ocrPagesAtOnce(): number {
+  const asked = Number(process.env.REALYTICA_OCR_PAGES_AT_ONCE);
+  if (Number.isInteger(asked) && asked >= 1) return Math.min(asked, 8);
+  return Math.max(1, Math.min(3, os.availableParallelism?.() ?? os.cpus().length));
+}
 
 let langDirReady: string | null = null;
 
@@ -604,35 +640,96 @@ async function languageDirectory(): Promise<string> {
   return dir;
 }
 
-async function ocrWorker(langs: Array<'eng' | 'kan'>): Promise<Worker> {
-  const key = langs.join('+');
-  let pending = workers.get(key);
-  if (!pending) {
-    pending = (async () => {
-      const { createWorker, OEM } = await import('tesseract.js');
-      const langPath = await languageDirectory();
-      return createWorker(langs, OEM.LSTM_ONLY, {
-        langPath,
-        cachePath: path.join(os.tmpdir(), 'realytica-ocr', 'cache'),
-        gzip: true,
-        logger: () => {},
-        errorHandler: () => {},
-      });
-    })();
-    workers.set(key, pending);
-    pending.catch(() => workers.delete(key));
-  }
-  if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => void releaseOcr(), IDLE_MS);
-  idleTimer.unref?.();
-  return pending;
+async function startWorker(langs: Array<'eng' | 'kan'>): Promise<Worker> {
+  const { createWorker, OEM } = await import('tesseract.js');
+  const langPath = await languageDirectory();
+  return createWorker(langs, OEM.LSTM_ONLY, {
+    langPath,
+    cachePath: path.join(os.tmpdir(), 'realytica-ocr', 'cache'),
+    gzip: true,
+    logger: () => {},
+    errorHandler: () => {},
+  });
 }
 
-/** Terminate every OCR worker. Safe to call at any time. */
+/**
+ * One page's recognition, on a worker of its own for as long as it takes.
+ *
+ * Several papers are read at once, and a worker recognises one page at a
+ * time. So there are up to `ocrPagesAtOnce` workers for a set of languages;
+ * a page past that waits its turn, and its time limit starts when it has a
+ * worker, not while it waits. A worker whose page failed or ran out of time
+ * is let go by itself: the pages other papers have under way are not lost
+ * with it, as they were when one slow page let every worker go.
+ */
+async function withOcrWorker<T>(langs: Array<'eng' | 'kan'>, job: (worker: Worker) => Promise<T>): Promise<T> {
+  const key = langs.join('+');
+  const pool = pools.get(key) ?? { idle: [], size: 0, waiting: [] };
+  pools.set(key, pool);
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+
+  /** Makes a worker for the page that has waited longest, when one was lost and a page still waits. */
+  const replace = (): void => {
+    const next = pool.waiting.shift();
+    if (!next) return;
+    pool.size += 1;
+    startWorker(langs).then(next.take, (err) => {
+      pool.size -= 1;
+      next.fail(err);
+    });
+  };
+
+  let worker = pool.idle.pop();
+  if (!worker) {
+    if (pool.size < ocrPagesAtOnce()) {
+      pool.size += 1;
+      try {
+        worker = await startWorker(langs);
+      } catch (err) {
+        pool.size -= 1;
+        throw err;
+      }
+    } else {
+      worker = await new Promise<Worker>((take, fail) => pool.waiting.push({ take, fail }));
+    }
+  }
+
+  recognising += 1;
+  let broken = false;
+  try {
+    return await job(worker);
+  } catch (err) {
+    broken = true;
+    throw err;
+  } finally {
+    recognising -= 1;
+    if (broken) {
+      pool.size -= 1;
+      void worker.terminate().catch(() => undefined);
+      replace();
+    } else {
+      const next = pool.waiting.shift();
+      if (next) next.take(worker);
+      else pool.idle.push(worker);
+    }
+    if (recognising === 0) {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => void releaseOcr(), IDLE_MS);
+      idleTimer.unref?.();
+    }
+  }
+}
+
+/** Terminate every OCR worker nobody is using. Safe to call at any time: a page under way keeps its worker. */
 export async function releaseOcr(): Promise<void> {
-  const all = [...workers.values()];
-  workers.clear();
-  await Promise.all(all.map((p) => p.then((w) => w.terminate()).catch(() => undefined)));
+  const idle: Worker[] = [];
+  for (const pool of pools.values()) {
+    idle.push(...pool.idle);
+    pool.size -= pool.idle.length;
+    pool.idle = [];
+  }
+  await Promise.all(idle.map((worker) => worker.terminate().catch(() => undefined)));
 }
 
 /** Share of letters that are Latin — low means the page is in another script. */
@@ -647,8 +744,9 @@ function latinShare(text: string): number {
  * The longest one recognition may take. The worker's own errors are
  * swallowed (a failure there is not news to a reader), which also meant a
  * worker that died mid-page left the page waiting for good and the request
- * with it. Past this, the workers are let go, the next page starts on fresh
- * ones, and this one is skipped.
+ * with it. Past this, the page's worker is let go, the next page starts on a
+ * fresh one, and this one is skipped. The time runs from when the page has a
+ * worker (`withOcrWorker`).
  */
 const PAGE_OCR_TIMEOUT_MS = 75_000;
 
@@ -660,9 +758,6 @@ async function recognizeWithin(worker: Worker, image: Buffer): Promise<Awaited<R
   try {
     // The block tree as well as the text: it is where each word's box is.
     return await Promise.race([worker.recognize(image, {}, { text: true, blocks: true }), timeout]);
-  } catch (err) {
-    await releaseOcr();
-    throw err;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -706,14 +801,12 @@ async function ocrImage(image: Buffer, size?: { width: number; height: number } 
       words: size && size.width > 0 && size.height > 0 ? ocrWords(data.blocks, size) : undefined,
     };
   };
-  const eng = await ocrWorker(['eng']);
-  const first = read((await recognizeWithin(eng, image)).data);
+  const first = read((await withOcrWorker(['eng'], (worker) => recognizeWithin(worker, image))).data);
   // Weak English on a page with real content is usually a Kannada page. Read
   // it again with both; keep whichever the engine is surer of.
   if ((first.confidence < 55 || latinShare(first.text) < 0.5) && first.text.replace(/\s/g, '').length > 20) {
     try {
-      const both = await ocrWorker(['kan', 'eng']);
-      const second = read((await recognizeWithin(both, image)).data);
+      const second = read((await withOcrWorker(['kan', 'eng'], (worker) => recognizeWithin(worker, image))).data);
       if (second.confidence > first.confidence) return second;
     } catch {
       /* the English reading stands */

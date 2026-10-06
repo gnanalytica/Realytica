@@ -50,6 +50,7 @@ import {
   waitingAsRead,
 } from '@realytica/shared';
 import { mergeModelReading, needsModelReading, readIngestLocally } from './intake';
+import { PAPERS_AT_ONCE, together } from './together';
 
 export interface RegisterUpload {
   evidenceId: string;
@@ -151,6 +152,13 @@ export async function readOntoRegister(
     deadline?: number;
     /** How long the model reader has for the batch, in place of `MODEL_READ_BUDGET_MS`. */
     modelBudgetMs?: number;
+    /**
+     * Called as each paper's reading is put on its row, in the order they
+     * finish, for whoever keeps the record to save it there and then. A paper
+     * read is then on the file whatever becomes of the request and of the
+     * papers still being read.
+     */
+    landed?: (file: ChatIngestFile) => Promise<void>;
   } = {},
 ): Promise<{ read: number; files: ChatIngestFile[] }> {
   const cards: ChatProposal[] = [];
@@ -160,79 +168,55 @@ export async function readOntoRegister(
   /** What a model took an unrecognised paper for: said, and left for a person to confirm. */
   const proposedTypes: string[] = [];
   let scans = 0;
-
-  const read: Array<{ upload: RegisterUpload; file: ChatIngestFile; pages?: string[] }> = [];
-  for (const upload of uploads) {
-    if (upload.sitePhoto) continue;
-    const isImage = upload.mimeType.startsWith('image/');
-    if (isImage && scans >= MAX_SCANS_PER_BATCH) continue;
-    const row: ChatIngestFile = {
-      fileName: upload.fileName,
-      mimeType: upload.mimeType,
-      sizeBytes: upload.sizeBytes,
-      storageKey: upload.storageKey,
-    };
-    const entry: (typeof read)[number] = { upload, file: row };
-    entry.file = await readIngestLocally(row, upload.buffer, undefined, { deadline: opts.deadline, onPages: (pages) => (entry.pages = pages) });
-    if (entry.file.read?.method && entry.file.read.method !== 'text') scans += 1;
-    read.push(entry);
-  }
-
-  // The model reads afterwards, and only what the router sends it: see `routeReading`.
   let spend: ProjectChatTurn['spend'];
-  const forModel = read.filter(({ file }) => needsModelReading(file));
-  if (forModel.length && agentCapability().available) {
-    const stopAt = Date.now() + (opts.modelBudgetMs ?? MODEL_READ_BUDGET_MS);
-    try {
-      const modelRead = await enrichIngestWithDocumentIntelligence({
-        project,
-        files: forModel.map(({ file }) => ({ ...file, read: undefined })),
-        buffers: forModel.map(({ upload }) => upload.buffer),
-        // What this server already read, so a quote found in its page's own words is placed there without another call.
-        pageTexts: forModel.map(({ pages }) => pages),
-        deadline: stopAt - MODEL_START_MARGIN_MS,
-        stopAt,
-        onSpend: (cost) => (spend = { usd: (spend?.usd ?? 0) + cost.usd, exact: (spend?.exact ?? true) && cost.exact }),
-      });
-      forModel.forEach((entry, n) => (entry.file = mergeModelReading(entry.file, modelRead[n])));
-    } catch {
-      /* this server's reading stands */
-    }
-  }
-
-  // How much of each file was read, kept on the file: a paper read in part must not look like one read whole.
-  keepReadings(project, read.map(({ file }) => file));
-  const partly: string[] = [];
-
   // Without a model reader, "ask to read the filed documents" would read the same pages to the same end.
   const modelReader = agentCapability().available;
-  for (const { upload, file } of read) {
+  /** When the model reader's time for the batch ends: counted from the first paper handed to it. */
+  let modelStop: number | undefined;
+  /** One paper is put on its row, and saved, at a time. */
+  let landing: Promise<void> = Promise.resolve();
+
+  /** What one paper's reading put on its row, kept for the note that reports the batch. */
+  interface Landed {
+    upload: RegisterUpload;
+    file: ChatIngestFile;
+    known: boolean;
+    label: string;
+    offered?: string;
+  }
+
+  /**
+   * One paper's reading put on the row it was filed on: what it states, each
+   * value waiting, and what it is. The cards it raises are the batch's, and
+   * are raised with its note.
+   */
+  const putOnRow = (upload: RegisterUpload, file: ChatIngestFile): Landed | undefined => {
+    // How much of the file was read, kept on the file: a paper read in part must not look like one read whole.
+    keepReadings(project, [file]);
     const doc = file.read;
-    const said = readingSaid(file.reading, modelReader);
-    if (said) partly.push(`${upload.fileName}: ${said}`);
     // A paper only the model made sense of has no type from the rules, and its values were each found on their page.
-    const known = doc && doc.type !== 'other';
+    const known = Boolean(doc && doc.type !== 'other');
     // The whole reading goes onto the row, each value proposed. That is filing what was read, not acting on it.
     const facts = !doc ? [] : known ? doc.facts : waitingAsRead(doc).filter((f) => f.source === 'model');
-    if (!doc || (!known && !facts.length)) continue;
+    if (!doc || (!known && !facts.length)) return undefined;
 
     const evidence = project.evidence.find((e) => e.id === upload.evidenceId);
-    if (!evidence) continue;
+    if (!evidence) return undefined;
     // Named for what the rules read it as. What a model alone took it for is offered, and names nothing until a person confirms it.
     const offered = known ? undefined : documentTypeOfKind(file.kindHint);
     const label = known ? doc.label : (evidence.documentType ?? 'document');
+    let offer: string | undefined;
     if (known) {
       evidence.documentType = doc.label;
       delete evidence.proposedDocumentType;
     } else if (offered && offered !== evidence.documentType && offered !== evidence.refusedDocumentType) {
       // Not an offer a person has already refused for this paper.
       evidence.proposedDocumentType = offered;
-      proposedTypes.push(offered);
+      offer = offered;
     }
     // What it states waits on the row, value by value, for a person to accept: put there once the row says what the paper is, so
     // a value its kind does not carry never waits.
     evidence.facts = proposeOnRow(evidence, facts);
-    // Written down as an event of its own, so a paper read again is told as read again.
     recordAuditEvent(project, { actor, action: 'read', entityType: 'evidence', entityId: evidence.id, newValue: `${facts.length} value(s)` });
     evidence.readMethod = doc.method;
     // The row's quotes are words found in the page's own text: never a model's wording only a second model stands behind.
@@ -248,15 +232,78 @@ export async function readOntoRegister(
     evidence.updatedAt = new Date().toISOString();
     // A waiting row is answered by a paper somebody, or the rules, said is that paper. Never on a model's word alone.
     if (known) absorbAnsweredGaps(project, evidence);
+    return { upload, file, known, label, ...(offer ? { offered: offer } : {}) };
+  };
 
-    if (known) {
+  /*
+   * The papers are read a few at a time, each down its own lane: read here,
+   * read by a model where the router sends it (`routeReading`), and put on
+   * its row the moment it is read. One paper failing is that paper's.
+   */
+  const lanes = await together(uploads, PAPERS_AT_ONCE, async (upload): Promise<{ file: ChatIngestFile; landed?: Landed } | undefined> => {
+    if (upload.sitePhoto) return undefined;
+    const isImage = upload.mimeType.startsWith('image/');
+    if (isImage && scans >= MAX_SCANS_PER_BATCH) return undefined;
+    const row: ChatIngestFile = {
+      fileName: upload.fileName,
+      mimeType: upload.mimeType,
+      sizeBytes: upload.sizeBytes,
+      storageKey: upload.storageKey,
+    };
+    let pages: string[] | undefined;
+    let file = await readIngestLocally(row, upload.buffer, undefined, { deadline: opts.deadline, onPages: (read) => (pages = read) });
+    if (file.read?.method && file.read.method !== 'text') scans += 1;
+
+    // The model reads afterwards, and only what the router sends it.
+    if (modelReader && needsModelReading(file)) {
+      modelStop ??= Date.now() + (opts.modelBudgetMs ?? MODEL_READ_BUDGET_MS);
+      try {
+        const [answer] = await enrichIngestWithDocumentIntelligence({
+          project,
+          files: [{ ...file, read: undefined }],
+          buffers: [upload.buffer],
+          // What this server already read, so a quote found in its page's own words is placed there without another call.
+          pageTexts: [pages],
+          deadline: modelStop - MODEL_START_MARGIN_MS,
+          stopAt: modelStop,
+          onSpend: (cost) => (spend = { usd: (spend?.usd ?? 0) + cost.usd, exact: (spend?.exact ?? true) && cost.exact }),
+        });
+        file = mergeModelReading(file, answer);
+      } catch {
+        /* this server's reading stands */
+      }
+    }
+
+    let landed: Landed | undefined;
+    const read = file;
+    const mine = (landing = landing.then(async () => {
+      landed = putOnRow(upload, read);
+      await opts.landed?.(read)?.catch((err: unknown) => console.warn(`[reading] could not save ${upload.fileName} as it was read: ${(err as Error).message}`));
+    }));
+    await mine;
+    return { file, ...(landed ? { landed } : {}) };
+  });
+  await landing;
+
+  // Said and raised in the order the papers were filed, whichever was read first.
+  const read = lanes.flatMap((lane, n) => (lane.status === 'fulfilled' && lane.value ? [{ upload: uploads[n]!, ...lane.value }] : []));
+  const partly: string[] = [];
+  for (const { upload, file, landed } of read) {
+    const said = readingSaid(file.reading, modelReader);
+    if (said) partly.push(`${upload.fileName}: ${said}`);
+    if (!landed) continue;
+    const doc = file.read!;
+    const evidence = project.evidence.find((e) => e.id === upload.evidenceId);
+    if (!evidence) continue;
+    if (landed.offered) proposedTypes.push(landed.offered);
+    if (landed.known) {
       const source = { fileName: upload.fileName, evidenceId: evidence.id, storageKey: upload.storageKey, documentLabel: doc.label };
       // To the checks go the values that stand. A model's, and one two readers differ on, wait on the row until a person decides them there.
       cards.push(...factFillProposals(project, standingAsRead(doc), source, actor, cards));
       cards.push(...flagFindingProposals(project, doc.flags, source, actor, cards));
     }
     cards.push(...placeProposalsFromIngest(project, [file], actor).filter((p) => !cards.some((c) => c.title === p.title)));
-    labels.push(/^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label);
+    labels.push(/^[A-Z][a-z]/.test(landed.label) ? landed.label.charAt(0).toLowerCase() + landed.label.slice(1) : landed.label);
     flagged.push(...doc.flags.map((f) => f.title));
     cited.push(evidence.id);
   }

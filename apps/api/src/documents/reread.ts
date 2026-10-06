@@ -12,6 +12,7 @@
 import type { DdProject } from '@realytica/shared';
 import { MODEL_READER_VERSION, needsReadingAgain } from '@realytica/shared';
 import { storageAdapter } from '../storage';
+import { droppedUnread } from './dropped';
 
 /** "Read the filed documents", "read the uploaded documents again", "re-read the documents". */
 export const READ_FILED_REQUEST =
@@ -106,10 +107,18 @@ export const REREAD_BUDGET_MS = 300_000;
  * bytes from storage. A file whose bytes are gone is left out rather than read
  * as empty, and so is one whose card from an earlier reading is still waiting:
  * asking again carries on with the rest instead of reading it twice.
+ *
+ * First, the papers a request that was cut short left dropped and unread
+ * (`droppedUnread`): they are on no row yet, and are read as a fresh drop is.
  */
 export async function filedDocumentsToRead(project: DdProject, again: boolean, withModel = false): Promise<StoredUpload[]> {
   const rows = rowsToRead(project, again, withModel);
   const out: StoredUpload[] = [];
+  for (const file of droppedUnread(project)) {
+    if (out.length >= REREAD_LIMIT) break;
+    const bytes = await storageAdapter.getDocument(project.id, file.storageKey);
+    if (bytes) out.push({ originalname: file.fileName, mimetype: file.mimeType, size: file.sizeBytes || bytes.length, buffer: bytes, storageKey: file.storageKey });
+  }
   for (const row of rows) {
     if (out.length >= REREAD_LIMIT) break;
     const file = row.attachments[row.attachments.length - 1]!;

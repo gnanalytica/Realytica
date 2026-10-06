@@ -18,6 +18,7 @@ import { EvidenceRegister, FindingRegister } from './pages/projects/Registers';
 import SiteView from './pages/projects/SiteView';
 import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions';
 import Reports from './pages/projects/Reports';
+import ReviewTable from './pages/projects/ReviewTable';
 import Valuation from './pages/projects/Valuation';
 import AiDrafts from './pages/projects/AiDrafts';
 import ProjectPeople from './pages/projects/ProjectPeople';
@@ -141,6 +142,7 @@ export default function App() {
             <Route path="risks" element={<RisksActions />} />
             <Route path="decisions" element={<DecisionRegister />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="review" element={<ReviewTable />} />
             <Route path="valuation" element={<Valuation />} />
             <Route path="graph" element={<CockpitGraph />} />
             <Route path="ai" element={<AiDrafts />} />

@@ -83,8 +83,14 @@ export const NOTHING_SET_ASIDE = 'nothing_set_aside';
 export const NOTHING_TO_READ = 'nothing_to_read';
 export const MEMORY_LINT = 'memory_lint';
 export const MEMORY_ANSWER = 'memory_answer';
+/** The reply that lists the meetings kept on the file: it lists, and offers nothing to accept. */
+export const MEETINGS_LISTED = 'meetings';
+/** The reply that keeps a meeting's notes and raises a card for each thing they say. It is one the next instruction answers. */
+export const MEETING_NOTES = 'meeting_notes';
+/** The reply that writes a status report, or says in one line that nothing changed. It offers nothing to accept. */
+export const STATUS_REPORT = 'status_report';
 
-const NOTHING_DONE = new Set([NOTHING_ACCEPTED, NOTHING_SET_ASIDE, NOTHING_TO_READ, MEMORY_LINT, MEMORY_ANSWER]);
+const NOTHING_DONE = new Set([NOTHING_ACCEPTED, NOTHING_SET_ASIDE, NOTHING_TO_READ, MEMORY_LINT, MEMORY_ANSWER, MEETINGS_LISTED, STATUS_REPORT]);
 
 const saidNothingWasDone = (turn: ProjectChatTurn): boolean => Boolean(turn.toolCalls?.some((call) => NOTHING_DONE.has(call.name)));
 

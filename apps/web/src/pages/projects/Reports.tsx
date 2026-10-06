@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FileText } from 'lucide-react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { REPORT_KIND_LABEL, type ReportKind } from '@realytica/shared';
+import { REPORT_KIND_LABEL, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Button, Card, CardBody, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
 import { ReportEditor } from './ReportEditor';
@@ -80,7 +80,8 @@ export default function Reports() {
                   className={`w-full rounded-lg px-3 py-2 text-left text-[13px] ${view?.id === r.id ? 'bg-brand-soft text-brand' : 'hover:bg-sunken'}`}
                 >
                   <span className="block font-medium">{REPORT_KIND_LABEL[r.kind]}</span>
-                  <span className="text-[11px] text-ink-muted">{formatWhen(r.generatedAt)}</span>
+                  {/* A status report is one of several, told apart by the period it covers. */}
+                  <span className="text-[11px] text-ink-muted">{(r.kind === 'status' ? statusReportPeriodSaid(r) : undefined) ?? formatWhen(r.generatedAt)}</span>
                 </button>
               ))}
             </CardBody>

@@ -38,6 +38,11 @@ export function ReportTableView({ table, print = false, onOpenRecord }: { table:
                       <span className="w-6 text-right font-mono tabular-nums">{cell}</span>
                       <span className={cn('h-2.5 rounded-full', print ? 'bg-neutral-700' : 'bg-ink')} style={{ width: `${Math.max(4, ((Number(cell) || 0) / max) * 60)}%` }} aria-hidden />
                     </span>
+                  ) : j === 1 && row.worded && !print ? (
+                    // Words a model put the line in, and nobody has yet read through: the colour of what waits. Print carries the note under the table instead.
+                    <span className="text-provenance-ink" title="A model put this line in plainer words. The day, the person and what is behind it are the file’s own.">
+                      {cell}
+                    </span>
                   ) : (
                     cell
                   )}

@@ -46,6 +46,11 @@ import {
   clearRevenueMap,
   createAssessment,
   createProject,
+  generateReport,
+  issueReport,
+  keepMeeting,
+  patchRecordStatus,
+  readMeetingNotes,
   memPointer,
   memWho,
   memoryDelta,
@@ -177,11 +182,19 @@ function lived() {
   removeRevenueMapRead(project, NEXT_PARCEL, LEAD);
   // An undo, as the route that makes one records it: what was put back is named in words, which memory does not keep.
   recordAuditEvent(project, { actor: LEAD, action: 'undo', entityType: 'project', entityId: project.id, oldValue: 'Accepted the extent' });
+  // The notes of a meeting kept, and a report made and then issued under a name.
+  const { meeting } = keepMeeting(project, { file: { storageKey: 'notes.txt', fileName: 'notes.txt', mimeType: 'text/plain', sizeBytes: 60 }, came: 'pasted', reading: readMeetingNotes('Meeting notes\nPresent: A Person, B Person\nDecision: wait for the earlier deed.') }, LEAD);
+  const report = issueReport(project, generateReport(project, { kind: 'open_risk_action', generatedBy: LEAD }, LEAD).id, LEAD);
+  // A second action, closed, and a second decision, settled: the first of each stay as they were recorded.
+  const closed = addAction(project, { title: 'Collect the tax receipts', kind: 'evidence_request', owner: 'operator', priority: 'low' }, LEAD);
+  patchRecordStatus(project, project.actions, closed.id, 'closed', 'action', LEAD);
+  const settled = addDecision(project, { title: 'Use the earlier survey', decisionType: 'other', decisionMaker: 'Lead', rationale: 'It is the one on record.', status: 'pending' }, LEAD);
+  patchRecordStatus(project, project.decisions, settled.id, 'approved', 'decision', VALUER);
   // A write made on a work pane, as its route notes it in the thread.
   noteProjectEdit(project, 'Filed the revenue-map read as evidence.', { citedEvidenceIds: [row.id], actor: LEAD });
   const noted = project.conversation.slice(-2);
   const asked = ask(project, 'what is missing?', VALUER, { pane: 'evidence', department: 'legal', stage: 'pre_development' });
-  return { project, row, decision, action, finding, dropped, noted, asked };
+  return { project, row, decision, action, finding, meeting, report, closed, settled, dropped, noted, asked };
 }
 
 /** Told from the conversation: a question, an answer, or the note of a work-pane write. */
@@ -197,7 +210,7 @@ function only(entries: MemEntry[], kind: MemEntryKind): MemEntry {
 
 describe('what memory is told of a project', () => {
   it('is one entry for each event, told from the operation that records it', () => {
-    const { project, row, decision, action, finding, noted, asked } = lived();
+    const { project, row, decision, action, finding, meeting, report, closed, settled, noted, asked } = lived();
     const { entries } = memoryDelta(project, {});
 
     assert.deepEqual([...new Set(entries.map((entry) => entry.kind))].sort(), [...MEM_ENTRY_KINDS].sort(), 'every kind of event was told');
@@ -231,10 +244,15 @@ describe('what memory is told of a project', () => {
     assert.deepEqual([own.key, own.label], [undefined, undefined], 'a value under a key that is not on the list is told with neither');
     assert.deepEqual(own.about, [row.id]);
 
-    assert.deepEqual(only(entries, 'decision_recorded').about, [decision.id]);
-    assert.deepEqual(only(entries, 'action_recorded').about, [action.id]);
+    assert.deepEqual(ofKind(entries, 'decision_recorded').map((entry) => entry.about), [[decision.id], [settled.id]]);
+    assert.deepEqual(ofKind(entries, 'action_recorded').map((entry) => entry.about), [[action.id], [closed.id]]);
+    assert.deepEqual(only(entries, 'action_closed').about, [closed.id], 'an action closed is told, and points at the action');
+    assert.deepEqual([only(entries, 'decision_settled').about, only(entries, 'decision_settled').by], [[settled.id], memWho(project.id, VALUER)], 'and a decision settled, by who settled it');
     assert.deepEqual(only(entries, 'finding_raised').about, [finding.id]);
     assert.equal(only(entries, 'finding_raised').by, memWho(project.id, LEAD));
+    assert.deepEqual(only(entries, 'meeting_kept').about, [meeting.id], 'a meeting kept points at the meeting, and holds none of its notes');
+    const issued = only(entries, 'report_issued');
+    assert.deepEqual([issued.about, issued.sourceId], [[report.id], audit('issue_report', report.id).id], 'a report is told when it is issued, not when it is made');
 
     assert.deepEqual(ofKind(entries, 'map_read_kept').map((entry) => entry.about), [[PARCEL], [NEXT_PARCEL]], 'a map read points at its parcel');
     assert.deepEqual(only(entries, 'map_read_removed').about, [NEXT_PARCEL]);
@@ -737,7 +755,7 @@ describe('the shape memory is told in', () => {
    * with the change, and only then change what is expected here.
    */
   it(`is the one schema ${MEM_SCHEMA} was pinned to`, () => {
-    assert.equal(MEM_SCHEMA, 3);
+    assert.equal(MEM_SCHEMA, 5);
     const project = createProject({ name: 'Pinned plot', type: 'residential', location: 'Northfield', city: 'Bengaluru' }, 'RYT-PIN');
     project.id = 'prj_pinned';
     const row = addEvidence(project, { title: 'Khata certificate', kind: 'document' }, LEAD);
@@ -751,6 +769,14 @@ describe('the shape memory is told in', () => {
       { id: 'aud_4', at: '2026-10-01T09:15:00.000Z', actor: LEAD, action: 'patch', entityType: 'project', entityId: 'prj_pinned', newValue: 'revenueMap kgis:2003010043:10' },
       { id: 'aud_5', at: '2026-10-01T09:20:00.000Z', actor: LEAD, action: 'undo', entityType: 'project', entityId: 'prj_pinned', oldValue: 'the last change' },
       { id: 'aud_6', at: '2026-10-01T09:22:00.000Z', actor: LEAD, action: 'patch', entityType: 'project', entityId: 'prj_pinned', newValue: 'revenueMap kgis:1:10' },
+      // The notes of a meeting kept, and a report issued. A report made or edited is not told.
+      { id: 'aud_7', at: '2026-10-01T09:23:00.000Z', actor: LEAD, action: 'create', entityType: 'meeting', entityId: 'mtg_1', newValue: 'Site meeting' },
+      { id: 'aud_8', at: '2026-10-01T09:24:00.000Z', actor: LEAD, action: 'generate_report', entityType: 'report', entityId: 'rep_1', newValue: 'status' },
+      { id: 'aud_9', at: '2026-10-01T09:24:30.000Z', actor: LEAD, action: 'issue_report', entityType: 'report', entityId: 'rep_1', newValue: 'issued' },
+      // An action closed and a decision settled. A change of standing that is neither is not told.
+      { id: 'aud_10', at: '2026-10-01T09:24:40.000Z', actor: LEAD, action: 'status_change', entityType: 'action', entityId: 'act_1', oldValue: 'not_started', newValue: 'in_progress' },
+      { id: 'aud_11', at: '2026-10-01T09:24:45.000Z', actor: LEAD, action: 'status_change', entityType: 'action', entityId: 'act_1', oldValue: 'in_progress', newValue: 'closed' },
+      { id: 'aud_12', at: '2026-10-01T09:24:50.000Z', actor: VALUER, action: 'status_change', entityType: 'decision', entityId: 'dec_1', oldValue: 'pending', newValue: 'approved' },
     ];
     project.conversation = [
       { id: 'cht_1', role: 'user', text: 'What does the khata say?', at: '2026-10-01T09:25:00.000Z', actor: VALUER, place: { pane: 'evidence', stage: 'pre_development' }, citedEvidenceIds: ['ev_1'] },
@@ -771,11 +797,15 @@ describe('the shape memory is told in', () => {
         { id: 'prj_pinned::mem::aud_4', kind: 'map_read_kept', at: '2026-10-01T09:15:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_4', about: ['kgis:2003010043:10'] },
         { id: 'prj_pinned::mem::aud_5', kind: 'undone', at: '2026-10-01T09:20:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_5', about: [] },
         { id: 'prj_pinned::mem::aud_6', kind: 'map_read_kept', at: '2026-10-01T09:22:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_6', about: [] },
+        { id: 'prj_pinned::mem::aud_7', kind: 'meeting_kept', at: '2026-10-01T09:23:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_7', about: ['mtg_1'] },
+        { id: 'prj_pinned::mem::aud_9', kind: 'report_issued', at: '2026-10-01T09:24:30.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_9', about: ['rep_1'] },
+        { id: 'prj_pinned::mem::aud_11', kind: 'action_closed', at: '2026-10-01T09:24:45.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_11', about: ['act_1'] },
+        { id: 'prj_pinned::mem::aud_12', kind: 'decision_settled', at: '2026-10-01T09:24:50.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_12', about: ['dec_1'] },
         { id: 'prj_pinned::mem::cht_1', kind: 'chat_asked', at: '2026-10-01T09:25:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'cht_1', about: ['ev_1'], place: { pane: 'evidence', stage: 'pre_development' } },
         { id: 'prj_pinned::mem::cht_2', kind: 'edit_noted', at: '2026-10-01T09:30:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'cht_2', about: ['ev_1'] },
         { id: 'prj_pinned::mem::cht_4', kind: 'edit_noted', at: '2026-10-01T09:35:00.000Z', by: 'who_1995cea6e537b6', sourceId: 'cht_4', about: [] },
       ],
-      through: { schema: 3, auditThrough: 'aud_6', turnThrough: 'cht_5' },
+      through: { schema: 5, auditThrough: 'aud_12', turnThrough: 'cht_5' },
     });
   });
 });

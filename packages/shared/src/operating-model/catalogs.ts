@@ -302,6 +302,7 @@ export const REPORT_KIND_LABEL: Record<ReportKind, string> = {
   technical_dd: 'Technical due diligence report',
   legal_dd: 'Legal due diligence report',
   financial_dd: 'Financial due diligence report',
+  status: 'Status report',
 };
 
 export const VALUATION_SIGN_OFF_LABEL: Record<ValuationSignOff, string> = {

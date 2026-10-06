@@ -21,6 +21,7 @@ import {
   detachReportBlock,
   editReportBlock,
   ensureProjectShape,
+  generateReport,
   insertReportBlock,
   issueReport,
   packCompleteness,
@@ -92,6 +93,9 @@ import {
 } from './check-command';
 import {
   DROPPED_WITHOUT_WORDS,
+  MEETINGS_LISTED,
+  MEETING_NOTES,
+  STATUS_REPORT,
   MEMORY_ANSWER,
   MEMORY_LINT,
   NOTHING_ACCEPTED,
@@ -113,6 +117,31 @@ import {
   type SittingRef,
   type TalkSitting,
 } from './sitting';
+import {
+  addMeetingItems,
+  askAboutMeeting,
+  asksForMeetings,
+  dropMeeting,
+  keepMeeting,
+  meetingCalled,
+  meetingDigest,
+  meetingKeptSaid,
+  meetingAlreadyKeptSaid,
+  meetingAskedNow,
+  meetingNotesFor,
+  meetingTwin,
+  meetingQuestion,
+  meetingsAsked,
+  meetingsHeld,
+  meetingsSaid,
+  readMeetingNotes,
+  type MeetingFile,
+  type MeetingGiven,
+  type MeetingReading,
+  type MeetingRecord,
+  type MeetingToKeep,
+} from './meetings';
+import { asksForStatusReport, statusDraftBroughtTo, statusDraftFor, statusNothingSaid, statusPeriodAsked, statusReport, statusSaid } from './status-report';
 
 export const PROJECT_COCKPIT_PANES = [
   'overview',
@@ -126,6 +155,7 @@ export const PROJECT_COCKPIT_PANES = [
   'actions',
   'decisions',
   'reports',
+  'review',
   'valuation',
   'graph',
   'drafts',
@@ -313,6 +343,8 @@ function panePath(projectId: string, pane: ProjectCockpitPane, extra?: CockpitPa
       return withQuery(`${base}/decisions`, [['decision', extra?.item]]);
     case 'reports':
       return withQuery(`${base}/reports`, [['report', extra?.item]]);
+    case 'review':
+      return withQuery(`${base}/review`, [['paper', extra?.evidenceId]]);
     case 'valuation':
       return `${base}/valuation`;
     case 'graph':
@@ -646,6 +678,10 @@ export function wantsDeterministicProjectChat(
   const q = question.trim();
   const ql = q.toLowerCase();
   if (!q) return true;
+  // Which meetings were held is read off the file.
+  if (asksForMeetings(q)) return true;
+  // A status report is written by code from the record.
+  if (asksForStatusReport(q)) return true;
   // A pressed choice that accepts or sets aside acts on the ids it carries. Its sentence is not for anything to read.
   if (options.sitting?.decision) return true;
   // A page or a stage asked for by name is a place to go, and needs no model to find.
@@ -1014,6 +1050,14 @@ export function applyProjectChat(
      */
     memoryAnswer?: string;
     /**
+     * Notes of a meeting given this turn, as the caller read them: pasted
+     * words it has put in storage, or the answer to the chat's own question
+     * about some. See `MeetingGiven`.
+     */
+    meeting?: MeetingGiven;
+    /** What was read out of the dropped files that are notes of a meeting, by each file's storage key, where the caller had a model read them. */
+    meetingReadings?: Record<string, MeetingReading>;
+    /**
      * False where no model reader is set up. The caller knows, and the reply
      * needs it: pages this server could not read are then pages nothing here
      * can read, and "ask again" would be advice that leads nowhere. Absent
@@ -1154,7 +1198,23 @@ export function applyProjectChat(
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
-  const ingest = options.ingest ?? [];
+  /*
+   * Notes of a meeting among what was dropped are kept as a meeting, and not
+   * filed as papers. A file the chat cannot tell about is held, and a person
+   * is asked. A file a person has already said is a document is a paper like
+   * any other, and what was held of it is let go. Not for somebody working
+   * from a grant: meetings are the firm's own.
+   */
+  const dropped = options.ingest ?? [];
+  // What each file is taken for, read before anything held of it is let go.
+  const notesSeen = new Map(dropped.map((file) => [file, options.outside ? ('no' as const) : meetingNotesFor(project, file)]));
+  if (project.meetings?.some((held) => held.standing === 'paper')) {
+    project.meetings = project.meetings.filter((held) => held.standing !== 'paper' || !dropped.some((file) => file.storageKey === held.file.storageKey));
+  }
+  const notesDropped = dropped.filter((file) => notesSeen.get(file) === 'yes');
+  const unsureDropped = dropped.filter((file) => notesSeen.get(file) === 'maybe');
+  const ingest = dropped.filter((file) => notesSeen.get(file) === 'no');
+  const meetingGiven = Boolean(options.meeting) || notesDropped.length > 0 || unsureDropped.length > 0;
   /*
    * A page or a stage asked for by name. Read before anything that answers on
    * topic words: "open Approvals" names a function, and is not an approval to
@@ -1346,7 +1406,71 @@ export function applyProjectChat(
     toolCalls = [{ name: verb === 'accept' ? NOTHING_ACCEPTED : NOTHING_SET_ASIDE, summary: verb === 'accept' ? 'Nothing accepted' : 'Nothing set aside' }];
   };
 
-  if (ingest.length) {
+  /**
+   * Keep the notes of meetings given this turn and raise a card for each
+   * thing they say. The meeting is kept at once, as a dropped paper is filed
+   * at once: the notes are the person's own. What they would put on the
+   * record waits on its card. Returns what to say, and the choices when a
+   * person has to say whether some words are notes at all.
+   */
+  const keepNotesGiven = (): { said: string; asks?: ChatChoice[] } => {
+    const said: string[] = [];
+    let asks: ChatChoice[] | undefined;
+    const where = here.department || here.fn ? { ...(here.department ? { department: here.department } : {}), ...(here.fn ? { fn: here.fn } : {}) } : undefined;
+    const raise = (cards: ChatProposal[]) => {
+      const before = offered;
+      offer(cards);
+      offered = [...before, ...offered];
+    };
+    const keep = (given: MeetingToKeep, asked?: MeetingRecord) => {
+      // The same words given twice are one meeting.
+      const twin = meetingTwin(project, given.digest);
+      if (twin) {
+        if (asked) dropMeeting(project, asked.id);
+        said.push(meetingAlreadyKeptSaid(twin));
+        return;
+      }
+      const { meeting, cards } = keepMeeting(project, { ...given, place: given.place ?? where }, actor, asked);
+      raise(cards);
+      commands.push('Kept the notes of a meeting');
+      said.push(meetingKeptSaid(project, meeting, { modelCanRead: options.modelReader !== false && !given.reading.byModel }));
+    };
+    const given = options.meeting;
+    if (given && 'keep' in given) keep(given.keep, given.askedId ? meetingsAsked(project).find((held) => held.id === given.askedId) : undefined);
+    else if (given && 'ask' in given) askAboutMeeting(project, given.ask.file, given.ask.came, actor, where);
+    else if (given && 'not' in given) {
+      dropMeeting(project, given.not);
+      said.push('Not kept as a meeting, and nothing was filed.');
+    } else if (given && 'more' in given) {
+      const meeting = meetingsHeld(project).find((held) => held.id === given.more.meetingId);
+      const cards = meeting ? addMeetingItems(meeting, given.more.items, actor) : [];
+      raise(cards);
+      if (!meeting) said.push('That meeting is no longer on the file.');
+      else if (cards.length) said.push([`Read the notes of ${meetingCalled(meeting)} through: ${cards.length === 1 ? '1 more thing is' : `${cards.length} more things are`} waiting on cards.`, ...cards.map((card) => `- ${card.title}`)].join('\n'));
+      else said.push(given.more.byModel ? `Read the notes of ${meetingCalled(meeting)} through. Nothing more in them is a decision, an action or an open point.` : `No model is set up to read the notes of ${meetingCalled(meeting)} through, and the rules found nothing more in them.`);
+    } else if (given && 'say' in given) said.push(given.say);
+    const fileOf = (file: ChatIngestFile): MeetingFile => ({ storageKey: file.storageKey, fileName: file.fileName, mimeType: file.mimeType, sizeBytes: file.sizeBytes });
+    for (const file of notesDropped) {
+      const words = file.excerpt ?? '';
+      keep({ file: fileOf(file), came: 'dropped', reading: options.meetingReadings?.[file.storageKey] ?? readMeetingNotes(words), digest: meetingDigest(words) });
+    }
+    for (const file of unsureDropped) askAboutMeeting(project, fileOf(file), 'dropped', actor, where);
+    // One question at a time, so an answer has one thing to be about: the earliest words still held.
+    const unsure = meetingAskedNow(project);
+    if (unsure) {
+      const asking = meetingQuestion(unsure);
+      said.push(asking.text);
+      asks = asking.choices;
+    }
+    return { said: said.join('\n\n'), ...(asks ? { asks } : {}) };
+  };
+
+  if (meetingGiven && !ingest.length) {
+    const notes = keepNotesGiven();
+    assistantText = notes.said;
+    choices = notes.asks;
+    toolCalls = [{ name: MEETING_NOTES, summary: notes.asks ? 'Asked whether these are notes of a meeting' : 'Notes of a meeting' }];
+  } else if (ingest.length) {
     const prefer = options.sitting;
     /*
      * What the documents say about WHERE this is, alongside what they are.
@@ -1524,6 +1648,12 @@ export function applyProjectChat(
     const first = groups[0];
     if (first?.fn && first.open.pane !== 'evidence') navigate(first.open.pane, `Opened ${chatPlaceLabel({ fn: first.fn })} documents`, first.open.extra);
     else navigate('evidence', 'Opened documents');
+    // Notes of a meeting dropped with the papers are kept beside them, and said after them. So is a question still waiting for its answer.
+    if (meetingGiven || (!options.outside && meetingAskedNow(project))) {
+      const notes = keepNotesGiven();
+      assistantText += `\n\n${notes.said}`;
+      if (notes.asks) choices = [...(choices ?? []), ...notes.asks];
+    }
   } else if (options.nothingLeftToRead) {
     // Nothing this turn can read is not everything read: a paper with pages nobody read is said, with why.
     const partly = partlyReadOnFile(project);
@@ -1543,6 +1673,33 @@ export function applyProjectChat(
   } else if (options.memoryAnswer) {
     assistantText = options.memoryAnswer;
     toolCalls = [{ name: MEMORY_ANSWER, summary: 'Answered from memory' }];
+  } else if (!options.outside && asksForMeetings(q)) {
+    assistantText = meetingsSaid(project);
+    toolCalls = [{ name: MEETINGS_LISTED, summary: 'Meetings on file' }];
+  } else if (!options.outside && asksForStatusReport(q)) {
+    /*
+     * "Write this week's status for the owner". The person's own instruction,
+     * so it runs: a draft among the project's reports, which reads the record
+     * until somebody issues it. Asked for again, the draft already written
+     * for that period is brought up to now, and no second one is made. A
+     * period nothing happened in gets one line and no report.
+     */
+    const now = new Date();
+    const asked = statusPeriodAsked(project, q, now);
+    const status = statusReport(project, asked.period, now);
+    if (!status.changed.length) {
+      assistantText = statusNothingSaid(asked);
+      toolCalls = [{ name: STATUS_REPORT, summary: 'Nothing changed in the period' }];
+    } else {
+      const draft = statusDraftFor(project, asked);
+      const report = draft ?? generateReport(project, { kind: 'status', period: asked.period, audience: asked.audience, generatedBy: actor }, actor);
+      // The same draft, brought up to the period asked for now.
+      if (draft && statusDraftBroughtTo(project, draft, asked)) project.updatedAt = now.toISOString();
+      assistantText = statusSaid(project, report, asked, status, !draft);
+      toolCalls = [{ name: STATUS_REPORT, summary: draft ? 'Status report brought up to now' : 'Status report written' }];
+      citedNodeIds = [report.id];
+      navigate('reports', draft ? '' : 'Wrote a status report', { item: report.id });
+    }
   } else if (pressed) {
     /*
      * A choice that was pressed. It acts on the cards and papers it names and

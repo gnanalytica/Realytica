@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, Check, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, ArrowRight, Check, ClipboardList, Clock, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
 import { proposedFacts, type DdProject, type DocumentFact, type EvidenceRecord } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { cardStateFor, type ReadingFile, type ReadingSession, type SourceFocus } from '../../lib/reading';
@@ -37,32 +38,44 @@ interface Pace {
  * The reading, paced to be watched.
  *
  * A text-layer deed is read in a few milliseconds, so nine of them arrive as
- * one burst and nobody sees a page being read. Each file is shown in the
- * order it was read, for long enough to watch, and its facts come off the
- * page when both it has really been read and its turn has run. Nothing is
- * shown before it was read; things read quickly are only shown a little
- * later.
+ * one burst and nobody sees a page being read. A file read by itself is shown
+ * for long enough to watch, and its facts come off the page when both it has
+ * really been read and its time has run. Nothing is shown before it was read;
+ * things read quickly are only shown a little later.
+ *
+ * Papers dropped together are read three at a time and are all named from
+ * the start, in the order dropped. Each is then paced by itself, from when
+ * its own reading began: one that takes minutes does not hold back the two
+ * read beside it.
  */
 function usePace(session: ReadingSession): { paces: Map<string, Pace>; now: number } {
-  const seen = useRef(new Map<string, { started: number; read?: number }>());
+  const seen = useRef(new Map<string, { started?: number; read?: number }>());
   const [now, setNow] = useState(() => Date.now());
 
   for (const f of session.files) {
-    const entry = seen.current.get(f.key) ?? { started: Date.now() };
-    if (f.phase !== 'reading' && entry.read === undefined) entry.read = f.readAt ?? Date.now();
+    const entry = seen.current.get(f.key) ?? {};
+    if (f.phase !== 'queued' && entry.started === undefined) entry.started = Date.now();
+    if (f.phase !== 'reading' && f.phase !== 'queued' && entry.read === undefined) entry.read = f.readAt ?? Date.now();
     seen.current.set(f.key, entry);
   }
 
   const paces = new Map<string, Pace>();
+  /** Named before any was read: a drop of several, read side by side. */
+  const together = Boolean(session.together);
   let previousEnd = 0;
   for (const f of session.files) {
     const entry = seen.current.get(f.key)!;
+    if (together && session.mode !== 'review') {
+      const showFacts = entry.started === undefined || entry.read === undefined ? Number.POSITIVE_INFINITY : Math.max(entry.read, entry.started + scanMs(f.pages));
+      paces.set(f.key, { showFrom: 0, showFacts });
+      continue;
+    }
     // A desk opened over cards already read has nothing to replay.
     if (session.mode === 'review') {
       paces.set(f.key, { showFrom: 0, showFacts: 0 });
       continue;
     }
-    const showFrom = Math.max(entry.started, previousEnd);
+    const showFrom = Math.max(entry.started ?? Date.now(), previousEnd);
     const showFacts = entry.read === undefined ? Number.POSITIVE_INFINITY : Math.max(entry.read, showFrom + scanMs(f.pages));
     paces.set(f.key, { showFrom, showFacts });
     previousEnd = Number.isFinite(showFacts) ? showFacts + 250 : Number.POSITIVE_INFINITY;
@@ -76,6 +89,11 @@ function usePace(session: ReadingSession): { paces: Map<string, Pace>; now: numb
   }, [waiting]);
 
   return { paces, now };
+}
+
+/** Where a department's questions are answered: the technical due diligence's own step for Engineering, the department's page for the rest. */
+function questionsPath(projectId: string, department: string | undefined): string {
+  return !department || department === 'construction' ? `/projects/${projectId}/w/construction.quality?step=questions` : `/projects/${projectId}/d/${department}?step=questions`;
 }
 
 /** "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym. */
@@ -207,7 +225,9 @@ export function ReadingDesk({
     (filingQueue[0] && session.files.find((f) => f.key === filingQueue[0]))
     ?? (focus && session.files.find((f) => f.key === focus.key))
     ?? (pinned && session.files.find((f) => f.key === pinned))
-    ?? [...visible].reverse().find((f) => !factsShown(f))
+    // Of several read side by side: the first, in the order dropped, that is being read; then the last one read.
+    ?? visible.find((f) => f.phase !== 'queued' && !factsShown(f))
+    ?? [...visible].reverse().find((f) => f.phase !== 'queued')
     ?? visible[visible.length - 1]
     ?? session.files[0];
 
@@ -328,6 +348,9 @@ export function ReadingDesk({
               >
                 {f.phase === 'failed' ? (
                   <AlertTriangle size={12} className="text-[var(--status-warning-text)]" aria-hidden />
+                ) : f.phase === 'queued' ? (
+                  // Named, and waiting its turn: three are read at a time.
+                  <Clock size={12} className="text-ink-muted" aria-label="waiting to be read" />
                 ) : done && waitingOn(f) > 0 ? (
                   // Filed, but what it states is still waiting: not done yet.
                   <Sparkles size={12} className="text-provenance-ink" aria-hidden />
@@ -401,7 +424,7 @@ export function ReadingDesk({
         <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(46%,440px)] shrink-0 pr-1' : 'flex-1')}>
           {rowFacts.length ? null : (
           <p className="text-[12px] font-semibold text-ink">
-            {scanning ? 'Reading…' : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
+            {scanning ? 'Reading…' : current.taken ? (current.taken.as === 'questionnaire' ? 'A questionnaire' : 'Notes of a meeting') : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
           </p>
           )}
           {scanning ? (
@@ -459,7 +482,26 @@ export function ReadingDesk({
               <p className="text-[13px] leading-relaxed text-ink-secondary">{current.notes}</p>
             </div>
           ) : null}
-          {shown && !facts.length && !current.notes && current.phase !== 'failed' && current.phase !== 'model' ? (
+          {current.taken ? (
+            // No paper, and on no row: what became of it, and the way to it.
+            <div className="flex flex-col items-start gap-2 rounded-lg bg-surface px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
+              <p className="flex items-center gap-1.5 text-[13px] text-ink">
+                <ClipboardList size={13} aria-hidden />
+                {current.taken.said}.
+              </p>
+              {current.taken.as === 'questionnaire' ? (
+                <Link
+                  to={questionsPath(projectId, current.taken.department)}
+                  className="inline-flex items-center gap-1 rounded-md bg-raised px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:text-brand"
+                >
+                  Open the questions
+                  <ArrowRight size={12} aria-hidden />
+                </Link>
+              ) : (
+                <p className="text-micro text-ink-muted">What it proposes is in the chat.</p>
+              )}
+            </div>
+          ) : shown && !facts.length && !current.notes && current.phase !== 'failed' && current.phase !== 'model' ? (
             <p className="flex items-center gap-1.5 text-[13px] text-ink-muted">
               <FileText size={13} aria-hidden />
               {current.summary ?? 'Filed as it is; nothing on it matched what the reader knows how to read.'}

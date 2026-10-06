@@ -50,8 +50,13 @@ import type { AuditEvent, DdProject, ProjectChatTurn } from './types';
  * form.
  * 3: facts. Beside the entries, one node for each value the record holds
  * about something, tagged with where it stands; see `mem-facts.ts`.
+ * 4: a meeting whose notes were kept and a report issued are told, and a
+ * decision or an action made from a meeting's notes names the meeting as
+ * what states it.
+ * 5: an action closed and a decision settled are told, which is what a
+ * status report reads to say what was done in a period.
  */
-export const MEM_SCHEMA = 3;
+export const MEM_SCHEMA = 5;
 
 /**
  * How many audit events and chat turns one delta tells. A record that holds
@@ -80,8 +85,12 @@ export const MEM_ENTRY_KINDS = [
   'chat_asked',
   'chat_answered',
   'decision_recorded',
+  'decision_settled',
   'action_recorded',
+  'action_closed',
   'finding_raised',
+  'meeting_kept',
+  'report_issued',
   'map_read_kept',
   'map_read_removed',
   'undone',
@@ -347,6 +356,9 @@ const READER = 'system';
 /** Whose a chat turn is when nobody named its author. No person on the record has this name, so a reader is shown none. */
 const NOBODY = 'nobody';
 
+/** The standings of a decision somebody has made: it is no longer proposed, pending or deferred. */
+const SETTLED = new Set(['approved', 'rejected', 'conditional', 'implemented']);
+
 /** How the audit trail writes a map read kept or removed: `revenueMap`, then the parcel if it names one. */
 const MAP_READ = /^revenueMap(?: (\S+))?$/;
 
@@ -391,8 +403,18 @@ function entriesOfEvent(project: DdProject, event: AuditEvent): MemEntry[] {
     if (event.entityType === 'decision') return [tell('decision_recorded', [event.entityId])];
     if (event.entityType === 'action') return [tell('action_recorded', [event.entityId])];
     if (event.entityType === 'finding') return [tell('finding_raised', [event.entityId])];
+    // The notes of a meeting, kept. What they say is told when a person accepts it, as the decision or the action it becomes.
+    if (event.entityType === 'meeting') return [tell('meeting_kept', [event.entityId])];
     return [];
   }
+  // A person closed an action, or settled a decision that was open. Where each stands now is the record's to say, and no word of it is kept here.
+  if (event.action === 'status_change') {
+    if (event.entityType === 'action' && event.newValue === 'closed') return [tell('action_closed', [event.entityId])];
+    if (event.entityType === 'decision' && SETTLED.has(event.newValue ?? '') && !SETTLED.has(event.oldValue ?? '')) return [tell('decision_settled', [event.entityId])];
+    return [];
+  }
+  // A report a person issued under their name. A draft made or edited is not told.
+  if (event.entityType === 'report' && event.action === 'issue_report') return [tell('report_issued', [event.entityId])];
   if (event.entityType === 'project' && event.action === 'patch') {
     // The parcel's key as the trail writes it. Whether it is one an entry may keep is the scrub's to say.
     const parcel = (key: string | undefined): string[] => (key ? [key] : []);

@@ -94,3 +94,14 @@ export function docxOutline(file: Buffer): OutlineLine[] {
   }
   return lines;
 }
+
+/** A Word file's words, a paragraph a line: what the file says, for telling what it is. Empty for a file that will not open. */
+export function wordsOfDocx(file: Buffer): string {
+  try {
+    return docxOutline(file)
+      .map((line) => line.text)
+      .join('\n');
+  } catch {
+    return '';
+  }
+}

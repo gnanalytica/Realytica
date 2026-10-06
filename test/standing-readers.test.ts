@@ -101,8 +101,9 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
 
   // Showing what waits, as waiting.
   { file: 'packages/shared/src/operating-model/revenue-map.ts', has: 'for (const fact of liveFacts(row))', why: 'the survey number picker: every number read is offered, each said to be accepted, waiting or a model’s, and `stands` says which may be counted' },
-  { file: 'apps/api/src/routes/projects.ts', has: 'facts: read.read?.facts ?? []', why: 'streams this server’s reading to the desk, which shows each value as waiting' },
-  { file: 'apps/api/src/routes/projects.ts', has: 'facts: merged.read.facts', why: 'streams the reading with the model’s laid over it to the same desk' },
+  { file: 'packages/shared/src/operating-model/review-table.ts', has: 'return row.facts ?? [];', why: 'the review table: draws every value a paper holds with where it stands (approved, waiting or set aside), asks `stands` which acceptance holds, and acts on none' },
+  { file: 'apps/api/src/routes/projects.ts', has: 'facts: paper.read?.facts ?? []', why: 'streams this server’s reading to the desk, which shows each value as waiting' },
+  { file: 'apps/api/src/routes/projects.ts', has: "event: 'merged', key: storageKey, facts: paper.read.facts", why: 'streams the reading with the model’s laid over it to the same desk' },
 
   // An offer's own list of the values it was read from, by row and key. Not a paper's values.
   { file: 'packages/shared/src/operating-model/value-inputs.ts', has: 'rest.facts?.[0]?.key', why: 'names an offer by the first value it was read from' },

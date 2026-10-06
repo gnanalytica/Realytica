@@ -23,6 +23,8 @@ import {
   allChecks,
   buildProjectGraph,
   chatLinkLabels,
+  meetingCalled,
+  meetingsHeld,
   memLint,
   memPeople,
   memPointer,
@@ -83,6 +85,7 @@ function titlesOf(project: DdProject): Map<string, string> {
   for (const check of allChecks(project)) unnamed(check.id, check.title);
   for (const comparable of project.comparables ?? []) unnamed(comparable.id, comparable.title);
   for (const questionnaire of project.questionnaires ?? []) for (const question of questionnaire.questions) unnamed(question.id, question.text.slice(0, 120));
+  for (const meeting of meetingsHeld(project)) unnamed(meeting.id, meetingCalled(meeting));
   return titles;
 }
 

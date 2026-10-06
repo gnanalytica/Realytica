@@ -19,6 +19,7 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { AssignCell } from '../../components/AssignCell';
+import { MeetingSource } from '../../components/meetings/MeetingNotes';
 import { MineToggle, useMine } from '../../components/MineToggle';
 import { CreateButton } from '../../components/create/CreateWizard';
 import { RemedialCostChart } from '../../components/charts';
@@ -153,6 +154,8 @@ export function RisksActions() {
                           {ACTION_KIND_LABEL[a.kind]}{a.dueDate ? ` · due ${a.dueDate}` : ''}
                         </p>
                         <AssignCell className="-ml-1.5" project={project} targetId={a.id} subject={a.title} owner={a.owner} onAssigned={setProject} />
+                        {/* An action a meeting gave opens that meeting's notes at the words it rests on. */}
+                        <MeetingSource project={project} recordId={a.id} />
                       </div>
                       <Select
                         value={a.status}
@@ -200,7 +203,13 @@ export function DecisionRegister() {
               <RegisterRow
                 title={d.title}
                 why={d.rationale}
-                meta={<span>{DECISION_TYPE_LABEL[d.decisionType]} · {d.decisionMaker}</span>}
+                meta={
+                  <>
+                    <span>{DECISION_TYPE_LABEL[d.decisionType]}{d.decisionMaker ? ` · ${d.decisionMaker}` : ''}</span>
+                    {/* A decision a meeting gave opens that meeting's notes at the words it rests on. */}
+                    <MeetingSource project={project} recordId={d.id} short={Boolean(d.decisionMaker)} />
+                  </>
+                }
                 trailing={
                   <Select
                     value={d.status}

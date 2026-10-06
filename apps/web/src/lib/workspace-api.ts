@@ -126,7 +126,7 @@ export const workspaceApi = {
   fileSitePhoto: (projectId: string, entryId: string, index: number) =>
     request<{ project: DdProject; evidenceId: string }>(`/projects/${projectId}/site-log/${entryId}/photos/${index}/file`, { method: 'POST' }),
 
-  /** Import a questionnaire: a Word, CSV or text file, or the questions pasted as text. */
+  /** Import a questionnaire: an Excel, Word, PDF, CSV or text file, or the questions pasted as text. */
   importQuestionnaire: (projectId: string, input: ({ file: File; title?: string } | { title: string; text: string }) & { department?: DepartmentKey }) => {
     if ('file' in input) {
       const form = new FormData();
@@ -136,6 +136,26 @@ export const workspaceApi = {
       return request<{ project: DdProject; questionnaireId: string }>(`/projects/${projectId}/questionnaires`, { method: 'POST', body: form });
     }
     return request<{ project: DdProject; questionnaireId: string }>(`/projects/${projectId}/questionnaires`, json(input));
+  },
+
+  /**
+   * Saves the answered questionnaire to the reader's disk, as an Excel workbook or a PDF, each answer with its source.
+   * Fetched with the session's token and handed to the browser as a download: a plain link would send no token.
+   */
+  saveQuestionnaire: async (projectId: string, questionnaireId: string, format: 'xlsx' | 'pdf', name: string): Promise<void> => {
+    const res = await fetchWithAuth(`/api/projects/${projectId}/questionnaires/${questionnaireId}/export?format=${format}`);
+    if (!res.ok) {
+      const said = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(said?.error ?? `The questionnaire could not be taken out: ${res.status}`);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   },
 
   answerQuestion: (

@@ -108,7 +108,7 @@ function ImportDialog({ project, department, open, onClose, onDone }: { project:
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-medium text-ink">{file ? file.name : 'Choose a file'}</span>
-            <span className="block text-micro text-ink-muted">.docx, .csv or .txt</span>
+            <span className="block text-micro text-ink-muted">.xlsx, .docx, .pdf, .csv or .txt</span>
           </span>
           {file ? (
             <span
@@ -134,7 +134,7 @@ function ImportDialog({ project, department, open, onClose, onDone }: { project:
         <input
           ref={input}
           type="file"
-          accept=".docx,.csv,.tsv,.txt,.md"
+          accept=".xlsx,.docx,.pdf,.csv,.tsv,.txt,.md"
           className="hidden"
           onChange={(e) => {
             const picked = e.target.files?.[0] ?? null;
@@ -515,6 +515,18 @@ export function QuestionnaireCard({
     }
   }
 
+  /** The answered sheet as a file to send back: Excel or PDF, each answer with its source. */
+  async function save(format: 'xlsx' | 'pdf') {
+    setBusy(true);
+    try {
+      await workspaceApi.saveQuestionnaire(project.id, questionnaire!.id, format, `${project.reference}-${questionnaire!.title}`.replace(/[\\/:*?"<>|]+/g, '-'));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not take the questionnaire out', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(questionnaireText(project, questionnaire!));
@@ -544,8 +556,13 @@ export function QuestionnaireCard({
             <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => void copy()}>
               Copy
             </Button>
+            {(['xlsx', 'pdf'] as const).map((format) => (
+              <Button key={format} size="sm" variant="ghost" icon={<Download size={13} />} disabled={busy} onClick={() => void save(format)}>
+                {format === 'xlsx' ? 'Excel' : 'PDF'}
+              </Button>
+            ))}
             <Button size="sm" variant="ghost" icon={<Download size={13} />} onClick={() => download(`${project.reference}-questionnaire.csv`, questionnaireCsv(project, questionnaire), 'text/csv')}>
-              Export
+              CSV
             </Button>
             {mayEdit ? (
               <Button size="sm" variant="ghost" icon={<Upload size={13} />} onClick={() => setImporting(true)}>

@@ -26,6 +26,7 @@ import { acceptedFacts } from './fact-review';
 import { memBySeed, memIsNear, memNear, memSeeds, memTagPrinted, memTellingWords, memTitles, type MemAsk, type MemRest, type MemSeed } from './mem-context';
 import { memWho } from './mem-delta';
 import { memFormOfKey, type MemFact } from './mem-facts';
+import { meetingCalled, meetingDayIn, meetingItemStands, meetingNotesMark, meetingOfRecord, meetingsHeld } from './meetings';
 import type { DdProject } from './types';
 
 /** How many facts are said under an answer the chat gave by rule. */
@@ -65,17 +66,23 @@ interface Names {
   projectId: string;
   titles: ReadonlyMap<string, string>;
   people: ReadonlyMap<string, string>;
-  /** Where each decision and action stands on the record, in the record's own words, and whether it is still open. */
-  records: ReadonlyMap<string, { stands: string; open: boolean }>;
+  /** Where each decision and action stands on the record, in the record's own words, whether it is still open, and the meeting it came out of where it came out of one. */
+  records: ReadonlyMap<string, { stands: string; open: boolean; unmade?: boolean; from?: string }>;
 }
 
 /** The standings a decision has while nobody has settled it. */
 const DECISION_OPEN = new Set(['proposed', 'pending', 'deferred']);
 
 function namesOf(project: DdProject): Names {
-  const records = new Map<string, { stands: string; open: boolean }>();
-  for (const decision of project.decisions) records.set(decision.id, { stands: DECISION_STATUS_LABEL[decision.status].toLowerCase(), open: DECISION_OPEN.has(decision.status) });
-  for (const action of project.actions) records.set(action.id, { stands: ACTION_STATUS_LABEL[action.status].toLowerCase(), open: action.status !== 'closed' });
+  const records = new Map<string, { stands: string; open: boolean; unmade?: boolean; from?: string }>();
+  // The meeting a record came out of, with the mark that opens its notes at the words the record rests on.
+  const from = (recordId: string): { from?: string } => {
+    const made = meetingOfRecord(project, recordId);
+    return made ? { from: `from ${meetingCalled(made.meeting)} ${meetingNotesMark(made.meeting.id, made.item.id)}` } : {};
+  };
+  // Pending is how a point left open stands: a decision that is on the record and that nobody has made.
+  for (const decision of project.decisions) records.set(decision.id, { stands: DECISION_STATUS_LABEL[decision.status].toLowerCase(), open: DECISION_OPEN.has(decision.status), ...(decision.status === 'pending' ? { unmade: true } : {}), ...from(decision.id) });
+  for (const action of project.actions) records.set(action.id, { stands: ACTION_STATUS_LABEL[action.status].toLowerCase(), open: action.status !== 'closed', ...from(action.id) });
   return { projectId: project.id, titles: memTitles(project), people: memPeople(project), records };
 }
 
@@ -140,9 +147,14 @@ function lineOf(fact: MemFact, names: Names, past = false): Line {
     after = [when, about ? `about “${about}”` : undefined];
   } else if (fact.key === 'decision' || fact.key === 'action') {
     // The tag is for the recording, which a person made. Where the decision or the action itself stands is the record's word, said beside its kind.
-    const stands = names.records.get(fact.aboutId)?.stands;
-    head = `${fact.key === 'decision' ? 'Decision' : 'Action'} recorded: “${names.titles.get(fact.aboutId) ?? 'a record no longer on file'}” (${valueOf(fact)}${stands ? `, ${stands}` : ''})`;
-    after = [fact.by ? names.people.get(fact.by) : undefined, when];
+    const record = names.records.get(fact.aboutId);
+    // A decision nobody has made yet is said to be that: its tag is for a person having put it on the record, not for its being settled.
+    const what = fact.key === 'action' ? 'Action recorded' : record?.unmade ? 'Decision still to be made' : 'Decision recorded';
+    // A kind that says nothing, "other", is left unsaid.
+    const kind = fact.value === 'other' ? undefined : valueOf(fact);
+    const standing = [kind, record?.stands].filter(Boolean).join(', ');
+    head = `${what}: “${names.titles.get(fact.aboutId) ?? 'a record no longer on file'}”${standing ? ` (${standing})` : ''}`;
+    after = [fact.by ? names.people.get(fact.by) : undefined, when, record?.from];
   } else {
     const source = titled(fact.source);
     head = `${fact.label}: ${valueOf(fact)}`;
@@ -247,7 +259,7 @@ const AGREED = /\bwhat (?:was|were|has been|have been|had been|have we|had we|di
 const HOLDS =
   /\bmemory\b[^.?!]{0,40}?\b(?:holds?|says?|knows?|ha(?:s|ve)|contains?|remembers?)\b|\b(?:what(?:'s|’s| is)|anything|everything) in (?:the |this project(?:'s|’s) )?memory\b|\bwhat (?:do|did) we (?:already |currently |actually )?know\b|\bwhat is (?:known|on record)\b/i;
 const ABOUT = /\b(?:about|regarding|concerning)\s+([^?!]{1,200})/i;
-const AFTER = /^\W{0,3}(?:on|for|of|in|with|to)\s+([^?!]{1,200})/i;
+const AFTER = /^\W{0,3}(?:on|for|of|in|at|with|to)\s+([^?!]{1,200})/i;
 
 /**
  * Whether a question asks memory itself, and what about: what memory holds
@@ -277,6 +289,8 @@ interface Subject {
   seeds: MemSeed[];
   /** Words that tell a record's title or a note as being about it, when it is a kind of value and no record. */
   telling: string[];
+  /** A line to end the answer with: for a meeting, how much of its notes still waits on cards. */
+  also?: string;
 }
 
 const THE_PROJECT = /^(?:(?:this|the|our|my|whole|entire)\s+){0,2}(?:project|file|site|plot|property|deal)$|^(?:it|this|everything|anything|all of it)$/i;
@@ -303,6 +317,8 @@ function subjectOf(project: DdProject, asked: MemAsked, ask: MemAsk): Subject | 
     const here = memSeeds(project, { question: '', place: ask.place }).filter((seed) => seed.from === 'page');
     return here.length ? { called: `the ${here[0]!.title} page`, everything: false, seeds: here, telling: [] } : whole;
   }
+  const met = about ? meetingAsked(project, about) : undefined;
+  if (met) return met;
   const named = memSeeds(project, { question: about ?? ask.question }).filter((seed) => seed.from === 'named');
   const page = about ? A_PAGE.exec(about)?.[1]?.toLowerCase() : undefined;
   const pages: MemSeed[] = !page
@@ -312,11 +328,45 @@ function subjectOf(project: DdProject, asked: MemAsked, ask: MemAsk): Subject | 
         ...menuFunctions(menu).flatMap((fn) => (fn.label.toLowerCase() === page ? [{ from: 'page' as const, title: chatPlaceLabel({ fn: fn.key }), aboutIds: [], fn: fn.key, keys: [] }] : [])),
       ]);
   const seeds = [...named, ...pages];
+  if (!seeds.length && about) {
+    // No record goes by these words as its title. A decision or an action is still about them when its own title has every one that tells.
+    const telling = memTellingWords(calledAs(about));
+    const has = (title: string): boolean => {
+      const words = new Set(memTellingWords(title));
+      return telling.length > 0 && telling.every((word) => words.has(word));
+    };
+    const ids = [...project.decisions.filter((decision) => has(decision.title)), ...project.actions.filter((action) => has(action.title))].map((record) => record.id);
+    if (ids.length) return { called: calledAs(about), everything: false, seeds: [{ from: 'named', title: calledAs(about), aboutIds: ids.slice(0, 40), keys: [] }], telling: [] };
+  }
   if (!seeds.length) return about ? undefined : whole;
   const keys = named.flatMap((seed) => seed.keys);
   const titles = named.filter((seed) => seed.aboutIds.length).map((seed) => `“${seed.title}”`);
   const called = about ? calledAs(about) : [...titles, ...pages.map((seed) => `the ${seed.title} page`)].slice(0, 2).join(' and ') || 'what the question names';
   return { called, everything: false, seeds, telling: keys.length && !titles.length ? memTellingWords(about ? calledAs(about) : '') : [] };
+}
+
+/**
+ * A meeting asked about: "the meeting of 3 October", "the last meeting".
+ * The one held on the day the words give, else the latest where they give
+ * no day. It is the decisions and actions made from its notes, and the
+ * answer ends with how much of the notes still waits on cards.
+ */
+function meetingAsked(project: DdProject, about: string): Subject | undefined {
+  if (!/\bmeetings?\b/i.test(about)) return undefined;
+  const held = meetingsHeld(project);
+  // A day and a month with no year is read in each meeting's own year.
+  const dated = held.find((meeting) => meeting.heldOn && meetingDayIn(about, `${meeting.heldOn.slice(0, 4)}-01-01`) === meeting.heldOn);
+  const meeting = dated ?? (/\d/.test(about) ? undefined : held[0]);
+  if (!meeting) return undefined;
+  const stands = meeting.items.map((item) => meetingItemStands(project, item));
+  const waiting = stands.filter((item) => item.standing === 'waiting').length;
+  return {
+    called: `${meetingCalled(meeting)} ${meetingNotesMark(meeting.id)}`,
+    everything: false,
+    seeds: [{ from: 'named', title: meeting.title, aboutIds: [meeting.id, ...stands.flatMap((item) => item.recordId ?? [])], keys: [] }],
+    telling: [],
+    ...(waiting ? { also: `${waiting === 1 ? '1 thing from its notes is' : `${waiting} things from its notes are`} still waiting on a card, and on the record only once accepted.` } : {}),
+  };
 }
 
 const HEAD: Record<MemAskedKind, (called: string) => string> = {
@@ -407,8 +457,10 @@ export function memAnswer(project: DdProject, facts: readonly MemFact[], asked: 
   } else {
     lines.push(words(`Memory holds nothing about ${called} yet.`));
   }
-  part(asked.kind === 'undecided' ? 'Decisions and actions still open:' : 'Decisions and actions:', listed(records, MEM_ANSWER_RECORDS, names));
+  // Where nothing was said above them, the decisions and actions are the answer, and their heading says what they are about.
+  part(asked.kind === 'undecided' ? 'Decisions and actions still open:' : lines.length ? 'Decisions and actions:' : `Decisions and actions about ${called}:`, listed(records, MEM_ANSWER_RECORDS, names));
   part('The assistant’s own notes, which are not facts of the file:', listed(notes, MEM_ANSWER_NOTES, names));
+  if (subject.also) lines.push(words(''), words(subject.also));
   if (options.notesUnread) lines.push(words(''), words('The memory store did not answer in time, so the assistant’s own notes are not among these.'));
   return said(lines);
 }

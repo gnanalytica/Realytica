@@ -37,6 +37,12 @@ export type Inline =
    */
   | { kind: 'memory'; tag: MemTagWords }
   /**
+   * `[notes:<meeting>]` or `[notes:<meeting>:<item>]`: a way to open the
+   * notes of a meeting, at the words one item of them rests on. A way to
+   * look, like a citation, and it says nothing of where anything stands.
+   */
+  | { kind: 'notes'; meetingId: string; itemId?: string }
+  /**
    * A bracketed token that is plainly one of our ids and resolves to nothing.
    *
    * Observed in real answers: `[dd-check-…bda_bmrda_acquisition]`, where the
@@ -59,6 +65,7 @@ export type Block =
   | { kind: 'rule' };
 
 const EVIDENCE_TOKEN = /\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
+const NOTES_TOKEN = /\[notes:([A-Za-z0-9_]{4,80})(?::([A-Za-z0-9_]{4,80}))?\]/;
 const NODE_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
 
 /**
@@ -227,6 +234,9 @@ function inline(text: string, isNode: (id: string) => boolean, tags: readonly Me
 
     const ev = EVIDENCE_TOKEN.exec(rest);
     if (ev) candidates.push({ at: ev.index, len: ev[0].length, span: { kind: 'evidence', id: ev[1] } });
+
+    const notes = NOTES_TOKEN.exec(rest);
+    if (notes) candidates.push({ at: notes.index, len: notes[0].length, span: { kind: 'notes', meetingId: notes[1], ...(notes[2] ? { itemId: notes[2] } : {}) } });
 
     const anchor = tags.length ? ANCHOR.exec(rest) : null;
     const tag = anchor ? tags[Number(anchor[1])] : undefined;

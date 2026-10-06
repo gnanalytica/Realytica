@@ -226,7 +226,9 @@ export type ReportKind =
   /** The lawyer's report: title, requisitions answered, findings, documents. */
   | 'legal_dd'
   /** The financial report: valuation, questions answered, findings, documents. */
-  | 'financial_dd';
+  | 'financial_dd'
+  /** What changed over a period, what is waiting and on whom, and what comes next. See `status-report.ts`. */
+  | 'status';
 
 export type ReportStatus = 'draft' | 'generated' | 'reviewed' | 'issued' | 'superseded' | 'archived';
 
@@ -976,7 +978,11 @@ export type ReportBoundSourceKind =
   | 'questionnaire'
   | 'requirement_sheet'
   | 'risk_summary'
-  | 'site_photographs';
+  | 'site_photographs'
+  /** The three sections of a status report: what changed in a period, what is waiting, what comes next. */
+  | 'status_changed'
+  | 'status_waiting'
+  | 'status_next';
 
 /**
  * What a bound block asks the registers for.
@@ -998,6 +1004,11 @@ export interface ReportBoundSource {
   discipline?: ScopeKey;
   /** Whose observations, questionnaire or requirement sheet: Engineering's when absent. */
   department?: import('./departments').DepartmentKey;
+  /** For a section of a status report: the period it covers, from this moment up to, and not including, this one. */
+  from?: string;
+  to?: string;
+  /** For a section of a status report: its lines as code wrote them, with no model's wording laid over them. */
+  plain?: boolean;
 }
 
 export type ReportBlockOrigin = 'derived' | 'authored';
@@ -1050,6 +1061,14 @@ export interface ReportBlock {
   state?: ReportSectionState;
   stateBy?: string;
   stateAt?: string;
+  /**
+   * On a section of a status report: a model's wording for some of its lines.
+   * `said` is the line as code wrote it and `as` the words shown in its place.
+   * It is shown only while the section still gives that very line, and it
+   * replaces the line's words and nothing else: never the date, the person or
+   * what is behind the line. See `statusWordingHeld`.
+   */
+  wording?: Array<{ said: string; as: string }>;
 }
 
 /**
@@ -1066,6 +1085,8 @@ export interface ReportTable {
     recordId?: string;
     /** Photographs and documents that stand behind the row, printed after the table. */
     evidenceIds?: string[];
+    /** The row's words are a model's wording of the line code wrote. */
+    worded?: boolean;
   }>;
 }
 
@@ -1603,6 +1624,39 @@ export type ReadingStreamEvent =
       evidenceId?: string;
       fileId?: string;
     }
+  | {
+      type: 'reading';
+      /** Sent for every file at once, in the order dropped, before any is read: the desk lists them that way however they finish. */
+      event: 'queued';
+      key: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      index: number;
+      total: number;
+      evidenceId?: string;
+      fileId?: string;
+    }
+  | {
+      type: 'reading';
+      /** The paper's reading is on the project's file, saved: sent as each paper finishes, in the order they finish. */
+      event: 'filed';
+      key: string;
+      /** The row it is on, as saved, so the values can be decided while the rest are still being read. */
+      row?: EvidenceRecord;
+    }
+  | {
+      type: 'reading';
+      /** The file was no paper and was not filed as one: a questionnaire, taken in as one, or the notes of a meeting. */
+      event: 'taken';
+      key: string;
+      as: 'questionnaire' | 'notes';
+      /** What became of it, in a line: "A questionnaire: 24 questions", "Notes of a meeting: 4 items proposed". */
+      said: string;
+      /** For a questionnaire: which, and the department whose Questions page holds it. */
+      questionnaireId?: string;
+      department?: string;
+    }
   | { type: 'reading'; event: 'page'; key: string; page: number; of: number }
   | {
       type: 'reading';
@@ -1688,6 +1742,14 @@ export interface ChatIngestFile {
   read?: IngestRead;
   /** How much of the file was read, by which reader, and why a model was asked. */
   reading?: ReadingCoverage;
+  /**
+   * This reading is on the file's row already: it was put there the moment
+   * the paper was read, ahead of the turn that reports the whole drop
+   * (`landIngestFile`). The turn's card for the file then records the filing
+   * and writes no value a second time, so a value a person decided on the row
+   * meanwhile is not put back to waiting.
+   */
+  landed?: true;
 }
 
 /**
@@ -2088,8 +2150,12 @@ export interface DdProject {
   siteLog?: import('./progress').SiteLogEntry[];
   /** What the team should hear about; raised and resolved from the project's state. */
   alerts?: import('./alerts').ProjectAlert[];
+  /** Meetings whose notes were kept: the day, who was there, where the words are stored and what was proposed from them. Never the words. See `meetings.ts`. */
+  meetings?: import('./meetings').MeetingRecord[];
   /** Links between departments a person drew; the system's own are read on demand. */
   links?: import('./links').ProjectLink[];
+  /** The review table: the questions put to the papers, what a model answered (never a value of a paper), and the rows a person marked reviewed. See `review-table.ts`. */
+  reviewTable?: import('./review-table').ReviewTable;
   createdAt: string;
   updatedAt: string;
 }
@@ -2323,4 +2389,7 @@ export interface GenerateReportInput {
   kind: ReportKind;
   assessmentIds?: string[];
   generatedBy: string;
+  /** For a status report: the period it covers, and who it is written for. The week so far when left out. */
+  period?: { from: string; to: string };
+  audience?: string;
 }

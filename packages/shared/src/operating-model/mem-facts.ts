@@ -39,6 +39,7 @@ import { MENU_DEPARTMENTS, functionDepartment, functionKey, workstreamOfCheck } 
 import type { DocumentFact, FactForm } from './document-parse';
 import { acceptedFacts, proofOf, proposedFacts, standingFacts } from './fact-review';
 import { CHECK_DEFINITIONS } from './libraries';
+import { meetingOfRecord } from './meetings';
 import { MEM_PARCEL_REF, isMemId, memHash, memKeyOfValueEvent, memPointer, memRuleOfKey, memWho } from './mem-delta';
 import { checkSchema } from './operations';
 import { revenueReads } from './revenue-map';
@@ -680,13 +681,18 @@ function recordFacts(project: DdProject, trail: Trail): Told[] {
     }
   }
 
+  // A decision or an action made from a meeting's notes is stated by the meeting, in the words of its notes. Any other states itself.
+  const statedBy = (recordId: string): { source: string; quote?: string } => {
+    const from = meetingOfRecord(project, recordId);
+    return from ? { source: from.meeting.id, quote: from.item.quote } : { source: recordId };
+  };
   for (const decision of project.decisions ?? []) {
     const event = made('decision', decision.id);
-    told.push({ slot: `${decision.id}::decision`, tag: 'approved', key: 'decision', value: decision.decisionType, aboutId: decision.id, recordedAt: decision.createdAt, by: event?.actor, at: event?.at, source: decision.id });
+    told.push({ slot: `${decision.id}::decision`, tag: 'approved', key: 'decision', value: decision.decisionType, aboutId: decision.id, recordedAt: decision.createdAt, by: event?.actor, at: event?.at, ...statedBy(decision.id) });
   }
   for (const action of project.actions ?? []) {
     const event = made('action', action.id);
-    told.push({ slot: `${action.id}::action`, tag: 'approved', key: 'action', value: action.kind, aboutId: action.id, recordedAt: event?.at ?? project.createdAt, by: event?.actor, at: event?.at, source: action.id });
+    told.push({ slot: `${action.id}::action`, tag: 'approved', key: 'action', value: action.kind, aboutId: action.id, recordedAt: event?.at ?? project.createdAt, by: event?.actor, at: event?.at, ...statedBy(action.id) });
   }
 
   for (const read of revenueReads(project)) {

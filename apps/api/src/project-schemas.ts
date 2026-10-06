@@ -324,10 +324,16 @@ export const createDecisionBodySchema = z.object({
   actor: actorSchema,
 });
 
+/** A moment, as a report's period names one. */
+const instantSchema = z.string().max(40).refine((value) => !Number.isNaN(Date.parse(value)), 'Not a date');
+
 export const generateReportBodySchema = z.object({
   kind: reportKindSchema,
   assessmentIds: z.array(z.string()).optional(),
   generatedBy: z.string().trim().min(1).max(120).optional(),
+  /** For a status report: the period it covers and who it is written for. */
+  period: z.object({ from: instantSchema, to: instantSchema }).optional(),
+  audience: z.string().trim().min(1).max(60).optional(),
   actor: actorSchema,
 });
 
@@ -352,11 +358,18 @@ export const reportBoundSourceSchema = z.object({
     'checks',
     'valuation',
     'changes_since_previous',
+    'status_changed',
+    'status_waiting',
+    'status_next',
   ]),
   assessmentIds: z.array(z.string()).optional(),
   materialOnly: z.boolean().optional(),
   openOnly: z.boolean().optional(),
   discipline: scopeKeySchema.optional(),
+  // A section of a status report: its period, and whether it is shown as code wrote it.
+  from: instantSchema.optional(),
+  to: instantSchema.optional(),
+  plain: z.boolean().optional(),
 });
 
 export const insertReportBlockBodySchema = z.object({
@@ -617,7 +630,8 @@ export const chatPlaceSchema = z.object({
 });
 
 export const projectChatBodySchema = z.object({
-  question: z.string().trim().min(1).max(4000),
+  // Long enough for a meeting's notes to be pasted. A paste that long is kept as a file and not in the thread: see the chat route.
+  question: z.string().trim().min(1).max(20_000),
   viewContext: z.string().max(400).optional(),
   /** Where the person is. Absent means a client that sends the pane alone, in `viewContext`. */
   place: chatPlaceSchema.optional(),

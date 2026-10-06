@@ -10,6 +10,7 @@ import {
   Scale,
   Search,
   Sparkles,
+  Table2,
   Users,
   Waypoints,
   Workflow,
@@ -62,7 +63,7 @@ import { useMe } from '../../../lib/useMe';
  * name.
  */
 
-export type CockpitSectionKey = 'overview' | DepartmentKey | 'documents' | 'registers' | 'reports' | 'people' | 'graph';
+export type CockpitSectionKey = 'overview' | DepartmentKey | 'documents' | 'review' | 'registers' | 'reports' | 'people' | 'graph';
 
 export interface CockpitTab {
   pane: ProjectCockpitPane;
@@ -93,6 +94,7 @@ export interface CockpitSection {
 export const SECTIONS: CockpitSection[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard, home: 'overview', tabs: [{ pane: 'overview', label: 'Overview', icon: LayoutDashboard }] },
   { key: 'documents', label: 'Documents', icon: FileStack, home: 'evidence', tabs: [{ pane: 'evidence', label: 'Documents', icon: FileStack }] },
+  { key: 'review', label: 'Review', icon: Table2, home: 'review', staffOnly: true, tabs: [{ pane: 'review', label: 'Review', icon: Table2 }] },
   {
     key: 'registers',
     label: 'Registers',

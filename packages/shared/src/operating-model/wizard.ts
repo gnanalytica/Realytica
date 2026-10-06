@@ -577,6 +577,7 @@ export function proposalsFromIngest(
           ...(read || !documentTypeOfKind(file.kindHint) ? {} : { proposedDocumentType: documentTypeOfKind(file.kindHint) }),
           readMethod: read?.method,
           ...(file.modelRead ? { modelRead: true } : {}),
+          ...(file.landed ? { landed: true } : {}),
         },
         actor,
         {
@@ -594,6 +595,34 @@ export function proposalsFromIngest(
     }
   }
   return out;
+}
+
+/**
+ * Files one read paper on its row now, ahead of the turn that reports the
+ * drop it came in: the row, the file on it, what the paper states waiting
+ * there, and what it was taken for. Papers dropped together are read a few at
+ * a time and each is saved as it finishes, so a turn cut short loses nothing
+ * that was read.
+ *
+ * Done exactly as the turn files it: the file's own card, built and committed
+ * as the turn does. That card is the turn's to keep, so it is taken off
+ * again here; the turn raises its own and, finding the reading on the row
+ * (`landed`), writes no value twice. The cards a reading raises for checks
+ * and for the project's own details are the turn's too, and are not raised
+ * here.
+ *
+ * Returns the row's id.
+ */
+export function landIngestFile(project: DdProject, file: ChatIngestFile, actor = 'operator', prefer?: SittingRef): string | undefined {
+  const card = proposalsFromIngest(project, [file], actor, prefer).find((p) => p.kind === 'file_evidence');
+  if (!card) return undefined;
+  project.chatProposals.push(card);
+  try {
+    return commitChatProposal(project, card.id, actor).recordId;
+  } finally {
+    const at = project.chatProposals.indexOf(card);
+    if (at >= 0) project.chatProposals.splice(at, 1);
+  }
 }
 
 function bytesToLatin1(bytes: Uint8Array): string {
@@ -702,7 +731,8 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     // Each value waits on the row for a person to accept it where it sits;
     // one the row already accepts is not asked again. Put there once the row
     // says what the paper is, so a value its kind does not carry never waits.
-    if (Array.isArray(payload.facts) && payload.facts.length) {
+    // Not a second time where this very reading was put on the row as the paper was read (`landIngestFile`).
+    if (Array.isArray(payload.facts) && payload.facts.length && payload.landed !== true) {
       evidence.facts = proposeOnRow(evidence, payload.facts as DocumentFact[]);
       recordAuditEvent(project, { actor, action: 'read', entityType: 'evidence', entityId: evidence.id, newValue: `${payload.facts.length} value(s)` });
     }

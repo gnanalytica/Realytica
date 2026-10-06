@@ -213,9 +213,13 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     // Proposals, drafts and orchestrator runs are the workspace thinking aloud
     // about the whole file. None of it is a collaborator's.
     chatProposals: [],
+    // Who met and what was said at the firm's own meetings is the same.
+    meetings: [],
     aiDrafts: [],
     orchestratorRuns: [],
     capabilityRuns: [],
+    // The review table is the firm's own reading across every paper on the file, a model's answers among it.
+    reviewTable: undefined,
     // The trail names everybody's actions across the whole project.
     audit: [],
     // So does the last instruction somebody gave the chat, and only staff can take it back.

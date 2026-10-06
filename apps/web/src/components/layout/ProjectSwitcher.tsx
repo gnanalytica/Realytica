@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Badge, cn, type Tone } from '../ui/kit';
 
-const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'visits', 'findings', 'risks', 'decisions', 'reports', 'valuation', 'graph', 'ai', 'orchestrate', 'people']);
+const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'visits', 'findings', 'risks', 'decisions', 'reports', 'review', 'valuation', 'graph', 'ai', 'orchestrate', 'people']);
 
 export function projectSwitchPath(pathname: string, nextId: string): string {
   const parts = pathname.split('/').filter(Boolean);

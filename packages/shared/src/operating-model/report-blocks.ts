@@ -49,6 +49,7 @@ import { remedialCostSummary } from './remedial';
 import { REQUIREMENT_STATUS_LABEL, requirementSheet } from './requirement-sheet';
 import { VISIT_LIMITATION_LABEL } from './site-visit';
 import { ENVIRONMENTAL_CONDITION_CAVEAT, ENVIRONMENTAL_CONDITION_LABEL, ricsConditionRating } from './standards';
+import { resolveStatusBlock, statusTemplate, statusWeekSoFar } from './status-report';
 import type {
   DdProject,
   ReportBlock,
@@ -86,6 +87,9 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'requirement_sheet',
   'risk_summary',
   'site_photographs',
+  'status_changed',
+  'status_waiting',
+  'status_next',
 ] as const;
 
 export function isReportBoundSource(value: unknown): value is ReportBoundSourceKind {
@@ -112,6 +116,9 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   requirement_sheet: 'Documents reviewed and outstanding',
   risk_summary: 'At a glance',
   site_photographs: 'Site photographs',
+  status_changed: 'Status: what changed',
+  status_waiting: 'Status: waiting, and on whom',
+  status_next: 'Status: what comes next',
 };
 
 export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
@@ -133,6 +140,9 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   requirement_sheet: 'Every document the checks expect, by discipline: in hand, asked for, or not received.',
   risk_summary: 'How many observations fall in each risk category, counted from the table below it.',
   site_photographs: 'The photographs chosen for the report that no observation already shows, each with its caption, where and when it was taken, and the description a person accepted or wrote.',
+  status_changed: 'What happened in the period: papers filed and read, values accepted, decisions, actions done and overdue, approvals that moved, findings raised. Each line with the record behind it.',
+  status_waiting: 'What waits now and on whom: overdue and undated actions, decisions still to be made, cards and values nobody has accepted, papers asked for.',
+  status_next: 'What has a date ahead of it: actions due, approvals running out, papers promised, milestones planned.',
 };
 
 /* ==================================================================== */
@@ -489,6 +499,12 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
       return { lines, recordIds: rows.map((v) => v.id) };
     }
 
+    // The three sections of a status report are read by the code that writes that report.
+    case 'status_changed':
+    case 'status_waiting':
+    case 'status_next':
+      return resolveStatusBlock(project, block);
+
     case 'changes_since_previous': {
       const rows = project.assessments.filter((a) => a.priorAssessmentId);
       if (!rows.length) return { lines: [], recordIds: [], note: 'No assessment on this file supersedes an earlier one.' };
@@ -589,9 +605,12 @@ export function departmentReportKind(department: DepartmentKey): 'technical_dd' 
  * that a blank page cannot is put the standing caveats in front of somebody
  * before they write around them.
  */
-export function reportTemplate(kind: string): Array<{ heading: string; source?: ReportBoundSource; text?: string }> {
+export function reportTemplate(kind: string, period?: { from: string; to: string }): Array<{ heading: string; source?: ReportBoundSource; text?: string }> {
   const opening = { heading: 'The property', source: bound('particulars') };
   switch (kind) {
+    // A status report is its three sections over a period: the week so far, when nobody named one.
+    case 'status':
+      return statusTemplate(period ?? statusWeekSoFar());
     case 'red_flag':
       return [
         opening,

@@ -17,7 +17,9 @@
  */
 
 import type { DepartmentKey } from './departments';
-import type { DdProject } from './types';
+import type { DocumentFact } from './document-parse';
+import { standingFacts } from './fact-review';
+import type { DdProject, EvidenceRecord } from './types';
 
 /** Where an answer came from, weakest claim first. */
 export type AnswerSource = 'seller' | 'document' | 'site' | 'engineer';
@@ -189,6 +191,137 @@ export function parseQuestionnaireCsv(csv: string): ParsedQuestionnaire {
     .map((r) => ({ section: s >= 0 ? clean(r[s] ?? '') || undefined : undefined, text: stripMark(r[qi] ?? ''), answer: ai >= 0 ? clean(r[ai] ?? '') || undefined : undefined }))
     .filter((row) => row.text);
   return { header: [], questions };
+}
+
+const QUESTION_HEAD = /question|query|queries|requisition|particulars|description/i;
+/** A column name that says the rows under it are questions. "Description" heads a bill of quantities as often. */
+const SAYS_QUESTIONS = /question|quer(?:y|ies)|requisition/i;
+/** A row that names columns: two cells or more written, one of them a short name for the questions. */
+const namesColumns = (row: readonly string[]): boolean => row.filter(Boolean).length >= 2 && row.some((c) => c.length <= 30 && QUESTION_HEAD.test(c));
+const ANSWER_HEAD = /answer|response|reply|remark/i;
+const SECTION_HEAD = /section|discipline|category|head|topic/i;
+
+/**
+ * A sheet of an Excel workbook, as rows of cells.
+ *
+ * A workbook is rarely as bare as a CSV. The questions start under a row that
+ * names the columns, and that row is seldom the first: a title and the
+ * property's name come above it. So the row that names a Question column is
+ * looked for in the first rows, and a "Label, value" pair above it is a header
+ * fact. Where no row names the columns, the column that holds the most
+ * writing is the questions and the next one written in is the answers.
+ *
+ * `named` says whether the sheet named its question column itself, which is
+ * what tells a questionnaire from any other table.
+ */
+export function parseQuestionnaireRows(sheet: readonly (readonly string[])[]): ParsedQuestionnaire & { named: boolean } {
+  const rows = sheet.map((r) => r.map((c) => clean(String(c ?? '')))).filter((r) => r.some(Boolean));
+  if (!rows.length) return { header: [], questions: [], named: false };
+  const headAt = rows.slice(0, 12).findIndex(namesColumns);
+  const header: ParsedQuestionnaire['header'] = [];
+  let qi: number;
+  let ai: number;
+  let si = -1;
+  let body = rows;
+  if (headAt >= 0) {
+    const head = rows[headAt]!;
+    qi = head.findIndex((c) => c.length <= 30 && QUESTION_HEAD.test(c));
+    ai = head.findIndex((c, n) => n !== qi && ANSWER_HEAD.test(c));
+    si = head.findIndex((c, n) => n !== qi && n !== ai && SECTION_HEAD.test(c));
+    for (const r of rows.slice(0, headAt)) {
+      const cells = r.filter(Boolean);
+      const inOne = cells.length === 1 ? HEADER_LINE.exec(cells[0]!) : null;
+      const [label, value] = inOne ? [clean(inOne[1]!), clean(inOne[2] ?? '')] : cells.length === 2 ? [cells[0]!.replace(/:\s*$/, ''), cells[1]!] : ['', ''];
+      if (label && value && !header.some((h) => h.label.toLowerCase() === label.toLowerCase())) header.push({ label, value });
+    }
+    body = rows.slice(headAt + 1);
+  } else {
+    const width = Math.max(...rows.map((r) => r.length));
+    const written = Array.from({ length: width }, (_, n) => rows.reduce((sum, r) => sum + (r[n]?.length ?? 0), 0));
+    qi = written.indexOf(Math.max(...written));
+    ai = written.findIndex((chars, n) => n > qi && chars > 0);
+  }
+  let section: string | undefined;
+  const questions: ParsedQuestionnaire['questions'] = [];
+  for (const r of body) {
+    const text = stripMark(r[qi] ?? '');
+    const others = r.filter((c, n) => n !== qi && c).length;
+    // A row with one cell written, and not in the question column, heads the rows under it.
+    if (!text) {
+      const only = r.filter(Boolean);
+      if (only.length === 1 && si < 0) section = only[0];
+      continue;
+    }
+    // A row with only its question written, in capitals or ending in a colon, is a heading too.
+    if (!others && si < 0 && (/:$/.test(text) || (text === text.toUpperCase() && /[A-Z]/.test(text) && !/\?$/.test(text)))) {
+      section = text.replace(/:$/, '');
+      continue;
+    }
+    questions.push({ section: si >= 0 ? r[si] || undefined : section, text, answer: ai >= 0 ? r[ai] || undefined : undefined });
+  }
+  return { header, questions, named: headAt >= 0 && SAYS_QUESTIONS.test(rows[headAt]![qi] ?? '') };
+}
+
+const LISTED = /^\s*(?:\(?\d{1,3}[.)]|[•*])\s+/;
+
+/**
+ * A questionnaire printed to PDF, from the words of its pages.
+ *
+ * A page breaks a long question over two lines, and read line by line the
+ * second half would be taken for its answer. A line that follows a numbered
+ * question which has not ended, and does not start one itself, is the rest of
+ * that question.
+ */
+export function parseQuestionnairePages(pages: readonly string[]): ParsedQuestionnaire {
+  const lines: OutlineLine[] = [];
+  for (const raw of pages.join('\n').split(/\r?\n/)) {
+    const text = clean(raw);
+    if (!text) continue;
+    const listed = LISTED.test(raw);
+    const last = lines[lines.length - 1];
+    if (!listed && last?.listed && !/[?.:;]$/.test(last.text)) {
+      last.text = `${last.text} ${text}`;
+      continue;
+    }
+    lines.push({ text, listed: listed || undefined });
+  }
+  return parseQuestionnaire(lines, { marksDecide: false });
+}
+
+/** What a file dropped in the chat is: a list of questions to answer, a paper about the property, or not told. */
+export type DroppedAs = 'questionnaire' | 'paper' | 'unsure';
+
+/** Whether a file's own name says it is a questionnaire: "TDD questionnaire.xlsx", "Queries on title.docx", "RFI 12.pdf". */
+export function namesQuestionnaire(fileName: string): boolean {
+  return /question|quer(?:y|ies)|\brfi\b|requisition|check\s*list/i.test(fileName.replace(/[_-]+/g, ' '));
+}
+
+/**
+ * Whether a dropped file is a questionnaire or a paper to file.
+ *
+ * A paper the reader recognises (a deed, a khata, an order) is a paper,
+ * whatever it numbers. Otherwise the file is a questionnaire when it says so:
+ * its name, a sheet with a Question column, or a list most of whose items
+ * read as questions. Where a fair number of lines read as questions and that
+ * is all there is to go on, it is not decided here: the person is asked.
+ */
+export function questionnaireOrPaper(input: {
+  fileName: string;
+  parsed: ParsedQuestionnaire | null;
+  /** The rules took it for a kind of paper they know. */
+  recognised?: boolean;
+  /** A sheet that names its question column. */
+  namedColumn?: boolean;
+}): DroppedAs {
+  if (input.recognised) return 'paper';
+  const questions = input.parsed?.questions ?? [];
+  if (!questions.length) return 'paper';
+  const asked = questions.filter((q) => looksLikeQuestion(q.text)).length;
+  if (namesQuestionnaire(input.fileName) && questions.length >= 2) return 'questionnaire';
+  if (input.namedColumn && questions.length >= 2) return 'questionnaire';
+  if (questions.length >= 5 && asked >= questions.length * 0.6) return 'questionnaire';
+  if (asked >= 3 && asked >= questions.length * 0.3) return 'unsure';
+  return 'paper';
 }
 
 function parseCsv(text: string): string[][] {
@@ -455,6 +588,81 @@ export function removeQuestion(project: DdProject, questionnaireId: string, ques
 }
 
 /* ==================================================================== */
+/* Answers from what stands on the file                                  */
+/* ==================================================================== */
+
+/** What a question asks for, told by its words, and the values on file that answer it. */
+const ASKED_FOR: Array<{ asks: RegExp; keys: string[] }> = [
+  { asks: /\bsurvey\s*(?:no|nos|number|numbers)\b|\bsy\.?\s*nos?\b/i, keys: ['survey_numbers'] },
+  { asks: /\b(?:extent|site area|plot area|land area|area of the (?:land|site|plot|property))\b/i, keys: ['extent_title', 'extent_khata', 'extent_survey'] },
+  { asks: /\b(?:owner|owned by|in whose name|title holder)\b/i, keys: ['owner'] },
+  { asks: /\b(?:vendor|seller)s?\b.*\bname|\bwho (?:is|was) the (?:vendor|seller)|\bname of the (?:vendor|seller)/i, keys: ['vendor'] },
+  { asks: /\b(?:purchaser|buyer)s?\b.*\bname|\bwho (?:is|was) the (?:purchaser|buyer)|\bname of the (?:purchaser|buyer)/i, keys: ['purchaser'] },
+  { asks: /\b(?:date of registration|registration date|registered on|when was .*registered)\b/i, keys: ['registration_date'] },
+  { asks: /\b(?:document|deed|registration)\s*(?:no|number)\b/i, keys: ['document_number'] },
+  { asks: /\bsub[-\s]?registrar\b/i, keys: ['sub_registrar'] },
+  { asks: /\b(?:sale consideration|consideration|sale price|purchase price|price paid)\b/i, keys: ['consideration'] },
+  { asks: /\bstamp duty\b/i, keys: ['stamp_duty'] },
+  { asks: /\b(?:encumbranc\w*|mortgag\w*|charges?|liens?)\b/i, keys: ['ec_nil', 'subsisting_charges', 'ec_from', 'ec_to'] },
+  { asks: /\bkhata\s*(?:no|number)\b/i, keys: ['khata_number'] },
+  { asks: /\b(?:type of khata|khata type|[abe][-\s]?khata)\b/i, keys: ['khata_type'] },
+  { asks: /\bpid\b|property identification/i, keys: ['pid'] },
+  { asks: /\b(?:property tax|tax paid|tax receipt)\b/i, keys: ['tax_year', 'tax_paid', 'tax_paid_on'] },
+  { asks: /\b(?:zoning|zone|land use)\b/i, keys: ['zoning', 'plan_in_force'] },
+  { asks: /\b(?:far|fsi|floor area ratio)\b/i, keys: ['permissible_far', 'sanctioned_far'] },
+  { asks: /\b(?:road width|width of the (?:abutting )?road|abutting road)\b/i, keys: ['road_width_ft'] },
+  { asks: /\b(?:conversion|converted|non[-\s]?agricultural)\b/i, keys: ['conversion_status', 'converted_use', 'order_number', 'conversion_date'] },
+  { asks: /\b(?:plan sanction|sanctioned plan|building plan|sanction (?:no|number|date))\b/i, keys: ['sanction_number', 'sanction_date', 'sanctioned_area'] },
+  { asks: /\boccupancy certificate\b|\bOC\b/, keys: ['oc_issued', 'oc_date'] },
+  { asks: /\brera\b/i, keys: ['rera_number', 'rera_valid_until'] },
+];
+
+/**
+ * Answers to a questionnaire's open questions, suggested from what stands on
+ * the file, each with the paper and the page it was read from.
+ *
+ * Only what stands (`standingFacts`): a value a person accepted, or one the
+ * rules read off a paper they read surely. A model's reading nobody has
+ * accepted, and a value two readers differ on, answer nothing here. Each
+ * suggestion waits for a person (`suggestAnswers`), and a question somebody
+ * has already answered keeps their answer. Returns how many were suggested.
+ */
+export function suggestFromFile(project: DdProject, questionnaireId: string, actor: string): number {
+  const questionnaire = findQuestionnaire(project, questionnaireId);
+  const papers = [...project.evidence].filter((e) => e.status !== 'superseded' && e.status !== 'rejected').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const onFile: Array<{ fact: DocumentFact; paper: EvidenceRecord }> = papers.flatMap((paper) => standingFacts(paper).map((fact) => ({ fact, paper })));
+  const suggestions: SuggestedAnswer[] = [];
+  for (const question of questionnaire.questions) {
+    if (question.answer) continue;
+    const keys = ASKED_FOR.filter((topic) => topic.asks.test(question.text)).flatMap((topic) => topic.keys);
+    const said: string[] = [];
+    const proof: AnswerProof[] = [];
+    for (const key of [...new Set(keys)]) {
+      // Each value the papers state for it, once: two papers that agree say one thing.
+      const stated = onFile.filter((row) => row.fact.key === key).filter((row, n, all) => all.findIndex((other) => String(other.fact.value) === String(row.fact.value)) === n);
+      for (const { fact, paper } of stated) {
+        said.push(`${fact.label}: ${fact.display} (${paper.documentType ?? paper.title}, p. ${fact.page})`);
+        proof.push({ evidenceId: paper.id, page: fact.page, quote: fact.quote });
+      }
+    }
+    if (said.length) suggestions.push({ questionId: question.id, answer: said.join('; '), source: 'document', proof: proof.slice(0, 12) });
+  }
+  return suggestAnswers(project, questionnaireId, suggestions, actor);
+}
+
+/** A questionnaire as it stands, in a sentence for the chat: how many questions, how many answered, waiting and open. */
+export function questionnaireSaid(questionnaire: Questionnaire): string {
+  const sum = questionnaireSummary(questionnaire);
+  const parts = [
+    sum.answered ? `${sum.answered} ${sum.answered === 1 ? 'is' : 'are'} answered` : '',
+    sum.suggested ? `${sum.suggested} ${sum.suggested === 1 ? 'has an answer' : 'have answers'} suggested from the file, waiting for you` : '',
+    sum.unanswered ? `${sum.unanswered} ${sum.unanswered === 1 ? 'is' : 'are'} open` : '',
+  ].filter(Boolean);
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : (parts[0] ?? '');
+  return `Took in the questionnaire “${questionnaire.title}”: ${sum.total} question${sum.total === 1 ? '' : 's'}.${list ? ` ${list.charAt(0).toUpperCase()}${list.slice(1)}.` : ''}`;
+}
+
+/* ==================================================================== */
 /* Reading it back                                                       */
 /* ==================================================================== */
 
@@ -502,19 +710,24 @@ function proofLine(project: DdProject, proof: readonly AnswerProof[]): string {
     .join('; ');
 }
 
-/** The answered sheet, in the order the questions were sent, with what stands behind each answer. */
-export function questionnaireCsv(project: DdProject, questionnaire: Questionnaire): string {
-  const lines = [['No.', 'Section', 'Question', 'Answer', 'Source', 'Proof', 'Status'].join(',')];
-  questionnaire.questions
+/** The columns of the answered sheet, whatever it is taken out as. */
+export const QUESTIONNAIRE_COLUMNS = ['No.', 'Section', 'Question', 'Answer', 'Source', 'Proof', 'Status'] as const;
+
+/**
+ * The answered sheet as rows, in the order the questions were sent, with what
+ * stands behind each answer: where it came from, and the paper and page.
+ * The same rows whether it is taken out as CSV, as Excel or as PDF.
+ */
+export function questionnaireRows(project: DdProject, questionnaire: Questionnaire): string[][] {
+  return questionnaire.questions
     .slice()
     .sort((a, b) => a.order - b.order)
-    .forEach((q, i) => {
-      lines.push(
-        [String(i + 1), q.section ?? '', q.text, q.answer ?? '', q.source ? ANSWER_SOURCE_LABEL[q.source] : '', proofLine(project, q.proof), QUESTION_STATUS_LABEL[questionStatus(q)]]
-          .map(csvCell)
-          .join(','),
-      );
-    });
+    .map((q, i) => [String(i + 1), q.section ?? '', q.text, q.answer ?? '', q.source ? ANSWER_SOURCE_LABEL[q.source] : '', proofLine(project, q.proof), QUESTION_STATUS_LABEL[questionStatus(q)]]);
+}
+
+/** The answered sheet, in the order the questions were sent, with what stands behind each answer. */
+export function questionnaireCsv(project: DdProject, questionnaire: Questionnaire): string {
+  const lines = [QUESTIONNAIRE_COLUMNS.join(','), ...questionnaireRows(project, questionnaire).map((row) => row.map(csvCell).join(','))];
   return `${lines.join('\n')}\n`;
 }
 

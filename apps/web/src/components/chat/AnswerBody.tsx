@@ -4,6 +4,7 @@ import { FileText, Flag, Unlink, Waypoints } from 'lucide-react';
 import type { EvidenceItem, MemTagWords } from '@realytica/shared';
 import { parseAnswer } from './answer-blocks';
 import type { Block, Inline, TagPlaces } from './answer-blocks';
+import { MeetingNotesLink } from '../meetings/MeetingNotes';
 import { cn } from '../ui/kit';
 
 /**
@@ -99,6 +100,7 @@ export function AnswerBody({
           </span>
         );
       }
+      if (span.kind === 'notes') return <MeetingNotesLink key={key} meetingId={span.meetingId} itemId={span.itemId} />;
       if (span.kind === 'dangling') {
         return (
           <span

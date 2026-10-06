@@ -582,6 +582,15 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         const isFresh = fresh;
         fresh = false;
         setReading((prev) => applyReadingEvent(isFresh || !prev ? newReadingSession('live') : prev, event, { localFiles: files }));
+        // A paper saved while the rest are still being read: its row is on the file now, so it is on the page now.
+        if (event.event === 'filed' && event.row) {
+          const row = event.row;
+          const was = projectRef.current;
+          const next = { ...was, evidence: was.evidence.some((e) => e.id === row.id) ? was.evidence.map((e) => (e.id === row.id ? row : e)) : [...was.evidence, row] };
+          // Two papers can land before the page is drawn again: the second is laid over what the first left.
+          projectRef.current = next;
+          setProject(next);
+        }
         if (isFresh) {
           setSourceFocus(null);
           setDeskPin(null);
@@ -622,7 +631,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         }
       }
     },
-    [project.id, pane, here, params.ddId, params.scopeId, searchParams, applyResult, sessionId, continues, sessionStartedAt],
+    [project.id, pane, here, params.ddId, params.scopeId, searchParams, applyResult, setProject, sessionId, continues, sessionStartedAt],
   );
 
   /**

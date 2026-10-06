@@ -5,6 +5,8 @@
  * that leaves the system, so it goes only to the people an alert is for — the
  * department's lead and its signer — and only for alerts worth interrupting
  * someone over. An approval that is simply not on file yet stays in the app.
+ * An alert that names a person, as one about an action past its date does,
+ * goes to that person too, when they are a member here (`alertNamed`).
  *
  * Email goes through Resend when `REALYTICA_RESEND_API_KEY` is set; push
  * through Expo's push service to the phones those people paired. Neither is
@@ -13,7 +15,7 @@
  */
 
 import { readEnv } from '@realytica/agents';
-import { departmentRole, type DdProject, type DepartmentKey, type ProjectAlert } from '@realytica/shared';
+import { departmentRole, sameEmail, type DdProject, type DepartmentKey, type ProjectAlert } from '@realytica/shared';
 import { store } from './store';
 
 const SEND_TIMEOUT_MS = 6_000;
@@ -38,6 +40,35 @@ export function alertRecipients(project: DdProject, department: DepartmentKey): 
     if (role === 'lead' || role === 'signer') emails.add(t.email.toLowerCase());
   }
   return [...emails];
+}
+
+/**
+ * The people an alert names, as addresses to send to. An alert about an
+ * action past its date names who the action is on, in the words the record
+ * has: an address, or a name. Either is a person here only when it is a
+ * member of the project's team or of the workspace, and a name only when
+ * exactly one member goes by it, in full or by first name. Nobody is guessed
+ * at, and nothing is sent to an address the workspace does not know.
+ */
+export function alertNamed(project: DdProject, names: readonly string[] | undefined): string[] {
+  if (!names?.length) return [];
+  const tenantId = project.tenantId ?? store.data.tenants?.[0]?.id;
+  const people = [
+    ...(project.team ?? []).map((member) => ({ email: member.email, name: member.name })),
+    ...(store.data.memberships ?? []).filter((member) => member.tenantId === tenantId).map((member) => ({ email: member.email, name: member.name })),
+  ];
+  const out = new Set<string>();
+  for (const raw of names) {
+    const said = raw.trim().toLowerCase();
+    if (!said) continue;
+    const called = new Set(
+      people
+        .filter((person) => (said.includes('@') ? sameEmail(person.email, said) : person.name ? person.name.toLowerCase() === said || person.name.toLowerCase().split(/\s+/)[0] === said : false))
+        .map((person) => person.email.toLowerCase()),
+    );
+    if (called.size === 1) out.add([...called][0]!);
+  }
+  return [...out];
 }
 
 async function post(url: string, body: unknown, headers: Record<string, string>): Promise<Response> {
@@ -83,7 +114,7 @@ async function sendPush(project: DdProject, alert: ProjectAlert, to: string[]): 
 export async function notifyRaised(project: DdProject, raised: ProjectAlert[]): Promise<void> {
   for (const alert of raised.filter(worthSending)) {
     try {
-      const to = alertRecipients(project, alert.department);
+      const to = [...new Set([...alertRecipients(project, alert.department), ...alertNamed(project, alert.to)])];
       const [mailed, pushed] = await Promise.all([sendEmail(project, alert, to), sendPush(project, alert, to)]);
       if (mailed || pushed) alert.sentAt = new Date().toISOString();
     } catch (err) {

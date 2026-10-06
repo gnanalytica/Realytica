@@ -107,7 +107,7 @@ import { documentKey } from '../storage/types';
 import { graphAdapter } from '../graph';
 import { keepPageTexts } from '../documents/page-text';
 import { readOntoRegister } from '../documents/register-read';
-import { docxOutline } from '../documents/docx-outline';
+import { QUESTIONNAIRE_FILE_SAID, questionnairePdf, questionnaireXlsx, readQuestionnaireFile } from '../documents/questionnaire-file';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 
 type Params = { projectId: string };
@@ -859,13 +859,10 @@ const questionnaireUpload = multer({ storage: multer.memoryStorage(), limits: { 
 
 const questionnaireTextSchema = z.object({ title: z.string().trim().min(1).max(160), text: z.string().min(1).max(400_000) });
 
-function parseQuestionnaireFile(file: Express.Multer.File) {
-  const name = file.originalname.toLowerCase();
-  if (name.endsWith('.docx')) return parseQuestionnaire(docxOutline(file.buffer));
-  const text = file.buffer.toString('utf8');
-  if (name.endsWith('.csv') || name.endsWith('.tsv')) return parseQuestionnaireCsv(text);
-  if (name.endsWith('.txt') || name.endsWith('.md')) return parseQuestionnaireText(text);
-  throw new Error('A questionnaire is read from a Word file (.docx), a spreadsheet saved as .csv, or plain text. Save it as one of those, or paste the questions.');
+async function parseQuestionnaireFile(file: Express.Multer.File) {
+  const read = await readQuestionnaireFile(file);
+  if (!read) throw new Error(QUESTIONNAIRE_FILE_SAID);
+  return read.parsed;
 }
 
 projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.single('file'), async (req, res) => {
@@ -883,7 +880,7 @@ projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.singl
     let record;
     if (file) {
       const title = typeof req.body?.title === 'string' && req.body.title.trim() ? String(req.body.title).trim().slice(0, 160) : file.originalname.replace(/\.[a-z0-9]+$/i, '');
-      record = addQuestionnaire(project, { title, department, fileName: file.originalname, parsed: parseQuestionnaireFile(file) }, actorOf(principalOf(req)));
+      record = addQuestionnaire(project, { title, department, fileName: file.originalname, parsed: await parseQuestionnaireFile(file) }, actorOf(principalOf(req)));
     } else {
       const parsed = questionnaireTextSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -984,6 +981,35 @@ projectWorkspaceRouter.post<QParams>('/questionnaires/:questionnaireId/confirm',
     res.json({ project, confirmed });
   } catch (err) {
     failed(res, err, 'Could not confirm those answers');
+  }
+});
+
+/**
+ * The answered questionnaire as a file to send back: Excel or PDF, each
+ * answer with where it came from and the paper and page behind it. Anybody
+ * who can open the project can take it out; nothing is changed by it.
+ */
+projectWorkspaceRouter.get<QParams>('/questionnaires/:questionnaireId/export', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!roleIn(req, project, sheetDepartment(project, req.params.questionnaireId))) {
+    res.status(403).json({ error: 'That needs a place in the department the questionnaire belongs to.' });
+    return;
+  }
+  try {
+    const questionnaire = findQuestionnaire(project, req.params.questionnaireId);
+    const pdf = req.query.format === 'pdf';
+    if (!pdf && req.query.format !== 'xlsx') {
+      res.status(400).json({ error: 'Say which: format=xlsx or format=pdf.' });
+      return;
+    }
+    const bytes = pdf ? await questionnairePdf(project, questionnaire) : await questionnaireXlsx(project, questionnaire);
+    const name = `${project.reference}-${questionnaire.title}`.replace(/[^A-Za-z0-9._ -]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    res.setHeader('Content-Type', pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}.${pdf ? 'pdf' : 'xlsx'}"`);
+    res.send(bytes);
+  } catch (err) {
+    failed(res, err, 'Could not take that questionnaire out');
   }
 });
 

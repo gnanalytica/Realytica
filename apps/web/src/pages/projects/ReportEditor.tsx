@@ -36,6 +36,7 @@ import {
   REPORT_SOURCE_LABEL,
   REPORT_SOURCE_READS,
   isLiveBlock,
+  isStatusSource,
   readReportBlock,
   reportIsFrozen,
   reportSummaryLine,
@@ -440,15 +441,30 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
                   </option>
                 ))}
               </Select>
-              <label className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
-                <input
-                  type="checkbox"
-                  checked={block.source!.materialOnly === true}
-                  disabled={busy}
-                  onChange={(e) => onRun(() => api.retuneReportBlock(project.id, report.id, block.id, { ...block.source!, materialOnly: e.target.checked }))}
-                />
-                material only
-              </label>
+              {isStatusSource(block.source!.kind) ? (
+                // A status section has nothing to narrow. What it can be is plain: as code wrote it, with no model's wording over it.
+                block.wording?.length ? (
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
+                    <input
+                      type="checkbox"
+                      checked={block.source!.plain === true}
+                      disabled={busy}
+                      onChange={(e) => onRun(() => api.retuneReportBlock(project.id, report.id, block.id, { ...block.source!, plain: e.target.checked }))}
+                    />
+                    plain words
+                  </label>
+                ) : null
+              ) : (
+                <label className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
+                  <input
+                    type="checkbox"
+                    checked={block.source!.materialOnly === true}
+                    disabled={busy}
+                    onChange={(e) => onRun(() => api.retuneReportBlock(project.id, report.id, block.id, { ...block.source!, materialOnly: e.target.checked }))}
+                  />
+                  material only
+                </label>
+              )}
               <span className="text-[12px] text-ink-muted">{REPORT_SOURCE_READS[block.source!.kind]}</span>
             </div>
           ) : null}
