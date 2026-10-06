@@ -58,10 +58,14 @@ export interface PaperQuestion {
   question: string;
 }
 
-/** One question's answer, held to the page. */
+/**
+ * One question's answer, held to the page. A question the model gave no
+ * usable word on has none: it has not been answered, and is not said to be
+ * unstated.
+ */
 export interface PaperAnswerRead {
   id: string;
-  /** False when the pages sent do not answer it. */
+  /** False when the model said the pages sent do not answer it. */
   stated: boolean;
   answer?: string;
   /** 1-based: the page the words were found on, else the page the model named among those it was sent. */
@@ -113,17 +117,21 @@ function tool(): LlmSchemaTool {
   };
 }
 
-const Output = z.object({
-  answers: z.array(
-    z.object({
-      n: z.number().int(),
-      stated: z.boolean(),
-      answer: z.string().nullish(),
-      page: z.number().int().nullish(),
-      words: z.string().nullish(),
-    }),
-  ),
+/**
+ * One question's answer as a model writes it. Read one at a time, and
+ * loosely where nothing rests on the form: through a gateway nothing holds a
+ * model to the tool's shape, and one page number written as "2" must not
+ * cost a paper every answer it gave. A page that is no number is no page.
+ */
+const Said = z.object({
+  n: z.coerce.number().int(),
+  stated: z.boolean(),
+  answer: z.string().nullish(),
+  page: z.coerce.number().int().nullish().catch(null),
+  words: z.string().nullish(),
 });
+
+const Output = z.object({ answers: z.array(z.unknown()) });
 
 /** The pages that fit in one call, from the first: whole pages, and the first one cut to fit when it alone is too long. */
 export function pagesToSend(pages: readonly PaperPageText[], budget = REVIEW_PAGES_CHARS): PaperPageText[] {
@@ -221,14 +229,20 @@ export async function answerPaperQuestions(input: {
       console.warn(`[review answers] ${input.questions.length} question(s): no answer that could be used (the model stopped with ${result.stopReason ?? 'no reason given'})`);
       return { ok: false, why: 'failed', message: 'The model returned an answer this app could not use.' };
     }
-    const byNumber = new Map(parsed.data.answers.map((answer) => [answer.n, answer]));
-    const answers = input.questions.map((question, i): PaperAnswerRead => {
+    const usable = parsed.data.answers.flatMap((raw) => {
+      const said = Said.safeParse(raw);
+      return said.success ? [said.data] : [];
+    });
+    const byNumber = new Map(usable.map((said) => [said.n, said]));
+    const answers = input.questions.flatMap((question, i): PaperAnswerRead[] => {
       const said = byNumber.get(i + 1);
-      const answer = said?.answer?.replace(/\s+/g, ' ').trim();
-      if (!said || !said.stated || !answer) return { id: question.id, stated: false };
+      // No usable word on this question: it stays unasked, to be asked again.
+      if (!said) return [];
+      const answer = said.answer?.replace(/\s+/g, ' ').trim();
+      if (!said.stated || !answer) return [{ id: question.id, stated: false }];
       const quote = said.words?.replace(/\s+/g, ' ').trim().slice(0, QUOTE_CHARS);
       const placed = placePaperAnswer({ answer, page: said.page, quote }, sent);
-      return { id: question.id, stated: true, answer: answer.slice(0, ANSWER_CHARS), ...(quote ? { quote } : {}), ...placed };
+      return [{ id: question.id, stated: true, answer: answer.slice(0, ANSWER_CHARS), ...(quote ? { quote } : {}), ...placed }];
     });
     return { ok: true, model: route.model, answers, pagesSent: sent.map((page) => page.page), usage: result.usage };
   } catch (err) {

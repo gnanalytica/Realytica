@@ -142,6 +142,7 @@ import {
   type MeetingToKeep,
 } from './meetings';
 import { asksForStatusReport, statusDraftBroughtTo, statusDraftFor, statusNothingSaid, statusPeriodAsked, statusReport, statusSaid } from './status-report';
+import { asksForOutgoing, outgoingAsked } from './outgoing';
 
 export const PROJECT_COCKPIT_PANES = [
   'overview',
@@ -156,6 +157,7 @@ export const PROJECT_COCKPIT_PANES = [
   'decisions',
   'reports',
   'review',
+  'outgoing',
   'valuation',
   'graph',
   'drafts',
@@ -345,6 +347,8 @@ function panePath(projectId: string, pane: ProjectCockpitPane, extra?: CockpitPa
       return withQuery(`${base}/reports`, [['report', extra?.item]]);
     case 'review':
       return withQuery(`${base}/review`, [['paper', extra?.evidenceId]]);
+    case 'outgoing':
+      return withQuery(`${base}/outgoing`, [['draft', extra?.item]]);
     case 'valuation':
       return `${base}/valuation`;
     case 'graph':
@@ -682,6 +686,8 @@ export function wantsDeterministicProjectChat(
   if (asksForMeetings(q)) return true;
   // A status report is written by code from the record.
   if (asksForStatusReport(q)) return true;
+  // So is a letter, a reply, a request for information or minutes asked for by name: a draft is made, and no model answers in its place.
+  if (asksForOutgoing(q)) return true;
   // A pressed choice that accepts or sets aside acts on the ids it carries. Its sentence is not for anything to read.
   if (options.sitting?.decision) return true;
   // A page or a stage asked for by name is a place to go, and needs no model to find.
@@ -1050,6 +1056,14 @@ export function applyProjectChat(
      */
     memoryAnswer?: string;
     /**
+     * A reply the caller worked out, said as the chat's own and nothing
+     * beside it: a plan shown, changed, started or stopped; what an undo put
+     * back. The caller has already done whatever it says was done. `commands`
+     * are what it changed on the record, as the lines every other reply
+     * gives for that.
+     */
+    reply?: { text: string; choices?: ChatChoice[]; tool: string; summary: string; commands?: string[] };
+    /**
      * Notes of a meeting given this turn, as the caller read them: pasted
      * words it has put in storage, or the answer to the chat's own question
      * about some. See `MeetingGiven`.
@@ -1417,10 +1431,17 @@ export function applyProjectChat(
     const said: string[] = [];
     let asks: ChatChoice[] | undefined;
     const where = here.department || here.fn ? { ...(here.department ? { department: here.department } : {}), ...(here.fn ? { fn: here.fn } : {}) } : undefined;
-    const raise = (cards: ChatProposal[]) => {
+    const raise = (cards: ChatProposal[], meeting?: MeetingRecord) => {
       const before = offered;
-      offer(cards);
+      const fresh = offer(cards);
       offered = [...before, ...offered];
+      // A card that says what one already waiting says is not raised twice. The item of these notes rests on the one that waits.
+      for (const card of cards) {
+        if (fresh.includes(card)) continue;
+        const waiting = project.chatProposals.find((held) => held.status === 'proposed' && held.title === card.title);
+        const item = meeting?.items.find((held) => held.proposalId === card.id);
+        if (waiting && item) item.proposalId = waiting.id;
+      }
     };
     const keep = (given: MeetingToKeep, asked?: MeetingRecord) => {
       // The same words given twice are one meeting.
@@ -1431,7 +1452,7 @@ export function applyProjectChat(
         return;
       }
       const { meeting, cards } = keepMeeting(project, { ...given, place: given.place ?? where }, actor, asked);
-      raise(cards);
+      raise(cards, meeting);
       commands.push('Kept the notes of a meeting');
       said.push(meetingKeptSaid(project, meeting, { modelCanRead: options.modelReader !== false && !given.reading.byModel }));
     };
@@ -1444,7 +1465,7 @@ export function applyProjectChat(
     } else if (given && 'more' in given) {
       const meeting = meetingsHeld(project).find((held) => held.id === given.more.meetingId);
       const cards = meeting ? addMeetingItems(meeting, given.more.items, actor) : [];
-      raise(cards);
+      raise(cards, meeting);
       if (!meeting) said.push('That meeting is no longer on the file.');
       else if (cards.length) said.push([`Read the notes of ${meetingCalled(meeting)} through: ${cards.length === 1 ? '1 more thing is' : `${cards.length} more things are`} waiting on cards.`, ...cards.map((card) => `- ${card.title}`)].join('\n'));
       else said.push(given.more.byModel ? `Read the notes of ${meetingCalled(meeting)} through. Nothing more in them is a decision, an action or an open point.` : `No model is set up to read the notes of ${meetingCalled(meeting)} through, and the rules found nothing more in them.`);
@@ -1654,6 +1675,11 @@ export function applyProjectChat(
       assistantText += `\n\n${notes.said}`;
       if (notes.asks) choices = [...(choices ?? []), ...notes.asks];
     }
+  } else if (options.reply) {
+    assistantText = options.reply.text;
+    choices = options.reply.choices;
+    toolCalls = [{ name: options.reply.tool, summary: options.reply.summary }];
+    commands.push(...(options.reply.commands ?? []));
   } else if (options.nothingLeftToRead) {
     // Nothing this turn can read is not everything read: a paper with pages nobody read is said, with why.
     const partly = partlyReadOnFile(project);
@@ -1700,6 +1726,7 @@ export function applyProjectChat(
       citedNodeIds = [report.id];
       navigate('reports', draft ? '' : 'Wrote a status report', { item: report.id });
     }
+  } else if (!options.outside && asksForOutgoing(q)) { ({ assistantText, toolCalls, choices, citedNodeIds } = outgoingAsked(project, q, actor, navigate)); // A draft to send, asked for by name: made and opened by `outgoing.ts`.
   } else if (pressed) {
     /*
      * A choice that was pressed. It acts on the cards and papers it names and

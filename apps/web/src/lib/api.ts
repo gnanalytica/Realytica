@@ -1070,10 +1070,15 @@ export const api = {
       }
       return readProjectChatStream(res, opts?.onStep, opts?.onReading);
     }),
+  /** Whether a voice note can be put into words here, where its sound is sent, and how large one request may be. */
+  chatVoice: (projectId: string) => request<{ available: boolean; model?: string; host?: string; maxBytes: number; maxRequestBytes: number }>(`/projects/${projectId}/chat/voice`),
+
   projectChatFiles: (
     projectId: string,
     body: {
       files: File[];
+      /** What this page knows of each file and its bytes may not say, in the order of the files. */
+      captured?: Array<{ day?: string; takenAt?: string; seconds?: number }>;
       question?: string;
       viewContext?: string;
       place?: ChatTurnPlace;
@@ -1087,6 +1092,7 @@ export const api = {
   ) => {
     const form = new FormData();
     body.files.forEach((f) => form.append('files', f));
+    if (body.captured) form.append('captured', JSON.stringify(body.captured));
     if (body.question) form.append('question', body.question);
     if (body.viewContext) form.append('viewContext', body.viewContext);
     // A form carries words, so the place goes as one field of them.

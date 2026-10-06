@@ -28,9 +28,13 @@ const PAGES = [
   'SCHEDULE PROPERTY\nSurvey No. 73/4 of Navilugudda Village, with a right of way twelve feet wide over Survey No. 73/3\nto reach Temple Tank Road, which the purchaser shall keep open at all times.',
 ];
 
+/** A question the stand-in gives no word on at all, as a model that loses count of what it was asked does. */
+const LEFT_OUT = 'What stamp duty was paid?';
+
 /** What the stand-in says to each question it knows. Anything else, it says the pages do not state. */
-const SCRIPT: Record<string, { answer: string; page: number; words: string }> = {
-  'Is there a right of way?': { answer: 'Yes, twelve feet wide over Survey No. 73/3.', page: 2, words: 'a right of way twelve feet wide over Survey No. 73/3' },
+const SCRIPT: Record<string, { answer: string; page: number | string; words: string }> = {
+  // The page written as a word, as a model behind a gateway may write it.
+  'Is there a right of way?': { answer: 'Yes, twelve feet wide over Survey No. 73/3.', page: '2', words: 'a right of way twelve feet wide over Survey No. 73/3' },
   // The figure it gives is not the figure in the words it quotes.
   'What was the price?': { answer: 'Rs. 3,18,00,000.', page: 1, words: 'a total sale consideration of Rs. 3,18,50,000' },
 };
@@ -96,9 +100,10 @@ before(async () => {
     const tool = String(sent.tools?.[0]?.name ?? '');
     asked.push({ tool, text, parts });
     const questions = text.slice(text.lastIndexOf('Questions:')).split('\n').slice(1).filter((line) => /^\d+\.\s/.test(line)).map((line) => line.replace(/^\d+\.\s*/, ''));
-    const answers = questions.map((question, i) => {
+    const answers = questions.flatMap((question, i) => {
+      if (question === LEFT_OUT) return [];
       const said = SCRIPT[question];
-      return said ? { n: i + 1, stated: true, answer: said.answer, page: said.page, words: said.words } : { n: i + 1, stated: false, answer: null, page: null, words: null };
+      return [said ? { n: i + 1, stated: true, answer: said.answer, page: said.page, words: said.words } : { n: i + 1, stated: false, answer: null, page: null, words: null }];
     });
     streamMessage(res, { answers }, tool);
   });
@@ -130,13 +135,13 @@ describe('a run', () => {
     assert.deepEqual([opened.status, opened.body.model, opened.body.mayChange, opened.body.reviewTable.columns], [200, true, true, []]);
 
     const added = await call('POST', `${at}/columns`, {
-      columns: [{ kind: 'value', key: 'survey_numbers' }, { kind: 'question', question: 'Is there a right of way?' }, { kind: 'question', question: 'What was the price?' }, { kind: 'question', question: 'Who witnessed the deed?' }],
+      columns: [{ kind: 'value', key: 'survey_numbers' }, { kind: 'question', question: 'Is there a right of way?' }, { kind: 'question', question: 'What was the price?' }, { kind: 'question', question: 'Who witnessed the deed?' }, { kind: 'question', question: LEFT_OUT }],
     });
-    const [, way, price, witness] = (added.body.reviewTable as ReviewTable).columns.map((column) => column.id);
+    const [, way, price, witness, duty] = (added.body.reviewTable as ReviewTable).columns.map((column) => column.id);
 
     const started = await call('POST', `${at}/runs`, { evidenceIds: [deed.id] });
     const run = started.body.run as ReviewRun;
-    assert.deepEqual([started.status, run.with, run.papers], [201, 'model', [{ evidenceId: deed.id, columnIds: [way, price, witness] }]]);
+    assert.deepEqual([started.status, run.with, run.papers], [201, 'model', [{ evidenceId: deed.id, columnIds: [way, price, witness, duty] }]]);
     assert.equal((await call('POST', `${at}/runs/${run.id}/papers/ev_not_in_the_run`)).status, 404, 'a paper that is not in the run is not answered');
 
     const held = JSON.stringify(deed.facts);
@@ -146,7 +151,7 @@ describe('a run', () => {
     assert.equal(asked.length - before, 1, 'one call for the paper, whatever the number of questions');
     const sent = asked[asked.length - 1]!;
     assert.deepEqual([sent.tool, sent.parts], ['record_paper_answers', ['text']], 'words only: no file goes');
-    assert.match(sent.text, /Page 2:\nSCHEDULE PROPERTY[\s\S]*Questions:\n1\. Is there a right of way\?\n2\. What was the price\?\n3\. Who witnessed the deed\?/);
+    assert.match(sent.text, /Page 2:\nSCHEDULE PROPERTY[\s\S]*Questions:\n1\. Is there a right of way\?\n2\. What was the price\?\n3\. Who witnessed the deed\?\n4\. What stamp duty was paid\?/);
 
     const table = landed.body.reviewTable as ReviewTable;
     const kept = (id: string | undefined) => table.answers![id!]![deed.id]!;
@@ -156,11 +161,17 @@ describe('a run', () => {
     assert.deepEqual(table.run!.done, [deed.id]);
     assert.equal(JSON.stringify(deed.facts), held, 'nothing was written to the paper’s own row');
     assert.equal(existsSync(path.join(dataDir, 'v2', 'uploads', project.id, 'project.json')), true, 'saved as it landed');
-    assert.equal((await call('POST', `${at}/runs`, { evidenceIds: [deed.id] })).status, 409, 'nothing is left to ask');
+    // The question the model said nothing on is not said to be unstated: it has no cell, and the next run asks it and nothing else.
+    assert.equal(table.answers![duty!]?.[deed.id], undefined);
+    const again = await call('POST', `${at}/runs`, { evidenceIds: [deed.id] });
+    assert.deepEqual((again.body.run as ReviewRun).papers, [{ evidenceId: deed.id, columnIds: [duty] }]);
+    await call('POST', `${at}/columns/${duty}/ask-again`, {});
+    await call('DELETE', `${at}/columns/${duty}`);
+    assert.equal((await call('POST', `${at}/runs`, { evidenceIds: [deed.id] })).status, 409, 'with that column gone, nothing is left to ask');
 
     const reviewed = await call('PUT', `${at}/rows/${deed.id}/reviewed`, { reviewed: true });
     assert.equal(typeof (reviewed.body.reviewTable as ReviewTable).reviewed![deed.id]!.by, 'string');
-    assert.deepEqual(project.audit.filter((event) => event.action.startsWith('review_')).map((event) => event.action), ['review_run', 'review_row_reviewed']);
+    assert.deepEqual(project.audit.filter((event) => event.action.startsWith('review_')).map((event) => event.action), ['review_run', 'review_run', 'review_row_reviewed']);
   });
 
   it('searches the pages where no model is set up, and says the search is what answered', async () => {

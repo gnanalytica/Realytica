@@ -657,6 +657,14 @@ export const projectChatBodySchema = z.object({
       decision: z.enum(['accept', 'aside']).optional(),
       proposalIds: z.array(z.string().max(120)).max(200).optional(),
       evidenceIds: z.array(z.string().max(120)).max(200).optional(),
+      /** A pressed choice under a plan: the plan it acts on, by its id, and what it does. It reads no words. */
+      plan: z
+        .object({
+          id: z.string().max(120),
+          act: z.enum(['run', 'cancel', 'stop', 'carry_on', 'take_out']),
+          step: z.number().int().min(1).max(20).optional(),
+        })
+        .optional(),
     })
     .optional(),
 });

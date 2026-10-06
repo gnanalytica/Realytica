@@ -118,6 +118,10 @@ import {
   MEETINGS_LISTED,
   MEETING_NOTES,
   STATUS_REPORT,
+  PLAN_SAID,
+  PLAN_STEP,
+  planChoices,
+  planCountSaid,
   NOTHING_TO_READ,
   meetingShown,
   chatSessions,
@@ -206,6 +210,9 @@ import { PAPERS_AT_ONCE, together } from '../documents/together';
 import { droppedUnread, isNotReadYetCard, notReadYetCard } from '../documents/dropped';
 import { droppedAnswer, droppedChoices, takenInSaid, unsureSaid, whatWasDropped, type Dropped } from '../documents/questionnaire-drop';
 import { wordsOfDocx } from '../documents/docx-outline';
+import { capturedFrom, fileSitePhoto, readSitePhoto, takeVoiceNote, type DropCaptured } from '../documents/site-drop';
+import { transcriptionCapability } from '@realytica/agents';
+import { MODEL_READER_VERSION, isVoiceNote, type ChatProposal, type EvidenceRecord } from '@realytica/shared';
 // The questionnaire's own calls, kept beside the reader's: a file dropped in the chat may be one.
 import { DROPPED_WITHOUT_WORDS, addQuestionnaire, findQuestionnaire, meetingNotesFor as meetingNotesOf, questionnaireDepartment, suggestFromFile, type ParsedQuestionnaire } from '@realytica/shared';
 import { keepPageTexts } from '../documents/page-text';
@@ -228,6 +235,10 @@ import { readLint } from '../graph/mem/read';
 import { keepThought } from '../graph/mem/thought';
 import { CHAT_MESSAGE_AT_MOST, heldFile, meetingAsk, meetingTurn, meetingWords, readDroppedNotes } from '../meetings';
 import { wordStatusReport } from '../status-report';
+import { planTurnFor, runPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
+import { runPlanStep, type PlanSetting, type StepDone } from '../runs/plan-steps';
+import { changePlan, planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
+import { outgoingAskedWritten } from './outgoing';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
   changeStageBodySchema,
@@ -444,6 +455,8 @@ projectsRouter.use('/:projectId/runs', workspaceOnly);
 projectsRouter.use('/:projectId/graph/stored', workspaceOnly);
 // Meetings are the firm's own: what was said in one is not shown to somebody working from a grant.
 projectsRouter.use('/:projectId/meetings', workspaceOnly);
+// So are plans: a plan works through the whole file.
+projectsRouter.use('/:projectId/plans', workspaceOnly);
 
 // Readable by anybody on the project, changeable only by the workspace: the
 // shape of the file rather than the work inside it.
@@ -1251,6 +1264,119 @@ projectsRouter.get('/:projectId/meetings/:meetingId/notes', async (req, res) => 
   res.json({ meeting: meetingShown(project, meeting), text: (await meetingWords(project.id, meeting.file)) ?? '' });
 });
 
+/** A plan as the page draws it: its steps as they stand, whether its run was cut short, and what may be pressed. */
+function planShown(run: PlanRun): { id: string; plan: PlanRun['plan']; cutShort: boolean; over: boolean; choices: ReturnType<typeof planChoices> } {
+  const cutShort = planCutShort(run);
+  return { id: run.id, plan: run.plan, cutShort, over: planOver(run), choices: planChoices(run.id, run.plan, cutShort) };
+}
+
+/** The plans on a project that are not over: shown, running or stopped. The newest first. */
+projectsRouter.get('/:projectId/plans', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  res.json({ plans: (await plansOf(project.id)).filter((run) => !planOver(run)).map(planShown) });
+});
+
+projectsRouter.get('/:projectId/plans/:planId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  const run = project ? await readPlan(project.id, req.params.planId) : undefined;
+  if (!project || !run) {
+    res.status(404).json({ error: 'Plan not found' });
+    return;
+  }
+  res.json(planShown(run));
+});
+
+/**
+ * Ask a running plan to stop. A route of its own, and not a message, because
+ * the chat is busy with the very request that is running the plan. The run
+ * reads this between steps and between the batches of a step, from whichever
+ * instance it is on, and ends with what it did kept.
+ */
+projectsRouter.post('/:projectId/plans/:planId/stop', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  const run = project ? await readPlan(project.id, req.params.planId) : undefined;
+  if (!project || !run) {
+    res.status(404).json({ error: 'Plan not found' });
+    return;
+  }
+  const next =
+    run.plan.status === 'running'
+      ? await changePlan(project.id, run.id, (plan) => {
+          // A run that died is not there to hear it: the plan is stopped where it stands.
+          if (planCutShort(run)) plan.status = 'stopped';
+          else plan.stopAsked = true;
+        })
+      : run;
+  res.json(planShown(next ?? run));
+});
+
+/**
+ * A turn of the chat that is about a plan: one shown, changed or cancelled;
+ * one run, with each step said as it begins and the plan's last word at the
+ * end; or one small step done at once.
+ */
+async function planTurn(
+  req: Request,
+  res: Response,
+  project: DdProject,
+  planned: PlanTurn,
+  asked: { question: string; setting: PlanSetting; viewContext?: string; place?: ChatPlace; sessionId?: string; continues?: string },
+): Promise<void> {
+  refreshProjectDerived(project);
+  const { line } = beginNdjson(res);
+  const { setting } = asked;
+  const step = (label: string): void => line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label } satisfies AgentStep });
+  const say = (reply: Pick<PlanReply, 'text' | 'choices' | 'summary' | 'planId'>, tool: string, commands: string[] = []): ProjectChatResult => {
+    const result = applyProjectChat(project, asked.question, { actor: setting.actor, viewContext: asked.viewContext, place: asked.place, chat: setting.chat, reply: { text: reply.text, choices: reply.choices, tool, summary: reply.summary, commands } });
+    if (reply.planId) result.assistantTurn.planId = reply.planId;
+    stampSession(result, asked.sessionId, { continues: asked.continues, place: asked.place });
+    return result;
+  };
+  const saved = async (): Promise<void> => {
+    project.updatedAt = new Date().toISOString();
+    await store.save();
+  };
+
+  if ('direct' in planned) {
+    step(planned.direct.label);
+    const before = project.conversation.length;
+    let done: StepDone;
+    try {
+      done = await runPlanStep({ ...setting, step: planned.direct, mustEnd: async () => false, progress: async () => undefined, wrote: () => undefined });
+    } catch (err) {
+      done = { said: err instanceof Error ? err.message : 'That could not be done.', did: 0, complete: false };
+    }
+    // What the step itself left in the thread comes after the question it answers, and before what the chat says of it.
+    const left = project.conversation.splice(before);
+    const result = say({ text: done.said, summary: planned.direct.label }, PLAN_STEP, done.did ? [planned.direct.label] : []);
+    for (const turn of left) {
+      if (!turn.sessionId && asked.sessionId) turn.sessionId = asked.sessionId;
+      if (!turn.place && asked.place) turn.place = asked.place;
+    }
+    project.conversation.splice(project.conversation.length - 1, 0, ...left);
+    await saved();
+    line({ type: 'result', ...result, project });
+    res.end();
+    return;
+  }
+
+  const result = say(planned.say, PLAN_SAID);
+  await saved();
+  if (!('run' in planned)) {
+    line({ type: 'result', ...result, project });
+    res.end();
+    return;
+  }
+  const ended = await runPlan({ ...setting, planId: planned.run, onStep: step });
+  // The page is handed the plan's last word, and the project as the run left it.
+  line({ type: 'result', ...result, ...(ended ? { assistantTurn: ended.closing, commands: [`Plan: ${planCountSaid(ended.run.plan)}`] } : {}), project });
+  res.end();
+}
+
 projectsRouter.post('/:projectId/chat', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -1266,6 +1392,26 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const sitting = parsed.data.sitting;
   // Where the person is: the page and its stage, or the pane alone from a client that sends no more.
   const place = chatPlaceFrom(parsed.data.place, parsed.data.viewContext);
+  /*
+   * Plans. A job over many records, or of more than one kind of step, is
+   * shown as its steps before any of it starts. And a sentence, or a pressed
+   * choice, may be about a plan already shown, running or stopped. For the
+   * firm's own people, and never for a choice that accepts or sets aside.
+   * Whatever it is, it is answered here and goes no further.
+   */
+  if (!sitting?.decision && viewFor(req, project).project === project) {
+    const who = actorOf(req);
+    const sessionId = ownSitting(project, parsed.data.sessionId, who);
+    const setting: PlanSetting = { project, actor: who, tenantId: principalOf(req).tenantId, chat: { sessionId, continues: carriedChat(project, parsed.data.continues), startedAt: parsed.data.sessionStartedAt, actor: who }, place };
+    const planned = await planTurnFor({ ...setting, question, pin: sitting?.plan, sessionId, turnPlace: place, modelAvailable: agentCapability().available });
+    if (planned) {
+      // A plan that runs goes on when the page is closed, as a drop of papers does.
+      const work = planTurn(req, res, project, planned, { question, setting, viewContext: parsed.data.viewContext, place, sessionId, continues: setting.chat?.continues });
+      finishAfterReply(work.catch(() => undefined));
+      await work;
+      return;
+    }
+  }
   /*
    * An answer to "a questionnaire, or a paper to file?" about a file dropped
    * earlier and not read: the file goes down the upload path from storage, as
@@ -1630,6 +1776,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: 'Putting the report in plain words' } satisfies AgentStep });
     await wordStatusReport(project, wrote);
   }
+  // A letter, a reply, a request for information or minutes the rules just made: its body is written and the reply says how it stands. See `routes/outgoing.ts`.
+  if (canvas === project) await outgoingAskedWritten(project, result, line);
 
   if (capability.available && !skipLlmForChat(result)) {
     try {
@@ -2001,6 +2149,8 @@ interface IngestUpload {
   buffer: Buffer;
   /** Set for a file already in storage: it is read from there, not stored again. */
   storageKey?: string;
+  /** What the page that sent the file knew of it: the day on it, a camera's date, how long a recording runs. */
+  captured?: DropCaptured;
 }
 
 /**
@@ -2036,7 +2186,7 @@ interface IngestFields {
    * What a person said a stored file is, by its storage key, where the chat
    * could not tell a questionnaire from a paper and asked.
    */
-  dropAs?: ReadonlyMap<string, 'questionnaire' | 'paper'>;
+  dropAs?: ReadonlyMap<string, 'questionnaire' | 'paper' | 'photo'>;
   viewContext?: string;
   /** The page the documents were dropped on. */
   place?: ChatPlace;
@@ -2191,8 +2341,89 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   let landing: Promise<void> = Promise.resolve();
   /** The questionnaires this drop held, by their place in it; the files it could not tell; and what could not be taken in. */
   const taken: Array<{ index: number; id: string }> = [];
-  const unsure: Array<{ index: number; fileName: string }> = [];
+  const unsure: Array<{ index: number; fileName: string; between: 'questionnaire' | 'photo' }> = [];
   const refused: string[] = [];
+  /** What became of each voice note and each photograph of the site, by its place in the drop, and the cards the notes raised. */
+  const fromSite: Array<{ index: number; said: string }> = [];
+  const siteCards: ChatProposal[] = [];
+  let photosFiled = 0;
+
+  /** One line on the stream and one on the desk for a file that is no paper: what became of it. */
+  const tookAs = (row: ChatIngestFile, as: 'voice' | 'photo', said: string): void => {
+    reading({ type: 'reading', event: 'taken', key: row.storageKey, as, said: said.replace(/\.$/, '') });
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_result', label: `${row.fileName}: ${said.charAt(0).toLowerCase()}${said.slice(1).replace(/\.$/, '')}` } });
+  };
+
+  /**
+   * A voice note: put into words by the transcriber, its words kept beside
+   * it, and what it says proposed as a site entry on a card. A note that was
+   * not put into words stays noted as a file not read, to be tried again.
+   */
+  const voice = async (index: number, row: ChatIngestFile, file: IngestUpload): Promise<'taken'> => {
+    reading({ type: 'reading', event: 'start', key: row.storageKey, fileName: row.fileName, mimeType: row.mimeType, sizeBytes: row.sizeBytes, index, total: files.length });
+    const heard = await takeVoiceNote({ project, file: row, bytes: file.buffer, actor, captured: file.captured });
+    const mine = (landing = landing.then(async () => {
+      await store.syncProject(project.id, { force: true });
+      if (heard.card) {
+        for (const held of new Set([project, canvas])) (held.chatProposals ??= []).push(heard.card);
+        siteCards.push(heard.card);
+      }
+      if (heard.transcribed) {
+        dropNotes([row.storageKey]);
+        // A note that came in as a large file sits on a row: marked as read, so reading the filed documents does not take it again.
+        const holder = canvas.evidence.find((e) => e.attachments.some((a) => a.storageKey === row.storageKey));
+        if (holder) {
+          holder.modelReadAt = new Date().toISOString();
+          holder.modelReadVersion = MODEL_READER_VERSION;
+        }
+      }
+      project.updatedAt = new Date().toISOString();
+      await store.save();
+      fromSite.push({ index, said: heard.said });
+      tookAs(row, 'voice', heard.said);
+    }));
+    await mine;
+    return 'taken';
+  };
+
+  /**
+   * A photograph of the site: on the register under Progress with its date,
+   * saved, and then read by the photo reader, whose reading is kept as its
+   * suggestion.
+   */
+  const photo = async (index: number, row: ChatIngestFile, file: IngestUpload): Promise<'taken'> => {
+    let filed: EvidenceRecord | undefined;
+    const mine = (landing = landing.then(async () => {
+      await store.syncProject(project.id, { force: true });
+      const { row: on, said } = fileSitePhoto({ project: canvas, file: row, bytes: file.buffer, actor, captured: file.captured });
+      filed = on;
+      landedOn[index] = on.id;
+      photosFiled += 1;
+      dropNotes([row.storageKey]);
+      project.updatedAt = new Date().toISOString();
+      await store.save();
+      fromSite.push({ index, said: `${said}.` });
+      reading({ type: 'reading', event: 'filed', key: row.storageKey, row: on });
+      tookAs(row, 'photo', said);
+    }));
+    await mine;
+    if (!filed) return 'taken';
+    const on = filed;
+    try {
+      const write = await readSitePhoto({ project: canvas, row: on, bytes: file.buffer, actor });
+      if (write) {
+        await (landing = landing.then(async () => {
+          write();
+          project.updatedAt = new Date().toISOString();
+          await store.save();
+          reading({ type: 'reading', event: 'filed', key: row.storageKey, row: on });
+        }));
+      }
+    } catch (err) {
+      console.warn(`[reading] the photograph ${row.fileName} was filed and not read: ${(err as Error).message}`);
+    }
+    return 'taken';
+  };
 
   /**
    * A questionnaire taken in, saved: on the project as a questionnaire, and
@@ -2217,8 +2448,9 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   /** A file settled without being read as a paper: taken in as a questionnaire, or left for the person to say what it is. */
   const settle = async (index: number, row: ChatIngestFile, sorted: Extract<Dropped, { as: 'questionnaire' | 'unsure' }>): Promise<'taken' | 'asked'> => {
     if (sorted.as === 'unsure' || !sorted.read) {
-      unsure.push({ index, fileName: row.fileName });
-      reading({ type: 'reading', event: 'read', key: row.storageKey, facts: [], failure: 'Not read yet: a questionnaire, or a paper to file? Say which in the chat.' });
+      const between = sorted.as === 'unsure' ? sorted.between : 'questionnaire';
+      unsure.push({ index, fileName: row.fileName, between });
+      reading({ type: 'reading', event: 'read', key: row.storageKey, facts: [], failure: `Not read yet: ${between === 'photo' ? 'a photograph of the site' : 'a questionnaire'}, or a paper to file? Say which in the chat.` });
       return 'asked';
     }
     const parsed = sorted.read.parsed;
@@ -2276,6 +2508,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     let notes: 'yes' | 'maybe' | 'no' = 'no';
     try {
       if (lost.has(storageKey)) throw new Error('it could not be stored');
+      // Sound is not read as a page is. What it is, is still decided in the one place.
+      if (isVoiceNote(row) && (await whatWasDropped({ project, paper: row, file, fresh: true, whole: canvas === project })).as === 'voice') return await voice(index, row, file);
       reading({ type: 'reading', event: 'start', ...named });
       // Read here first, with no model: text layer or OCR, then what the
       // document is and states. See `documents/intake`.
@@ -2308,6 +2542,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
         pages: pageTexts,
       });
       if (what.as === 'questionnaire' || what.as === 'unsure') return await settle(index, row, what);
+      if (what.as === 'photo') return await photo(index, row, file);
       if (what.as === 'notes') notes = what.sure ? 'yes' : 'maybe';
       reading({
         type: 'reading',
@@ -2420,7 +2655,12 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       suggestFromFile(project, id, actor);
       return findQuestionnaire(project, id);
     });
-  const sorted = [...questionnaires.map(takenInSaid), ...refused, ...unsure.sort((a, b) => a.index - b.index).map(({ fileName }) => unsureSaid(fileName))];
+  const sorted = [
+    ...questionnaires.map(takenInSaid),
+    ...fromSite.sort((a, b) => a.index - b.index).map(({ said }) => said),
+    ...refused,
+    ...unsure.sort((a, b) => a.index - b.index).map(({ fileName, between }) => unsureSaid(fileName, between)),
+  ];
   // The notes of a meeting among them are read by the meeting reader, for the turn that keeps them.
   const meetingReadings = canvas === project ? await readDroppedNotes(project, enriched) : undefined;
   for (const paper of enriched) {
@@ -2448,12 +2688,18 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     : saidOfDrop(canvas, actor, question);
   if (sorted.length) {
     result.assistantTurn.text = [result.assistantTurn.text, ...sorted].filter(Boolean).join('\n\n');
-    const choices = unsure.flatMap(({ fileName }, n) => droppedChoices(fileName, n));
+    const choices = unsure.flatMap(({ fileName, between }, n) => droppedChoices(fileName, n, between));
     if (choices.length) result.assistantTurn.choices = [...(result.assistantTurn.choices ?? []), ...choices];
+    // The entries proposed from voice notes are this reply's cards: listed with it, so they are what "approve all" means.
+    if (siteCards.length) {
+      result.proposals = [...result.proposals, ...siteCards];
+      result.assistantTurn.proposalIds = [...(result.assistantTurn.proposalIds ?? []), ...siteCards.map((card) => card.id)];
+    }
     const last = canvas.conversation[canvas.conversation.length - 1];
     if (last?.id === result.assistantTurn.id && last !== result.assistantTurn) {
       last.text = result.assistantTurn.text;
       if (choices.length) last.choices = result.assistantTurn.choices;
+      if (siteCards.length) last.proposalIds = result.assistantTurn.proposalIds;
     }
   }
   // How much of each file was read goes with the file: onto its row where it has one, else onto the card that will file it.
@@ -2513,7 +2759,9 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
-  await ingestTurn(req, res, project, files, {
+  // What the page knew of each file and the bytes may not say: the day on it, a camera's date, how long a recording runs.
+  const captured = capturedFrom(body.captured, files.length);
+  await ingestTurn(req, res, project, files.map((file, i) => ({ originalname: file.originalname, mimetype: file.mimetype, size: file.size, buffer: file.buffer, captured: captured[i] })), {
     question: typeof body.question === 'string' ? body.question : '',
     viewContext: typeof body.viewContext === 'string' ? body.viewContext : undefined,
     place: placeFromForm(body.place) ?? chatPlaceFrom(undefined, typeof body.viewContext === 'string' ? body.viewContext : undefined),
@@ -2524,6 +2772,19 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     scopeId: body.scopeId,
     checkId: body.checkId,
   });
+});
+
+/**
+ * Whether a voice note can be put into words here, and where its sound is
+ * sent, for the chat to say before the first one goes.
+ */
+projectsRouter.get('/:projectId/chat/voice', (req, res) => {
+  if (!findProject(req.params.projectId)) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const { available, model, host } = transcriptionCapability();
+  res.json({ available, ...(available ? { model, host } : {}), maxBytes: UPLOAD_LIMITS.maxFileBytes, maxRequestBytes: UPLOAD_LIMITS.maxRequestBytes });
 });
 
 /**

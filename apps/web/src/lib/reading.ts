@@ -43,7 +43,7 @@ export interface ReadingFile {
   /** Its reading is on the project's file, saved, though other papers of the same drop may still be being read. */
   saved?: boolean;
   /** The file was no paper and is on no row: a questionnaire taken in as one, or the notes of a meeting. What became of it, in a line. */
-  taken?: { as: 'questionnaire' | 'notes'; said: string; questionnaireId?: string; department?: string };
+  taken?: { as: 'questionnaire' | 'notes' | 'voice' | 'photo'; said: string; questionnaireId?: string; department?: string };
 }
 
 export interface ReadingSession {

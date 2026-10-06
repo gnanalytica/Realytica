@@ -96,6 +96,11 @@ function questionsPath(projectId: string, department: string | undefined): strin
   return !department || department === 'construction' ? `/projects/${projectId}/w/construction.quality?step=questions` : `/projects/${projectId}/d/${department}?step=questions`;
 }
 
+/** Whether a file on the desk is sound: a voice note, which has no page to show. */
+function isSoundFile(file: ReadingFile): boolean {
+  return file.mimeType.startsWith('audio/') || file.taken?.as === 'voice';
+}
+
 /** "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym. */
 function asNamed(label: string): string {
   return /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label;
@@ -382,8 +387,9 @@ export function ReadingDesk({
         <div className={cn('flex min-h-0 flex-col gap-2', wide ? 'min-w-0 flex-1' : 'h-[40%] min-h-[190px] shrink-0')}>
           <div className="flex items-center gap-2">
             <p className="min-w-0 flex-1 truncate font-mono text-micro uppercase tracking-[0.08em] text-ink-muted">
-              {(current.label ?? shortName(current.fileName)).toUpperCase()} · page {page}
-              {current.pages ? ` of ${current.pages}` : ''}
+              {(current.label ?? shortName(current.fileName)).toUpperCase()}
+              {/* Sound has no pages. */}
+              {isSoundFile(current) ? '' : ` · page ${page}${current.pages ? ` of ${current.pages}` : ''}`}
             </p>
             {scanning ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-micro font-medium text-brand-ink">
@@ -424,7 +430,7 @@ export function ReadingDesk({
         <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(46%,440px)] shrink-0 pr-1' : 'flex-1')}>
           {rowFacts.length ? null : (
           <p className="text-[12px] font-semibold text-ink">
-            {scanning ? 'Reading…' : current.taken ? (current.taken.as === 'questionnaire' ? 'A questionnaire' : 'Notes of a meeting') : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
+            {scanning ? 'Reading…' : current.taken ? { questionnaire: 'A questionnaire', notes: 'Notes of a meeting', voice: 'A voice note', photo: 'A site photograph' }[current.taken.as] : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
           </p>
           )}
           {scanning ? (
@@ -497,8 +503,16 @@ export function ReadingDesk({
                   Open the questions
                   <ArrowRight size={12} aria-hidden />
                 </Link>
+              ) : current.taken.as === 'photo' ? (
+                <Link
+                  to={`/projects/${projectId}/w/construction.progress`}
+                  className="inline-flex items-center gap-1 rounded-md bg-raised px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:text-brand"
+                >
+                  Open Progress
+                  <ArrowRight size={12} aria-hidden />
+                </Link>
               ) : (
-                <p className="text-micro text-ink-muted">What it proposes is in the chat.</p>
+                <p className="text-micro text-ink-muted">{current.taken.as === 'voice' ? 'What it proposes waits under “Needs your decision”.' : 'What it proposes is in the chat.'}</p>
               )}
             </div>
           ) : shown && !facts.length && !current.notes && current.phase !== 'failed' && current.phase !== 'model' ? (

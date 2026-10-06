@@ -48,6 +48,32 @@ async function writeLedger(projectId: string, ledger: DurableRun[]): Promise<voi
   }
 }
 
+/** One change of a project's ledger at a time in this process: the next waits for the one before it. */
+const changing = new Map<string, Promise<unknown>>();
+
+/**
+ * Read a project's ledger, change it and write it back, with no other change
+ * of it in this process in between. Two writers that each read and then
+ * wrote would lose whichever wrote first. Between instances the last writer
+ * still wins, as the note at the top of this file accepts.
+ */
+export async function changeLedger(projectId: string, change: (ledger: DurableRun[]) => DurableRun[]): Promise<DurableRun[]> {
+  const before = changing.get(projectId) ?? Promise.resolve();
+  const mine = before
+    .catch(() => undefined)
+    .then(async () => {
+      const next = change(await readLedger(projectId));
+      await writeLedger(projectId, next);
+      return next;
+    });
+  changing.set(projectId, mine);
+  try {
+    return await mine;
+  } finally {
+    if (changing.get(projectId) === mine) changing.delete(projectId);
+  }
+}
+
 export interface RunJournalHandle {
   readonly runId: string;
   /** Checkpoint one step. Durable by the time it resolves; never throws. */
@@ -80,8 +106,7 @@ export async function beginRun(
   };
 
   const persist = async (): Promise<void> => {
-    const ledger = await readLedger(projectId);
-    await writeLedger(projectId, upsertRun(ledger, run));
+    await changeLedger(projectId, (ledger) => upsertRun(ledger, run));
   };
   await persist();
 

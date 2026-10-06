@@ -31,6 +31,8 @@ import {
   recommendedDdTypes,
   updateEvidenceStatus,
 } from './operations';
+import { logSiteEntry } from './progress';
+import { siteEntryInput, type SiteEntryProposal } from './site-notes';
 import { LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
 import type {
@@ -771,6 +773,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
       }
     }
     recordId = evidence.id;
+  } else if (item.kind === 'log_site_entry') {
+    // A site entry read from a voice note, accepted by a person: filed on the site log as the note's entry, once.
+    const { entry } = logSiteEntry(project, siteEntryInput(payload as unknown as SiteEntryProposal), actor);
+    recordId = entry.id;
   } else if (item.kind === 'request_evidence' || item.kind === 'add_action') {
     const record = addAction(project, payload as unknown as CreateActionInput, actor);
     recordId = record.id;

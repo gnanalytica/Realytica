@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AttachControls, type VoiceInfo } from './chat/AttachControls';
+import { TooLargeToSend } from '../lib/site-capture';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, X } from 'lucide-react';
 import { askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread } from '@realytica/shared';
@@ -462,6 +464,7 @@ export function CopilotPanel({
   emptyHint,
   placeholder,
   allowAttach,
+  voice,
   renderTurnExtras,
   compact,
   onCancel,
@@ -561,6 +564,8 @@ export function CopilotPanel({
   emptyHint?: string;
   placeholder?: string;
   allowAttach?: boolean;
+  /** Whether a voice note can be put into words here, and where its sound goes. Absent where this chat takes none. */
+  voice?: VoiceInfo;
   renderTurnExtras?: (turn: CopilotTurn) => ReactNode;
   /** Phone cockpit: hide extra chips, icon-only send, tighter spacing. */
   compact?: boolean;
@@ -576,7 +581,6 @@ export function CopilotPanel({
   const [viewing, setViewing] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
 
   // Re-measured on every change of the value, not just on typing: the box is
   // also cleared programmatically after a send, and a composer that stayed
@@ -604,6 +608,11 @@ export function CopilotPanel({
     try {
       await onAsk(trimmed, attached.length ? attached : undefined);
     } catch (e) {
+      // Refused before anything was sent: the files and the words go back to where they were, to be sent in smaller groups.
+      if (e instanceof TooLargeToSend) {
+        setFiles(attached);
+        setText(question);
+      }
       setError(e instanceof Error ? e.message : 'Could not reach the copilot — please retry.');
     }
   }
@@ -1018,32 +1027,9 @@ export function CopilotPanel({
             )}
             ref={composerRef}
           />
-          <div className="flex items-center gap-1 px-1.5 pb-1.5">
+          <div className="flex flex-wrap items-center gap-1 px-1.5 pb-1.5">
             {allowAttach ? (
-              <>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  accept=".pdf,.doc,.docx,.txt,.csv,.jpg,.jpeg,.png,.xlsx,.xls"
-                  onChange={(e) => {
-                    const next = Array.from(e.target.files ?? []);
-                    if (next.length) setFiles((prev) => [...prev, ...next].slice(0, 10));
-                    e.target.value = '';
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Attach documents"
-                  title="Attach documents"
-                  disabled={disabled || busy}
-                  icon={<Paperclip size={15} />}
-                  onClick={() => fileRef.current?.click()}
-                />
-              </>
+              <AttachControls disabled={Boolean(disabled || busy)} voice={voice} staged={files} onAdd={(next) => setFiles((prev) => [...prev, ...next].slice(0, 10))} />
             ) : null}
             <span className="flex-1" />
             {onOpenCommands && !compact ? (

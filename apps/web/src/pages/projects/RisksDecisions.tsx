@@ -20,6 +20,7 @@ import {
 import { api } from '../../lib/api';
 import { AssignCell } from '../../components/AssignCell';
 import { MeetingSource } from '../../components/meetings/MeetingNotes';
+import { OutgoingStart } from '../../components/outgoing/OutgoingStart';
 import { MineToggle, useMine } from '../../components/MineToggle';
 import { CreateButton } from '../../components/create/CreateWizard';
 import { RemedialCostChart } from '../../components/charts';
@@ -156,6 +157,7 @@ export function RisksActions() {
                         <AssignCell className="-ml-1.5" project={project} targetId={a.id} subject={a.title} owner={a.owner} onAssigned={setProject} />
                         {/* An action a meeting gave opens that meeting's notes at the words it rests on. */}
                         <MeetingSource project={project} recordId={a.id} />
+                        <OutgoingStart className="-ml-2.5" projectId={project.id} about={{ kind: 'action', id: a.id }} />
                       </div>
                       <Select
                         value={a.status}

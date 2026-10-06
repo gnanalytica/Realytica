@@ -34,9 +34,14 @@
  * registers eventually, and the registers win.
  */
 
-export type DurableRunKind = 'chat_model' | 'orchestrate' | 'screen';
+export type DurableRunKind = 'chat_model' | 'orchestrate' | 'screen' | 'plan';
 
-export type DurableRunStatus = 'running' | 'finished' | 'failed';
+/**
+ * `waiting` is a plan's alone: shown and not yet approved, or stopped part
+ * way. Nothing is running and nothing is expected to checkpoint, so it is
+ * never read as interrupted however long it waits.
+ */
+export type DurableRunStatus = 'running' | 'finished' | 'failed' | 'waiting';
 
 /** Derived on read. `interrupted` is a `running` record nobody has touched for too long. */
 export type DurableRunState = DurableRunStatus | 'interrupted';
@@ -61,6 +66,11 @@ export interface DurableRun {
   steps: DurableRunStep[];
   /** One line on how it ended. Set for finished and failed, never for running. */
   outcome?: string;
+  /**
+   * For a plan (`kind: 'plan'`): its steps and how far each has got. The one
+   * place a plan is kept. See `plans.ts`.
+   */
+  plan?: import('./plans').ChatPlan;
 }
 
 /**
@@ -92,7 +102,25 @@ export function describeRun(run: DurableRun, now: string): string {
       ? `Chat${run.question ? `: “${run.question.slice(0, 60)}${run.question.length > 60 ? '…' : ''}”` : ''}`
       : run.kind === 'orchestrate'
         ? 'Orchestrator pass'
-        : 'Property screen';
+        : run.kind === 'plan'
+          ? 'Plan'
+          : 'Property screen';
+  // A plan is said by its steps: how many are done, and whether it is waiting to be run or taken up again.
+  if (run.kind === 'plan' && run.plan) {
+    const all = run.plan.steps.filter((step) => step.state !== 'out');
+    const done = all.filter((step) => step.state === 'done').length;
+    const stands =
+      state === 'interrupted'
+        ? 'cut short. What was done stays done. It can be taken up again from the chat'
+        : run.plan.status === 'shown'
+          ? 'shown, not started'
+          : run.plan.status === 'cancelled'
+            ? 'cancelled'
+            : run.plan.status === 'stopped'
+              ? 'stopped. It can be taken up again from the chat'
+              : run.plan.status;
+    return `${head} — ${done} of ${all.length} step(s) done, ${stands}.`;
+  }
   if (state === 'interrupted') {
     const lastStep = run.steps[run.steps.length - 1];
     return `${head} — interrupted after ${steps} step(s)${lastStep ? `, last at “${lastStep.label}”` : ''}. The process died without finishing; re-issue the request — the registers hold everything committed before the cut.`;
@@ -111,7 +139,20 @@ export function describeRun(run: DurableRun, now: string): string {
  */
 export const RUN_LEDGER_LIMIT = 20;
 
+/** How many plans that are not over are kept past the limit. */
+export const RUN_LEDGER_OPEN_PLANS = 5;
+
+/** A plan somebody has still to approve, is running, or stopped and may take up again. */
+function openPlan(run: DurableRun): boolean {
+  return run.kind === 'plan' && run.plan !== undefined && run.status !== 'finished' && run.status !== 'failed';
+}
+
+/**
+ * The newest runs, and past them the plans that are not over: the ledger is
+ * the only record of where such a plan stands, and twenty questions asked of
+ * the chat since must not be what loses it.
+ */
 export function upsertRun(ledger: DurableRun[], run: DurableRun, limit = RUN_LEDGER_LIMIT): DurableRun[] {
-  const rest = ledger.filter((row) => row.id !== run.id);
-  return [run, ...rest].slice(0, limit);
+  const all = [run, ...ledger.filter((row) => row.id !== run.id)];
+  return [...all.slice(0, limit), ...all.slice(limit).filter(openPlan).slice(0, RUN_LEDGER_OPEN_PLANS)];
 }

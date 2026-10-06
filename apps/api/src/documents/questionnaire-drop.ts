@@ -14,8 +14,10 @@
  */
 import {
   DEPARTMENTS,
+  isVoiceNote,
   meetingNotesFor,
   namesQuestionnaire,
+  pictureOrPaper,
   questionnaireDepartment,
   questionnaireOrPaper,
   questionnaireSaid,
@@ -39,8 +41,12 @@ export type Dropped =
   | { as: 'notes'; sure: boolean }
   /** A list of questions to answer: taken in as a questionnaire. */
   | { as: 'questionnaire'; read: ReadQuestionnaire }
-  /** A questionnaire or a paper, and the file does not say which: the person is asked. */
-  | { as: 'unsure'; read: ReadQuestionnaire | null };
+  /** Sound: a voice note, to be put into words and proposed as a site entry. */
+  | { as: 'voice' }
+  /** A picture of the site: filed to Progress with its date. */
+  | { as: 'photo' }
+  /** One of two things, and the file does not say which: the person is asked. `between` is what it may be instead of a paper. */
+  | { as: 'unsure'; between: 'questionnaire' | 'photo'; read: ReadQuestionnaire | null };
 
 /**
  * What a file dropped in the chat is. The one place it is decided.
@@ -51,9 +57,12 @@ export type Dropped =
  * with questions in it, or both ask about it. So they are asked here, in this
  * order, and a file gets one answer and at most one question:
  *
+ * 0. Sound is a voice note, whatever it is called.
  * 1. What a person said it is, where they were asked.
- * 2. A paper the reader recognises (a deed, a khata, an order) is a paper.
- *    Both rules hold to that themselves.
+ * 1a. A picture with few words on it is a photograph of the site; one with a
+ *    page of words is a paper that was photographed; in between, asked here.
+ * 2. A paper the reader recognises (a deed, a khata, an order) is a paper,
+ *    unless it is laid out as the notes of a meeting, and then the chat asks.
  * 3. A file that says it is a questionnaire, by its name or by a sheet's
  *    Question column, is one.
  * 4. Notes of a meeting (`meetingNotesFor`), where their words say so.
@@ -71,7 +80,7 @@ export async function whatWasDropped(input: {
   project: DdProject;
   paper: ChatIngestFile;
   file: { originalname: string; buffer: Buffer };
-  said?: 'questionnaire' | 'paper';
+  said?: 'questionnaire' | 'paper' | 'photo';
   fresh: boolean;
   whole: boolean;
   /** A PDF's words page by page, where they were read. */
@@ -79,6 +88,8 @@ export async function whatWasDropped(input: {
 }): Promise<Dropped> {
   const { paper, file } = input;
   if (input.said === 'paper' || !input.whole) return { as: 'paper' };
+  if (isVoiceNote(paper)) return { as: 'voice' };
+  if (input.said === 'photo') return { as: 'photo' };
   const questions = async (): Promise<ReadQuestionnaire | null> => {
     if (!mayBeQuestionnaire(file.originalname)) return null;
     try {
@@ -93,7 +104,15 @@ export async function whatWasDropped(input: {
     return read ? { as: 'questionnaire', read } : { as: 'paper' };
   }
   const recognised = Boolean(paper.read && paper.read.type !== 'other' && paper.read.confidence >= 0.35);
-  if (recognised) return { as: 'paper' };
+  // A picture just dropped: of the site, or of a paper. A filed picture read again stays what it was filed as.
+  if (input.fresh && (/^image\//i.test(paper.mimeType) || /\.(?:jpe?g|png|webp|heic|heif)$/i.test(paper.fileName))) {
+    const picture = pictureOrPaper({ recognised, words: paper.excerpt ?? '' });
+    if (picture === 'photo') return { as: 'photo' };
+    if (picture === 'unsure') return { as: 'unsure', between: 'photo', read: null };
+    return { as: 'paper' };
+  }
+  // Notes about a property use a paper's own words ("the earlier survey sketch"): recognised and laid out as notes, it is asked about.
+  if (recognised && meetingNotesFor(input.project, paper) === 'no') return { as: 'paper' };
   const read = input.fresh ? await questions() : null;
   const asQuestions = questionnaireOrPaper({ fileName: file.originalname, parsed: read?.parsed ?? null, namedColumn: read?.namedColumn });
   const saysSo = namesQuestionnaire(file.originalname) || Boolean(read?.namedColumn);
@@ -102,22 +121,26 @@ export async function whatWasDropped(input: {
   if (notes === 'yes') return { as: 'notes', sure: true };
   if (read && asQuestions === 'questionnaire') return { as: 'questionnaire', read };
   if (notes === 'maybe') return { as: 'notes', sure: false };
-  if (asQuestions === 'unsure') return { as: 'unsure', read };
+  if (asQuestions === 'unsure') return { as: 'unsure', between: 'questionnaire', read };
   return { as: 'paper' };
 }
 
-/** The two answers to "is it a questionnaire or a paper?", as sentences the chat reads back (`droppedAnswer`). */
-export function droppedChoices(fileName: string, n: number): ChatChoice[] {
+/** The two answers to "what is it?", as sentences the chat reads back (`droppedAnswer`). */
+export function droppedChoices(fileName: string, n: number, between: 'questionnaire' | 'photo' = 'questionnaire'): ChatChoice[] {
   return [
-    { id: `drop-questionnaire-${n}`, label: 'A questionnaire', detail: fileName, send: `Take in “${fileName}” as a questionnaire` },
+    between === 'photo'
+      ? { id: `drop-photo-${n}`, label: 'A site photograph', detail: fileName, send: `File “${fileName}” as a site photograph` }
+      : { id: `drop-questionnaire-${n}`, label: 'A questionnaire', detail: fileName, send: `Take in “${fileName}” as a questionnaire` },
     { id: `drop-paper-${n}`, label: 'A paper to file', detail: fileName, send: `File “${fileName}” as a paper` },
   ];
 }
 
 /** A pressed answer, read back: which file, and what it is. Null for any other sentence. */
-export function droppedAnswer(question: string): { fileName: string; as: 'questionnaire' | 'paper' } | null {
-  const said = /^\s*(?:take in|file)\s+[“"](.+?)[”"]\s+as a (questionnaire|paper)\s*\.?\s*$/i.exec(question);
-  return said ? { fileName: said[1]!, as: said[2]!.toLowerCase() as 'questionnaire' | 'paper' } : null;
+export function droppedAnswer(question: string): { fileName: string; as: 'questionnaire' | 'paper' | 'photo' } | null {
+  const said = /^\s*(?:take in|file)\s+[“"](.+?)[”"]\s+as a (questionnaire|paper|site photograph)\s*\.?\s*$/i.exec(question);
+  if (!said) return null;
+  const what = said[2]!.toLowerCase();
+  return { fileName: said[1]!, as: what === 'site photograph' ? 'photo' : (what as 'questionnaire' | 'paper') };
 }
 
 /** What the chat says of a questionnaire it took in: its count, how it stands, and where it is. */
@@ -127,6 +150,6 @@ export function takenInSaid(questionnaire: Questionnaire): string {
 }
 
 /** What the chat asks of a file it could not tell. */
-export function unsureSaid(fileName: string): string {
-  return `I could not tell whether ${fileName} is a questionnaire to answer or a paper to file. Which is it?`;
+export function unsureSaid(fileName: string, between: 'questionnaire' | 'photo' = 'questionnaire'): string {
+  return `I could not tell whether ${fileName} is ${between === 'photo' ? 'a photograph of the site' : 'a questionnaire to answer'} or a paper to file. Which is it?`;
 }

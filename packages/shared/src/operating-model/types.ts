@@ -1489,6 +1489,13 @@ export interface ProjectChatTurn {
   toolCalls?: { name: string; summary: string }[];
   refusedForLackOfEvidence?: boolean;
   proposalIds?: string[];
+  /**
+   * The plan this turn shows, started or reports on: its id in the run
+   * ledger, which is where the plan and how far it has got are kept
+   * (`plans.ts`). The page draws the plan under the turn from there, so a
+   * turn written an hour ago shows the plan as it stands now.
+   */
+  planId?: string;
 }
 
 export type ChatProposalKind =
@@ -1532,7 +1539,9 @@ export type ChatProposalKind =
   /** Ask a named person for documents the requirement sheet still lacks. */
   | 'request_documents'
   /** Give a filed document to a workstream, or hand it back to what it is. */
-  | 'assign_document';
+  | 'assign_document'
+  /** A site entry read from a voice note: the day, the work done and the issues, each with the note's words. Filed on the site log when a person accepts. */
+  | 'log_site_entry';
 
 export type ChatSideIntentKind = 'places' | 'web_search' | 'connectors' | 'locality' | 'planning' | 'capabilities' | 'commit_drafts';
 
@@ -1647,10 +1656,10 @@ export type ReadingStreamEvent =
     }
   | {
       type: 'reading';
-      /** The file was no paper and was not filed as one: a questionnaire, taken in as one, or the notes of a meeting. */
+      /** The file was no paper and was not filed as one: a questionnaire, the notes of a meeting, a voice note, or a photograph of the site. */
       event: 'taken';
       key: string;
-      as: 'questionnaire' | 'notes';
+      as: 'questionnaire' | 'notes' | 'voice' | 'photo';
       /** What became of it, in a line: "A questionnaire: 24 questions", "Notes of a meeting: 4 items proposed". */
       said: string;
       /** For a questionnaire: which, and the department whose Questions page holds it. */
@@ -2156,6 +2165,8 @@ export interface DdProject {
   links?: import('./links').ProjectLink[];
   /** The review table: the questions put to the papers, what a model answered (never a value of a paper), and the rows a person marked reviewed. See `review-table.ts`. */
   reviewTable?: import('./review-table').ReviewTable;
+  /** What goes out: letters, replies, requests for information and minutes, each a draft until a person approves it by name. See `outgoing.ts`. */
+  outgoing?: import('./outgoing').OutgoingDraft[];
   createdAt: string;
   updatedAt: string;
 }

@@ -41,6 +41,7 @@ import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
 import { EvidenceProof } from './EvidenceProof';
+import { OutgoingFromPaper } from '../../components/outgoing/OutgoingStart';
 import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceDropZone';
 import { useStickyState } from '../../lib/useStickyState';
 import { AssignCell } from '../../components/AssignCell';
@@ -495,6 +496,7 @@ export function EvidenceRegister() {
                       Open proof
                     </Button>
                   ) : null}
+                  <OutgoingFromPaper projectId={project.id} row={e} />
                   <Select
                     value={e.status}
                     aria-label={`Status of ${e.title}`}

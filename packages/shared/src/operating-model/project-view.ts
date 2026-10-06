@@ -220,6 +220,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     capabilityRuns: [],
     // The review table is the firm's own reading across every paper on the file, a model's answers among it.
     reviewTable: undefined,
+    // What the firm is drafting to send is its own until it sends it.
+    outgoing: [],
     // The trail names everybody's actions across the whole project.
     audit: [],
     // So does the last instruction somebody gave the chat, and only staff can take it back.

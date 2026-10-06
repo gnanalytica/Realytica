@@ -55,6 +55,7 @@ import {
   type ReadingSession,
   type SourceFocus,
 } from '../../lib/reading';
+import { mustFitOneMessage, readyToSend } from '../../lib/site-capture';
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Spinner, cn, useToast } from '../../components/ui/kit';
@@ -287,6 +288,15 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    * whenever a document is opened for review.
    */
   const [reading, setReading] = useState<ReadingSession | null>(null);
+  /* Whether a voice note can be put into words here and where its sound goes: said beside the microphone before the first one is sent. */
+  const [voice, setVoice] = useState<{ available: boolean; model?: string; host?: string; maxBytes: number; maxRequestBytes: number } | undefined>();
+  useEffect(() => {
+    let live = true;
+    api.chatVoice(project.id).then((info) => live && setVoice(info), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [project.id]);
   const [deskOpen, setDeskOpen] = useState(false);
   const [deskPin, setDeskPin] = useState<string | null>(null);
   const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
@@ -603,8 +613,15 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
          * goes into the vault in parts first; the chat then reads what was
          * filed rather than carrying the bytes itself.
          */
-        const big = (files ?? []).filter((f) => f.size >= LARGE_FILE_BYTES);
-        const small = (files ?? []).filter((f) => f.size < LARGE_FILE_BYTES);
+        // A photograph too large for one request is made smaller first, and a recording's length is measured: see `site-capture`.
+        // Only where the server has said both sizes: one that has not been deployed yet says neither, and nothing is refused on a guess.
+        const limits = voice && Number.isFinite(voice.maxBytes) && Number.isFinite(voice.maxRequestBytes) ? { maxFileBytes: voice.maxBytes, maxRequestBytes: voice.maxRequestBytes } : undefined;
+        const ready = await readyToSend(files ?? [], limits ?? { maxFileBytes: LARGE_FILE_BYTES, maxRequestBytes: LARGE_FILE_BYTES });
+        // Said before anything is sent, and the files stay with the person: one message here has a size.
+        mustFitOneMessage(ready.files, limits, LARGE_FILE_BYTES);
+        const big = ready.files.filter((f) => f.size >= LARGE_FILE_BYTES);
+        const small = ready.files.filter((f) => f.size < LARGE_FILE_BYTES);
+        const captured = ready.files.flatMap((f, n) => (f.size < LARGE_FILE_BYTES ? [ready.captured[n] ?? {}] : []));
         for (const [n, file] of big.entries()) {
           setLiveLabel(`Filing ${file.name} in parts (${n + 1} of ${big.length})…`);
           await uploadLargeDocument(project.id, file, { onProgress: (share) => setLiveLabel(`Filing ${file.name}: ${Math.round(share * 100)}%`) });
@@ -613,7 +630,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         const ask = question.trim() || (big.length && !small.length ? 'Read the filed documents' : question);
         // `viewContext` stays for a server that reads only the pane; `place` says the department, the function and the stage.
         const response = small.length
-          ? await api.projectChatFiles(project.id, { question: ask, viewContext: pane, place: here, files: small, sitting, sessionId, continues, sessionStartedAt }, { onStep, onReading, signal: ac.signal })
+          ? await api.projectChatFiles(project.id, { question: ask, viewContext: pane, place: here, files: small, captured, sitting, sessionId, continues, sessionStartedAt }, { onStep, onReading, signal: ac.signal })
           : await api.projectChat(project.id, { question: ask, viewContext: pane, place: here, sitting, sessionId, continues, sessionStartedAt }, { onStep, onReading, signal: ac.signal });
         // The id these turns were kept under is the sitting's from here on, so what was just said stays on screen.
         setHeld((was) => sittingKept(was, response));
@@ -631,7 +648,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         }
       }
     },
-    [project.id, pane, here, params.ddId, params.scopeId, searchParams, applyResult, setProject, sessionId, continues, sessionStartedAt],
+    [project.id, pane, here, params.ddId, params.scopeId, searchParams, applyResult, setProject, sessionId, continues, sessionStartedAt, voice],
   );
 
   /**
@@ -889,6 +906,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       onCancel={asking ? () => abortRef.current?.abort() : undefined}
       disabled={false}
       allowAttach
+      voice={voice}
       onOpenCommands={() => setCommandOpen(true)}
       emptyTitle={next.title}
       emptyHint={next.why}

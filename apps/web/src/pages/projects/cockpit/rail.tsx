@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Scale,
   Search,
+  Send,
   Sparkles,
   Table2,
   Users,
@@ -115,6 +116,7 @@ export const SECTIONS: CockpitSection[] = [
     home: 'reports',
     tabs: [
       { pane: 'reports', label: 'Reports', icon: FileText },
+      { pane: 'outgoing', label: 'Outgoing', icon: Send },
       { pane: 'drafts', label: 'AI drafts', icon: Sparkles },
       { pane: 'orchestrate', label: 'Auto-run', icon: Workflow },
     ],

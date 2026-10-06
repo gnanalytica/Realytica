@@ -35,6 +35,9 @@ export const PROPOSAL_IDENTITY: ReadonlySet<string> = new Set([
   // model's reading could come back as one the rules made, and stand at once.
   'facts',
   'mimeType',
+  // On a site entry read from a voice note: which note it is, and the id that files it once. The lines are the person's to correct.
+  'note',
+  'clientId',
   // Whether a model read the file. This server's record of its own work.
   'modelRead',
   'proposalId',

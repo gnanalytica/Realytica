@@ -131,14 +131,18 @@ export function reviewTableOf(project: Pick<DdProject, 'reviewTable'>): ReviewTa
 
 type Paper = Pick<EvidenceRecord, 'id' | 'documentType' | 'proposedDocumentType'>;
 
+/** Whether a row is a paper on the file: it has a file on it, is not a photograph, which states nothing in words, and was not rejected or replaced. */
+export function isReviewPaper(row: Pick<EvidenceRecord, 'attachments' | 'kind' | 'status' | 'supersededById'>): boolean {
+  return row.attachments.length > 0 && row.kind !== 'photograph' && row.status !== 'rejected' && row.status !== 'superseded' && !row.supersededById;
+}
+
 /**
- * The papers on the file: a row with a file on it. Not a photograph, which
- * states nothing in words, and not a paper that was rejected or replaced.
- * By kind of paper and then by title, so a kind's papers sit together.
+ * The papers on the file (`isReviewPaper`), by kind of paper and then by
+ * title, so a kind's papers sit together.
  */
 export function reviewPapers(project: Pick<DdProject, 'evidence'>): EvidenceRecord[] {
   return project.evidence
-    .filter((row) => row.attachments.length > 0 && row.kind !== 'photograph' && row.status !== 'rejected' && row.status !== 'superseded' && !row.supersededById)
+    .filter(isReviewPaper)
     .sort((a, b) => Number(!a.documentType) - Number(!b.documentType) || (a.documentType ?? '').localeCompare(b.documentType ?? '') || a.title.localeCompare(b.title));
 }
 

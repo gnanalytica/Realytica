@@ -105,8 +105,12 @@ describe('whether words are the notes of a meeting', () => {
   it('says no to a message that mentions a meeting, and to a paper the rules read as one', () => {
     assert.equal(meetingNotesPasted('Can you draft the meeting notes for yesterday?\nThanks'), 'no');
     assert.equal(meetingNotesSeen('This deed of sale is made on the third day of October between the vendor and the purchaser.\nThe schedule property is described below.'), 'no');
-    const deed: ChatIngestFile = { fileName: 'deed.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'deed.pdf', excerpt: NOTES, read: { type: 'sale_deed' } as ChatIngestFile['read'] };
-    assert.equal(meetingNotesDropped(deed), 'no', 'a deed that recites a meeting is a deed');
+    const deed: ChatIngestFile = { fileName: 'deed.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'deed.pdf', excerpt: 'This deed of sale is made on 3 October 2026.\nIt was agreed that the vendor conveys the schedule property.\nDecision: none.', read: { type: 'sale_deed' } as ChatIngestFile['read'] };
+    assert.equal(meetingNotesDropped(deed), 'no', 'a deed that recites what was agreed is a deed');
+    // Notes about a property use a paper's words, and the rules may read them as that paper. Laid out as notes, they are asked about.
+    const typed: ChatIngestFile = { fileName: 'site-meeting-notes.txt', mimeType: 'text/plain', sizeBytes: 10, storageKey: 'notes.txt', excerpt: NOTES, read: { type: 'survey_sketch' } as ChatIngestFile['read'] };
+    assert.equal(meetingNotesDropped(typed), 'maybe', 'neither filed as a paper nor kept as a meeting until a person says');
+    assert.equal(meetingNotesDropped({ ...typed, read: undefined }), 'yes');
   });
 });
 
@@ -194,6 +198,20 @@ describe('notes given to the chat', () => {
     assert.equal(meetingsHeld(project).length, 1);
     assert.match(again.assistantTurn.text, /^These notes are already kept, as the meeting of 3 Oct 2026/);
     assert.equal(again.proposals.length, 0);
+  });
+
+  it('that say what an earlier meeting’s notes said rest on the card already waiting, and raise no second one', () => {
+    const project = plot();
+    paste(project);
+    const later = 'Meeting notes\nDate: 10 October 2026\nPresent: Asha Rao, Meera Nair\nAction: Collect the tax paid receipts\nDecision: Fence the plot.';
+    const before = project.chatProposals.length;
+    const second = paste(project, later);
+    assert.equal(project.chatProposals.length, before + 1, 'one new card, for the one new thing');
+    assert.deepEqual(second.proposals.map((card) => card.title).sort(), ['Action: Collect the tax paid receipts', 'Decision: Fence the plot.'], 'and the reply points at the one that was already waiting too');
+    const [newer, older] = meetingsHeld(project);
+    const same = (meeting: MeetingRecord) => meeting.items.find((item) => item.text === 'Collect the tax paid receipts')!;
+    assert.equal(same(newer!).proposalId, same(older!).proposalId, 'the same card, which is still waiting');
+    assert.match(second.assistantTurn.text, /1 decision, 1 action, 2 still waiting to be accepted/);
   });
 
   it('dropped as a file are kept as a meeting and not filed as a paper', () => {

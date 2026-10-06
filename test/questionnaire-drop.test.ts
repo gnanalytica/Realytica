@@ -100,6 +100,9 @@ after(async () => {
   server?.close();
   const { releaseOcr } = await import('../apps/api/src/documents/read-text');
   await releaseOcr();
+  // A drop is still the request's work after its reply: let that end before its directory goes.
+  const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
+  await afterReplyWorkDone();
   rmSync(dataDir, { recursive: true, force: true });
 });
 

@@ -345,7 +345,7 @@ reviewTableRouter.post('/runs', async (req, res) => {
 });
 
 /** One paper's answers, by question column: from a model, or from a search of its pages where none is set up. */
-async function answersFor(
+export async function answersFor(
   project: DdProject,
   how: 'model' | 'search',
   evidenceId: string,
@@ -378,20 +378,26 @@ async function answersFor(
     questions: questions.map((question) => ({ id: question.id, question: question.question })),
   });
   if (!read.ok) return { failed: read.message };
-  const said = new Map(read.answers.map((answer) => [answer.id, answer]));
-  return each((question) => {
-    const answer = said.get(question.id);
-    if (!answer?.stated || !answer.answer) return { ...base, none: 'not_stated', model: read.model };
-    return {
-      ...base,
-      answer: answer.answer,
-      ...(answer.page ? { page: answer.page } : {}),
-      ...(answer.quote ? { quote: answer.quote } : {}),
-      proof: answer.proof ?? 'unverified',
-      ...(answer.scanned ? { scanned: true as const } : {}),
-      model: read.model,
-    };
-  });
+  // A question the model gave no usable word on gets no cell: it stays unasked, and the next run asks it again.
+  if (questions.length && !read.answers.length) return { failed: 'The model returned an answer this app could not use.' };
+  return {
+    answers: Object.fromEntries(
+      read.answers.map((answer): [string, ReviewAnswer] => [
+        answer.id,
+        answer.stated && answer.answer
+          ? {
+              ...base,
+              answer: answer.answer,
+              ...(answer.page ? { page: answer.page } : {}),
+              ...(answer.quote ? { quote: answer.quote } : {}),
+              proof: answer.proof ?? 'unverified',
+              ...(answer.scanned ? { scanned: true as const } : {}),
+              model: read.model,
+            }
+          : { ...base, none: 'not_stated', model: read.model },
+      ]),
+    ),
+  };
 }
 
 reviewTableRouter.post('/runs/:runId/papers/:evidenceId', async (req, res) => {

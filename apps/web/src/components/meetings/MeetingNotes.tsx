@@ -5,6 +5,7 @@ import { NotebookText } from 'lucide-react';
 import { meetingCalled, meetingDay, meetingOfRecord, type DdProject, type MeetingShown } from '@realytica/shared';
 import { request } from '../../lib/api';
 import { Modal, Spinner, cn } from '../ui/kit';
+import { OutgoingStart } from '../outgoing/OutgoingStart';
 
 /**
  * A meeting's notes, opened from wherever something points at them: a line
@@ -145,6 +146,7 @@ function MeetingNotesDialog({ projectId, meetingId, itemId, onClose }: { project
             {meeting.attendees.length ? ` · present: ${meeting.attendees.join(', ')}` : ''}
             {` · notes ${meeting.came}, kept ${meetingDay(meeting.keptAt)} by ${meeting.keptBy}`}
           </p>
+          <OutgoingStart className="-ml-2.5 self-start" projectId={projectId} about={{ kind: 'meeting', id: meetingId }} onStarted={onClose} />
 
           {meeting.items.length ? (
             <ul className="flex flex-col gap-1">

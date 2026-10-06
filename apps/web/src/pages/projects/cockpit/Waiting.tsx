@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SiteEntryLines } from '../../../components/chat/SiteEntryLines';
 import { ArrowRight, ChevronRight, FileText, Undo2, X } from 'lucide-react';
 import {
   proposalChanges,
@@ -129,7 +130,9 @@ function WaitingCard({
           ))}
         </dl>
       ) : null}
-      {open ? (
+      {open && item.kind === 'log_site_entry' ? (
+        <SiteEntryLines projectId={project.id} proposalId={item.id} payload={item.payload} />
+      ) : open ? (
         <div className="ml-4 space-y-1">
           <p className="text-[12px] leading-relaxed text-ink-secondary">{item.rationale}</p>
           <p className="text-[11px] text-ink-muted">{item.impact}</p>

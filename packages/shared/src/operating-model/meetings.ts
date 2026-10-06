@@ -178,12 +178,21 @@ export function meetingNotesSeen(text: string, fileName = ''): 'yes' | 'maybe' |
 
 /**
  * Whether a file dropped into the chat is the notes of a meeting. Never one
- * the rules read as a paper, and never one no words were read from: a deed
- * that recites a meeting is a deed.
+ * no words were read from.
+ *
+ * The rules that read papers go by the words a paper uses, and notes of a
+ * meeting about a property use the same words: they talk of the survey
+ * sketch and the encumbrance certificate. So a file the rules read as a
+ * paper is still asked about when it is laid out as notes, with a heading,
+ * who was there and what was decided. Two readings disagree there, and a
+ * person says which it is: notes are not filed as a paper, and a paper that
+ * recites a meeting is not kept as one, without anybody having said so.
  */
 export function meetingNotesDropped(file: ChatIngestFile): 'yes' | 'maybe' | 'no' {
-  if (!file.excerpt?.trim() || (file.read && file.read.type !== 'other')) return 'no';
-  return meetingNotesSeen(file.excerpt, file.fileName);
+  if (!file.excerpt?.trim()) return 'no';
+  const seen = meetingNotesSeen(file.excerpt, file.fileName);
+  if (file.read && file.read.type !== 'other') return seen === 'yes' ? 'maybe' : 'no';
+  return seen;
 }
 
 /**
@@ -747,7 +756,7 @@ export function meetingQuestion(meeting: MeetingRecord): { text: string; choices
 /** What a sentence answers the chat's question with, or nothing when it is no answer to it. */
 export function meetingAnswerSaid(question: string): 'notes' | 'paper' | 'neither' | undefined {
   const said = question.trim().replace(/[.!\s]+$/, '').toLowerCase();
-  if (said === MEETING_IS_NOTES.toLowerCase() || /^(?:yes[, ]+)?(?:these|they|those|it) (?:are|is) (?:the )?(?:notes|minutes) of (?:a|the) meeting$/.test(said) || /^(?:keep (?:them|it|these) as )?(?:meeting notes|minutes)$/.test(said)) return 'notes';
+  if (said === MEETING_IS_NOTES.toLowerCase() || /^(?:yes[, ]+)?(?:these|they|those|it) (?:are|is) (?:the )?(?:notes|minutes) of (?:a|the) meeting$/.test(said) || /^(?:keep (?:them|it|these) as )?(?:meeting notes|minutes)$/.test(said) || /^keep (?:the |these |those )?(?:notes|minutes)(?: as (?:a |the )?meeting)?$/.test(said)) return 'notes';
   if (said === MEETING_IS_PAPER.toLowerCase() || /^(?:no[, ]+)?(?:it is|it's|file it as) a (?:document|paper)(?: for the file)?$/.test(said)) return 'paper';
   if (said === MEETING_IS_NEITHER.toLowerCase() || /^(?:no[, ]+)?(?:they|these|those) are not (?:the )?(?:notes|minutes) of a meeting$/.test(said)) return 'neither';
   return undefined;

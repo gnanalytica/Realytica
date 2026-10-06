@@ -2703,6 +2703,12 @@ export interface ChoicePin {
   proposalIds?: string[];
   /** The papers whose waiting values it accepts with them. */
   evidenceIds?: string[];
+  /**
+   * On a choice under a plan: the plan it acts on, by its id, and what it
+   * does to it. As with `decision`, the sentence beside it is not read: a
+   * button pressed under an old plan acts on that plan and on no other.
+   */
+  plan?: { id: string; act: 'run' | 'cancel' | 'stop' | 'carry_on' | 'take_out'; step?: number };
 }
 
 export interface CopilotTurn {
@@ -2744,6 +2750,8 @@ export interface CopilotTurn {
   spend?: TurnSpend;
   /** Why the question was not answered, when the text below is a fallback. See `ProjectChatTurn`. */
   unanswered?: string;
+  /** The plan this turn shows or reports on, by its id in the run ledger. See `ProjectChatTurn`. */
+  planId?: string;
 }
 
 /* ------------------------------------------------------------------ */
