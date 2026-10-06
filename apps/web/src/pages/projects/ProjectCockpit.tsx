@@ -289,7 +289,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    */
   const [reading, setReading] = useState<ReadingSession | null>(null);
   /* Whether a voice note can be put into words here and where its sound goes: said beside the microphone before the first one is sent. */
-  const [voice, setVoice] = useState<{ available: boolean; model?: string; host?: string; maxBytes: number; maxRequestBytes: number } | undefined>();
+  const [voice, setVoice] = useState<{ available: boolean; model?: string; host?: string; reads?: boolean; maxBytes: number; maxRequestBytes: number } | undefined>();
   useEffect(() => {
     let live = true;
     api.chatVoice(project.id).then((info) => live && setVoice(info), () => undefined);

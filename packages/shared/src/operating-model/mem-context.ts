@@ -37,7 +37,7 @@ import { RULES_FACT_KEYS, STANDARD_FACT_KEYS } from './document-parse';
 import { allChecks } from './engagements';
 import { memPointer, type MemPlace } from './mem-delta';
 import { MEM_FIELD_KEYS, type MemFact, type MemFactTag } from './mem-facts';
-import { meetingCalled, meetingsHeld } from './meetings';
+import { meetingCalled, meetingDay, meetingsHeld } from './meetings';
 import { parcelLabels, revenueReads } from './revenue-map';
 import { rankTalkSittings } from './sitting';
 import type { DdProject } from './types';
@@ -273,6 +273,9 @@ export function memTitles(project: DdProject): Map<string, string> {
   for (const questionnaire of project.questionnaires ?? []) for (const question of questionnaire.questions) name(question.id, question.text.slice(0, 80));
   for (const action of project.actions) name(action.id, action.title);
   for (const meeting of meetingsHeld(project)) name(meeting.id, meetingCalled(meeting));
+  for (const entry of project.siteLog ?? []) name(entry.id, `the site entry of ${meetingDay(entry.date)}`);
+  for (const draft of project.outgoing ?? []) name(draft.id, draft.subject);
+  for (const questionnaire of project.questionnaires ?? []) name(questionnaire.id, questionnaire.title);
   for (const card of project.chatProposals ?? []) name(card.id, card.title);
   for (const [parcelRef, label] of parcelLabels(revenueReads(project))) name(parcelRef, `Sy. ${label}`);
   for (const { id, label } of chatLinkLabels(project)) name(id, label);
@@ -312,7 +315,12 @@ function lineOf(fact: MemFact, titles: ReadonlyMap<string, string>, past: boolea
     `source: ${source}${fact.page ? `, p.${fact.page}` : ''}`,
     ...(fact.tag === 'proposed' && fact.readBy ? [READ_BY[fact.readBy]!] : []),
     ...(fact.contests ? ['another reader reads it differently'] : []),
-    ...(fact.validFrom || fact.validTo ? [`holds ${fact.validFrom ?? 'from a day not stated'} to ${fact.validTo ?? 'a day not stated'}`] : []),
+    // What holds for one day says the day once.
+    ...(fact.validFrom && fact.validFrom === fact.validTo
+      ? [`holds for ${fact.validFrom}`]
+      : fact.validFrom || fact.validTo
+        ? [`holds ${fact.validFrom ?? 'from a day not stated'} to ${fact.validTo ?? 'a day not stated'}`]
+        : []),
     (fact.at ?? fact.recordedAt).slice(0, 10),
     ...(past && fact.was?.length ? [`before: ${fact.was.map((was) => `${was.what.replace('_', ' ')} ${was.at.slice(0, 10)}${was.said ? ` (${was.said})` : ''}`).join('; ')}`] : []),
   ];

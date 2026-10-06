@@ -55,8 +55,15 @@ import type { AuditEvent, DdProject, ProjectChatTurn } from './types';
  * what states it.
  * 5: an action closed and a decision settled are told, which is what a
  * status report reads to say what was done in a period.
+ * 6: what the newer parts of the product do is told. A voice note kept and
+ * a site entry logged. A run of the review table started and stopped, and a
+ * paper marked reviewed or unmarked. A draft to go out made, approved,
+ * reopened, exported and removed. A questionnaire taken in, and its answers
+ * suggested, given and confirmed. With them the facts a person stood
+ * behind: a site entry, a draft approved for sending, a paper reviewed, and
+ * the paper behind an answer.
  */
-export const MEM_SCHEMA = 5;
+export const MEM_SCHEMA = 6;
 
 /**
  * How many audit events and chat turns one delta tells. A record that holds
@@ -95,6 +102,21 @@ export const MEM_ENTRY_KINDS = [
   'map_read_removed',
   'undone',
   'edit_noted',
+  'voice_note_kept',
+  'site_entry_logged',
+  'review_run_started',
+  'review_run_stopped',
+  'paper_reviewed',
+  'paper_review_unmarked',
+  'outgoing_drafted',
+  'outgoing_approved',
+  'outgoing_reopened',
+  'outgoing_exported',
+  'outgoing_removed',
+  'questionnaire_added',
+  'answers_suggested',
+  'answers_confirmed',
+  'question_answered',
 ] as const;
 
 export type MemEntryKind = (typeof MEM_ENTRY_KINDS)[number];
@@ -362,6 +384,25 @@ const SETTLED = new Set(['approved', 'rejected', 'conditional', 'implemented']);
 /** How the audit trail writes a map read kept or removed: `revenueMap`, then the parcel if it names one. */
 const MAP_READ = /^revenueMap(?: (\S+))?$/;
 
+/** What the trail calls each thing done to a draft that is to go out, and the entry it is told as. The trail's own names are kept. */
+const OUTGOING_EVENTS: Record<string, MemEntryKind> = {
+  outgoing_drafted: 'outgoing_drafted',
+  outgoing_approved: 'outgoing_approved',
+  outgoing_reopened: 'outgoing_reopened',
+  outgoing_exported: 'outgoing_exported',
+  outgoing_removed: 'outgoing_removed',
+};
+
+/** The same for a questionnaire: taken in, answers suggested from the file, and suggestions confirmed by a person. Each is about the questionnaire. */
+const QUESTIONNAIRE_EVENTS: Record<string, MemEntryKind> = {
+  questionnaire_added: 'questionnaire_added',
+  answers_suggested: 'answers_suggested',
+  answers_confirmed: 'answers_confirmed',
+};
+
+/** What the trail writes in place of an answer when a person cleared one. The product's own word, and no answer. */
+const ANSWER_CLEARED = '(cleared)';
+
 /** The entries one audit event tells: usually one, none for an event memory is not told of. */
 function entriesOfEvent(project: DdProject, event: AuditEvent): MemEntry[] {
   const tell = (kind: MemEntryKind, about: string[], key?: string): MemEntry => ({
@@ -383,6 +424,9 @@ function entriesOfEvent(project: DdProject, event: AuditEvent): MemEntry[] {
     if (event.action === 'reopen_fact') return [tell('value_reopened', paper, key())];
     // A reading the record wrote down as one: each is told, the first and every one after.
     if (event.action === 'read') return [tell('paper_read', paper)];
+    // A person marked the paper's row reviewed on the review table, or took the mark off.
+    if (event.action === 'review_row_reviewed') return [tell('paper_reviewed', paper)];
+    if (event.action === 'review_row_unmarked') return [tell('paper_review_unmarked', paper)];
     if (event.action !== 'create' && event.action !== 'upload') return [];
     const filed = tell(event.action === 'create' ? 'paper_filed' : 'file_added', paper);
     /*
@@ -425,6 +469,33 @@ function entriesOfEvent(project: DdProject, event: AuditEvent): MemEntry[] {
   }
   // What a message changed was put back. The events it wrote stay in the trail, and so in memory: this says they no longer stand, and on which records.
   if (event.entityType === 'project' && event.action === 'undo') return [tell('undone', event.about ?? [])];
+  /*
+   * A voice note kept. It is pointed at by the key its file is stored under,
+   * which is an id the store mints and holds none of the file's name. What
+   * became of it is the record's to say: a site entry waiting on a card, and
+   * then one on the site log. Its words are never here.
+   */
+  if (event.entityType === 'voice_note' && event.action === 'voice_note') return [tell('voice_note_kept', [event.entityId])];
+  // An entry on the site log: typed on site, or proposed from a voice note and accepted by a person. What it holds is told as facts.
+  if (event.entityType === 'site_log' && event.action === 'site_log') return [tell('site_entry_logged', [event.entityId])];
+  // A run of the review table's questions, by its own id. Its answers are a model's or a search's and are told as nothing: they are not values of the record.
+  if (event.entityType === 'review_table') {
+    if (event.action === 'review_run') return [tell('review_run_started', [event.entityId])];
+    if (event.action === 'review_run_stopped') return [tell('review_run_stopped', [event.entityId])];
+    return [];
+  }
+  // A draft that is to go out. Who it is to and what it says are the record's, and are not kept here.
+  if (event.entityType === 'outgoing') {
+    const kind = OUTGOING_EVENTS[event.action];
+    return kind ? [tell(kind, [event.entityId])] : [];
+  }
+  if (event.entityType === 'questionnaire') {
+    const kind = QUESTIONNAIRE_EVENTS[event.action];
+    if (kind) return [tell(kind, [event.entityId])];
+    // A person's own answer to one question, by the question's id. One cleared is no answer given: the fact it was goes, and nothing is told.
+    if (event.action === 'question_answered' && event.newValue !== ANSWER_CLEARED) return [tell('question_answered', [event.entityId])];
+    return [];
+  }
   return [];
 }
 

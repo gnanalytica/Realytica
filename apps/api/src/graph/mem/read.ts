@@ -24,6 +24,7 @@ import {
   buildProjectGraph,
   chatLinkLabels,
   meetingCalled,
+  meetingDay,
   meetingsHeld,
   memLint,
   memPeople,
@@ -86,6 +87,17 @@ function titlesOf(project: DdProject): Map<string, string> {
   for (const comparable of project.comparables ?? []) unnamed(comparable.id, comparable.title);
   for (const questionnaire of project.questionnaires ?? []) for (const question of questionnaire.questions) unnamed(question.id, question.text.slice(0, 120));
   for (const meeting of meetingsHeld(project)) unnamed(meeting.id, meetingCalled(meeting));
+  // What the newer entries and facts point at: a day on the site log, a draft that goes out, a questionnaire.
+  for (const entry of project.siteLog ?? []) {
+    unnamed(entry.id, `Site entry of ${meetingDay(entry.date)}`);
+    // A voice note is pointed at by the key its file is stored under. It is named by what became of it.
+    if (entry.voiceNote?.storageKey) unnamed(entry.voiceNote.storageKey, `Voice note behind the site entry of ${meetingDay(entry.date)}`);
+  }
+  for (const card of project.chatProposals ?? []) {
+    if (card.kind === 'log_site_entry' && typeof card.payload.storageKey === 'string') unnamed(card.payload.storageKey, 'Voice note, its site entry on a card');
+  }
+  for (const draft of project.outgoing ?? []) unnamed(draft.id, draft.subject);
+  for (const questionnaire of project.questionnaires ?? []) unnamed(questionnaire.id, questionnaire.title);
   return titles;
 }
 

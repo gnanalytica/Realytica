@@ -14,7 +14,9 @@ import {
   MEM_SCHEMA,
   addDecision,
   addEvidence,
+  addQuestionnaire,
   allChecks,
+  answerQuestion,
   checkSchema,
   createAssessment,
   createProject,
@@ -109,6 +111,23 @@ describe('a reading of memory for what looks wrong', () => {
     const line = memLintLine(findings);
     assert.match(line, new RegExp(`^In this project’s memory, ${findings.length} things look wrong: 1 pair of approved values that differ, `));
     assert.ok(line.endsWith(`The first: ${findings[0]!.says}`), 'the chat’s one line counts each kind and says the first');
+  });
+
+  it('holds two values against each other only where they are of one thing: two answers drawn from one paper are two things', () => {
+    const { project, khata } = plot();
+    // Two questions answered by a person from the same paper, and two decisions of different kinds.
+    const sheet = addQuestionnaire(project, { title: 'Lender’s questions', parsed: { header: [], questions: [{ text: 'What is the extent?' }, { text: 'What is the khata number?' }] } }, LEAD);
+    sheet.questions.forEach((question, n) => answerQuestion(project, sheet.id, question.id, { answer: n ? '1234/56' : '11,850 sq ft', proof: [{ evidenceId: khata.id, page: 1 }] }, VALUER));
+    addDecision(project, { title: 'Hold the advance', decisionType: 'hold_payment', decisionMaker: 'Lead', rationale: 'Waiting on a paper.' }, LEAD);
+    addDecision(project, { title: 'Go on with the survey', decisionType: 'proceed', decisionMaker: 'Lead', rationale: 'Nothing stops it.' }, LEAD);
+    const told = toldOf(project);
+    const answers = told.held.filter((fact) => fact.key === 'answer');
+    assert.deepEqual(answers.map((fact) => [fact.tag, fact.source]), [['approved', khata.id], ['approved', khata.id]], 'both name the paper behind them');
+    assert.deepEqual(memLint(project, told, NOW), [], 'and neither they nor the two decisions are held against each other');
+    // The same paper stating one kind of value two ways is still found.
+    const extent = told.held.find((fact) => fact.id.endsWith(`${khata.id}::extent_khata::a`))!;
+    const twice = memLint(project, { held: [...told.held, { ...extent, id: `${extent.id}~1`, aboutId: 'chk_elsewhere', value: 900 }], stands: told.stands }, NOW);
+    assert.deepEqual(twice.filter((finding) => finding.kind === 'approved_disagree').map((finding) => finding.factIds), [[extent.id, `${extent.id}~1`]]);
   });
 
   it('is asked for by a question about what looks wrong in memory, and by no other', () => {

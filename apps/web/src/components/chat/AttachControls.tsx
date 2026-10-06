@@ -8,13 +8,15 @@ export interface VoiceInfo {
   available: boolean;
   model?: string;
   host?: string;
+  /** Whether a reading model is then given the note's words. Taken as yes where the server does not say. */
+  reads?: boolean;
 }
 
 /** What a voice note is sent to, said before the first one goes. */
 export function voiceNotice(voice: VoiceInfo | undefined): string {
   if (!voice) return '';
   return voice.available
-    ? `A voice note is kept on this project and sent to ${voice.model} at ${voice.host} to be put into words. The sound goes nowhere else. Its words are then read by this project’s reading model, to sort them into the entry.`
+    ? `A voice note is kept on this project and sent to ${voice.model} at ${voice.host} to be put into words. The sound goes nowhere else.${voice.reads === false ? '' : ' Its words are then read by this project’s reading model, to sort them into the entry.'}`
     : 'A voice note is kept on this project. No transcriber is set up here, so it is not put into words and is sent nowhere.';
 }
 

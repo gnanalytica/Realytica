@@ -2321,9 +2321,19 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   /** The baseline for the reply's receipt: the file as it stood before this drop put anything on it. */
   const asItStood = structuredClone(canvas);
   const notes = fresh.filter(({ storageKey }) => !lost.has(storageKey)).map(({ row }) => notReadYetCard(row, actor));
+  /** Whether a file is on a row of the project itself. A row an outside collaborator's paper made is on their copy alone, and goes with the request. */
+  const onTheRecord = (storageKey: string): boolean => project.evidence.some((e) => e.attachments.some((a) => a.storageKey === storageKey));
+  /**
+   * A file that has landed is no longer waiting to be filed, unread: its note
+   * goes. Not from the project itself where an outside collaborator's paper
+   * landed on a row of their copy alone. That paper would be on no row and
+   * no card once the request ended, so its note stays where the firm sees it
+   * and can file or read the paper.
+   */
   const dropNotes = (storageKeys: readonly string[]): void => {
     for (const held of new Set([project, canvas])) {
-      held.chatProposals = (held.chatProposals ?? []).filter((card) => !(isNotReadYetCard(card) && storageKeys.includes(String(card.payload.storageKey))));
+      const gone = held === canvas ? storageKeys : storageKeys.filter(onTheRecord);
+      held.chatProposals = (held.chatProposals ?? []).filter((card) => !(isNotReadYetCard(card) && gone.includes(String(card.payload.storageKey))));
     }
   };
   if (notes.length) {
@@ -2363,11 +2373,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     landing = mine;
     return mine;
   };
-  /** A photograph's reading that goes on after the reply: the suggestion it leaves arrives when it arrives. */
-  const late: Array<Promise<void>> = [];
-  /** Settled once the reply has been written and saved, so that what arrives late is written after it and never through it. */
-  let replied!: () => void;
-  const afterReply = new Promise<void>((done) => (replied = done));
+  /** The photographs of the site this drop filed, read once the reply has gone: what each shows arrives when it arrives. */
+  const toRead: Array<{ fileName: string; on: EvidenceRecord; bytes: Buffer }> = [];
 
   const tookAs = (row: ChatIngestFile, as: 'voice' | 'photo', said: string): void => {
     reading({ type: 'reading', event: 'taken', key: row.storageKey, as, said: said.replace(/\.$/, '') });
@@ -2425,31 +2432,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       reading({ type: 'reading', event: 'filed', key: row.storageKey, row: on });
       tookAs(row, 'photo', said);
     });
-    if (!filed) return 'taken';
-    const on = filed;
-    /*
-     * What the photograph shows is read without the reply waiting for it. The
-     * reader has a time limit of its own, and its suggestion is written once
-     * the reply is saved: a drop of photographs used to have no reply, and no
-     * cards, for as long as a reader took to answer.
-     */
-    late.push(
-      (async () => {
-        try {
-          const write = await readSitePhoto({ project: canvas, row: on, bytes: file.buffer, actor });
-          if (!write) return;
-          await afterReply;
-          await link(row.fileName, async () => {
-            await store.syncProject(project.id, { force: true });
-            write();
-            project.updatedAt = new Date().toISOString();
-            await store.save();
-          });
-        } catch (err) {
-          console.warn(`[reading] the photograph ${row.fileName} was filed and not read: ${(err as Error).message}`);
-        }
-      })(),
-    );
+    // What it shows is read after the reply, never before it (the end of `readAndFile`).
+    if (filed) toRead.push({ fileName: row.fileName, on: filed, bytes: file.buffer });
     return 'taken';
   };
 
@@ -2499,16 +2483,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       await keepPageTexts(project.id, [paper]);
       await store.syncProject(project.id, { force: true });
       const evidenceId = landIngestFile(canvas, paper, actor, sitting);
-      /*
-       * On its row now: no longer a file waiting to be filed, unread. Not for
-       * an outside collaborator's paper. The row it lands on is on their copy
-       * of the project, which is thrown away with the request, so on the
-       * project itself the paper is still on no row: its note stays there,
-       * where the firm sees it and can file or read it.
-       */
-      for (const held of canvas === project ? [project] : [canvas]) {
-        held.chatProposals = (held.chatProposals ?? []).filter((card) => !(isNotReadYetCard(card) && card.payload.storageKey === paper.storageKey));
-      }
+      // On its row now: no longer a file waiting to be filed, unread (`dropNotes` says where the note stays).
+      dropNotes([paper.storageKey]);
       // How much of the file was read goes with the file, onto its row.
       keepReadings(canvas, [paper]);
       if (canvas !== project) keepReadings(project, [paper]);
@@ -2681,11 +2657,9 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   await store.syncProject(project.id, { force: true });
   turnsBefore = project.conversation.length;
   // Every paper read is filed by this turn or was filed as it landed: none is left waiting as a file unread. On the project
-  // itself an outside collaborator's papers are on no row, and their notes stay (see `land`).
-  for (const held of canvas === project ? [project] : [canvas]) {
-    held.chatProposals = (held.chatProposals ?? []).filter((card) => !(isNotReadYetCard(card) && enriched.some((paper) => paper.storageKey === card.payload.storageKey)));
-  }
-  const waitsForTheFirm = canvas === project ? 0 : enriched.length;
+  // itself an outside collaborator's paper that made a row of its own is on none, and its note stays (`dropNotes`).
+  dropNotes(enriched.map((paper) => paper.storageKey));
+  const waitsForTheFirm = canvas === project ? [] : enriched.filter((paper) => !onTheRecord(paper.storageKey)).map((paper) => paper.fileName);
   // The rows this drop added sit on the register in the order dropped, whichever paper was read first.
   const added = [...new Set(landedOn.filter((id): id is string => id !== undefined && !before.has(id)))];
   const slots = canvas.evidence.flatMap((e, at) => (added.includes(e.id) ? [at] : []));
@@ -2709,7 +2683,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     ...(smaller.length
       ? [`${smaller.length === 1 ? 'One picture was' : `${smaller.length} pictures were`} made smaller before ${smaller.length === 1 ? 'it was' : 'they were'} sent, to ${Math.min(...smaller).toLocaleString('en-IN')} pixels on the long side. The smaller ${smaller.length === 1 ? 'copy is' : 'copies are'} what is kept here.`]
       : []),
-    ...(waitsForTheFirm ? [`${waitsForTheFirm === 1 ? 'It is' : 'They are'} kept, and ${waitsForTheFirm === 1 ? 'waits' : 'wait'} for the firm to put on the register.`] : []),
+    ...(waitsForTheFirm.length ? [`Kept for the firm to put on the register: ${waitsForTheFirm.join(', ')}.`] : []),
     ...refused,
     ...unsure.sort((a, b) => a.index - b.index).map(({ fileName, between }) => unsureSaid(fileName, between)),
   ];
@@ -2807,11 +2781,30 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     });
     line({ type: 'error', error: `The reply could not be written. ${became.join('. ')}. Say “Read the filed documents” for anything not yet on the file.` });
     if (!res.writableEnded) res.end();
-  } finally {
-    replied();
   }
-  // What a photograph shows may still be being read: its suggestion is written when it comes, after the reply.
-  await Promise.allSettled(late);
+  /*
+   * What each photograph shows is read now, after the reply, three at a time
+   * as papers are. A drop of photographs used to have no reply, and no cards,
+   * for as long as a reader took to answer. The reader has a time limit of
+   * its own (`PHOTO_READ_LIMIT_MS`), and what it says is kept on the
+   * photograph as its suggestion when it comes. None is started once the
+   * turn's time is spent: that photograph stays on the file, unread.
+   */
+  await together(toRead, PAPERS_AT_ONCE, async ({ fileName, on, bytes }) => {
+    if (Date.now() > started + MODEL_READ_STOP_MS) return;
+    try {
+      const write = await readSitePhoto({ project: canvas, row: on, bytes, actor });
+      if (!write) return;
+      await link(fileName, async () => {
+        await store.syncProject(project.id, { force: true });
+        write();
+        project.updatedAt = new Date().toISOString();
+        await store.save();
+      });
+    } catch (err) {
+      console.warn(`[reading] the photograph ${fileName} was filed and not read: ${(err as Error).message}`);
+    }
+  });
 }
 
 projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), async (req, res) => {
@@ -2852,7 +2845,8 @@ projectsRouter.get('/:projectId/chat/voice', (req, res) => {
     return;
   }
   const { available, model, host } = transcriptionCapability();
-  res.json({ available, ...(available ? { model, host } : {}), maxBytes: UPLOAD_LIMITS.maxFileBytes, maxRequestBytes: UPLOAD_LIMITS.maxRequestBytes });
+  // `reads`: whether a reading model is then given the note's words (`takeVoiceNote`), so the notice can say so and only then.
+  res.json({ available, ...(available ? { model, host, reads: agentCapability().available } : {}), maxBytes: UPLOAD_LIMITS.maxFileBytes, maxRequestBytes: UPLOAD_LIMITS.maxRequestBytes });
 });
 
 /**

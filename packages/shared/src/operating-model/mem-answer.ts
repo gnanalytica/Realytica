@@ -57,6 +57,10 @@ export function memPeople(project: DdProject): Map<string, string> {
     ...project.evidence.flatMap((row) => acceptedFacts(row).map((fact) => fact.decidedBy)),
     ...(project.comparables ?? []).flatMap((comparable) => [comparable.addedBy, comparable.decidedBy]),
     ...(project.questionnaires ?? []).flatMap((questionnaire) => questionnaire.questions.map((question) => question.answeredBy)),
+    // So is who made a site entry, who approved a draft for sending, and who marked a paper reviewed.
+    ...(project.siteLog ?? []).map((entry) => entry.author),
+    ...(project.outgoing ?? []).map((draft) => draft.approvedBy),
+    ...Object.values(project.reviewTable?.reviewed ?? {}).map((mark) => mark.by),
   ];
   for (const actor of named) if (actor) people.set(memWho(project.id, actor), actor);
   return people;
@@ -164,7 +168,12 @@ function lineOf(fact: MemFact, names: Names, past = false): Line {
       source ? `“${source}”${fact.page ? `, p.${fact.page}` : ''}` : undefined,
       about ? `on “${about}”` : undefined,
       fact.contests ? 'another reader reads it differently' : undefined,
-      fact.validFrom || fact.validTo ? `holds ${fact.validFrom ? dayOf(fact.validFrom) : 'from a day not stated'} to ${fact.validTo ? dayOf(fact.validTo) : 'a day not stated'}` : undefined,
+      // What holds for one day says the day once.
+      fact.validFrom && fact.validFrom === fact.validTo
+        ? `holds for ${dayOf(fact.validFrom)}`
+        : fact.validFrom || fact.validTo
+          ? `holds ${fact.validFrom ? dayOf(fact.validFrom) : 'from a day not stated'} to ${fact.validTo ? dayOf(fact.validTo) : 'a day not stated'}`
+          : undefined,
       past && fact.was?.length
         ? `before: ${fact.was.map((was) => `${WHAT_HAPPENED[was.what] ?? was.what} ${dayOf(was.at)}${was.said ? ` (${was.said})` : ''}`).join('; ')}`
         : undefined,

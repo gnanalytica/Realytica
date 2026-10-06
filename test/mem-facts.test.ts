@@ -33,26 +33,44 @@ import {
   addDecision,
   addEvidence,
   addFinding,
+  addQuestionnaire,
+  addReviewColumns,
   allChecks,
+  answerQuestion,
   applyProjectChat,
+  approveOutgoing,
+  attachEvidenceFile,
   changeStage,
   checkSchema,
   clearProjectConversation,
+  confirmSuggestions,
   createAssessment,
   createProject,
   decideComparables,
+  editOutgoing,
+  keepReviewAnswers,
+  logSiteEntry,
   memFactRev,
   memFactsDiff,
   memFactsRev,
   memWho,
   memoryFacts,
+  noteOutgoingExported,
   noteProjectEdit,
+  outgoingSeen,
   patchProject,
   recordAuditEvent,
   recordCheckFields,
+  removeOutgoing,
+  reopenOutgoing,
   reviewFacts,
   scrubMemFact,
+  setRowReviewed,
   standingFacts,
+  startOutgoing,
+  startReviewRun,
+  stopReviewRun,
+  suggestAnswers,
   type ChatProposal,
   type DdProject,
   type DocumentFact,
@@ -151,21 +169,27 @@ describe('a record told step by step, and the same record told once', () => {
     consideration: [12_500_000, 31_850],
   };
 
-  /** Everything a person or a reader can do to a record that memory is told of, each done through the operation that really does it. */
-  function act(project: DdProject, roll: (below: number) => number, step: number): void {
+  /**
+   * Everything a person or a reader can do to a record that memory is told
+   * of, each done through the operation that really does it. `pick` chooses
+   * which, for a sequence that leans on some of them; left out, any of them.
+   */
+  function act(project: DdProject, roll: (below: number) => number, step: number, pick?: () => number): void {
     const rows = project.evidence.filter((row) => (row.facts ?? []).length > 0);
     const row = rows.length ? rows[roll(rows.length)]! : undefined;
     const carried = CARRIED[row?.documentType ?? KHATA]!;
     const key = carried[roll(carried.length)]!;
     const actor = roll(2) ? LEAD : VALUER;
-    switch (roll(16)) {
+    switch (pick ? pick() : roll(22)) {
       case 0:
       case 1: {
         // A paper is filed with what was read off it, some of it by a model, some of it read two ways.
         const kind = roll(2) ? KHATA : DEED;
         const facts = CARRIED[kind]!.filter(() => roll(3) !== 0).map((k) => value(k, HELD[k]![roll(2)]!, undefined, roll(3) === 0 ? { source: 'model', proof: 'page_text', pageCheck: 'text' } : {}));
         if (facts.length && roll(3) === 0) facts[0]!.otherReading = { ...value(facts[0]!.key, HELD[facts[0]!.key]![1]!), source: 'model', proof: 'second_reader', pageCheck: 'page' };
-        paper(project, kind, facts, `Paper ${step}`);
+        const filed = paper(project, kind, facts, `Paper ${step}`);
+        // Some with their file, which is what puts a paper on the review table and lets a draft be about it.
+        if (roll(2)) attachEvidenceFile(project, filed.id, { fileName: `paper-${step}.pdf`, mimeType: 'application/pdf', sizeBytes: 10, storageKey: `paper-${step}.pdf` }, actor);
         break;
       }
       case 2:
@@ -215,6 +239,72 @@ describe('a record told step by step, and the same record told once', () => {
         if (roll(3) === 0) clearProjectConversation(project);
         else noteProjectEdit(project, `Noted ${step}.`, { actor });
         break;
+      case 15: {
+        // A day on site: a voice note kept first, as the drop records one, and the entry typed or accepted from it.
+        const note = `note-${step}.ogg`;
+        if (roll(2)) recordAuditEvent(project, { actor, action: 'voice_note', entityType: 'voice_note', entityId: note, newValue: 'Put into words; a site entry proposed' });
+        logSiteEntry(
+          project,
+          {
+            clientId: `voice:${note}`,
+            date: `2026-10-0${1 + roll(8)}`,
+            workDone: roll(3) ? `Work of step ${step}` : `First line of step ${step}\nSecond line`,
+            ...(roll(2) ? { weather: 'Clear' } : {}),
+            manpower: roll(2) ? [{ trade: 'Masons', count: 1 + roll(9) }] : [],
+            issues: roll(3) ? [] : [{ title: `Issue ${step}` }],
+          },
+          actor,
+        );
+        break;
+      }
+      case 16: {
+        // A paper's row marked reviewed on the review table, or the mark taken off.
+        const filed = project.evidence.filter((held_) => held_.attachments.length > 0);
+        const one = filed.length ? filed[roll(filed.length)]! : undefined;
+        if (one) setRowReviewed(project, one.id, !project.reviewTable?.reviewed?.[one.id], actor);
+        break;
+      }
+      case 17: {
+        // A run of the review table, a model's answer kept for its first paper, and sometimes stopped. The answer is no fact.
+        const filed = project.evidence.filter((held_) => held_.attachments.length > 0);
+        const [column] = addReviewColumns(project, [{ kind: 'question', question: `Question ${step}?` }]);
+        const run = startReviewRun(project, filed.map((held_) => held_.id), actor, { model: true });
+        keepReviewAnswers(project, run.id, run.papers[0]!.evidenceId, { [column!.id]: { by: 'model', at: '2026-10-06T08:00:00.000Z', fileId: 'file', answer: `A model’s answer at step ${step}`, proof: 'page_text' } });
+        if (roll(2)) stopReviewRun(project, run.id, actor);
+        break;
+      }
+      case 18: {
+        // A draft to go out: made, given its words, approved, taken back, exported or removed.
+        const drafts = project.outgoing ?? [];
+        const draft = drafts.length && roll(3) ? drafts[roll(drafts.length)]! : startOutgoing(project, { kind: roll(2) ? 'letter' : 'rfi', to: `Recipient ${step}`, subject: `Subject ${step}`, ...(row?.attachments.length && roll(2) ? { about: { kind: 'paper' as const, id: row.id } } : {}) }, actor);
+        const does = roll(5);
+        if (does === 0) editOutgoing(project, draft.id, { body: `A body written at step ${step}.` }, actor);
+        else if (does === 1) {
+          editOutgoing(project, draft.id, { body: `A body approved at step ${step}.` }, actor);
+          approveOutgoing(project, draft.id, { actor, seen: outgoingSeen(draft) });
+        } else if (does === 2) reopenOutgoing(project, draft.id, { actor, seen: outgoingSeen(draft) });
+        else if (does === 3) noteOutgoingExported(project, draft.id, { actor, seen: outgoingSeen(draft) });
+        else removeOutgoing(project, draft.id, actor);
+        break;
+      }
+      case 19:
+      case 20: {
+        // A questionnaire taken in, or an answer on one: suggested from a paper, confirmed, given by a person, cleared.
+        const sheets = project.questionnaires ?? [];
+        if (!sheets.length || roll(4) === 0) {
+          addQuestionnaire(project, { title: `Questions ${step}`, parsed: { header: [], questions: [{ text: `First question of step ${step}?` }, { text: `Second question of step ${step}?` }] } }, actor);
+          break;
+        }
+        const sheet = sheets[roll(sheets.length)]!;
+        const question = sheet.questions[roll(sheet.questions.length)]!;
+        const does = roll(4);
+        // A suggestion that waits is confirmed as often as not.
+        if (sheet.questions.some((held_) => held_.suggested) && roll(2)) confirmSuggestions(project, sheet.id, 'all', actor);
+        else if (does <= 1) suggestAnswers(project, sheet.id, [{ questionId: question.id, answer: `Suggested at step ${step}`, ...(row ? { proof: [{ evidenceId: row.id, page: 1, quote: 'as the paper has it' }] } : {}) }], actor);
+        else if (does === 2) answerQuestion(project, sheet.id, question.id, { answer: `Answered at step ${step}` }, actor);
+        else answerQuestion(project, sheet.id, question.id, { answer: '' }, actor);
+        break;
+      }
       default:
         addFinding(project, { title: `Finding ${step}`, description: 'Made up.', severity: 'low', discipline: 'legal' }, actor);
     }
@@ -223,15 +313,19 @@ describe('a record told step by step, and the same record told once', () => {
   it('leave memory holding the same facts and the same entries, which are the facts the record gives', async () => {
     let facts = 0;
     let tags = new Set<string>();
-    for (let seed = 1; seed <= 30; seed += 1) {
+    const kinds = new Set<string>();
+    const keys = new Set<string>();
+    for (let seed = 1; seed <= 40; seed += 1) {
       const roll = dice(seed);
       const project = fresh(`Sequence ${seed}`);
       const known = new Map<string, MemWatermark>();
       await tell(project, known);
       const steps = 8 + roll(16);
+      // The last ten sequences lean on the newer parts of the product: a paper filed now and then, and otherwise a site entry, the review table, a draft or a questionnaire.
+      const newer = seed > 30 ? () => (roll(4) === 0 ? 0 : 15 + roll(6)) : undefined;
       for (let step = 1; step <= steps; step += 1) {
         try {
-          act(project, roll, step);
+          act(project, roll, step, newer);
         } catch {
           // An operation the record refuses changes nothing, and is one more step.
         }
@@ -253,10 +347,16 @@ describe('a record told step by step, and the same record told once', () => {
       assert.equal(stands.factsRev, memFactsRev(new Map(rebuilt.facts.map((fact) => [fact.id, memFactRev(fact)]))), 'and memory says which facts it holds');
       facts += rebuilt.facts.length;
       tags = new Set([...tags, ...rebuilt.facts.map((fact) => `${fact.tag}${fact.tag === 'proposed' ? (fact.stands ? ' standing' : ' waiting') : ''}`)]);
+      for (const entry of rebuilt.entries) kinds.add(entry.kind);
+      for (const fact of rebuilt.facts) keys.add(fact.key);
       await memory.purge(project.id);
     }
     assert.ok(facts > 250, `the sequences made facts enough to matter (${facts})`);
     assert.deepEqual([...tags].sort(), ['approved', 'proposed standing', 'proposed waiting'], 'of every kind');
+    // The newer parts of the product were in them: every kind of entry they tell, and every key their facts are told under.
+    const NEWER = ['voice_note_kept', 'site_entry_logged', 'review_run_started', 'review_run_stopped', 'paper_reviewed', 'paper_review_unmarked', 'outgoing_drafted', 'outgoing_approved', 'outgoing_reopened', 'outgoing_exported', 'outgoing_removed', 'questionnaire_added', 'answers_suggested', 'answers_confirmed', 'question_answered'];
+    assert.deepEqual(NEWER.filter((kind) => !kinds.has(kind)), [], 'every newer kind of event was told in some sequence');
+    assert.deepEqual(['site_day', 'site_work', 'site_weather', 'site_manpower', 'site_issues', 'outgoing_kind', 'outgoing_to', 'paper_reviewed', 'answer'].filter((key) => !keys.has(key)), [], 'and every newer kind of fact');
   });
 
   it('is told a long record’s facts a write at a time, and ends holding them all', async () => {
@@ -367,6 +467,72 @@ describe('where a fact stands', () => {
     const said = factOf(facts, `${offered.id}::paper_kind`)!;
     assert.deepEqual([said.tag, said.value, said.by], ['approved', KHATA, memWho(project.id, VALUER)]);
     assert.equal(factOf(facts, `${offered.id}::paper_kind::offer`), undefined, 'and the offer is no longer waiting');
+  });
+
+  it('is approved for a site entry, a draft approved for sending, a paper marked reviewed and an answer confirmed, each by who stood behind it', () => {
+    const project = fresh('Newer parts');
+    const row = paper(project, KHATA, [value('khata_number', '1234/56')]);
+    attachEvidenceFile(project, row.id, { fileName: 'khata.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'khata-key.pdf' }, LEAD);
+    // A day on site, typed there or accepted from a voice note.
+    const { entry } = logSiteEntry(
+      project,
+      { clientId: 'voice:note-1.ogg', date: '2026-10-03', workDone: 'Shuttering for the second floor slab\nCuring of the first floor columns', weather: 'Clear', manpower: [{ trade: 'Carpenters', count: 6 }, { trade: 'Helpers', count: 8 }], issues: [{ title: 'Steel delivery is late' }] },
+      VALUER,
+    );
+    // A request for information about the paper, approved by name.
+    const draft = startOutgoing(project, { kind: 'rfi', about: { kind: 'paper', id: row.id }, to: 'The seller’s advocate', subject: 'The khata extract' }, LEAD);
+    editOutgoing(project, draft.id, { body: 'Please send us the khata extract.' }, LEAD);
+    approveOutgoing(project, draft.id, { actor: VALUER, seen: outgoingSeen(draft) }, '2026-10-04T10:00:00.000Z');
+    // The paper's row marked reviewed, and a model's answer to a question kept beside it on the review table.
+    setRowReviewed(project, row.id, true, LEAD, '2026-10-04T11:00:00.000Z');
+    const [column] = addReviewColumns(project, [{ kind: 'question', question: 'Who signed it?' }]);
+    const run = startReviewRun(project, [row.id], LEAD, { model: true });
+    keepReviewAnswers(project, run.id, row.id, { [column!.id]: { by: 'model', at: '2026-10-04T11:05:00.000Z', fileId: row.attachments[0]!.id, answer: 'The Tahsildar signed it', page: 1, quote: 'Signed: Tahsildar', proof: 'page_text' } });
+    // A questionnaire: one answer suggested from the paper and confirmed by a person, one still only suggested.
+    const sheet = addQuestionnaire(project, { title: 'Lender’s questions', parsed: { header: [], questions: [{ text: 'What is the khata number?' }, { text: 'Who holds it?' }] } }, LEAD);
+    const [first, second] = sheet.questions;
+    suggestAnswers(project, sheet.id, [first!, second!].map((question, n) => ({ questionId: question.id, answer: n ? 'A Person' : '1234/56', proof: [{ evidenceId: row.id, page: 1, quote: 'Khata No. 1234/56' }] })), LEAD);
+    confirmSuggestions(project, sheet.id, [first!.id], VALUER);
+
+    let facts = memoryFacts(project).held;
+    const [lead, valuer] = [memWho(project.id, LEAD), memWho(project.id, VALUER)];
+    const told = (slot: string) => {
+      const fact = factOf(facts, slot);
+      return fact && [fact.tag, fact.label, fact.value, fact.by, fact.aboutId, fact.source];
+    };
+
+    // The site entry: its day and what its own fields hold, each in its form, by who entered it, for that day, on the Progress page.
+    assert.deepEqual(told(`${entry.id}::site_day`), ['approved', 'Day of the site entry', '2026-10-03', valuer, entry.id, entry.id]);
+    assert.deepEqual(told(`${entry.id}::site_work`), ['approved', 'Work done on site', 'Shuttering for the second floor slab; Curing of the first floor columns', valuer, entry.id, entry.id], 'work said over two lines is one line');
+    assert.deepEqual(['site_weather', 'site_manpower', 'site_issues'].map((key) => factOf(facts, `${entry.id}::${key}`)?.value), ['Clear', 14, 1]);
+    const day = factOf(facts, `${entry.id}::site_day`)!;
+    assert.deepEqual([day.validFrom, day.validTo, day.fn, day.at], ['2026-10-03', '2026-10-03', 'construction.progress', entry.createdAt]);
+
+    // The draft approved: what it is, and who it is to as the record names them, by who approved it and when. The paper it is about states it.
+    assert.deepEqual(told(`${draft.id}::outgoing_kind`), ['approved', 'Draft approved to send', 'rfi', valuer, draft.id, row.id]);
+    assert.deepEqual(told(`${draft.id}::outgoing_to`), ['approved', 'Addressed to', 'The seller’s advocate', valuer, draft.id, row.id]);
+    const kind = factOf(facts, `${draft.id}::outgoing_kind`)!;
+    assert.deepEqual([kind.display, kind.at], ['Request for information', '2026-10-04T10:00:00.000Z']);
+
+    // The paper reviewed, by whom and when.
+    assert.deepEqual(told(`${row.id}::paper_reviewed`), ['approved', 'Reviewed', true, lead, row.id, row.id]);
+    assert.equal(factOf(facts, `${row.id}::paper_reviewed`)!.at, '2026-10-04T11:00:00.000Z');
+
+    // The answer confirmed: the question's id, the answer, and the paper behind it with its page and its words. One only suggested still waits.
+    assert.deepEqual(told(`${first!.id}::answer`), ['approved', 'Answer', '1234/56', valuer, first!.id, row.id]);
+    const confirmed = factOf(facts, `${first!.id}::answer`)!;
+    assert.deepEqual([confirmed.page, confirmed.quote], [1, 'Khata No. 1234/56']);
+    const suggested = factOf(facts, `${second!.id}::answer`)!;
+    assert.deepEqual([suggested.tag, suggested.readBy, suggested.stands, suggested.by, suggested.source], ['proposed', 'model', false, undefined, row.id]);
+
+    // A model's answer on the review table is no fact of the record, whoever marked the row reviewed.
+    assert.ok(!JSON.stringify(facts).includes('Tahsildar'), 'the review table’s answer is told nowhere');
+
+    // An approval taken back and a mark taken off are facts let go.
+    reopenOutgoing(project, draft.id, { actor: LEAD, seen: outgoingSeen(draft) });
+    setRowReviewed(project, row.id, false, LEAD);
+    facts = memoryFacts(project).held;
+    assert.deepEqual([told(`${draft.id}::outgoing_kind`), told(`${draft.id}::outgoing_to`), told(`${row.id}::paper_reviewed`)], [undefined, undefined, undefined]);
   });
 
   it('is proposed for a value waiting on a card raised in chat', () => {

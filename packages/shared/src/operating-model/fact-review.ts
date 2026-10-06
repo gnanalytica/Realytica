@@ -111,6 +111,32 @@ export function waitingAsRead(read: { facts: readonly DocumentFact[] } | null | 
 }
 
 /**
+ * What a paper dropped in the chat states, for the turn that closes the drop
+ * to act on.
+ *
+ * A paper is put on its row as it is read (`landed`) and is in front of
+ * people from then on: a value may be set aside there, or corrected, before
+ * the last paper of the drop is read. So for a paper on its row it is the row
+ * as it stands now, among the values this reading brought, and never the
+ * reading as it was read. For a paper on no row it is the reading.
+ *
+ * `setAside` names what the reading brought that neither stands nor waits on
+ * the row: a person set it aside there, and nothing may bring it back, the
+ * page's own words read a second time included.
+ */
+export function dropAsItStands(
+  project: Pick<DdProject, 'evidence'>,
+  file: { landed?: boolean; storageKey: string; read?: { facts: readonly DocumentFact[] } | null },
+): { standing: DocumentFact[]; waiting: DocumentFact[]; setAside: string[] } {
+  const row = file.landed ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === file.storageKey)) : undefined;
+  if (!row) return { standing: standingAsRead(file.read), waiting: waitingAsRead(file.read), setAside: [] };
+  const brought = [...new Set((file.read?.facts ?? []).map((fact) => fact.key))];
+  const standing = standingFacts(row).filter((fact) => brought.includes(fact.key));
+  const waiting = waitingReadings(row).filter((fact) => brought.includes(fact.key));
+  return { standing, waiting, setAside: brought.filter((key) => ![...standing, ...waiting].some((fact) => fact.key === key)) };
+}
+
+/**
  * What stands behind a model's value: its words found in the page's own text,
  * a second model's reading of the page, or neither. A value filed before the
  * proof was kept is told by how its page was checked then.

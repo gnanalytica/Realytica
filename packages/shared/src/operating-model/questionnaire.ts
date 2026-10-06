@@ -502,7 +502,8 @@ export function addQuestionnaire(project: DdProject, input: AddQuestionnaireInpu
     updatedAt: at,
   };
   list(project).push(questionnaire);
-  audit(project, actor, 'questionnaire_added', questionnaire.id, `${title} · ${questionnaire.questions.length} question(s)`);
+  // What was left out of it is on the trail too, in the same words the person was told.
+  audit(project, actor, 'questionnaire_added', questionnaire.id, `${title} · ${questionnaire.questions.length} question(s)${notTaken ? ` · ${notTaken}` : ''}`);
   return questionnaire;
 }
 

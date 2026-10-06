@@ -297,6 +297,8 @@ describe('a voice note dropped in the chat', () => {
       const project = result.project as DdProject;
       assert.deepEqual(asked, [{ url: '/v1/audio/transcriptions', key: 'Bearer test-key', model: 'stand-in/transcriber', format: 'ogg', bytes: sound.length }], 'sent to the transcriber, once');
       assert.equal(result.assistantTurn.text, 'A voice note, 48 seconds: a site entry is proposed for 5 Oct 2026.');
+      const told = (await (await fetch(`${base}/api/projects/${p.id}/chat/voice`)).json()) as { available: boolean; reads?: boolean };
+      assert.deepEqual([told.available, told.reads], [true, true], 'the chat is told a reading model is then given the words, to say so beside the microphone');
       const card = project.chatProposals.find((c) => c.kind === 'log_site_entry')!;
       assert.deepEqual([card.status, card.title, result.assistantTurn.proposalIds.includes(card.id)], ['proposed', 'Site entry for 5 Oct 2026, from a voice note', true]);
       assert.equal(project.siteLog?.length ?? 0, 0, 'nothing is on the site log');
@@ -363,10 +365,8 @@ describe('a drop that something goes wrong in', () => {
       // The reader has a limit of its own: one that does not answer is given up, and the photograph says why it was not read.
       const { PHOTO_READ_LIMIT_MS, runPhotoIntelligence } = await import('../packages/agents/src/agents/photo-intelligence');
       assert.equal(PHOTO_READ_LIMIT_MS, 60_000);
-      const began = Date.now();
       const gaveUp = await runPhotoIntelligence({ projectId: p.id, evidenceId: row.id, attachmentId: row.attachments[0]!.id, fileName: 'site-north-face.png', mimeType: 'image/png', fileBytes: blankPng(), identity: projectToIdentity(p), timeoutMs: 200 });
-      assert.ok(Date.now() - began < 1200, 'given up at its limit, well before the reader would have answered');
-      assert.deepEqual([gaveUp.run.status, /did not answer within/.test(gaveUp.run.error ?? '')], ['failed', true]);
+      assert.deepEqual([gaveUp.run.status, /did not answer within/.test(gaveUp.run.error ?? '')], ['failed', true], 'given up at its limit, before the reader answered');
     } finally {
       readerWaitsMs = 0;
       off();

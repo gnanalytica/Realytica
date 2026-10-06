@@ -6,7 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
-import { proofOf, proposeOnRow, standingAsRead, standingFacts, waitingAsRead } from './fact-review';
+import { dropAsItStands, proofOf, proposeOnRow, standingAsRead, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
@@ -594,10 +594,7 @@ export function proposalsFromIngest(
       // To the checks go the values that stand. A model's, and one two readers differ on, wait on the row.
       // A paper put on its row as it was read (`landed`) has been in front of people since. A value set aside or corrected there
       // meanwhile is what the paper states now, so its checks are offered the row as it stands, never the reading as it was read.
-      const onRow = file.landed && classified.evidence?.attachments.some((a) => a.storageKey === file.storageKey) ? classified.evidence : undefined;
-      const brought = new Set([...standingAsRead(read), ...waitingAsRead(read)].map((fact) => fact.key));
-      const offered = onRow ? standingFacts(onRow).filter((fact) => brought.has(fact.key)) : standingAsRead(read);
-      out.push(...factFillProposals(project, offered, source, actor, out, { differences: true }));
+      out.push(...factFillProposals(project, dropAsItStands(project, file).standing, source, actor, out, { differences: true }));
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }

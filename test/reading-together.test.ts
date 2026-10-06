@@ -203,6 +203,7 @@ describe('papers read together', () => {
     applyProjectChat(p, '', { ingest: [{ ...paper, landed: true }] });
     const offered = p.chatProposals.filter((c) => c.kind === 'record_check_fields' && c.status === 'proposed').map((c) => c.payload.values);
     assert.deepEqual(offered, [{ extent_khata: 2540 }], 'the value set aside is offered to no check, and the corrected one as it was corrected');
+    assert.equal(p.chatProposals.filter((c) => c.kind === 'patch_project' && 'parcelId' in c.payload).length, 0, 'nor is it proposed as the parcel, read off the page a second time');
 
     // A paper whose row has gone since it landed is filed again, values and all.
     const q = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0048');

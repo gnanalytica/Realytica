@@ -40,15 +40,24 @@ import {
   addEvidence,
   addDecision,
   addFinding,
+  addQuestionnaire,
+  addReviewColumns,
+  answerQuestion,
   applyProjectChat,
   applyRevenueMap,
+  approveOutgoing,
   clearProjectConversation,
   clearRevenueMap,
+  confirmSuggestions,
   createAssessment,
   createProject,
+  editOutgoing,
   generateReport,
   issueReport,
   keepMeeting,
+  logSiteEntry,
+  noteOutgoingExported,
+  outgoingSeen,
   patchRecordStatus,
   readMeetingNotes,
   memPointer,
@@ -57,10 +66,17 @@ import {
   memoryReplay,
   noteProjectEdit,
   recordAuditEvent,
+  removeOutgoing,
   removeRevenueMapRead,
+  reopenOutgoing,
   reviewFacts,
   sameMemWatermark,
   scrubMemEntry,
+  setRowReviewed,
+  startOutgoing,
+  startReviewRun,
+  stopReviewRun,
+  suggestAnswers,
   type ChatIngestFile,
   type DdProject,
   type DocumentFact,
@@ -72,6 +88,9 @@ import { PARCEL_REF_PATTERN } from '../packages/site-intel/src/cadastre';
 
 const VALUER = 'valuer@example.com';
 const LEAD = 'lead@example.com';
+
+/** A voice note's file, by the key the store mints for it: an id and the file's ending, with none of its name. */
+const VOICE_NOTE = '6f1c2d3e-0000-4000-8000-000000000001.ogg';
 
 /** Two parcels as the public map's reader keys them: the map, a ten-digit code for the village, the survey number. */
 const PARCEL = 'kgis:2003010043:10';
@@ -190,11 +209,33 @@ function lived() {
   patchRecordStatus(project, project.actions, closed.id, 'closed', 'action', LEAD);
   const settled = addDecision(project, { title: 'Use the earlier survey', decisionType: 'other', decisionMaker: 'Lead', rationale: 'It is the one on record.', status: 'pending' }, LEAD);
   patchRecordStatus(project, project.decisions, settled.id, 'approved', 'decision', VALUER);
+  // A voice note kept, as the drop that takes one records it: its file by its key, and what became of it in the product's own words. Then the site entry proposed from it, accepted by a person.
+  recordAuditEvent(project, { actor: LEAD, action: 'voice_note', entityType: 'voice_note', entityId: VOICE_NOTE, newValue: 'Put into words; a site entry proposed' });
+  const { entry } = logSiteEntry(project, { clientId: `voice:${VOICE_NOTE}`, date: '2026-10-03', workDone: 'Shuttering for the second floor slab', weather: 'Clear', manpower: [{ trade: 'Carpenters', count: 6 }], issues: [{ title: 'Steel delivery is late' }] }, LEAD);
+  // The review table: a question asked of the paper in a run that is then stopped, and the paper's row marked reviewed and unmarked.
+  addReviewColumns(project, [{ kind: 'question', question: 'Who witnessed the deed?' }]);
+  const run = startReviewRun(project, [row.id], LEAD, { model: false });
+  stopReviewRun(project, run.id, LEAD);
+  setRowReviewed(project, row.id, true, VALUER);
+  setRowReviewed(project, row.id, false, VALUER);
+  // A letter drafted, given its words, approved by name, exported, taken back to draft and removed.
+  const draft = startOutgoing(project, { kind: 'letter', to: 'The seller', subject: 'The earlier deed' }, LEAD);
+  editOutgoing(project, draft.id, { body: 'Please send us the earlier deed.' }, LEAD);
+  approveOutgoing(project, draft.id, { actor: VALUER, seen: outgoingSeen(draft) });
+  noteOutgoingExported(project, draft.id, { actor: LEAD, seen: outgoingSeen(draft) });
+  reopenOutgoing(project, draft.id, { actor: LEAD, seen: outgoingSeen(draft) });
+  removeOutgoing(project, draft.id, LEAD);
+  // A questionnaire taken in, an answer suggested from the paper and confirmed, another given by a person, and that one cleared again.
+  const sheet = addQuestionnaire(project, { title: 'Lender’s questions', parsed: { header: [], questions: [{ text: 'What is the extent?' }, { text: 'Who holds the khata?' }] } }, LEAD);
+  suggestAnswers(project, sheet.id, [{ questionId: sheet.questions[0]!.id, answer: '11,800 sq ft', proof: [{ evidenceId: row.id, page: 1, quote: 'Extent: 11,850 sq ft' }] }], LEAD);
+  confirmSuggestions(project, sheet.id, 'all', VALUER);
+  answerQuestion(project, sheet.id, sheet.questions[1]!.id, { answer: 'A Person' }, VALUER);
+  answerQuestion(project, sheet.id, sheet.questions[1]!.id, { answer: '' }, VALUER);
   // A write made on a work pane, as its route notes it in the thread.
   noteProjectEdit(project, 'Filed the revenue-map read as evidence.', { citedEvidenceIds: [row.id], actor: LEAD });
   const noted = project.conversation.slice(-2);
   const asked = ask(project, 'what is missing?', VALUER, { pane: 'evidence', department: 'legal', stage: 'pre_development' });
-  return { project, row, decision, action, finding, meeting, report, closed, settled, dropped, noted, asked };
+  return { project, row, decision, action, finding, meeting, report, closed, settled, dropped, noted, asked, entry, run, draft, sheet };
 }
 
 /** Told from the conversation: a question, an answer, or the note of a work-pane write. */
@@ -277,6 +318,33 @@ describe('what memory is told of a project', () => {
       [...new Set([...asked.assistantTurn.citedEvidenceIds, ...(asked.assistantTurn.citedNodeIds ?? []), ...(asked.assistantTurn.proposalIds ?? [])])],
       'an answer points at what it cites',
     );
+  });
+
+  it('tells what the newer parts of the product do, each as an entry that points at a record by its id', () => {
+    const { project, row, entry, run, draft, sheet } = lived();
+    const { entries } = memoryDelta(project, {});
+    const told = (kind: MemEntryKind) => {
+      const one = only(entries, kind);
+      return [one.about, one.by, one.key, one.label, one.place];
+    };
+    const [lead, valuer] = [memWho(project.id, LEAD), memWho(project.id, VALUER)];
+    const none = [undefined, undefined, undefined];
+
+    assert.deepEqual(told('voice_note_kept'), [[VOICE_NOTE], lead, ...none], 'a voice note by the key its file is stored under');
+    assert.deepEqual(told('site_entry_logged'), [[entry.id], lead, ...none], 'the site entry by its id, and by who entered or accepted it');
+    assert.deepEqual([told('review_run_started'), told('review_run_stopped')], [[[run.id], lead, ...none], [[run.id], lead, ...none]], 'a run of the review table by its own id, started and stopped');
+    assert.deepEqual([told('paper_reviewed'), told('paper_review_unmarked')], [[[row.id], valuer, ...none], [[row.id], valuer, ...none]], 'a row marked reviewed, and unmarked, by its paper');
+    for (const kind of ['outgoing_drafted', 'outgoing_exported', 'outgoing_reopened', 'outgoing_removed'] as const) assert.deepEqual(told(kind), [[draft.id], lead, ...none], kind);
+    assert.deepEqual(told('outgoing_approved'), [[draft.id], valuer, ...none], 'a draft approved, by who approved it');
+    assert.deepEqual([told('questionnaire_added'), told('answers_suggested')], [[[sheet.id], lead, ...none], [[sheet.id], lead, ...none]], 'a questionnaire taken in and answers suggested, by the questionnaire');
+    assert.deepEqual(told('answers_confirmed'), [[sheet.id], valuer, ...none], 'answers confirmed, by who confirmed them');
+    assert.deepEqual(told('question_answered'), [[sheet.questions[1]!.id], valuer, ...none], 'a person’s own answer by its question, and one cleared is not told as an answer');
+
+    // None of the record's words is in any of them: not the note's outcome, the work done, the question, the answer, who a letter is to, or its subject.
+    const kept = JSON.stringify(entries);
+    for (const words of ['Put into words', 'Shuttering', 'Steel delivery', 'witnessed', 'The seller', 'earlier deed', 'Lender', 'What is the extent', '11,800', 'A Person', 'reviewed by']) {
+      assert.ok(!kept.includes(words), `“${words}” is in no entry`);
+    }
   });
 
   it('tells every map read removed at once as one event with no parcel', () => {
@@ -755,7 +823,7 @@ describe('the shape memory is told in', () => {
    * with the change, and only then change what is expected here.
    */
   it(`is the one schema ${MEM_SCHEMA} was pinned to`, () => {
-    assert.equal(MEM_SCHEMA, 5);
+    assert.equal(MEM_SCHEMA, 6);
     const project = createProject({ name: 'Pinned plot', type: 'residential', location: 'Northfield', city: 'Bengaluru' }, 'RYT-PIN');
     project.id = 'prj_pinned';
     const row = addEvidence(project, { title: 'Khata certificate', kind: 'document' }, LEAD);
@@ -777,6 +845,25 @@ describe('the shape memory is told in', () => {
       { id: 'aud_10', at: '2026-10-01T09:24:40.000Z', actor: LEAD, action: 'status_change', entityType: 'action', entityId: 'act_1', oldValue: 'not_started', newValue: 'in_progress' },
       { id: 'aud_11', at: '2026-10-01T09:24:45.000Z', actor: LEAD, action: 'status_change', entityType: 'action', entityId: 'act_1', oldValue: 'in_progress', newValue: 'closed' },
       { id: 'aud_12', at: '2026-10-01T09:24:50.000Z', actor: VALUER, action: 'status_change', entityType: 'decision', entityId: 'dec_1', oldValue: 'pending', newValue: 'approved' },
+      // What the newer parts of the product do, as each writes it on the trail. The words beside each are the record's, and none is kept.
+      { id: 'aud_13', at: '2026-10-02T09:00:00.000Z', actor: LEAD, action: 'voice_note', entityType: 'voice_note', entityId: 'note_1.ogg', newValue: 'Put into words; a site entry proposed' },
+      { id: 'aud_14', at: '2026-10-02T09:01:00.000Z', actor: LEAD, action: 'site_log', entityType: 'site_log', entityId: 'log_1', newValue: '2026-10-02: Shuttering for the slab' },
+      { id: 'aud_15', at: '2026-10-02T09:02:00.000Z', actor: LEAD, action: 'review_run', entityType: 'review_table', entityId: 'rr_1', newValue: '1 paper, 1 question', reason: 'the pages kept were searched: no model is set up' },
+      { id: 'aud_16', at: '2026-10-02T09:03:00.000Z', actor: LEAD, action: 'review_run_stopped', entityType: 'review_table', entityId: 'rr_1', newValue: '0 of 1 paper' },
+      { id: 'aud_17', at: '2026-10-02T09:04:00.000Z', actor: VALUER, action: 'review_row_reviewed', entityType: 'evidence', entityId: 'ev_1', newValue: 'reviewed' },
+      { id: 'aud_18', at: '2026-10-02T09:05:00.000Z', actor: VALUER, action: 'review_row_unmarked', entityType: 'evidence', entityId: 'ev_1', oldValue: 'reviewed by valuer@example.com' },
+      { id: 'aud_19', at: '2026-10-02T09:06:00.000Z', actor: LEAD, action: 'outgoing_drafted', entityType: 'outgoing', entityId: 'out_1', newValue: 'Letter: The earlier deed' },
+      { id: 'aud_20', at: '2026-10-02T09:07:00.000Z', actor: VALUER, action: 'outgoing_approved', entityType: 'outgoing', entityId: 'out_1', oldValue: 'draft', newValue: 'approved' },
+      { id: 'aud_21', at: '2026-10-02T09:08:00.000Z', actor: LEAD, action: 'outgoing_exported', entityType: 'outgoing', entityId: 'out_1', newValue: 'approved' },
+      { id: 'aud_22', at: '2026-10-02T09:09:00.000Z', actor: LEAD, action: 'outgoing_reopened', entityType: 'outgoing', entityId: 'out_1', oldValue: 'approved by valuer@example.com', newValue: 'draft', reason: 'approval taken back' },
+      { id: 'aud_23', at: '2026-10-02T09:10:00.000Z', actor: LEAD, action: 'outgoing_removed', entityType: 'outgoing', entityId: 'out_1', oldValue: 'Letter: The earlier deed' },
+      { id: 'aud_24', at: '2026-10-02T09:11:00.000Z', actor: LEAD, action: 'questionnaire_added', entityType: 'questionnaire', entityId: 'qnr_1', newValue: 'Lender’s questions · 2 question(s)' },
+      { id: 'aud_25', at: '2026-10-02T09:12:00.000Z', actor: LEAD, action: 'answers_suggested', entityType: 'questionnaire', entityId: 'qnr_1', newValue: '1 answer(s)' },
+      { id: 'aud_26', at: '2026-10-02T09:13:00.000Z', actor: VALUER, action: 'answers_confirmed', entityType: 'questionnaire', entityId: 'qnr_1', newValue: '1 answer(s)' },
+      { id: 'aud_27', at: '2026-10-02T09:14:00.000Z', actor: VALUER, action: 'question_answered', entityType: 'questionnaire', entityId: 'q_2', newValue: 'A Person' },
+      // An answer cleared, a question added and a questionnaire removed are not told.
+      { id: 'aud_28', at: '2026-10-02T09:15:00.000Z', actor: VALUER, action: 'question_answered', entityType: 'questionnaire', entityId: 'q_2', newValue: '(cleared)' },
+      { id: 'aud_29', at: '2026-10-02T09:16:00.000Z', actor: LEAD, action: 'question_added', entityType: 'questionnaire', entityId: 'q_3', newValue: 'Who is the architect?' },
     ];
     project.conversation = [
       { id: 'cht_1', role: 'user', text: 'What does the khata say?', at: '2026-10-01T09:25:00.000Z', actor: VALUER, place: { pane: 'evidence', stage: 'pre_development' }, citedEvidenceIds: ['ev_1'] },
@@ -801,11 +888,26 @@ describe('the shape memory is told in', () => {
         { id: 'prj_pinned::mem::aud_9', kind: 'report_issued', at: '2026-10-01T09:24:30.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_9', about: ['rep_1'] },
         { id: 'prj_pinned::mem::aud_11', kind: 'action_closed', at: '2026-10-01T09:24:45.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_11', about: ['act_1'] },
         { id: 'prj_pinned::mem::aud_12', kind: 'decision_settled', at: '2026-10-01T09:24:50.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_12', about: ['dec_1'] },
+        { id: 'prj_pinned::mem::aud_13', kind: 'voice_note_kept', at: '2026-10-02T09:00:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_13', about: ['note_1.ogg'] },
+        { id: 'prj_pinned::mem::aud_14', kind: 'site_entry_logged', at: '2026-10-02T09:01:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_14', about: ['log_1'] },
+        { id: 'prj_pinned::mem::aud_15', kind: 'review_run_started', at: '2026-10-02T09:02:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_15', about: ['rr_1'] },
+        { id: 'prj_pinned::mem::aud_16', kind: 'review_run_stopped', at: '2026-10-02T09:03:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_16', about: ['rr_1'] },
+        { id: 'prj_pinned::mem::aud_17', kind: 'paper_reviewed', at: '2026-10-02T09:04:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_17', about: ['ev_1'] },
+        { id: 'prj_pinned::mem::aud_18', kind: 'paper_review_unmarked', at: '2026-10-02T09:05:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_18', about: ['ev_1'] },
+        { id: 'prj_pinned::mem::aud_19', kind: 'outgoing_drafted', at: '2026-10-02T09:06:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_19', about: ['out_1'] },
+        { id: 'prj_pinned::mem::aud_20', kind: 'outgoing_approved', at: '2026-10-02T09:07:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_20', about: ['out_1'] },
+        { id: 'prj_pinned::mem::aud_21', kind: 'outgoing_exported', at: '2026-10-02T09:08:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_21', about: ['out_1'] },
+        { id: 'prj_pinned::mem::aud_22', kind: 'outgoing_reopened', at: '2026-10-02T09:09:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_22', about: ['out_1'] },
+        { id: 'prj_pinned::mem::aud_23', kind: 'outgoing_removed', at: '2026-10-02T09:10:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_23', about: ['out_1'] },
+        { id: 'prj_pinned::mem::aud_24', kind: 'questionnaire_added', at: '2026-10-02T09:11:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_24', about: ['qnr_1'] },
+        { id: 'prj_pinned::mem::aud_25', kind: 'answers_suggested', at: '2026-10-02T09:12:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_25', about: ['qnr_1'] },
+        { id: 'prj_pinned::mem::aud_26', kind: 'answers_confirmed', at: '2026-10-02T09:13:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_26', about: ['qnr_1'] },
+        { id: 'prj_pinned::mem::aud_27', kind: 'question_answered', at: '2026-10-02T09:14:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_27', about: ['q_2'] },
         { id: 'prj_pinned::mem::cht_1', kind: 'chat_asked', at: '2026-10-01T09:25:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'cht_1', about: ['ev_1'], place: { pane: 'evidence', stage: 'pre_development' } },
         { id: 'prj_pinned::mem::cht_2', kind: 'edit_noted', at: '2026-10-01T09:30:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'cht_2', about: ['ev_1'] },
         { id: 'prj_pinned::mem::cht_4', kind: 'edit_noted', at: '2026-10-01T09:35:00.000Z', by: 'who_1995cea6e537b6', sourceId: 'cht_4', about: [] },
       ],
-      through: { schema: 5, auditThrough: 'aud_12', turnThrough: 'cht_5' },
+      through: { schema: 6, auditThrough: 'aud_29', turnThrough: 'cht_5' },
     });
   });
 });

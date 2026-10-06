@@ -1071,7 +1071,7 @@ export const api = {
       return readProjectChatStream(res, opts?.onStep, opts?.onReading);
     }),
   /** Whether a voice note can be put into words here, where its sound is sent, and how large one request may be. */
-  chatVoice: (projectId: string) => request<{ available: boolean; model?: string; host?: string; maxBytes: number; maxRequestBytes: number }>(`/projects/${projectId}/chat/voice`),
+  chatVoice: (projectId: string) => request<{ available: boolean; model?: string; host?: string; reads?: boolean; maxBytes: number; maxRequestBytes: number }>(`/projects/${projectId}/chat/voice`),
 
   projectChatFiles: (
     projectId: string,

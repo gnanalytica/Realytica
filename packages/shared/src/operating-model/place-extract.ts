@@ -31,7 +31,7 @@
 
 import type { ChatIngestFile, ChatProposal, DdProject, PatchProjectInput } from './types';
 import { createChatProposal } from './wizard';
-import { standingAsRead, waitingAsRead } from './fact-review';
+import { dropAsItStands } from './fact-review';
 
 /**
  * A Karnataka survey number, introduced by a survey word.
@@ -216,8 +216,10 @@ export function placeProposalsFromIngest(
   for (const file of files) {
     if (parcelDone && addressDone && pointDone) break;
     const text = readable(file);
+    // What the paper states now: the reading, or for a paper already on its row the row as it stands (`dropAsItStands`).
+    const { standing, waiting, setAside } = dropAsItStands(project, file);
     // A value that stands on the reading is enough by itself; the page's words are the fallback for what nothing read.
-    if (!text && !standingAsRead(file.read).length) continue;
+    if (!text && !standing.length) continue;
 
     if (!parcelDone) {
       /*
@@ -228,11 +230,12 @@ export function placeProposalsFromIngest(
        * keeps returning to; the scrape is the fallback for a file nothing
        * read.
        */
-      const read = standingAsRead(file.read).find((f) => f.key === 'survey_numbers');
+      const read = standing.find((f) => f.key === 'survey_numbers');
       // Two readers differ on which number this paper is about. Nothing is proposed from it until a person keeps one:
       // scraping the page would only be this server's reader again, taken for the answer.
-      const differs = waitingAsRead(file.read).some((f) => f.key === 'survey_numbers' && f.otherReading);
-      const numbers = differs ? [] : read ? String(read.value).split(/\s*,\s*/).filter(Boolean) : extractSurveyNumbers(text);
+      const differs = waiting.some((f) => f.key === 'survey_numbers' && f.otherReading);
+      // Nor from a paper on its row whose number a person set aside there: scraping the page would bring that number back.
+      const numbers = differs || setAside.includes('survey_numbers') ? [] : read ? String(read.value).split(/\s*,\s*/).filter(Boolean) : extractSurveyNumbers(text);
       if (numbers.length > 0) {
         const parcelId = formatParcelId(numbers);
         const patch: PatchProjectInput = { parcelId };

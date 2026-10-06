@@ -164,6 +164,17 @@ export const MEM_FIELD_KEYS: Record<string, KeyRule> = {
   map_extent: { label: 'Extent on the public map', form: 'sqm' },
   map_survey: { label: 'Survey number on the public map', form: 'identifier' },
   paper_kind: { label: 'Kind of paper', form: 'words' },
+  // What a person entered for a day on site, or accepted from a voice note.
+  site_day: { label: 'Day of the site entry', form: 'date' },
+  site_work: { label: 'Work done on site', form: 'words' },
+  site_weather: { label: 'Weather on site that day', form: 'words' },
+  site_manpower: { label: 'People on site that day', form: 'number' },
+  site_issues: { label: 'Issues raised on site', form: 'number' },
+  // A draft a person approved for sending: what it is, and who it is to as the record names them.
+  outgoing_kind: { label: 'Draft approved to send', form: 'lower' },
+  outgoing_to: { label: 'Addressed to', form: 'words' },
+  // A paper a person marked reviewed on the review table.
+  paper_reviewed: { label: 'Reviewed', form: 'yes_no' },
   note: { label: 'Note', form: 'words', atMost: MEM_NOTE_LINE },
 };
 
@@ -649,6 +660,89 @@ function projectFacts(project: DdProject, trail: Trail): Told[] {
   return told;
 }
 
+/** What a draft that goes out is called for a person, by its kind. The product's own words. */
+const DRAFT_SAID: Record<string, string> = { letter: 'Letter', reply: 'Reply', rfi: 'Request for information', minutes: 'Minutes' };
+
+/**
+ * What a person entered for a day on site: an entry of the site log, typed
+ * there or proposed from a voice note and accepted. The day, the work done,
+ * the weather, how many people were there and how many issues were raised,
+ * each in the form its key takes. It holds for that day. Work said over
+ * several lines is one line where it fits one, and is not kept where it does
+ * not. A model's reading of a voice note is on a card until a person accepts
+ * it, and is no fact before that.
+ */
+function siteFacts(project: DdProject): Told[] {
+  const told: Told[] = [];
+  for (const entry of project.siteLog ?? []) {
+    const about = {
+      tag: 'approved' as const,
+      aboutId: entry.id,
+      ...placeOf('construction.progress'),
+      validFrom: entry.date,
+      validTo: entry.date,
+      recordedAt: entry.createdAt,
+      by: entry.author,
+      at: entry.createdAt,
+      source: entry.id,
+    };
+    told.push({ ...about, slot: `${entry.id}::site_day`, key: 'site_day', value: entry.date });
+    const work = (entry.workDone ?? '')
+      .split(/\s*[\r\n]+\s*/)
+      .filter(Boolean)
+      .join('; ');
+    if (work) told.push({ ...about, slot: `${entry.id}::site_work`, key: 'site_work', value: work });
+    if (entry.weather?.trim()) told.push({ ...about, slot: `${entry.id}::site_weather`, key: 'site_weather', value: entry.weather });
+    const people = (entry.manpower ?? []).reduce((sum, row) => sum + (Number.isFinite(row.count) ? row.count : 0), 0);
+    if (people > 0) told.push({ ...about, slot: `${entry.id}::site_manpower`, key: 'site_manpower', value: people });
+    if (entry.issues?.length) told.push({ ...about, slot: `${entry.id}::site_issues`, key: 'site_issues', value: entry.issues.length });
+  }
+  return told;
+}
+
+/**
+ * A draft a person approved for sending: what it is, and who it is to as the
+ * record names them, with who approved it and when. What states it is the
+ * paper, the meeting or the action it is about, where it is about one. A
+ * draft nobody has approved, or one put back to draft, is no fact: its words
+ * are a drafter's, a model's among them, and nothing reads them as true.
+ */
+function outgoingFacts(project: DdProject): Told[] {
+  const told: Told[] = [];
+  const onRecord = new Set<string>([...project.evidence.map((row) => row.id), ...(project.meetings ?? []).map((meeting) => meeting.id), ...project.actions.map((action) => action.id)]);
+  for (const draft of project.outgoing ?? []) {
+    if (draft.status !== 'approved' || !draft.approvedBy || !draft.approvedAt) continue;
+    const about = {
+      tag: 'approved' as const,
+      aboutId: draft.id,
+      recordedAt: draft.approvedAt,
+      by: draft.approvedBy,
+      at: draft.approvedAt,
+      source: draft.about && onRecord.has(draft.about.id) ? draft.about.id : draft.id,
+    };
+    told.push({ ...about, slot: `${draft.id}::outgoing_kind`, key: 'outgoing_kind', value: draft.kind, display: DRAFT_SAID[draft.kind] });
+    if (draft.to?.trim()) told.push({ ...about, slot: `${draft.id}::outgoing_to`, key: 'outgoing_to', value: draft.to });
+  }
+  return told;
+}
+
+/**
+ * The papers a person marked reviewed on the review table, each with who and
+ * when. A mark taken off is a fact let go. The table's answers are not here
+ * and are told nowhere: a model's answer to a question, or a search's, is
+ * not a value of the record, whoever looked at it.
+ */
+function reviewedFacts(project: DdProject): Told[] {
+  const told: Told[] = [];
+  const marks = project.reviewTable?.reviewed ?? {};
+  for (const row of project.evidence) {
+    const mark = marks[row.id];
+    if (!mark) continue;
+    told.push({ slot: `${row.id}::paper_reviewed`, tag: 'approved', key: 'paper_reviewed', value: true, aboutId: row.id, ...placeOf(documentWorkstream(project, row)), recordedAt: mark.at, by: mark.by, at: mark.at, source: row.id });
+  }
+  return told;
+}
+
 /** What else a person has recorded: comparables accepted, answers given, decisions and actions, and the reads kept off the public map. */
 function recordFacts(project: DdProject, trail: Trail): Told[] {
   const told: Told[] = [];
@@ -668,6 +762,8 @@ function recordFacts(project: DdProject, trail: Trail): Told[] {
       if (!question.answer?.trim()) continue;
       // An answer a model suggested waits until a person confirms it.
       const waits = question.suggested === true;
+      // The paper behind it, where it names one that is on the file: the first it gives, with its page and its words.
+      const behind = question.proof?.find((proof) => project.evidence.some((row) => row.id === proof.evidenceId));
       told.push({
         slot: `${question.id}::answer`,
         tag: waits ? 'proposed' : 'approved',
@@ -676,7 +772,8 @@ function recordFacts(project: DdProject, trail: Trail): Told[] {
         aboutId: question.id,
         recordedAt: question.answeredAt ?? questionnaire.updatedAt,
         ...(waits ? { readBy: 'model' as const, stands: false } : { by: question.answeredBy, at: question.answeredAt }),
-        source: question.id,
+        source: behind?.evidenceId ?? question.id,
+        ...(behind ? { page: behind.page, quote: behind.quote } : {}),
       });
     }
   }
@@ -761,6 +858,9 @@ export function memoryFacts(project: DdProject): MemFacts {
     ...checkFacts(project, trail),
     ...projectFacts(project, trail),
     ...recordFacts(project, trail),
+    ...siteFacts(project),
+    ...outgoingFacts(project),
+    ...reviewedFacts(project),
     ...cardFacts(project),
   ];
   const withheld: MemFactsWithheld = { offList: 0, notAValue: 0 };

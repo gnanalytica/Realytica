@@ -13,10 +13,12 @@
  * - a value that has waited too long for somebody to decide it.
  *
  * Two facts are of the same thing when they have the same key and share
- * what they are about or what states them. A value recorded on a check from
- * a paper has the paper's key and names the paper as its source, so it is
- * held against that paper's own value, and a value waiting on a card is held
- * against the field it would fill.
+ * what they are about, or, for a kind of value a paper states, what states
+ * them. A value recorded on a check from a paper has the paper's key and
+ * names the paper as its source, so it is held against that paper's own
+ * value, and a value waiting on a card is held against the field it would
+ * fill. A key of the record's own is one slot a record: two answers drawn
+ * from one paper are not held against each other.
  *
  * Lint proposes and never fixes. It changes nothing in memory and nothing
  * on the record: a finding is a line for a person, with the ids it is about.
@@ -24,7 +26,7 @@
  */
 
 import { memoryDelta, memPointer, type MemWatermark } from './mem-delta';
-import { memFactRev, memoryFacts, type MemFact } from './mem-facts';
+import { MEM_FIELD_KEYS, memFactRev, memoryFacts, type MemFact } from './mem-facts';
 import { projectRecordIds } from './project-view';
 import { revenueReads } from './revenue-map';
 import type { DdProject } from './types';
@@ -57,9 +59,19 @@ function sameValue(a: MemFact['value'], b: MemFact['value']): boolean {
   return a === b;
 }
 
-/** Whether two facts under one key are of the same thing: they share what they are about, or what states them. */
+/**
+ * Whether two facts under one key are of the same thing. They are when they
+ * are about the same record. For a kind of value a paper states, they are
+ * also when the same paper states both, or one is about what states the
+ * other: a paper cannot state one thing two ways. A key of the record's own
+ * (an answer, a decision, the day of a site entry) is one slot a record, so
+ * two answers drawn from one paper, or two decisions made at one meeting, are
+ * two things and may say what they like.
+ */
 function sameThing(a: MemFact, b: MemFact): boolean {
-  return a.aboutId === b.aboutId || a.source === b.source || a.aboutId === b.source || a.source === b.aboutId;
+  if (a.aboutId === b.aboutId) return true;
+  if (Object.hasOwn(MEM_FIELD_KEYS, a.key)) return false;
+  return a.source === b.source || a.aboutId === b.source || a.source === b.aboutId;
 }
 
 const shown = (fact: MemFact): string => fact.display ?? `${String(fact.value)}${fact.unit ? ` ${fact.unit}` : ''}`;
