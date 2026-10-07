@@ -349,6 +349,15 @@ describe('asked for in the chat', () => {
 
     assert.deepEqual(readOutgoingAsk(p, 'draft a reply to the contractor’s letter on the delay'), { input: { kind: 'reply', about: { kind: 'paper', id: letter.id }, to: 'The contractor', topic: 'the contractor’s letter on the delay' } });
     assert.deepEqual(readOutgoingAsk(p, 'write a letter to the authority asking for the khata extract.'), { input: { kind: 'letter', to: 'The authority', topic: 'asking for the khata extract' } });
+    // Was to "The lender answering their questions", about nothing: what the letter does ends who it is to.
+    assert.deepEqual(readOutgoingAsk(p, 'Draft a letter to the lender answering their questions'), { input: { kind: 'letter', to: 'The lender', topic: 'answering their questions' } });
+    assert.deepEqual(readOutgoingAsk(p, 'Draft a letter to the bank confirming the outstanding amount'), { input: { kind: 'letter', to: 'The bank', topic: 'confirming the outstanding amount' } });
+    // Was to "The", about "confirming party about the sale deed": the word ends who it is to only where a name stands before it.
+    assert.deepEqual(readOutgoingAsk(p, 'Draft a letter to the confirming party about the sale deed'), { input: { kind: 'letter', to: 'The confirming party', topic: 'about the sale deed' } });
+    assert.deepEqual(readOutgoingAsk(p, 'Draft a letter to the seller and the confirming party asking for the originals'), { input: { kind: 'letter', to: 'The seller and the confirming party', topic: 'asking for the originals' } });
+    // A name that holds the word is still a name, and the words that already ended it still do.
+    assert.deepEqual(readOutgoingAsk(p, 'Draft a letter to the Answering Machine Company about the phones'), { input: { kind: 'letter', to: 'The Answering Machine Company', topic: 'about the phones' } });
+    assert.deepEqual(readOutgoingAsk(p, 'Draft a letter to the lender'), { input: { kind: 'letter', to: 'The lender', topic: '' } });
     assert.deepEqual(readOutgoingAsk(p, 'draft the minutes of the meeting of 3 October'), { input: { kind: 'minutes', about: { kind: 'meeting', id: meeting.id } } });
 
     // Two letters from the contractor: it asks which, and each answer names one paper whole.

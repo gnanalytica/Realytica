@@ -34,6 +34,7 @@ import { agentCapability, enrichIngestWithDocumentIntelligence } from '@realytic
 import type { ChatIngestFile, ChatProposal, DdProject, EvidenceRecord, MayDecide, ProjectChatTurn } from '@realytica/shared';
 import {
   absorbAnsweredGaps,
+  cardSays,
   ddForDocumentsProposal,
   decisionRefused,
   departmentOfPaper,
@@ -394,7 +395,9 @@ export async function readOntoRegister(
   const startDd = ddForDocumentsProposal(project, project.evidence.flatMap((e) => standingFacts(e)), actor, cards);
   if (startDd) cards.push(startDd);
 
-  project.chatProposals.push(...cards);
+  // One card a value: a card that says what one already waiting says is not raised again, and the one that waits is listed with this reading in its place.
+  const waiting = new Map(project.chatProposals.filter((card) => card.status === 'proposed').map((card) => [cardSays(card), card.id]));
+  project.chatProposals.push(...cards.filter((card) => !waiting.has(cardSays(card))));
   const fills = new Set(cards.filter((c) => c.kind === 'record_check_fields').map((c) => String(c.payload.checkId))).size;
   const text = [
     `Read the ${labels.length === 1 ? labels[0] : labels.join(', ')} you filed on the register.`,
@@ -419,7 +422,7 @@ export async function readOntoRegister(
     actor,
     citedEvidenceIds: cited,
     toolCalls: [{ name: 'ingest', summary: `Read ${plural(labels.length, 'document')} filed on the register` }],
-    proposalIds: cards.map((c) => c.id),
+    proposalIds: [...new Set(cards.map((card) => waiting.get(cardSays(card)) ?? card.id))],
     ...(spend ? { spend } : {}),
   };
   project.conversation.push(turn);

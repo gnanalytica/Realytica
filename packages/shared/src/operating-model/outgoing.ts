@@ -888,9 +888,13 @@ export function readOutgoingAsk(project: DdProject, question: string): OutgoingA
 
   // A letter or a request for information: to whom, where the words say, and what about.
   const named = /^to\s+(.+?)(?=\s+(?:asking|requesting|about|regarding|on|for|that|saying)\b|[,;:]|$)/i.exec(rest);
-  const topic = (named ? rest.slice(named[0].length) : rest).replace(/^[,;:\s]+/, '');
+  // What the letter does ends who it is to as well: "to the lender answering their questions" is to the lender. In small letters only, as a name may hold the word.
+  // Only where a name stands before it: "to the confirming party" is to that party, and what is left of it would end in "the".
+  const cut = named ? named[1]!.split(/\s+(?=(?:answering|confirming|explaining|enclosing|clarifying|seeking|responding|replying)\b)/)[0]! : undefined;
+  const to = named && (!cut || /(?:^|\s)(?:the|a|an|our|their|his|her|and|or)$/i.test(cut)) ? named[1]! : cut;
+  const topic = (named && to !== undefined ? rest.slice(named[0].length - named[1]!.length + to.length) : rest).replace(/^[,;:\s]+/, '');
   if (!named && !topic) return { said: `Say who ${kind === 'rfi' ? 'the request' : 'the letter'} is to and what it is about, as in “draft a letter to the authority asking for the khata extract”.` };
-  return { input: { kind, ...(named ? { to: capital(named[1]!.trim()) } : {}), topic } };
+  return { input: { kind, ...(to ? { to: capital(to.trim()) } : {}), topic } };
 }
 
 /** How a draft stands, in a line or two: what it is, how much of it rests on the record, and that nothing has gone out. */

@@ -4,6 +4,7 @@ import { acceptedOneAtATime, factReview, oneAtATimeSaid, paperCarries, proofSaid
 import { cn } from '../ui/kit';
 import { AcceptAllButton, DecideButtons, DecidedMark } from '../review/Decide';
 import { OtherReading, useTyped } from './FactRow';
+import { pointsAt, type SeenAt } from './pointed';
 
 export type FactDecision = 'accept' | 'reject' | 'reopen';
 export type FactEdit = { value: string | number | boolean; display: string };
@@ -69,6 +70,7 @@ function ReviewRow({
   const value = useTyped(fact.display, delay + 120, revealing);
   const [draft, setDraft] = useState(fact.display);
   const input = useRef<HTMLInputElement>(null);
+  const seenAt = useRef<SeenAt | null>(null);
   useEffect(() => {
     if (!editing) return;
     setDraft(fact.display);
@@ -77,9 +79,20 @@ function ReviewRow({
   const model = fact.source === 'model';
   return (
     <div
-      // Pointed at by a pointer that moves onto it. A row drawn under a pointer at rest is not: the desk opens under the
-      // press that asked for one value, and the row that happened to land there would take the page from it.
-      onMouseMove={active ? undefined : onActivate}
+      // Pointed at by a pointer that travels on it. A row drawn under a pointer at rest is not, whatever the hand does
+      // through the press: the desk opens under the press that asked for one value, and the row that happened to land
+      // there would take the page from it.
+      onMouseMove={
+        active
+          ? undefined
+          : (e) => {
+              seenAt.current ??= { x: e.clientX, y: e.clientY };
+              if (pointsAt(seenAt.current, e)) onActivate();
+            }
+      }
+      onMouseLeave={() => {
+        seenAt.current = null;
+      }}
       onClick={onActivate}
       data-active={active || undefined}
       className={cn(

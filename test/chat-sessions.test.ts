@@ -300,6 +300,9 @@ describe('the list of chats', () => {
     // An answer that quotes the paper filed nothing: what waits on the paper is still somewhere else.
     const quoted = [turn('user', 'what does the khata say?', '2026-09-10T09:00:00.000Z', { sessionId: 'f' }), turn('assistant', 'It names A. Example.', '2026-09-10T09:00:05.000Z', { sessionId: 'f', citedEvidenceIds: ['ev-old'], toolCalls: [{ name: 'answer_from_file', summary: 'Khata' }] })];
     assert.deepEqual(waitingElsewhere(entries, liveTurns(quoted, chatSessions(quoted), { sessionId: 'f', startedAt: '2026-09-10T08:59:00.000Z' })).map((e) => e.count), [2, 3, 1]);
+    // A voice note dropped in this chat waits on a card its reply names beside the records it cites: that card is on screen too.
+    const noted = [turn('user', 'a note from site', '2026-09-11T09:00:00.000Z', { sessionId: 'g' }), turn('assistant', 'Kept the voice note.', '2026-09-11T09:00:05.000Z', { sessionId: 'g', citedNodeIds: ['p-new'], toolCalls: [{ name: 'ingest', summary: 'Filed 1 file' }] })];
+    assert.deepEqual(waitingElsewhere(entries, liveTurns(noted, chatSessions(noted), { sessionId: 'g', startedAt: '2026-09-11T08:59:00.000Z' })).map((e) => e.count), [2, 3]);
   });
 
   it('names a chat that opens with papers dropped in by what was read', () => {

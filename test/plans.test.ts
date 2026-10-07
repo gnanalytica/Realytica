@@ -108,6 +108,21 @@ describe('a draft to send', () => {
     assert.equal(planMayBeAsked('Please draft a brief letter to the bank about the open questions'), false);
   });
 
+  it('is no step with a comma or an “and” between the words that describe it', () => {
+    // Each was a `suggest_answers` step: a comma after "short" ended the describing words.
+    for (const said of ['Draft a short, polite reply to the lender’s questions', 'Draft a short and polite reply to the lender’s questions', 'Draft a brief, formal letter to the bank about the open questions']) {
+      assert.deepEqual(planWants(said), { wants: [], unread: [said], asksForPlan: false }, said);
+      assert.equal(planMayBeAsked(said), false, said);
+    }
+    assert.equal(draftToSendSaid('Draft a short, polite reply to the lender’s questions'), 'Draft a reply to the lender’s questions');
+    assert.equal(draftToSendSaid('Please write a short, clear and polite email to the architect about the fire NOC'), 'Please write a letter to the architect about the fire NOC');
+    // A comma or an "and" before the thing itself joins two things asked for, and describes nothing.
+    for (const said of ['Prepare a list and email it to the lender', 'Draft a summary, letter and email', 'Draft a note and reply to the lender', 'Draft answers, and reply to the lender', 'Write a report and letter to the bank']) {
+      assert.equal(draftToSendSaid(said), said, said);
+    }
+    assert.deepEqual(planWants('Write a report and letter to the bank').wants.map((want) => want.kind), ['write_report']);
+  });
+
   it('is said to the reader of drafts without the words that only describe it, and an email as a letter', () => {
     assert.equal(draftToSendSaid('Draft a short reply to the lender’s questions'), 'Draft a reply to the lender’s questions');
     assert.equal(draftToSendSaid('Please draft a brief formal letter to the bank about the open questions'), 'Please draft a letter to the bank about the open questions');

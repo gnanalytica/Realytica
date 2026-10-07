@@ -68,7 +68,17 @@ interface Topic {
   read?: (question: string) => string;
 }
 
-const FAR_SAID_COMMONLY = /\b(?:how|so|as|thus|by|too|very|go(?:es|ing)?|went|gone|get(?:s|ting)?|got)\s+far\b|(?<!\bthe\s+)\bfar\s+(?:back|along|away|off|from|enough|more|less|better|worse|too|apart|behind|ahead|beyond|out)\b/gi;
+const FAR_SAID_COMMONLY = /\b(?:how|so|as|thus|by|too|very|go(?:es|ing)?|went|gone|get(?:s|ting)?|got)\s+far\b|(?<!\bthe\s+|\bour\s+(?=far\s+(?:too|(?:more|less|better|worse)\s+than)\b))\bfar\s+(?:back|along|away|off|from|enough|more|less|better|worse|too|apart|behind|ahead|beyond|out)\b/gi;
+
+/**
+ * A question that opens by setting "far" itself against a number the size of
+ * a ratio, with nothing after the number but what is asked of it: "is far
+ * more than 2 allowed?" Nothing else is there for it to be said of. Where the
+ * number counts something ("far more than 40 crore", "far more than 3
+ * floors") far is said of that. It may follow a word a question opens with
+ * (`OPENS`).
+ */
+const FAR_AGAINST_A_NUMBER = /^\W*(?:(?:so|and|ok|okay|hey|please)[\s,]+)?(?:is|are|was|were)\s+(?=far\s+(?:more|less)\s+than\s+\d(?:\.\d+)?(?:\s+(?:allowed|permitted|permissible|sanctioned|used|ok|okay)\b|\W*$))/i;
 
 /**
  * A question without "far" where it is the common word and not the floor
@@ -77,11 +87,15 @@ const FAR_SAID_COMMONLY = /\b(?:how|so|as|thus|by|too|very|go(?:es|ing)?|went|go
  * memory reads what a question is about.
  *
  * Written as the abbreviation it is the ratio, whatever stands beside it, and
- * stays: in capitals where the word beside it is not, or as "the far" ("is
- * FAR more than 2 allowed?", "is the far too high?").
+ * stays: in capitals where the word beside it is not, or as "the far", "our
+ * far too" or "our far more than" ("is FAR more than 2 allowed?", "is our
+ * far too high?"). So does the one a question opens with and sets against a
+ * number, in any case: "IS FAR MORE THAN 2 ALLOWED?" "This far", "that far",
+ * "our far back boundary" and "our far better option" are the common word.
  */
 export function withoutFarAsACommonWord(question: string): string {
-  return question.replace(FAR_SAID_COMMONLY, (said) => (/\bFAR\b/.test(said) && said !== said.toUpperCase() ? said : ' '));
+  const opens = FAR_AGAINST_A_NUMBER.exec(question)?.[0].length;
+  return question.replace(FAR_SAID_COMMONLY, (said, at: number) => (at === opens || (/\bFAR\b/.test(said) && said !== said.toUpperCase()) ? said : ' '));
 }
 
 const TOPICS: Topic[] = [
@@ -1152,3 +1166,4 @@ export function paperWordsAnswer(passages: readonly PaperPassage[], more: { notO
   // The reply opens by saying whose words these are. The label under it says where they were found, and does not say the same again.
   return { text: lines.join('\n'), summary: pages.length === 1 ? 'Quoted from the page' : 'Quoted from the pages', citedEvidenceIds: [...new Set(pages.map((passage) => passage.evidenceId))], citedNodeIds: [] };
 }
+

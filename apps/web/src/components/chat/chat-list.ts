@@ -39,7 +39,8 @@ export { liveChatId, liveTurns } from '@realytica/shared';
  * that chat's own cards as somewhere else.
  */
 export function waitingElsewhere(entries: readonly WaitingEntry[], onScreen: readonly ProjectChatTurn[]): WaitingEntry[] {
-  const cards = new Set(onScreen.flatMap((turn) => turn.proposalIds ?? []));
+  // A card a reply raised, and one it names beside the records it cites: a voice note kept and not yet put into words waits on a card named so.
+  const cards = new Set(onScreen.flatMap((turn) => [...(turn.proposalIds ?? []), ...(turn.citedNodeIds ?? [])]));
   // The papers a reply filed are the ones it shows as waiting. One an answer only quotes is still somewhere else.
   const papers = new Set(onScreen.flatMap((turn) => filedByReply(turn)));
   return entries.filter((entry) => (entry.proposalId ? !cards.has(entry.proposalId) : entry.evidenceId ? !papers.has(entry.evidenceId) : false));
@@ -133,6 +134,20 @@ export function sittingKept<T extends { id: string }>(sitting: T, reply: { userT
  */
 export function turnKept<T extends { id: string; role: string; sessionId?: string }>(conversation: readonly T[], had: ReadonlySet<string>, sittingId: string): T | undefined {
   return conversation.find((turn) => turn.role === 'user' && !had.has(turn.id) && (turn.sessionId === sittingId || Boolean(turn.sessionId?.startsWith(`${sittingId}~`))));
+}
+
+/**
+ * The project the page holds once the read made after such a send has landed.
+ *
+ * The read is laid over the page's own copy, so the thread on screen holds
+ * the message. Not over a later copy, though: Stop frees the page at once,
+ * and a value decided before the read lands comes back with a copy made
+ * after the read was taken. That copy holds the thread as well. Where it
+ * does not hold the message, the read's thread is put on it.
+ */
+export function laidOver<P extends { updatedAt: string; conversation?: ReadonlyArray<{ id: string }> }>(held: P, read: P, turnId: string): P {
+  if (read.updatedAt >= held.updatedAt) return read;
+  return (held.conversation ?? []).some((turn) => turn.id === turnId) ? held : { ...held, conversation: read.conversation };
 }
 
 /**

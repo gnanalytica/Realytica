@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { BarChart3, ChevronDown } from 'lucide-react';
-import type { ScreenResult } from '@realytica/shared';
 import { RiskProfileChart, ValueRangeChart } from '../charts';
 import { cn } from '../ui/kit';
 import { replyRan } from './answer-blocks';
@@ -34,13 +33,9 @@ export function TurnVisual({
   project,
 }: {
   /** The reply, as the thread keeps it. */
-  turn?: ReplyKept;
+  turn: ReplyKept;
   /** The project as the page holds it. */
-  project?: ProjectHeld;
-  /** Not read. What the chat panel passed before it passed the reply and the project. */
-  toolNames?: string[];
-  result?: ScreenResult;
-  askingPrice?: number | null;
+  project: ProjectHeld;
 }) {
   const { valuation, screen } = replyRan(turn, project);
   return (

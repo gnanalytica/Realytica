@@ -8,13 +8,13 @@
  */
 
 import { CHECK_RESULT_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
-import { FIRM_ONLY_PANES, chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, paneOfFunction, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, titleWords, type ChatPlace } from './chat-places';
-import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, STAGES, STAGE_WORD, functionKey, stageAndStep, workstreamOfCheck, type DepartmentKey } from './departments';
+import { FIRM_ONLY_PANES, QUESTIONS_STEP, chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, paneOfFunction, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, titleWords, type ChatPlace } from './chat-places';
+import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, STAGES, STAGE_WORD, departmentDefinition, functionKey, stageAndStep, workstreamOfCheck, type DepartmentKey } from './departments';
 import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingChoices, waitingSentence } from './document-filing';
 import { readInstruction, sameTitle, wordsOf, type Instruction, type InstructionVerb } from './instruction';
 import { dropAsItStands, factsAwaitingReview, oneAtATimeSaid, proposedFacts } from './fact-review';
 import { partlyReadOnFile, partlyReadSentence } from './reading-coverage';
-import { DecisionRefused, contestedKeys, decideCheckFields, departmentOfCheck, departmentOfPaper, fromSetAsideReading, fromWaitingReading, mayDecidePaper, paperOfCard, reviewFacts, waitingFieldKeys } from './review';
+import { contestedKeys, decideCheckFields, departmentOfCheck, departmentOfPaper, fromSetAsideReading, fromWaitingReading, mayDecidePaper, paperOfCard, reviewFacts, waitingFieldKeys } from './review';
 import type { MayDecide } from './team';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { moneySaid } from './cost';
@@ -148,6 +148,9 @@ import {
 import { asksForStatusReport, statusDraftBroughtTo, statusDraftFor, statusNothingSaid, statusPeriodAsked, statusReport, statusSaid } from './status-report';
 import { asksForOutgoing, outgoingAsked } from './outgoing';
 import { draftToSendSaid } from './plans';
+import { questionnaireDepartment, questionnaireSummary } from './questionnaire';
+import { runValuationApproaches } from './valuation-run';
+import { valueInputRows, withValueOffers } from './value-inputs';
 import { valueSummary } from './value-standing';
 
 export const PROJECT_COCKPIT_PANES = [
@@ -318,15 +321,21 @@ export function cockpitPath(
   const stage = STAGES.find((s) => s.key === extra?.stage);
   const pairs: Array<[string, string | undefined]> = [
     ['stage', stage ? STAGE_WORD[stage.key] : undefined],
+    // The Questions step of a department's steps is no part of a page: it is said in the word the steps are read from, with the questionnaire to open.
     // A part belongs to a function's page. On it a document opens as it does on the register, at the page cited.
-    ...(extra?.section
+    ...(extra?.section === QUESTIONS_STEP
       ? ([
-          ['part', extra.section],
+          ['step', QUESTIONS_STEP],
           ['item', extra.item],
-          ['evidence', extra.evidenceId],
-          ['page', extra.evidenceId ? extra.page : undefined],
         ] as Array<[string, string | undefined]>)
-      : []),
+      : extra?.section
+        ? ([
+            ['part', extra.section],
+            ['item', extra.item],
+            ['evidence', extra.evidenceId],
+            ['page', extra.evidenceId ? extra.page : undefined],
+          ] as Array<[string, string | undefined]>)
+        : []),
   ];
   const more = withQuery('', pairs).slice(1);
   return more ? `${path}${path.includes('?') ? '&' : '?'}${more}` : path;
@@ -535,7 +544,7 @@ function unknownName(q: string): string | undefined {
 /* A record asked for by its own words                                   */
 /* ==================================================================== */
 
-type CalledKind = 'document' | 'check' | 'finding' | 'risk' | 'action' | 'decision';
+type CalledKind = 'document' | 'check' | 'finding' | 'risk' | 'action' | 'decision' | 'questionnaire';
 
 /** A record a sentence may name by its own words, and what a choice between several says of it. */
 interface Called {
@@ -556,6 +565,7 @@ const KIND_SAID: Array<[CalledKind, RegExp]> = [
   ['risk', /^risk$/],
   ['action', /^action$/],
   ['decision', /^decision$/],
+  ['questionnaire', /^questionnaire$/],
 ];
 
 /** Words of a name that join its other words and say nothing of which record. */
@@ -592,8 +602,8 @@ function wordsCalled(text: string): string[] {
  * The kind may be said beside the name ("the mortgage finding", the finding
  * "…"), and then only that kind is looked at.
  *
- * A finding, a risk, an action, a decision, a paper that has not been
- * replaced, and a check. A page or a stage by that name has been read already
+ * A finding, a risk, an action, a decision, a questionnaire, a paper that has
+ * not been replaced, and a check. A page or a stage by that name has been read already
  * (`placeFromText`), and a scope or a due diligence is left to the reader of
  * those.
  *
@@ -608,7 +618,10 @@ function recordsCalled(project: DdProject, q: string): { name: string; found: Ca
   const name = (quoted ? quoted[1]! : said).trim();
   const named = wordsCalled(name);
   const telling = named.filter((word) => !GLUE.has(word));
-  if (!telling.length || (!quoted && named.some((word) => POINTING.test(word)))) return { name, found: [], quoted: Boolean(quoted) };
+  // A pointing word is looked for as it was typed: with its plural cut, "this" read "thi" and named the one title that holds "this".
+  // "This" points where it opens the name or the name is short ("this", "this check", "the stage of this"). In a longer name it is a word of a title, and the name is matched.
+  const points = titleWords(name).split(' ').some((word, at) => POINTING.test(word) && (word !== 'this' || at === 0 || telling.length <= 2));
+  if (!telling.length || (!quoted && points)) return { name, found: [], quoted: Boolean(quoted) };
   // "The legal scope" and "the acquisition DD" name a scope and a due diligence, which are found by their own reader.
   if (!quoted && /^(?:scope|dd|assessment|diligence)$/.test(named.at(-1)!)) return { name, found: [], quoted: false };
   const kindOf = (word: string | undefined): CalledKind | undefined => KIND_SAID.find(([, form]) => word !== undefined && form.test(word))?.[0];
@@ -635,6 +648,12 @@ function recordsCalled(project: DdProject, q: string): { name: string; found: Ca
   for (const r of project.risks) add({ kind: 'risk', id: r.id, title: r.title, detail: stands(r.status) });
   for (const a of project.actions) add({ kind: 'action', id: a.id, title: a.title, detail: stands(a.status) });
   for (const d of project.decisions) add({ kind: 'decision', id: d.id, title: d.title, detail: stands(d.status) });
+  // A questionnaire whose department is switched on, by its title and by the word for what it is. One with no page to open is named by nothing,
+  // and so is one kept under a department that is not live yet: its page shows no Questions step to open it at.
+  for (const sheet of project.questionnaires ?? []) {
+    const { answered, total } = questionnaireSummary(sheet);
+    if (departmentDefinition(questionnaireDepartment(sheet))?.status === 'live' && placeOfRecord(project, sheet.id)) add({ kind: 'questionnaire', id: sheet.id, title: sheet.title, detail: `${answered} of ${total} answered` }, 'questionnaire');
+  }
 
   const holding = (words: string[], whole: string, kind?: CalledKind) =>
     rows.filter((row) => (!kind || row.kind === kind) && words.every((word) => row.words.includes(word)) && (row.inHand || row.whole.includes(whole)));
@@ -868,15 +887,23 @@ function amountSaid(amount: number, currency: ValuationRun['currency']): string 
  * that there is no figure yet and what the first approaches still need. The
  * approach named is the one the run used. The premise of value ("residual")
  * is no approach, and a run that could work nothing out has no figure: it is
- * never said as nought.
+ * never said as nought. Where values wait on the page to be accepted, the
+ * run has no figure and the page may show a provisional one: the reply says
+ * how many wait and what the page shows with them.
  */
 function valuationSaid(project: DdProject, run: ValuationRun): { figure?: string; text: string; tag: string } {
   const value = run.working ? valueSummary(project, run.working) : undefined;
   const amount = value ? value.fairMarket : run.indicatedValue > 0 ? run.indicatedValue : null;
   if (amount === null) {
     if (value?.outcome === 'approaches_disagree') return { text: `No figure: the approaches disagree. ${run.working!.reconciliation.spreadBasis}`, tag: 'No figure' };
-    const needs = (value?.approaches ?? []).filter((a) => a.amount === null && a.missing.length).slice(0, 2).map((a) => `${a.label} needs ${a.missing.slice(0, 2).join(' and ').toLowerCase()}.`);
-    return { text: ['No figure yet.', ...needs].join(' '), tag: 'No figure yet' };
+    // The page counts the values the file offers before anybody accepts them, and a run does not. Those are said to wait, and an approach needs only what nothing offers.
+    const waiting = valueInputRows(project).flatMap((row) => (row.waiting ? [row.waiting] : []));
+    const shown = waiting.length ? valueSummary(project, runValuationApproaches(withValueOffers(project, waiting))) : value;
+    const needs = (shown?.approaches ?? []).filter((a) => a.amount === null && a.missing.length).slice(0, 2).map((a) => `${a.label} needs ${a.missing.slice(0, 2).join(' and ').toLowerCase()}.`);
+    if (!waiting.length) return { text: ['No figure yet.', ...needs].join(' '), tag: 'No figure yet' };
+    const wait = `No figure yet. ${plural(waiting.length, 'value')} ${waiting.length === 1 ? 'waits' : 'wait'} on the Valuation page to be accepted.`;
+    const then = shown?.fairMarket ? [`With ${waiting.length === 1 ? 'it' : 'them'} the page shows ${amountSaid(shown.fairMarket, run.currency)}, provisional.`] : needs;
+    return { text: [wait, ...then].join(' '), tag: `No figure yet · ${waiting.length} to accept` };
   }
   const figure = amountSaid(amount, run.currency);
   const by = (value?.approaches ?? []).filter((a) => a.amount !== null && a.share > 0).map((a) => `${a.label}: ${amountSaid(a.amount!, run.currency)} (${Math.round(a.share * 100)}%)`);
@@ -1657,8 +1684,8 @@ export function applyProjectChat(
         result = commitChatProposal(project, item.id, actor, { mayDecide });
       } catch (err) {
         // A card that would move a paper out of a function this person neither leads nor signs in stays waiting, and the reply says whose it is to move.
-        if (!(err instanceof DecisionRefused)) throw err;
-        notMoved.push(`“${item.title}” stays waiting. ${err.message}`);
+        // So does one that cannot be taken for any other reason, with the reason: thrown on, it left the cards taken before it on the record with no reply to say so.
+        notMoved.push(`“${item.title}” stays waiting. ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
       done.push(`${item.title}${result.recordId ? ` → ${result.recordId}` : ''}`);
@@ -1828,7 +1855,7 @@ export function applyProjectChat(
     }
     const at = placeOfRecord(project, hit.id, here)?.open ?? { pane: 'decisions' as const, extra: {} };
     navigate(at.pane, `Opened ${hit.title}`, at.extra);
-    assistantText = `“${hit.title}” is open in ${chatPlaceLabel({ pane: at.pane })} — ${hit.detail}.`;
+    assistantText = hit.kind === 'questionnaire' ? `“${hit.title}” is open at its questions — ${hit.detail}.` : `“${hit.title}” is open in ${chatPlaceLabel({ pane: at.pane })} — ${hit.detail}.`;
     citedNodeIds = [hit.id];
     highlightIds.push(hit.id);
     toolCalls = [{ name: 'navigate', summary: hit.title }];

@@ -163,6 +163,17 @@ describe('what a question is about', () => {
       assert.ok(answerFromFile(zoned(), asked)?.text.includes('Permissible FAR 2.25'), asked);
     }
     for (const asked of ['Is this far more than we expected?', 'WHAT HAVE WE FOUND SO FAR?', 'Is it far too early to say?']) assert.ok(!factKeysAsked(asked).includes('permissible_far'), asked);
+    // In "our far too high" it is the ratio in any case, and so is the one a question opens with and sets against a number the size of a ratio, after a word a question may open with.
+    for (const asked of ['is our far too high?', 'IS OUR FAR TOO HIGH?', 'IS FAR MORE THAN 2 ALLOWED?', 'is far less than 2.5 used?', 'So is far more than 2 allowed?', 'Hey, is far more than 2 allowed?']) {
+      assert.ok(factKeysAsked(asked).includes('permissible_far'), asked);
+      assert.ok(answerFromFile(zoned(), asked)?.text.includes('Permissible FAR 2.25'), asked);
+    }
+    // "This far", "that far", and far said of something else that is set against a number, stay the common word.
+    for (const asked of ['Is that far enough?', 'Is it this far back?', 'Is it far more than 2 km away?', 'Is the cost far more than 40 crore?', 'Is far more needed?', 'IS IT FAR MORE THAN WE THOUGHT?']) assert.ok(!factKeysAsked(asked).includes('permissible_far'), asked);
+    // So does far said of what follows "our", and of what a number counts. Each was answered with the FAR.
+    for (const asked of ['Is our far back boundary clear?', 'Is our far more expensive plot worth it?', 'Is our far better option the JV?', 'Is far more than 40 crore needed?', 'Are far more than 3 floors planned?', 'Were far more than 2 offers made?', 'Is far less than 10 percent sold?']) {
+      assert.ok(!factKeysAsked(asked).includes('permissible_far'), asked);
+    }
     for (const said of ['hello', 'Hi!', 'hi there', 'Hello again!', 'thanks', 'Thank you!', 'thank you so much', 'Great, thanks a lot.', 'What can you do?']) assert.equal(saidInPassing(said), true, said);
     for (const asked of ['What is the extent?', 'Is there a mortgage?', 'Thanks, and what is the extent?']) assert.equal(saidInPassing(asked), false, asked);
   });

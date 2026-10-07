@@ -26,6 +26,7 @@ import {
   withinQuestionnaireLimits,
   proposeFacts,
   questionStatus,
+  questionnaireDepartment,
   questionnaireOrPaper,
   questionnaireSaid,
   suggestFromFile,
@@ -73,10 +74,11 @@ function withDeed(): { p: DdProject; deedId: string } {
   return { p, deedId: deed.id };
 }
 
-async function drop(projectId: string, files: Array<[string, Buffer, string]>, question = ''): Promise<Array<Record<string, any>>> {
+async function drop(projectId: string, files: Array<[string, Buffer, string]>, question = '', place?: { pane: string; department: string }): Promise<Array<Record<string, any>>> {
   const form = new FormData();
   for (const [name, bytes, type] of files) form.append('files', new Blob([bytes], { type }), name);
   form.append('question', question);
+  if (place) form.append('place', JSON.stringify(place));
   const res = await fetch(`${base}/api/projects/${projectId}/chat/files`, { method: 'POST', body: form });
   return (await res.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, any>);
 }
@@ -245,6 +247,21 @@ describe('what a dropped file is', () => {
     assert.equal(await ask('list.txt', QUESTIONS.join('\n'), { whole: false }), 'paper', 'an outside collaborator’s file is a paper');
     assert.equal(await ask('list.txt', QUESTIONS.join('\n'), { said: 'paper' }), 'paper', 'what a person said it is, is what it is');
     assert.equal(await ask('letter.txt', 'Dear Sir,\nThe papers were sent.\nIs that all?', { said: 'questionnaire' }), 'questionnaire');
+
+    // A sheet that names a Question column is a questionnaire whatever it asks about. Was: one whose first question is about a sale deed was a paper, as the paper rules read it as a sale deed.
+    const read = { type: 'sale_deed', label: 'Sale deed', confidence: 0.73, method: 'text', facts: [], flags: [], summary: '', rowHints: [], scopes: [], evidenceKind: 'document' } as NonNullable<ChatIngestFile['read']>;
+    const recognised = async (fileName: string, text: string, more: Partial<Parameters<typeof whatWasDropped>[0]> = {}) => {
+      const dropped = asDropped(fileName, text);
+      return (await whatWasDropped({ project: p, paper: { ...dropped.paper, read }, file: dropped.file, fresh: true, whole: true, ...more })).as;
+    };
+    const sheet = ['No,Question', '1,Who holds the original sale deed?', '2,Is there a subsisting mortgage on the property?', '3,Has the khata been transferred to the present owner?'].join('\n');
+    assert.equal(await recognised('Lender_queries.csv', sheet), 'questionnaire');
+    // A paper the reader recognises is still a paper: a sheet that names no Question column, the same words as a page, one question alone, and a filed sheet read again.
+    assert.equal(await recognised('Schedule.csv', ['No,Particulars', '1,Sale deed dated 12 March 2019', '2,Registered as document 1423 of 2019'].join('\n')), 'paper');
+    assert.equal(await recognised('Lender queries.txt', sheet), 'paper');
+    assert.equal(await recognised('Lender_queries.csv', ['No,Question', '1,Who holds the original sale deed?'].join('\n')), 'paper');
+    assert.equal(await recognised('Lender_queries.csv', sheet, { fresh: false }), 'paper');
+    assert.equal(await recognised('Lender_queries.csv', sheet, { said: 'paper' }), 'paper');
   });
 });
 
@@ -271,6 +288,31 @@ describe('a questionnaire dropped in the chat', () => {
     assert.ok(sheet.fileKey, 'the questionnaire keeps the key of its file');
     const sent = await fetch(`${base}/api/projects/${p.id}/questionnaires/${sheet.id}/file`);
     assert.deepEqual([sent.status, (await sent.arrayBuffer()).byteLength], [200, (await workbook()).length]);
+  });
+
+  it('takes in a sheet of questions about a sale deed as a questionnaire, and files no sale deed', async () => {
+    const p = await seeded(createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0051'));
+    const sheet = ['No,Question', '1,Who holds the original sale deed?', '2,Is there a subsisting mortgage on the property?', '3,Has the khata been transferred to the present owner?', '4,Are property taxes paid up to date?', '5,Is the land converted for non-agricultural use?'].join('\n');
+    // Was: "Read the sale deed. Filed under Legal › Title", a row on the register called "Sale deed", and no questionnaire.
+    const result = (await drop(p.id, [['Lender_queries.csv', Buffer.from(sheet), 'text/csv']])).find((l) => l.type === 'result')!;
+    const project = result.project as DdProject;
+    assert.match(result.assistantTurn.text, /^Took in the questionnaire “Lender queries”: 5 questions\./);
+    assert.deepEqual([project.questionnaires?.length, project.evidence.filter((e) => e.attachments.length).length], [1, 0]);
+  });
+
+  it('is kept under the department of the page it was dropped on only where that page shows the Questions step', async () => {
+    const sheet = Buffer.from(['No,Question', '1,Which vendors are shortlisted?', '2,What is the tender closing day?', '3,Is a bank guarantee asked for?'].join('\n'));
+    const droppedOn = async (department: string): Promise<[string, string]> => {
+      const p = await seeded(createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, `RYT-${department}`));
+      const result = (await drop(p.id, [['Tender_queries.csv', sheet, 'text/csv']], '', { pane: 'department', department })).find((l) => l.type === 'result')!;
+      return [questionnaireDepartment((result.project as DdProject).questionnaires![0]!), result.assistantTurn.text.split('. ').at(-1)];
+    };
+    // Was: kept under Procurement, Commercial or Design, whose pages show no questions, and said to be on a Questions page they do not have.
+    for (const department of ['procurement', 'commercial', 'design']) assert.deepEqual(await droppedOn(department), ['construction', 'It is on the Questions page of Engineering & Construction.'], department);
+    // On a page that shows the step it is that department's, as it was.
+    assert.deepEqual(await droppedOn('legal'), ['legal', 'It is on the Questions page of Legal & Compliance.']);
+    assert.deepEqual(await droppedOn('finance'), ['finance', 'It is on the Questions page of Finance & Investment.']);
+    assert.deepEqual(await droppedOn('construction'), ['construction', 'It is on the Questions page of Engineering & Construction.']);
   });
 
   it('asks about a letter that only its name calls queries, and honours “a paper” typed with the file', async () => {

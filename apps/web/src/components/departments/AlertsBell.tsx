@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRight, Bell, Info, X, XCircle } from 'lucide-react';
 import { openAlerts, type DdProject, type ProjectAlert } from '@realytica/shared';
 import { workspaceApi } from '../../lib/workspace-api';
@@ -65,6 +65,31 @@ export function AlertsBell({
 
   const sheet = useMediaQuery('(max-width: 639px)');
   const toReview = review?.count ?? 0;
+
+  /*
+   * Escape closes the dropdown, and takes the key: a paper open under it stays
+   * for the next one. The sheet closes itself. What the keyboard opened over
+   * the dropdown takes the key first: the command bar, a menu, a list of
+   * choices. That is looked at as the key goes down, before it is gone.
+   */
+  useEffect(() => {
+    if (!open || sheet) return;
+    let under = false;
+    const onDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') under = [...document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="menu"], [role="listbox"]')].some((el) => !el.closest('[inert]'));
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || under) return;
+      e.preventDefault();
+      setOpen(false);
+    };
+    window.addEventListener('keydown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onDown, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, sheet]);
 
   const reviewRow =
     review && toReview > 0 ? (

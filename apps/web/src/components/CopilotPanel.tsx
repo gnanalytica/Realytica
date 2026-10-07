@@ -3,7 +3,7 @@ import { AttachControls, type VoiceInfo } from './chat/AttachControls';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, X } from 'lucide-react';
 import { PLAN_STEP, askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread, undoSentence } from '@realytica/shared';
-import type { AgentStep, ChatChoice, ChatTurnPlace, ChoicePin, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
+import type { AgentStep, ChatChoice, ChatTurnPlace, ChoicePin, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, ValuationRun, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { AiMark, Badge, Button, Modal, cn } from './ui/kit';
 import { EASE_ENTER, SPRING, motion } from '../lib/motion';
@@ -64,7 +64,7 @@ function TurnBubble({
   nodes,
   applied,
   screenResult,
-  askingPrice,
+  valuationRuns,
   onPick,
   mayPress,
   verification,
@@ -96,7 +96,7 @@ function TurnBubble({
   nodes?: Array<{ id: string; label: string }>;
   applied?: string[];
   screenResult?: ScreenResult;
-  askingPrice?: number | null;
+  valuationRuns?: ValuationRun[];
   /** Send a message on the person's behalf when they pick an offered choice. */
   onPick?: (text: string, sitting?: ChoicePin) => void;
   /** Whether a choice under this turn is a button. One that may not be pressed is drawn as the words it says. */
@@ -260,13 +260,7 @@ function TurnBubble({
           could scroll back to. A conversation that mutates a case and keeps
           no account of it is the wrong shape for a diligence file.
         */}
-        {screenResult && turn.toolCalls && turn.toolCalls.length > 0 ? (
-          <TurnVisual
-            toolNames={turn.toolCalls.map(t => t.name)}
-            result={screenResult}
-            askingPrice={askingPrice}
-          />
-        ) : null}
+        <TurnVisual turn={turn} project={{ lastScreenResult: screenResult, valuationRuns: valuationRuns ?? [] }} />
         {turn.metrics && turn.metrics.length > 0 ? (
           /*
            * What the turn changed, as figures.
@@ -500,7 +494,7 @@ export function CopilotPanel({
   onOpenCommands,
   onPickChoice,
   screenResult,
-  askingPrice,
+  valuationRuns,
   emptyTitle,
   emptyHint,
   placeholder,
@@ -523,9 +517,9 @@ export function CopilotPanel({
    * The message that was sent: its words and the names of its files. It is
    * drawn at the foot of this chat until its reply is in the thread. After
    * Stop it stays there, with nothing being answered, until the thread says
-   * whether it was kept.
+   * whether it was kept. A message sent meanwhile is drawn under it.
    */
-  pending?: { text: string; files: string[] } | null;
+  pending?: Array<{ text: string; files: string[] }>;
   /** Why the last message did not go, wherever it was sent from: typed here, a pressed choice, Undo, a plan's button, the command bar. */
   askError?: string | null;
   /**
@@ -616,7 +610,8 @@ export function CopilotPanel({
    * of the surface is showing, and a second read could disagree with the first.
    */
   screenResult?: ScreenResult;
-  askingPrice?: number | null;
+  /** The valuations run on this file, for the range under the reply that ran one. */
+  valuationRuns?: ValuationRun[];
   /**
    * Send an offered choice. Takes the pinned record with it, because two DDs
    * can carry checks with identical titles and the text alone cannot say
@@ -941,7 +936,7 @@ export function CopilotPanel({
     ) : null;
   const planLeadCards = planLead.length ? <div className="flex flex-col gap-2">{planLead.map((open) => planCard(open.id, { lead: true, initial: open }))}</div> : null;
 
-  const showEmptyState = shown.length === 0 && tab === 'chat' && !busy && !pending && !reading;
+  const showEmptyState = shown.length === 0 && tab === 'chat' && !busy && !pending?.length && !reading;
   const current = rows.find((row) => row.current);
 
   return (
@@ -1172,7 +1167,7 @@ export function CopilotPanel({
                 nodes={nodes}
                 applied={appliedByTurn?.[turn.id]}
                 screenResult={screenResult}
-                askingPrice={askingPrice}
+                valuationRuns={valuationRuns}
                 onPick={(text, sitting) => void onPickChoice?.(text, sitting)}
                 busy={busy}
                 planStep={planSaid.get(turn.id)}
@@ -1207,15 +1202,17 @@ export function CopilotPanel({
               </div>
             ))}
             {/* What was just sent, in the chat it was sent to, until the thread holds it with its reply or it is handed back. */}
-            {pending && !reading ? (
-              <div className="animate-rise-in">
-                <TurnBubble
-                  turn={{ id: 'being-answered', role: 'user', text: pending.text, at: '', citedEvidenceIds: [] }}
-                  attached={pending.files}
-                  evidence={evidence}
-                />
-              </div>
-            ) : null}
+            {reading
+              ? null
+              : pending?.map((message, n) => (
+                  <div key={n} className="animate-rise-in">
+                    <TurnBubble
+                      turn={{ id: `being-answered-${n}`, role: 'user', text: message.text, at: '', citedEvidenceIds: [] }}
+                      attached={message.files}
+                      evidence={evidence}
+                    />
+                  </div>
+                ))}
             {busy ? <TypingIndicator steps={steps ?? []} /> : null}
           </>
         )}

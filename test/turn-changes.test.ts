@@ -28,8 +28,10 @@ import {
   createValuationRun,
   listedIds,
   logSiteEntry,
+  meetingDay,
   ownChanges,
   recordAsItStands,
+  startOutgoing,
   turnChanged,
   undoChanges,
   undoSaid,
@@ -138,6 +140,19 @@ describe('what a message changed', () => {
     // A record that has a name is still said by it, and the screen is still called the screen.
     assert.deepEqual(changeLines(did(project, () => project.decisions.push({ id: 'dec_1', title: 'Rebuild the north wall', status: 'approved' } as unknown as DdProject['decisions'][number]))), ['Recorded the decision “Rebuild the north wall”']);
     assert.deepEqual(changeLines(did(project, () => ((project as unknown as Record<string, unknown>).lastScreenResult = { verdict: 'clear' }))), ['Changed the last screen']);
+  });
+
+  it('says a letter with no subject as a letter, and a day as the reply over the line writes it', () => {
+    const { project } = fixture();
+    // Was: 'Drafted', with nothing after it.
+    assert.deepEqual(changeLines(did(project, () => void startOutgoing(project, { kind: 'letter', to: 'The lender' }, LEAD))), ['Drafted a letter']);
+    assert.deepEqual(changeLines(did(project, () => void startOutgoing(project, { kind: 'letter', to: 'The architect', topic: 'about the fire NOC' }, LEAD))), ['Drafted “The fire NOC”']);
+    // Was: 'Kept the notes of a meeting of 4 Sept 2026' under a reply that says "4 Sep 2026".
+    const kept = did(project, () => {
+      project.meetings = [{ id: 'mtg_sep', title: 'Site meeting', heldOn: '2026-09-04', attendees: [], file: { storageKey: 'sep-key.txt', fileName: 'notes.txt', mimeType: 'text/plain', sizeBytes: 40 }, came: 'pasted', items: [], keptAt: '2026-09-04T10:00:00.000Z', keptBy: LEAD }];
+    });
+    assert.deepEqual(changeLines(kept), [`Kept the notes of a meeting of ${meetingDay('2026-09-04')}`]);
+    assert.equal(meetingDay('2026-09-04'), '4 Sep 2026');
   });
 
   it('does not take the clock for a change', () => {

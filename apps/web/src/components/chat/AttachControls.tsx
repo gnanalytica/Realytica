@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Mic, Paperclip, Square, Trash2 } from 'lucide-react';
+import { Camera, Loader2, Mic, Paperclip, Square, Trash2 } from 'lucide-react';
 import { Button, cn } from '../ui/kit';
 import { ApiRequestError } from '../../lib/api';
 import { isSound, noteRecorded } from '../../lib/site-capture';
@@ -60,6 +60,8 @@ export function AttachControls({
   const recorder = useRef<MediaRecorder | null>(null);
   const keep = useRef(true);
   const [recording, setRecording] = useState<number | null>(null);
+  /** A press is being answered: where the sound goes is being asked, or the microphone is being opened. */
+  const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
 
   const live = recording !== null;
@@ -78,11 +80,14 @@ export function AttachControls({
   };
 
   async function record(): Promise<void> {
+    // One press, one recording: a second press while the first is being answered would open the microphone twice and leave one open.
+    if (starting || recorder.current) return;
     setRefused(null);
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setRefused('This browser cannot record here. Attach the voice note as a file.');
       return;
     }
+    setStarting(true);
     // Where the sound goes is said before the first note is taken. Not known yet, it is asked for now, and nothing is recorded without it.
     if (!voice && onCheckVoice) {
       try {
@@ -93,11 +98,15 @@ export function AttachControls({
             ? 'Too many requests just now, so recording cannot start. Try again in a minute, or attach the voice note as a file.'
             : 'The server did not say where a voice note goes, so recording cannot start. Try again, or attach the voice note as a file.',
         );
+        setStarting(false);
         return;
       }
     }
+    // The microphone once it is open, so that it is let go if the recorder then fails to start.
+    let opened: MediaStream | undefined;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      opened = stream;
       const [type, ext] = KINDS.find(([kind]) => MediaRecorder.isTypeSupported(kind)) ?? ['', 'webm'];
       // Speech needs few bits: at this rate a quarter of an hour fits in one request.
       const rec = new MediaRecorder(stream, { ...(type ? { mimeType: type } : {}), audioBitsPerSecond: 32_000 });
@@ -116,11 +125,14 @@ export function AttachControls({
         noteRecorded(file, (Date.now() - began) / 1000);
         onAdd([file]);
       };
-      recorder.current = rec;
       rec.start();
+      recorder.current = rec;
       setRecording(0);
     } catch {
+      opened?.getTracks().forEach((track) => track.stop());
       setRefused('The microphone was not allowed. Allow it for this site, or attach the voice note as a file.');
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -146,8 +158,20 @@ export function AttachControls({
         <>
           <Button type="button" variant="ghost" size="sm" aria-label="Attach documents" title="Attach documents" disabled={disabled} icon={<Paperclip size={15} />} onClick={() => fileRef.current?.click()} />
           <Button type="button" variant="ghost" size="sm" aria-label="Take a photograph" title="Take a photograph" disabled={disabled} icon={<Camera size={15} />} onClick={() => cameraRef.current?.click()} />
+          {/* Not shut while a press is answered: a shut button drops the keyboard to the page, and a refused press is tried again from here. record() turns a second press away. */}
           {voice || onCheckVoice ? (
-            <Button type="button" variant="ghost" size="sm" aria-label="Record a voice note" title="Record a voice note" disabled={disabled} icon={<Mic size={15} />} onClick={() => void record()} />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Record a voice note"
+              title="Record a voice note"
+              disabled={disabled}
+              aria-disabled={starting || undefined}
+              className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              icon={starting ? <Loader2 size={13} className="animate-spin" /> : <Mic size={15} />}
+              onClick={() => void record()}
+            />
           ) : null}
         </>
       ) : (

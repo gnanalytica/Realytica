@@ -387,6 +387,43 @@ describe('a question put to a paper’s own words', () => {
     assert.deepEqual([assistantTurn.unanswered, assistantTurn.citedEvidenceIds, drawn(assistantTurn)], [undefined, [], ['approved']], 'answered, from the record, with its tag drawn and no paper quoted');
     script = () => 'ok';
   });
+
+  it('says the value a question names where the rules would only offer what could be added, and raises no card for it', async () => {
+    // "Assessment" is a word the rules offer a DD for. Here it is the name of a value the tax receipt states.
+    const receipt = addEvidence(project, { title: 'Receipt for the year', kind: 'document' }, LEAD);
+    receipt.documentType = 'Property tax receipt';
+    receipt.facts = [{ key: 'tax_year', label: 'tax_year', value: '2025-26', display: '2025-26', page: 1, quote: 'Assessment year: 2025-26', review: 'proposed' }];
+    reviewFacts(project, receipt.id, ['tax_year'], 'accept', VALUER);
+    project.updatedAt = new Date().toISOString();
+    const { store } = await import('../apps/api/src/store');
+    await store.save();
+    const question = 'What is the assessment year?';
+    assert.equal(wantsDeterministicProjectChat(project, question), false, 'no rule of the chat’s own answers it');
+    script = () => {
+      throw new Error('the model is down');
+    };
+    const cards = (): number => store.data.projects!.find((held) => held.id === project.id)!.chatProposals.length;
+    const said = /^In this project’s memory:\n- Assessment year: 2025-26 \[approved\] by valuer@example\.com, \d{1,2} \w{3} \d{4} \[ev:[^\]]+\]$/;
+    // The cards the rules would raise for the word are not waiting yet: on its own the reply would be theirs, by the wizard's name.
+    const before = cards();
+    const first = await ask(question);
+    assert.deepEqual([first.assistantTurn.toolCalls?.map((call) => call.name), first.assistantTurn.unanswered, first.assistantTurn.proposalIds], [['memory_answer'], undefined, []]);
+    assert.match(first.assistantTurn.text, said);
+    assert.equal(cards(), before, 'asking for a value raised nothing');
+    // Asked for what could be added, the rules still offer it. Their cards then wait, and the same word would get a reply with no name at all.
+    const offered = await ask('Which assessments could we add?');
+    assert.deepEqual(offered.assistantTurn.toolCalls?.map((call) => call.name), ['wizard']);
+    assert.ok(cards() > before && offered.assistantTurn.unanswered, 'what could be added is offered, and said to be no answer');
+    const waiting = cards();
+    const second = await ask(question);
+    assert.deepEqual([second.assistantTurn.toolCalls?.map((call) => call.name), second.assistantTurn.unanswered], [['memory_answer'], undefined]);
+    assert.match(second.assistantTurn.text, said);
+    assert.equal(cards(), waiting);
+    // A matter of judgement about the same value is not answered by saying it.
+    const why = await ask('Why does the assessment year matter?');
+    assert.ok(why.assistantTurn.unanswered && !why.assistantTurn.text.includes('In this project’s memory'));
+    script = () => 'ok';
+  });
 });
 
 describe('a message whose page has gone', () => {

@@ -64,9 +64,11 @@ export type Dropped =
  *    tone, as a sheet of paper is). Otherwise it is asked about here: a page
  *    too dark or too blurred for OCR reads as no words at all.
  * 2. A paper the reader recognises (a deed, a khata, an order) is a paper,
- *    unless it is laid out as the notes of a meeting, and then the chat asks.
- * 3. A sheet that names a Question column is a questionnaire. A file's name
- *    alone is not enough: it is asked about (rule 7).
+ *    unless it is a sheet that names a Question column (rule 3), or is laid
+ *    out as the notes of a meeting, and then the chat asks.
+ * 3. A sheet that names a Question column is a questionnaire, whatever its
+ *    questions are about. A file's name alone is not enough: it is asked
+ *    about (rule 7).
  * 4. Notes of a meeting (`meetingNotesFor`), where their words say so.
  * 5. A list most of whose items read as questions is a questionnaire.
  * 6. Words that may be notes: the meeting rules ask.
@@ -118,9 +120,12 @@ export async function whatWasDropped(input: {
     if (picture === 'unsure') return { as: 'unsure', between: 'photo', read: null };
     return { as: 'paper' };
   }
+  // A sheet that names a Question column is a questionnaire whatever it asks about: one that asks about a sale deed reads to the paper rules as a sale deed.
+  const sheet = recognised && input.fresh && /\.(?:csv|tsv|xlsx)$/i.test(file.originalname) ? await questions() : null;
+  if (sheet?.namedColumn && questionnaireOrPaper({ fileName: file.originalname, parsed: sheet.parsed, namedColumn: true }) === 'questionnaire') return { as: 'questionnaire', read: sheet };
   // Notes about a property use a paper's own words ("the earlier survey sketch"): recognised and laid out as notes, it is asked about.
   if (recognised && meetingNotesFor(input.project, paper) === 'no') return { as: 'paper' };
-  const read = input.fresh ? await questions() : null;
+  const read = sheet ?? (input.fresh ? await questions() : null);
   const asQuestions = questionnaireOrPaper({ fileName: file.originalname, parsed: read?.parsed ?? null, namedColumn: read?.namedColumn });
   // What is in the file, never its name alone: a letter named "Reply to queries" is asked about (`questionnaireOrPaper`).
   const saysSo = Boolean(read?.namedColumn);

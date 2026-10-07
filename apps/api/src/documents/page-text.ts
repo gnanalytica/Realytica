@@ -93,6 +93,8 @@ export interface PageTextSearch {
   /** Files opened, and files on the project that were not, because the search stops at a number of them. */
   opened: number;
   notOpened: number;
+  /** Files opened whose pages are not all kept as this server read them: none kept, a page nobody read, or only what a model quoted. Words not found say nothing of these. */
+  unread: number;
 }
 
 /** Letters, marks and digits of any script, lower-cased, everything else one space: the form words are looked for in. */
@@ -207,7 +209,8 @@ export async function searchPageTexts(
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const hits: PageTextHit[] = [];
   let opened = 0;
-  if (!wanted.length) return { hits, opened, notOpened: rows.length };
+  let unread = 0;
+  if (!wanted.length) return { hits, opened, notOpened: rows.length, unread };
   const holds = (text: string): boolean => {
     const held = new Set(plain(text).split(' ').map(form));
     return wanted.every((word) => held.has(word));
@@ -217,6 +220,7 @@ export async function searchPageTexts(
     const file = row.attachments[row.attachments.length - 1]!;
     opened += 1;
     const kept = await loadPageTexts(project.id, file.storageKey);
+    if (!kept || kept.pagesRead < kept.pagesInFile || kept.pages.some((page) => page.reader === 'model')) unread += 1;
     if (!kept) continue;
     for (const page of kept.pages) {
       if (hits.length >= maxHits) break;
@@ -226,7 +230,7 @@ export async function searchPageTexts(
       hits.push({ evidenceId: row.id, title: row.title, fileName: file.fileName, storageKey: file.storageKey, page: page.page, reader: page.reader, snippet });
     }
   }
-  return { hits, opened, notOpened: Math.max(0, rows.length - opened) };
+  return { hits, opened, notOpened: Math.max(0, rows.length - opened), unread };
 }
 
 /**
@@ -234,13 +238,14 @@ export async function searchPageTexts(
  * pages of the papers it is about that hold every word it asks for, in
  * whatever form the paper writes them, and in one passage where the question
  * says so (`together`). `project` is the record as the person asking may see
- * it, so only the papers on their copy are searched.
+ * it, so only the papers on their copy are searched. `papers` is how many
+ * the question is about, and `unread` how many of those are not kept whole.
  */
-export async function paperPassages(project: Pick<DdProject, 'id' | 'evidence'>, asked: PaperWordsAsked): Promise<{ passages: PaperPassage[]; notOpened: number }> {
+export async function paperPassages(project: Pick<DdProject, 'id' | 'evidence'>, asked: PaperWordsAsked): Promise<{ passages: PaperPassage[]; notOpened: number; papers: number; unread: number }> {
   const papers = papersAsked(project, asked);
-  if (!papers.length) return { passages: [], notOpened: 0 };
+  if (!papers.length) return { passages: [], notOpened: 0, papers: 0, unread: 0 };
   const found = await searchPageTexts({ id: project.id, evidence: papers }, asked.words, { loose: true, together: asked.together });
-  return { passages: found.hits.map((hit) => ({ evidenceId: hit.evidenceId, page: hit.page, snippet: hit.snippet, reader: hit.reader })), notOpened: found.notOpened };
+  return { passages: found.hits.map((hit) => ({ evidenceId: hit.evidenceId, page: hit.page, snippet: hit.snippet, reader: hit.reader })), notOpened: found.notOpened, papers: papers.length, unread: found.unread };
 }
 
 // A model in the chat searches the same pages, through the tool the agents package gives it.

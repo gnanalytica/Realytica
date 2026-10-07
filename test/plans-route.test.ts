@@ -476,6 +476,47 @@ describe('a yes that names no plan', () => {
     assert.match(typed.assistantTurn.text, /^The plan is done: 1 of 1 step done\./);
   });
 
+  it('takes up the plan it is typed under, where a newer plan was laid out in another chat', async () => {
+    const project = await filed(3);
+    const planId = (await say(project.id, 'Write the red flag report, then read the filed documents', undefined, undefined, 'sit_plan')).assistantTurn.planId!;
+    const { typed, other } = await cutShortAt(project, planId, 1, async () => {
+      // A second plan, laid out in another chat and left as shown: it is now this person's newest.
+      const other = (await say(project.id, 'Read the filed documents, then write the status report for September 2026', undefined, undefined, 'sit_two')).assistantTurn.planId!;
+      assert.ok(other && other !== planId, 'the second chat was shown a plan of its own');
+      // Was: neither plan was taken up, and the reply was the next step of the file. Before that the newer plan was run.
+      return { typed: await say(project.id, 'carry on', undefined, undefined, 'sit_plan'), other };
+    });
+    assert.match(typed.assistantTurn.text, /^The plan is done: 2 of 2 steps done\./);
+    assert.deepEqual(typed.steps, ['Step 2 of 2: Read 3 filed papers']);
+    assert.deepEqual([(await planOf(project.id, planId)).plan.status, (await planOf(project.id, other)).plan.status], ['done', 'shown'], 'the plan laid out elsewhere is as it was');
+    // In the other chat a yes still runs the plan that chat showed.
+    assert.equal((await say(project.id, 'How far has the plan got?', undefined, undefined, 'sit_two')).assistantTurn.planId, other);
+  });
+
+  it('reads what is typed under a stopped plan against that plan, where a newer plan was laid out in another chat', async () => {
+    const project = await filed(12);
+    // Plan B: run in chat two and stopped as its first step begins.
+    const stoppedId = (await say(project.id, 'Read the filed documents', undefined, undefined, 'sit_two')).assistantTurn.planId!;
+    let stop: Promise<Response> | undefined;
+    const ran = await say(project.id, 'Run the plan', { plan: { id: stoppedId, act: 'run' } }, () => (stop ??= realFetch(`${base}/api/projects/${project.id}/plans/${stoppedId}/stop`, { method: 'POST' })), 'sit_two');
+    await stop;
+    assert.match(ran.assistantTurn.text, /^The plan is stopped: 0 of 1 step done\./);
+    // Plan C: laid out in chat three and left as shown. It is now this person's newest.
+    const newerId = (await say(project.id, 'Write the red flag report, then read the filed documents', undefined, undefined, 'sit_three')).assistantTurn.planId!;
+    assert.ok(newerId && newerId !== stoppedId, 'the third chat was shown a plan of its own');
+    const stand = async (): Promise<string[]> => [(await planOf(project.id, stoppedId)).plan.status, (await planOf(project.id, newerId)).plan.status];
+
+    // Was: "The plan has not started." (the newer plan), and then the newer plan was cancelled while this one stayed stopped.
+    const how = await say(project.id, 'How far has the plan got?', undefined, undefined, 'sit_two');
+    assert.deepEqual([how.assistantTurn.planId, how.assistantTurn.text.split('\n')[0]], [stoppedId, 'The plan is stopped: 0 of 1 step done. What was done stays done.']);
+    const cancelled = await say(project.id, 'cancel it', undefined, undefined, 'sit_two');
+    assert.equal(cancelled.assistantTurn.planId, stoppedId);
+    assert.deepEqual(await stand(), ['cancelled', 'shown'], 'the plan laid out elsewhere is as it was');
+    // In the chat that showed the newer plan, and in a chat that has said nothing, the same words are about the newest, as they were.
+    assert.equal((await say(project.id, 'How far has the plan got?', undefined, undefined, 'sit_three')).assistantTurn.planId, newerId);
+    assert.equal((await say(project.id, 'How far has the plan got?', undefined, undefined, 'sit_fresh')).assistantTurn.planId, newerId);
+  });
+
   it('does not take a cut-short plan up once the chat has said something else', async () => {
     const project = await filed(3);
     const planId = (await say(project.id, 'Write the red flag report, then read the filed documents', undefined, undefined, 'sit_plan')).assistantTurn.planId!;

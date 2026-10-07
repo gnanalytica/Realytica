@@ -35,6 +35,7 @@ import { chatPlaceLabel } from './chat-places';
 import type { ChatChoice } from '../types';
 import type { DocumentFact } from './document-parse';
 import { acceptedFacts, factReview, proposedFacts } from './fact-review';
+import { meetingDay } from './meetings';
 import type { AuditEvent, DdProject, EvidenceRecord, ProjectChatTurn } from './types';
 
 type Rec = Record<string, unknown>;
@@ -318,19 +319,19 @@ const FIELD_SAID: Record<string, string> = {
   capabilityRuns: 'the Auto-run summary',
 };
 
-/** What a list's records are called: the words for one added, for many added, and for one of them. */
-const LIST_SAID: Record<string, { added: string; many: string; a: string }> = {
+/** What a list's records are called: the words for one added, for many added, and for one of them. `one` is one added that has no name, where `added` wants a name after it. */
+const LIST_SAID: Record<string, { added: string; many: string; a: string; one?: string }> = {
   decisions: { added: 'Recorded the decision', many: 'Recorded {n} decisions', a: 'the decision' },
   actions: { added: 'Recorded the action', many: 'Recorded {n} actions', a: 'the action' },
   findings: { added: 'Raised the finding', many: 'Raised {n} findings', a: 'the finding' },
   risks: { added: 'Recorded the risk', many: 'Recorded {n} risks', a: 'the risk' },
-  requests: { added: 'Asked for', many: 'Asked for {n} papers', a: 'the request for' },
+  requests: { added: 'Asked for', many: 'Asked for {n} papers', a: 'the request for', one: 'Asked for a paper' },
   reports: { added: 'Drafted', many: 'Drafted {n} reports', a: 'the report' },
-  outgoing: { added: 'Drafted', many: 'Drafted {n} letters', a: 'the draft' },
-  assessments: { added: 'Started', many: 'Started {n} due diligences', a: 'the due diligence' },
+  outgoing: { added: 'Drafted', many: 'Drafted {n} letters', a: 'the draft', one: 'Drafted a letter' },
+  assessments: { added: 'Started', many: 'Started {n} due diligences', a: 'the due diligence', one: 'Started a due diligence' },
   assets: { added: 'Added the asset', many: 'Added {n} assets', a: 'the asset' },
-  stakeholders: { added: 'Added', many: 'Added {n} stakeholders', a: 'the stakeholder' },
-  team: { added: 'Added to the team:', many: 'Added {n} people to the team', a: 'the team member' },
+  stakeholders: { added: 'Added', many: 'Added {n} stakeholders', a: 'the stakeholder', one: 'Added a stakeholder' },
+  team: { added: 'Added to the team:', many: 'Added {n} people to the team', a: 'the team member', one: 'Added a person to the team' },
   milestones: { added: 'Added the milestone', many: 'Added {n} milestones', a: 'the milestone' },
   siteLog: { added: 'Added the site entry of', many: 'Added {n} site entries', a: 'the site entry of' },
   siteVisits: { added: 'Recorded the site visit', many: 'Recorded {n} site visits', a: 'the site visit' },
@@ -339,14 +340,15 @@ const LIST_SAID: Record<string, { added: string; many: string; a: string }> = {
   engagements: { added: 'Added the engagement', many: 'Added {n} engagements', a: 'the engagement' },
   questionnaires: { added: 'Took in the questionnaire', many: 'Took in {n} questionnaires', a: 'the questionnaire' },
   valuationRuns: { added: 'Ran the valuation', many: 'Ran {n} valuations', a: 'the valuation' },
-  aiDrafts: { added: 'Drafted', many: 'Drafted {n} records', a: 'the draft' },
+  aiDrafts: { added: 'Drafted', many: 'Drafted {n} records', a: 'the draft', one: 'Drafted a record' },
 };
 
 const inWords = (key: string): string => key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
 
+/** A day as the reply above the line writes it: "4 Sep 2026", where the locale's own short month gave "4 Sept 2026". */
 const dayOf = (iso: unknown): string | undefined => {
   if (typeof iso !== 'string' || Number.isNaN(Date.parse(iso))) return undefined;
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  return meetingDay(new Date(iso).toISOString());
 };
 
 function valueSaid(value: unknown): string | undefined {
@@ -462,9 +464,9 @@ function tell(path: string[], changes: readonly KeptChange[], before: RecordBase
 
   const words = LIST_SAID[list];
   if (path.length === 2 && words) {
-    // A record with no name of its own is said by what it is: a valuation run is "the valuation", never "untitled".
+    // A record with no name of its own is said by what it is: a valuation run is "the valuation", never "untitled", and a letter with no subject yet is "a letter".
     const named = nameOf(record) ? ` ${title}` : '';
-    if (own?.did === 'added') return { line: `${words.added}${named}`, bulk: { key: `added:${list}`, many: words.many } };
+    if (own?.did === 'added') return { line: named ? `${words.added}${named}` : (words.one ?? words.added), bulk: { key: `added:${list}`, many: words.many } };
     if (own?.did === 'removed') return { line: `Removed ${words.a}${named}` };
     if (list === 'actions' && fields.has('status') && record?.status === 'closed') return { line: `Closed the action${named}` };
     if (fields.has('status') && typeof record?.status === 'string') return { line: `Marked ${words.a}${named} as ${record.status.replace(/_/g, ' ')}` };

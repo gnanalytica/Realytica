@@ -192,23 +192,23 @@ export function PagePreview({
   }, [doc, pageNumber, width]);
 
   const quote = marks?.quote ?? [];
+  /* A blank sheet stands in for the page until it is drawn, and for good when it cannot be. Nothing is marked on it. */
+  const paper = loaded?.kind !== 'pdf' && loaded?.kind !== 'image';
 
   /* Bring the marked words into view, centred, when the page is taller than the panel, or enlarged past its width. */
   useEffect(() => {
     const scroller = scrollRef.current;
     const first = quote[0];
-    if (!scroller || !first) return;
+    if (!scroller || !first || paper) return;
     const pageHeight = width * aspect;
     scroller.scrollTo({
       top: Math.max(0, first.y * pageHeight - scroller.clientHeight / 2),
       left: Math.max(0, (first.x + first.w / 2) * width - scroller.clientWidth / 2),
       behavior: reducedMotion() ? 'auto' : 'smooth',
     });
-    // Re-centre only when a different fact is pointed at.
+    // Re-centre only when a different fact is pointed at, or its page is drawn at last.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markId, width, aspect]);
-
-  const paper = loaded?.kind !== 'pdf' && loaded?.kind !== 'image';
+  }, [markId, width, aspect, paper]);
 
   return (
     <div ref={scrollRef} className={cn('relative rounded-lg bg-sunken', zoom > 1 ? 'overflow-auto' : 'overflow-y-auto overflow-x-hidden', className)}>
@@ -219,12 +219,14 @@ export function PagePreview({
            * Stacked under the list, the sheet is taller than its panel, and
            * a place down the sheet is below the fold. On a card of the
            * theme's own, so it reads on the white sheet in the dark theme too.
+           * The button stands beside the sentence, not under it: the panel
+           * is as short as 70px where a value's words are quoted below it.
            */
-          <div role="status" className="sticky top-3 z-[1] flex h-0 items-start justify-center px-4">
-            <div className="flex max-w-[20rem] flex-col items-center gap-2 rounded-lg bg-surface px-3 py-2.5 text-center shadow-raised ring-1 ring-[var(--ring)]">
-              <p className="text-[13px] text-ink">{loaded.said}</p>
+          <div role="status" className="sticky top-1.5 z-[1] flex h-0 items-start justify-center px-4">
+            <div className="flex max-w-[20rem] items-center gap-2.5 rounded-lg bg-surface px-3 py-2 shadow-raised ring-1 ring-[var(--ring)]">
+              <p className="min-w-0 text-[13px] leading-snug text-ink">{loaded.said}</p>
               {loaded.again ? (
-                <Button size="sm" onClick={() => setAttempt((n) => n + 1)}>
+                <Button size="sm" className="shrink-0" onClick={() => setAttempt((n) => n + 1)}>
                   Try again
                 </Button>
               ) : null}
@@ -254,7 +256,7 @@ export function PagePreview({
             </div>
           ) : null}
 
-          {marks?.quote.length ? <MarksOverlay marks={marks} markId={markId} /> : null}
+          {!paper && marks?.quote.length ? <MarksOverlay marks={marks} markId={markId} /> : null}
         </div>
       </div>
     </div>

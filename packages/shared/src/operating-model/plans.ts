@@ -173,12 +173,15 @@ const ACCEPTS_RAISED = /^(?:accept|approve)\s+(?:what|whatever|everything)\s+(?:
  * whatever it is about: "draft a reply to the lender's questions" answers no
  * questionnaire, and "draft a letter about the red flag report" writes no
  * report. A word or two may describe it ("a short reply", "a brief formal
- * letter"). A word that begins what it is about, or names an answer, a
+ * letter"), with a comma or an "and" between two of them ("a short, polite
+ * reply"). A word that begins what it is about, or names an answer, a
  * questionnaire, a report or minutes, describes nothing: "draft answers to
- * the letter" is no letter.
+ * the letter" is no letter. Nor does a word joined to the thing itself:
+ * "prepare a list and email it" asks for no email.
  */
-const DESCRIBES = String.raw`(?:(?!(?:to|for|about|on|of|in|as|an?|the|it|this|that|him|her|them|us|me|and|or|answers?|questionnaires?|questions|requisitions|reports?|minutes|notes)\b)[\w-]+\s+){0,3}`;
-const TO_SEND = new RegExp(String.raw`^((?:(?:please|can you|could you)\s+)*(?:draft|write|prepare)\s+(?:me\s+|us\s+)?(?:an?\s+|the\s+|my\s+|our\s+)?)${DESCRIBES}(reply|response|letter|e-?mail|rfi|request for information)\b`, 'i');
+const SENT = String.raw`reply|response|letter|e-?mail|rfi|request for information`;
+const DESCRIBES = String.raw`(?:(?!(?:to|for|about|on|of|in|as|an?|the|it|this|that|him|her|them|us|me|and|or|answers?|questionnaires?|questions|requisitions|reports?|minutes|notes)\b)[\w-]+(?:\s+|(?:,\s*(?:and\s+)?|\s+and\s+)(?!(?:${SENT})\b))){0,3}`;
+const TO_SEND = new RegExp(String.raw`^((?:(?:please|can you|could you)\s+)*(?:draft|write|prepare)\s+(?:me\s+|us\s+)?(?:an?\s+|the\s+|my\s+|our\s+)?)${DESCRIBES}(${SENT})\b`, 'i');
 
 /**
  * A sentence that asks for a draft to send, said the way the reader of those

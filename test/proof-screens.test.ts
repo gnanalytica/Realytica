@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { functionSections } from '@realytica/shared';
+import { pointsAt } from '../apps/web/src/components/reading/pointed';
 import { noPageSaid, nothingRead, type NoPage } from '../apps/web/src/components/reading/said';
 
 describe('a page the reading desk cannot draw', () => {
@@ -67,6 +68,37 @@ describe('“nothing on it matched” on the reading desk', () => {
     assert.equal(nothingRead({ ...read, phase: 'failed' }), false);
     assert.equal(nothingRead({ ...read, phase: 'model' }), false);
     assert.equal(nothingRead({ ...read, notes: 'A covering letter.' }), false);
+  });
+});
+
+describe('pointing at a value in a list', () => {
+  // Where the pointer was first seen on the row, and a move to a place from the place before it.
+  const seen = { x: 400, y: 300 };
+  const move = (x: number, y: number, from = seen) => ({ clientX: x, clientY: y, movementX: x - from.x, movementY: y - from.y });
+
+  it('is not the pixel or two a hand moves through a press', () => {
+    // The list opened under the press that asked for one value, and the row that landed there took the page from it.
+    assert.equal(pointsAt(seen, move(400, 300)), false);
+    assert.equal(pointsAt(seen, move(401, 300)), false);
+    assert.equal(pointsAt(seen, move(403, 302)), false);
+    // Step by step, so long as it stays near where it was.
+    assert.equal(pointsAt(seen, move(405, 305, { x: 403, y: 302 })), false);
+    assert.equal(pointsAt(seen, move(395, 296, { x: 398, y: 298 })), false);
+  });
+
+  it('is a pointer that travels on the row', () => {
+    // Slowly, a pixel or two at a time: it counts once it is a way from where it came on.
+    assert.equal(pointsAt(seen, move(400, 307, { x: 400, y: 305 })), false);
+    assert.equal(pointsAt(seen, move(400, 308, { x: 400, y: 306 })), true);
+    assert.equal(pointsAt(seen, move(406, 306, { x: 405, y: 305 })), true);
+    assert.equal(pointsAt(seen, move(392, 300, { x: 393, y: 300 })), true);
+  });
+
+  it('is a pointer that comes onto the row in one stride', () => {
+    // A pen set down, or a pointer placed by a script: first seen where it lands, having come from somewhere else.
+    assert.equal(pointsAt(seen, move(400, 300, { x: 120, y: 640 })), true);
+    assert.equal(pointsAt(seen, move(400, 300, { x: 400, y: 292 })), true);
+    assert.equal(pointsAt(seen, move(400, 300, { x: 400, y: 295 })), false);
   });
 });
 

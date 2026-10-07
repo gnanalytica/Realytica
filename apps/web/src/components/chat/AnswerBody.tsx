@@ -2,8 +2,8 @@ import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { FileText, Flag, Unlink, Waypoints } from 'lucide-react';
 import type { EvidenceItem, MemTagWords } from '@realytica/shared';
-import { parseAnswer } from './answer-blocks';
-import type { Block, Inline, TagPlaces } from './answer-blocks';
+import { besideChips, oneOfEach, parseAnswer } from './answer-blocks';
+import type { Beside, Block, Inline, TagPlaces } from './answer-blocks';
 import { MeetingNotesLink } from '../meetings/MeetingNotes';
 import { cn } from '../ui/kit';
 
@@ -46,8 +46,15 @@ export function AnswerBody({
     [text, nodeById, rests],
   );
 
+  // What a citation shows: the paper's name and the page. Two that show the same, side by side, are drawn as one.
+  const citationReads = (span: Extract<Inline, { kind: 'evidence' }>): string | null => {
+    const item = evidenceById.get(span.id);
+    return item ? `${sourceName(item)}\n${span.page ?? ''}` : null;
+  };
+
   // A chip. `gap` is the space kept on each side of it, which is none on a side where punctuation is written against it.
-  const chipOf = (span: Exclude<Inline, { kind: 'text' | 'bold' | 'code' }>, key: string, gap: string): ReactNode => {
+  // `copies` is how many papers a citation stands for, where papers of one name were cited side by side at one page.
+  const chipOf = (span: Exclude<Inline, { kind: 'text' | 'bold' | 'code' }>, key: string, gap: string, copies: number): ReactNode => {
     if (span.kind === 'evidence') {
       const item = evidenceById.get(span.id);
       return (
@@ -59,10 +66,14 @@ export function AnswerBody({
           // check. It stays visible and inert rather than being hidden —
           // silently dropping it would leave a claim looking sourced.
           disabled={!item || !onOpenEvidence}
-          title={item ? `${item.statement}${span.page ? `, page ${span.page}` : ''}` : 'This citation is not on this project.'}
+          title={
+            item
+              ? `${item.statement}${span.page ? `, page ${span.page}` : ''}${copies > 1 ? `. ${copies} papers of this name are cited here. This opens the first.` : ''}`
+              : 'This citation is not on this project.'
+          }
           className={cn(
             gap,
-            'inline-flex max-w-[14rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] ring-1 ring-inset',
+            'inline-flex min-w-0 max-w-[14rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] ring-1 ring-inset',
             item
               ? 'bg-brand-soft text-brand ring-brand/25 hover:bg-brand hover:text-[var(--brand-ink)]'
               : 'bg-sunken text-ink-muted ring-[var(--ring)]',
@@ -104,7 +115,7 @@ export function AnswerBody({
           title={`This answer gave the id ${span.id}. Nothing on this project has it.`}
           className={cn(
             gap,
-            'inline-flex max-w-[12rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] text-ink-muted line-through decoration-ink-muted ring-1 ring-inset ring-[var(--ring)]',
+            'inline-flex min-w-0 max-w-[12rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] text-ink-muted line-through decoration-ink-muted ring-1 ring-inset ring-[var(--ring)]',
           )}
         >
           <Unlink size={10} className="shrink-0 no-underline" />
@@ -122,7 +133,7 @@ export function AnswerBody({
         title={node ? `Open “${node.label}”` : span.id}
         className={cn(
           gap,
-          'inline-flex max-w-[16rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken hover:text-ink',
+          'inline-flex min-w-0 max-w-[16rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken hover:text-ink',
         )}
       >
         <Waypoints size={10} className="shrink-0" />
@@ -131,12 +142,15 @@ export function AnswerBody({
     );
   };
 
-  const renderInline = (spans: Inline[], keyPrefix: string): ReactNode[] => {
+  const renderInline = (written: Inline[], keyPrefix: string): ReactNode[] => {
+    const { spans, copies } = oneOfEach(written, citationReads);
     const { words, lead, tail } = besideChips(spans);
+    // Punctuation kept against a chip, in the weight it was written in.
+    const beside = (mark: Beside | undefined): ReactNode => (mark?.bold ? <strong className="font-semibold text-ink">{mark.text}</strong> : mark?.text);
     return spans.map((span, i) => {
       const key = `${keyPrefix}-${i}`;
       if (span.kind === 'text') return words[i] ? <span key={key}>{words[i]}</span> : null;
-      if (span.kind === 'bold') return <strong key={key} className="font-semibold text-ink">{span.text}</strong>;
+      if (span.kind === 'bold') return words[i] ? <strong key={key} className="font-semibold text-ink">{words[i]}</strong> : null;
       if (span.kind === 'code') {
         return (
           <code key={key} className="rounded bg-surface px-1 py-0.5 font-mono text-[0.92em] text-ink-secondary">
@@ -144,20 +158,24 @@ export function AnswerBody({
           </code>
         );
       }
-      const chip = chipOf(span, key, cn(lead[i] ? 'ml-0' : 'ml-0.5', tail[i] ? 'mr-0' : 'mr-0.5'));
-      if (!lead[i] && !tail[i]) return chip;
+      const chip = chipOf(span, key, cn(lead[i] ? 'ml-0' : 'ml-0.5', tail[i] ? 'mr-0' : 'mr-0.5'), copies[i]);
+      // A tag and a link to notes are short, and stand as they are when nothing is written against them.
+      const named = span.kind === 'evidence' || span.kind === 'node' || span.kind === 'dangling';
+      if (!lead[i] && !tail[i] && !named) return chip;
       return (
         /*
          * A line may break on either side of a chip, whatever is written
          * against it. So a full stop after one stood apart from it by the
          * chip's gap, and went to the next line alone when the chip ended
          * its line. The chip and its punctuation are one piece here, no wider
-         * than the line: a long name is cut to leave the punctuation room.
+         * than the line: a chip with a name gives way inside it, so a long
+         * name is cut to leave the punctuation room, and to fit a line
+         * shorter than the chip.
          */
         <span key={key} className="inline-flex max-w-full items-baseline whitespace-nowrap align-baseline">
-          {lead[i]}
+          {beside(lead[i])}
           {chip}
-          {tail[i]}
+          {beside(tail[i])}
         </span>
       );
     });
@@ -171,35 +189,6 @@ export function AnswerBody({
       ))}
     </div>
   );
-}
-
-/** Closing punctuation written against the end of a chip, with a space or nothing after it. A possessive counts: "[the deed]'s". */
-const AFTER_CHIP = /^(?:[’']s)?[.,;:!?)\]”’"']*(?=\s|$)/;
-/** An opening bracket or quotation mark written against the start of a chip, with a space or nothing before it. */
-const BEFORE_CHIP = /(^|\s)([([“‘]+)$/;
-
-/**
- * The punctuation each chip keeps beside it, by the chip's place, and the
- * words of each run of text once that is taken from it.
- */
-function besideChips(spans: Inline[]): { words: string[]; lead: string[]; tail: string[] } {
-  const words = spans.map((span) => (span.kind === 'text' ? span.text : ''));
-  const lead: string[] = [];
-  const tail: string[] = [];
-  spans.forEach((span, i) => {
-    if (span.kind === 'text' || span.kind === 'bold' || span.kind === 'code') return;
-    const after = spans[i + 1]?.kind === 'text' ? AFTER_CHIP.exec(words[i + 1]) : null;
-    if (after?.[0]) {
-      tail[i] = after[0];
-      words[i + 1] = words[i + 1].slice(after[0].length);
-    }
-    const before = spans[i - 1]?.kind === 'text' ? BEFORE_CHIP.exec(words[i - 1]) : null;
-    if (before) {
-      lead[i] = before[2];
-      words[i - 1] = words[i - 1].slice(0, words[i - 1].length - before[2].length);
-    }
-  });
-  return { words, lead, tail };
 }
 
 /** What each tag means, said on hover. */

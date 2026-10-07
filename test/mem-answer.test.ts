@@ -188,6 +188,45 @@ describe('under an answer the chat gave by rule', () => {
     assert.match(named('What is the extent per khata?') ?? '', /^In this project’s memory:\n- Extent per khata: 11,800 sq ft \[approved\] by valuer@example\.com, /);
     assert.equal(named('Who gave the extent per khata?'), undefined);
   });
+
+  it('take a kind of value named in part where it is the only one the words fit, a question word for none of what is asked, and a field of the project by its value', () => {
+    const { project } = plot();
+    patchProject(project, { siteAddress: '12 Mill Road, Northfield' }, LEAD);
+    const filed = (title: string, kind: string, ...stated: DocumentFact[]) => {
+      const row = addEvidence(project, { title, kind: 'document' }, LEAD);
+      row.documentType = kind;
+      row.facts = stated;
+    };
+    filed('Sanctioned plan of the block', 'Sanctioned building plan', value('sanction_date', '2021-02-22', '22 Feb 2021'), value('sanctioned_area', 27000, '27,000 sqm'), value('refuge_area_provided', 310, '310 sqm'));
+    filed('Sketch of the plot', 'Survey sketch', value('road_width_ft', 80, '80 ft'), value('extent_survey', 1105, '1,105 sqm'));
+    filed('Search of the register', 'Encumbrance certificate', value('ec_transactions', 3, '3'));
+    const facts = memoryFacts(project).held;
+    const labels = (said: MemSaid | undefined): string[] => [...new Set((said?.text.split('\n').slice(1) ?? []).map((line) => /^- ([^:]+):/.exec(line)![1]!))];
+    const named = (question: string): string[] => labels(memUnderAnswer(project, facts, { question }, { named: true }));
+    const under = (question: string): string[] => labels(memUnderAnswer(project, facts, { question }));
+
+    // "Which" and "whose", "how many" and "were found" are how a question is put, and none of what it is about.
+    for (const question of ['Which city is it in?', 'Which city is the project in?', 'What city is the project in?', 'What is the city?']) assert.deepEqual(named(question), ['City'], question);
+    for (const question of ['How many transactions were found?', 'How many transactions are there?']) assert.deepEqual(named(question), ['Transactions in the period'], question);
+    // Part of a label names its kind of value where no other on record has those words.
+    assert.deepEqual(named('What’s the address?'), ['Site address']);
+    assert.deepEqual(named('What is the road width?'), ['Abutting road width']);
+    assert.deepEqual(named('What is the refuge area?'), ['Refuge area provided']);
+    // Not where two kinds have them, not by a word for what the value is of, and not by a word for something done.
+    assert.ok(facts.some((fact) => fact.label === 'Built-up area sanctioned') && facts.some((fact) => fact.label === 'Extent per survey sketch'));
+    for (const question of ['What is the area?', 'What is the sketch?', 'What was sanctioned?', 'What is the status of the mortgage?']) assert.deepEqual(named(question), [], question);
+    // A field of the project whose value is all the question is about, however the project is said.
+    assert.deepEqual(named('Is the property in Bengaluru?'), ['City']);
+    assert.deepEqual(named('Is it residential?'), ['Project type']);
+    assert.deepEqual(named('Is the site in Northfield?'), ['Location']);
+    // Not where the question is about more than the value, asks who, or is one of judgement.
+    for (const question of ['Is the property in Bengaluru or Mysuru?', 'What are residential rates in Northfield?', 'Who is in Bengaluru?', 'Why is it residential?']) assert.deepEqual(named(question), [], question);
+
+    // Under an answer the chat gave by rule: the kind named in part where the answer is not made from it, and the values the answer is made from where it is.
+    assert.deepEqual(under('What is the refuge area?'), ['Refuge area provided']);
+    assert.deepEqual(under('Is the plan sanctioned?').sort(), ['Built-up area sanctioned', 'Date of sanction']);
+    assert.deepEqual(under('What is the sanctioned built-up area?'), ['Built-up area sanctioned']);
+  });
 });
 
 describe('a question put to memory itself', () => {

@@ -229,7 +229,7 @@ import { capturedFrom, fileSitePhoto, readSitePhoto, takeVoiceNote, type DropCap
 import { transcriptionCapability } from '@realytica/agents';
 import { MODEL_READER_VERSION, isVoiceNote, type ChatProposal, type EvidenceRecord } from '@realytica/shared';
 // The questionnaire's own calls, kept beside the reader's: a file dropped in the chat may be one.
-import { DROPPED_WITHOUT_WORDS, addQuestionnaire, findQuestionnaire, meetingNotesFor as meetingNotesOf, questionnaireDepartment, suggestFromFile } from '@realytica/shared';
+import { DROPPED_WITHOUT_WORDS, addQuestionnaire, departmentDefinition, findQuestionnaire, meetingNotesFor as meetingNotesOf, questionnaireDepartment, suggestFromFile } from '@realytica/shared';
 import { keepPageTexts, paperPassages } from '../documents/page-text';
 import { confirmProposedType, correctProposedType, readOntoRegister, setAsideProposedType, type RegisterUpload } from '../documents/register-read';
 import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead, straightToModel } from '../documents/reread';
@@ -1146,6 +1146,23 @@ function beginNdjson(res: import('express').Response): {
   };
 }
 
+/** What a person is told of a message the chat's rules threw on. */
+const TURN_FAILED = 'That message could not be carried out. Say it another way, or do it on the page.';
+
+/**
+ * A turn of the chat that threw, answered: the stream's own error line, and
+ * the reply ends. Nothing more of the turn is done, so nothing of it is saved.
+ * A throw left to escape an async handler ends the whole server, and with it
+ * every other person's request.
+ */
+function turnFailed(res: Response, err: unknown): void {
+  console.error('[chat] the rules threw on a message', err);
+  if (res.writableEnded || res.destroyed) return;
+  if (!res.headersSent) res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.write(`${JSON.stringify({ type: 'error', error: TURN_FAILED })}\n`);
+  res.end();
+}
+
 async function rememberProject(project: DdProject): Promise<void> {
   try {
     const facts = extractFactsFromProject(project, { now: new Date().toISOString() });
@@ -1498,15 +1515,19 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * what went back and what did not, with why. For the firm's own people.
    */
   if (!sitting?.decision && (sitting?.undo || asksToUndo(question)) && viewFor(req, project).project === project) {
-    await undoAsked(req, res, project, {
-      question,
-      turnId: sitting?.undo?.turnId,
-      viewContext: parsed.data.viewContext,
-      place,
-      sessionId: parsed.data.sessionId,
-      continues: parsed.data.continues,
-      sessionStartedAt: parsed.data.sessionStartedAt,
-    });
+    try {
+      await undoAsked(req, res, project, {
+        question,
+        turnId: sitting?.undo?.turnId,
+        viewContext: parsed.data.viewContext,
+        place,
+        sessionId: parsed.data.sessionId,
+        continues: parsed.data.continues,
+        sessionStartedAt: parsed.data.sessionStartedAt,
+      });
+    } catch (err) {
+      turnFailed(res, err);
+    }
     return;
   }
   /*
@@ -1525,7 +1546,11 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
       // A plan that runs goes on when the page is closed, as a drop of papers does.
       const work = planTurn(req, res, project, planned, { question, setting, viewContext: parsed.data.viewContext, place, sessionId, continues: setting.chat?.continues });
       finishAfterReply(work.catch(() => undefined));
-      await work;
+      try {
+        await work;
+      } catch (err) {
+        turnFailed(res, err);
+      }
       return;
     }
   }
@@ -1914,7 +1939,10 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
           chat,
           modelReader: capability.available,
         });
-        if (tried.assistantTurn.toolCalls?.some((call) => call.name === 'next_step')) [named, sought] = [held, byItsWords];
+        const by = (tried.assistantTurn.toolCalls ?? []).map((call) => call.name);
+        if (by.includes('next_step')) [named, sought] = [held, byItsWords];
+        // What could be added, offered for a word of the question ("assessment", "report"), is no answer of the rules' own either: it carries the wizard's name, or none where every card it would raise is waiting already. The value the question names is said in its place, and no page is asked.
+        else if (by.includes('wizard') || (!by.length && !tried.commands.length)) named = held;
       } catch {
         /* the rules answer for themselves below */
       }
@@ -1947,7 +1975,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
   } catch (err) {
     // A rule that throws is one message failing. Left uncaught in this handler it took the whole server down with it.
     console.error('[chat] the rules threw on a message', err);
-    line({ type: 'error', error: 'That message could not be carried out. Say it another way, or do it on the page.' });
+    line({ type: 'error', error: TURN_FAILED });
     res.end();
     return;
   }
@@ -2572,7 +2600,10 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   const takeIn = async (index: number, row: ChatIngestFile, from: ReadQuestionnaire): Promise<void> => {
     try {
       await store.syncProject(project.id, { force: true });
-      const record = addQuestionnaire(project, { title: row.fileName.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '), department: fields.place?.department, fileName: row.fileName, fileKey: row.storageKey, parsed: from.parsed, leftOut: from.leftOut }, actor);
+      // Under the department of the page it was dropped on, where that page shows the Questions step. Any other page's is Engineering's, as a drop on Overview is.
+      const on = fields.place?.department;
+      const department = on && departmentDefinition(on)?.status === 'live' ? on : undefined;
+      const record = addQuestionnaire(project, { title: row.fileName.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '), department, fileName: row.fileName, fileKey: row.storageKey, parsed: from.parsed, leftOut: from.leftOut }, actor);
       dropNotes([row.storageKey]);
       project.updatedAt = new Date().toISOString();
       await store.save();
@@ -3069,6 +3100,11 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
   let result: ReturnType<typeof applyProjectChat>;
   try {
     result = applyProjectChat(project, CHOICE_SENTENCE.one, { actor: actorOf(req), mayDecide, sitting: { decision: 'accept', proposalIds: [item.id] } });
+  } catch (err) {
+    // A card the rules cannot carry out is that card failing: said, as the page's own accept says it, and nothing is saved.
+    console.error('[chat] the rules threw on a card', err);
+    fail(res, err, 'That could not be accepted.');
+    return;
   } finally {
     reviewed?.settle();
   }
@@ -3096,7 +3132,14 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/reject', async (req,
     return;
   }
   refreshProjectDerived(project);
-  const result = applyProjectChat(project, CHOICE_SENTENCE.aside, { actor: actorOf(req), mayDecide: decidesFor(req, project), sitting: { decision: 'aside', proposalIds: [item.id] } });
+  let result: ReturnType<typeof applyProjectChat>;
+  try {
+    result = applyProjectChat(project, CHOICE_SENTENCE.aside, { actor: actorOf(req), mayDecide: decidesFor(req, project), sitting: { decision: 'aside', proposalIds: [item.id] } });
+  } catch (err) {
+    console.error('[chat] the rules threw on a card', err);
+    fail(res, err, 'That could not be set aside.');
+    return;
+  }
   await store.save();
   res.json({ ...result, project });
 });

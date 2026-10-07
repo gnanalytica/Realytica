@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { Camera, CheckCircle2, ChevronRight, Circle, ClipboardList, Copy, Download, FileText, Paperclip, Plus, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import {
   ANSWER_SOURCES,
@@ -417,6 +418,9 @@ function QuestionRow({
  * Each answer carries where it came from and what stands behind it. A
  * suggestion from the chat is marked until a person confirms it. The sheet
  * goes back out in the order it came in.
+ *
+ * A link from the chat names one questionnaire in the address (`item`): that
+ * one is shown, and comes into view on the visit that named it.
  */
 export function QuestionnaireCard({
   project,
@@ -441,10 +445,31 @@ export function QuestionnaireCard({
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
-  const questionnaire = all.find((q) => q.id === pickedId) ?? all[all.length - 1];
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const named = params.get('item');
+  const linked = named && all.some((q) => q.id === named) ? named : null;
+  const card = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!linked) return;
+    setPickedId(linked);
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    card.current?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
+  }, [linked, location.key]);
+  const questionnaire = all.find((q) => q.id === pickedId) ?? all.find((q) => q.id === linked) ?? all[all.length - 1];
   const summary = useMemo(() => (questionnaire ? questionnaireSummary(questionnaire) : null), [questionnaire]);
+  /** One picked here, by hand or by taking a sheet in. The link's own leaves the address, so the next step pressed does not put it back. */
+  const pick = (id: string | null) => {
+    setPickedId(id);
+    if (!linked) return;
+    const rest = new URLSearchParams(params);
+    rest.delete('item');
+    setParams(rest, { replace: true });
+  };
 
-  const importDialog = <ImportDialog project={project} department={department} open={importing} onClose={() => setImporting(false)} onDone={(next) => (onChanged(next), setPickedId(null))} />;
+  const importDialog = (
+    <ImportDialog project={project} department={department} open={importing} onClose={() => setImporting(false)} onDone={(next) => (onChanged(next), pick(questionnairesOf(next, department).at(-1)?.id ?? null))} />
+  );
 
   if (!questionnaire || !summary) {
     return (
@@ -539,6 +564,8 @@ export function QuestionnaireCard({
 
   return (
     <Card>
+      {/* What a link lands on: the top of the card, with the steps left in view over it. */}
+      <span ref={card} aria-hidden className="block scroll-mt-28" />
       <CardHeader
         icon={<ClipboardList size={15} />}
         title={questionnaire.title}
@@ -546,7 +573,7 @@ export function QuestionnaireCard({
         action={
           <div className="flex flex-wrap items-center gap-1.5">
             {all.length > 1 ? (
-              <Select aria-label="Questionnaire" value={questionnaire.id} onChange={(e) => setPickedId(e.target.value)} className="w-auto">
+              <Select aria-label="Questionnaire" value={questionnaire.id} onChange={(e) => pick(e.target.value)} className="w-auto">
                 {all.map((q) => (
                   <option key={q.id} value={q.id}>
                     {q.title}

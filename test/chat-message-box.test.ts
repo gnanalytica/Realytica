@@ -6,7 +6,8 @@
  * on the chat or a paste. One message takes ten, and a file that was dropped
  * or pasted is held to the kinds the paperclip offers. Whatever is left out
  * is said, so nothing goes missing without a word. A send that failed or was
- * stopped is looked for in the thread before its words are handed back.
+ * stopped is looked for in the thread before its words are handed back, and
+ * the read that looks for it is not laid over a later copy of the project.
  *
  * And three rules of the thread over the box: when it is followed to its
  * foot, which reply a plan is drawn under, and which messages a plan's steps
@@ -17,7 +18,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { PLAN_SAID, PLAN_STEP } from '@realytica/shared';
 import { FILES_AT_MOST, FILE_KINDS, boxAfter, chatTakes, composing, leftOutSaid, pasteIsFiles, stageFiles } from '../apps/web/src/components/chat/carried-question';
-import { followsThread, planDrawnUnder, planStepAsks, saysPlanCancelled, turnKept } from '../apps/web/src/components/chat/chat-list';
+import { followsThread, laidOver, planDrawnUnder, planStepAsks, saysPlanCancelled, turnKept } from '../apps/web/src/components/chat/chat-list';
 
 const file = (name: string, type = ''): { name: string; type: string } => ({ name, type });
 const pdfs = (n: number, from = 1): Array<{ name: string; type: string }> => Array.from({ length: n }, (_, i) => file(`paper-${from + i}.pdf`, 'application/pdf'));
@@ -201,6 +202,29 @@ describe('a send that failed or was stopped', () => {
   it('is found under the id the server made from the one the page sent', () => {
     assert.equal(turnKept([...before, { id: 't3', role: 'user', sessionId: 'ses_a~1f2e3d4c' }], had, 'ses_a')?.id, 't3');
     assert.equal(turnKept([...before, { id: 't3', role: 'user', sessionId: 'ses_ab' }], had, 'ses_a'), undefined, 'an id that only begins the same way is another sitting');
+  });
+});
+
+describe('the read made after a send was stopped', () => {
+  const thread = [{ id: 't1' }, { id: 't2' }, { id: 't3' }];
+  const read = { updatedAt: '2026-10-07T10:00:02.000Z', conversation: thread, settled: 0 };
+
+  it('is laid over the page’s copy when the page’s is no later', () => {
+    const held = { updatedAt: '2026-10-07T10:00:00.000Z', conversation: thread.slice(0, 2), settled: 0 };
+    assert.equal(laidOver(held, read, 't3'), read);
+    assert.equal(laidOver({ ...read, conversation: thread.slice(0, 2) }, read, 't3'), read, 'made at the same moment, the read is the one with the message');
+  });
+
+  it('is not laid over a later copy: a value decided since Stop stays decided', () => {
+    const held = { updatedAt: '2026-10-07T10:00:03.000Z', conversation: thread, settled: 1 };
+    assert.equal(laidOver(held, read, 't3'), held);
+  });
+
+  it('gives a later copy its thread when that copy does not hold the message', () => {
+    const held = { updatedAt: '2026-10-07T10:00:03.000Z', conversation: thread.slice(0, 2), settled: 1 };
+    assert.deepEqual(laidOver(held, read, 't3'), { ...held, conversation: thread });
+    const none = { updatedAt: '2026-10-07T10:00:03.000Z', settled: 1 };
+    assert.deepEqual(laidOver<{ updatedAt: string; conversation?: Array<{ id: string }>; settled: number }>(none, read, 't3'), { ...none, conversation: thread }, 'a copy with no thread at all');
   });
 });
 

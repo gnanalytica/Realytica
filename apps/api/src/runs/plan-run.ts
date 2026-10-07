@@ -258,7 +258,12 @@ export async function planTurnFor(ask: PlanAsk): Promise<PlanTurn | undefined> {
     return actOn(ask, run, ask.pin.act === 'take_out' ? { act: 'take_out', step: ask.pin.step ?? 0 } : { act: ask.pin.act });
   }
   // A typed sentence is about this person's newest plan that is not over, when it reads as one of the few things said of a plan.
-  const mine = planMayBeMeant(question) ? (await plansOf(project.id)).find((run) => !planOver(run) && run.plan.by === actor) : undefined;
+  const open = planMayBeMeant(question) ? (await plansOf(project.id)).filter((run) => !planOver(run) && run.plan.by === actor) : [];
+  // What is typed under a plan's own line is about that plan, where that plan can take it, whatever was laid out in another chat
+  // since: "carry on" under a plan cut short takes that plan up, and "cancel it" or "how far has the plan got?" is about that one.
+  const last = open.length > 1 ? lastSaidIn(project, ask.chat)?.planId : undefined;
+  const under = last ? open.find((run) => run.id === last) : undefined;
+  const mine = under && planAct(question, under.plan, planCutShort(under)) ? under : open[0];
   const said = mine ? planAct(question, mine.plan, planCutShort(mine)) : undefined;
   // "Go ahead", "do it", "carry on": a yes that names no plan answers whatever this chat said last. It runs the plan
   // only where that was the plan's: the plan shown or how it stands, a step ticked off, or what a step of it said.

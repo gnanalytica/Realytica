@@ -870,6 +870,14 @@ export function functionOfDocument(project: DdProject, evidence: EvidenceRecord)
   return ws ? functionKey(ws) : undefined;
 }
 
+/**
+ * The step of a department's steps that holds its questionnaires. A place
+ * names it as it names a part of a page (`section`), with the questionnaire
+ * to open (`item`), and the address says it in the word the steps are read
+ * from (`cockpitPath`).
+ */
+export const QUESTIONS_STEP = 'questions';
+
 /** A record on a function's own page: at its part where the page has one, at the top where it has not. */
 function onFunction(project: DdProject, kind: PlacedKind, label: string, fnKey: string, section: string | undefined, extra: CockpitPathExtra, here: ChatPlace): RecordPlace {
   const fn = functionOf(fnKey)!;
@@ -900,7 +908,8 @@ function reachable(project: DdProject, fnKey: string | undefined): fnKey is stri
  * A document that is on file, a check, an approval, a milestone, a site
  * entry, a certified report and an estimate open on the page of the function
  * that holds them, at the part of the page they sit in. A site visit opens on
- * the site record. A finding, a risk, an action, a decision and a report sit
+ * the site record. A questionnaire opens on its department's Questions step,
+ * at itself. A finding, a risk, an action, a decision and a report sit
  * in no function's page and open in their register, as does a document no
  * function holds, one still expected, and a document or a check whose
  * department is switched off. Anything else whose department is switched off
@@ -1017,13 +1026,19 @@ export function placeOfRecord(project: DdProject, id: string, here: ChatPlace = 
   const sheet = (project.questionnaires ?? []).find((q) => q.id === id);
   if (sheet) {
     // Engineering keeps its questionnaires inside the technical due diligence. Every other department keeps them on its Summary.
+    // On either page they are worked in the Questions step, so the link opens that step at this questionnaire.
+    const questions = { section: QUESTIONS_STEP, item: sheet.id };
     const department = questionnaireDepartment(sheet);
     const home = department === 'construction' ? departmentHomeWorkstream(department) : undefined;
-    if (home) return reachable(project, home) ? onFunction(project, 'questionnaire', sheet.title, home, undefined, {}, here) : undefined;
+    if (home) {
+      if (!reachable(project, home)) return undefined;
+      const place = onFunction(project, 'questionnaire', sheet.title, home, undefined, {}, here);
+      return { ...place, open: { ...place.open, extra: { ...place.open.extra, ...questions } } };
+    }
     const menu = menuDepartment(department);
     if (!menuDepartmentsOf(projectDepartments(project)).includes(menu)) return undefined;
     const stage = stageOfDepartment(project, menu, here.stage ?? stageOf(project.currentStage));
-    return { kind: 'questionnaire', label: sheet.title, department: menu, stage, open: { pane: 'department', extra: { department: menu, stage } } };
+    return { kind: 'questionnaire', label: sheet.title, department: menu, stage, open: { pane: 'department', extra: { department: menu, stage, ...questions } } };
   }
   return undefined;
 }

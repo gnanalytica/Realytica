@@ -129,6 +129,8 @@ export const MEETING_QUOTE = 240;
 const HEADING = /\b(?:(?:minutes|notes) (?:of|from) (?:the |a |our )?(?:[\w’'-]+ ){0,3}meeting|meeting minutes|meeting notes|record of (?:the |a )?(?:meeting|discussion)|mom)\b/i;
 /** A first line that is only the word: "Minutes", "Notes:". */
 const HEADED_ONLY = /^[\s>#*_-]*(?:minutes|notes)[\s:.*_–-]*$/i;
+/** The heading of a file: one that says the meeting outright. A letter that cites "the minutes of the pre-sanction meeting" is a letter, and a drawing's sheet opens "NOTES". */
+const HEADING_OF_FILE = /\b(?:minutes of (?:the |a |our )?meeting|meeting minutes|notes of (?:the |a |our )?meeting|meeting notes|record of (?:the |a )?(?:meeting|discussion)|mom)\b/i;
 const NAMED_AS_NOTES = /\b(?:minutes|meeting|mom)\b/i;
 const PRESENT = /^[ \t>*#-]*(?:attendees|attendance|present|participants|in attendance|attended by|members present)\b[^\n:]{0,20}:/im;
 const HELD = /^[ \t>*#-]*(?:date|held on|meeting date|date of (?:the )?meeting)\b[^\n:]{0,10}:[ \t]*(.*)$/im;
@@ -178,15 +180,19 @@ export function meetingNotesSeen(text: string, fileName = ''): 'yes' | 'maybe' |
  *
  * In a typed message a line that asks a question heads nothing, whatever it
  * mentions ("In the meeting notes, what does this mean?"), unless it hands
- * the notes over.
+ * the notes over. Only a typed message is read by the everyday headings, and
+ * the one word heads it only over what notes hold: a file is read by a
+ * heading that says the meeting outright, or by its name.
  */
 function layoutOf(text: string, fileName = '', typed = false): { lines: string[]; heading: boolean; present: boolean; marked: number; items: boolean; seen: 'yes' | 'maybe' | 'no' } {
   const lines = linesOf(text).filter((line) => line.trim());
   const first = lines.slice(0, 6).filter((line) => !typed || !asksAQuestion(line) || HANDS_OVER.test(opening(line)));
-  const heading = HEADING.test(first.join('\n')) || HEADED_ONLY.test(first[0] ?? '') || NAMED_AS_NOTES.test(fileName.replace(/[_.-]+/g, ' '));
   const present = PRESENT.test(text);
   const held = HELD.test(text);
   const marked = lines.filter((line) => MARKED.test(line) || SECTION.test(line)).length;
+  const heading = typed
+    ? HEADING.test(first.join('\n')) || ((present || held || marked > 0) && HEADED_ONLY.test(first[0] ?? ''))
+    : HEADING_OF_FILE.test(first.join('\n')) || NAMED_AS_NOTES.test(fileName.replace(/[_.-]+/g, ' '));
   const score = (heading ? 3 : 0) + (present ? 2 : 0) + (held ? 1 : 0) + (AGENDA.test(text) ? 1 : 0) + Math.min(marked, 3) + (TALK.test(text) ? 1 : 0);
   const formal = FORMAL_BODY.test(text);
   const seen = lines.length < 2 ? 'no' : (heading || present) && score >= 4 && !formal ? 'yes' : score >= 3 || (score >= 2 && (lines.length >= 3 || marked >= 2)) ? 'maybe' : 'no';
@@ -257,8 +263,10 @@ const opening = (line: string): string => line.replace(/^[\s>#*_-]+/, '').replac
  * lines, and under it what notes hold (who was there, the day, or a line
  * marked as a decision, an action or an open point). A polite line over them
  * changes nothing ("Please find below the minutes of the meeting"). A first
- * line that only names the meeting ("Weekly progress meeting, 3 Oct 2026")
- * heads notes when who was there and a marked line stand under it.
+ * line that only names the meeting ("Weekly progress meeting, 3 Oct 2026"),
+ * or says notes or minutes of anything and asks nothing ("Call notes",
+ * "Notes from site"), heads notes when who was there and a marked line stand
+ * under it.
  *
  * Answered as a question: a message that asks for something and holds
  * nothing notes hold. "Can you check the meeting notes from last week?" typed
@@ -271,7 +279,8 @@ export function meetingNotesPasted(text: string): 'yes' | 'maybe' | 'no' {
   if (layout.lines.length < 3) return 'no';
   const first = opening(layout.lines[0]!);
   const asks = !HANDS_OVER.test(first) && (asksAQuestion(first) || OPENS_ASKING.test(first));
-  const named = layout.present && layout.marked > 0 && /\bmeeting\b/i.test(first) && (!asks || /:\s*$/.test(first));
+  const names = /\bmeeting\b/i.test(first) ? !asks || /:\s*$/.test(first) : !asks && /\b(?:minutes|notes)\b/i.test(first);
+  const named = layout.present && layout.marked > 0 && names;
   if (layout.seen === 'yes' && ((layout.heading && layout.items) || named)) return 'yes';
   if (!layout.items && (asks || asksAQuestion(text))) return 'no';
   return layout.seen === 'yes' ? 'maybe' : layout.seen;

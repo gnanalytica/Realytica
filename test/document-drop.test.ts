@@ -927,7 +927,7 @@ describe('what a drop took in that is no paper read', () => {
       ['filed', undefined, 'The voice note'],
     ]);
     const [questions, picture, voice] = chips;
-    assert.deepEqual([questions!.ids, address(p, questions!)], [[sheet.id], `/projects/${p.id}/d/legal?stage=land`], 'the page the questionnaire is on');
+    assert.deepEqual([questions!.ids, address(p, questions!)], [[sheet.id], `/projects/${p.id}/d/legal?stage=land&step=questions&item=${sheet.id}`], 'the Questions step of the page the questionnaire is on, at itself');
     assert.deepEqual(picture!.ids, [photo.id]);
     assert.match(address(p, picture!), new RegExp(`^/projects/${p.id}/w/construction\\.progress\\?.*part=documents`), 'Progress, at its documents, with the photograph lit');
     assert.deepEqual([voice!.ids, address(p, voice!)], [[note.id], `/projects/${p.id}/evidence`], 'the voice note by the card it waits on, at the documents, where it waits');

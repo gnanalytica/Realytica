@@ -295,9 +295,15 @@ function asMeant(question: string): string {
   return withoutFarAsACommonWord(question).replace(LET_AS_A_COMMON_WORD, ' ').replace(SAID_IN_FULL, ' FAR ');
 }
 
-/** The words of a question that say what it is about: the ones of the question as it is meant that can tell one thing from another. */
+/** Words a question is put in that the common list keeps: "which city", "whose name", "how many were found". They say nothing of what it is about. */
+const ASKED_IN = new Set(['which', 'whose', 'whom', 'where', 'many', 'much', 'were', 'found']);
+
+/** The words of some text that say what it is about: the ones that can tell one thing from another, less those a question is put in. */
+const aboutWords = (text: string): string[] => memTellingWords(text).filter((word) => !ASKED_IN.has(word));
+
+/** The words of a question that say what it is about, read as the question is meant. */
 function subjectWords(question: string): Set<string> {
-  return new Set(memTellingWords(asMeant(question)));
+  return new Set(aboutWords(asMeant(question)));
 }
 
 /**
@@ -308,9 +314,46 @@ function subjectWords(question: string): Set<string> {
  * about the mortgage, and "status" is said of it.
  */
 function namesInFull(subject: ReadonlySet<string>, label: string): boolean {
-  const telling = memTellingWords(label);
+  const telling = aboutWords(label);
   if (telling.length === 1 && subject.size > 1) return false;
   return telling.some((word) => !SOMETHING_DONE.test(word)) && telling.every((word) => subject.has(word));
+}
+
+/** Where a label goes on from what the value is to what it is of: "extent per survey sketch", "transactions in the period". */
+const OF_WHAT = /\s(?:of|per|in|on|for|to|at|by|from|with)\s/i;
+
+/**
+ * Whether the words name this kind of value in part: all the question is
+ * about is in its label, and some of it is what the value is, not only a
+ * word for something done. "The road width" is the abutting road width and
+ * "the address" the site address. "The sketch" is not the extent per survey
+ * sketch.
+ */
+function namesInPart(subject: ReadonlySet<string>, label: string): boolean {
+  const telling = new Set(aboutWords(label));
+  const what = aboutWords(label.split(OF_WHAT)[0]!).filter((word) => !SOMETHING_DONE.test(word));
+  return what.some((word) => subject.has(word)) && [...subject].every((word) => telling.has(word));
+}
+
+/** How a question may say the project itself, where it asks about one of its own fields: "is the property in Bengaluru?" */
+const THE_PROJECT_ITSELF = new Set(['file', 'site', 'plot', 'property', 'deal', 'land']);
+
+/**
+ * The project's own fields whose value is all the question is about: "is the
+ * property in Bengaluru?" is the city, "is it residential?" the project type.
+ * Only a field kept in words, so that no number, date or reference is taken
+ * for what was asked by chance.
+ */
+function fieldsStated(project: DdProject, facts: readonly MemFact[], subject: ReadonlySet<string>): MemFact[] {
+  const itself = (words: readonly string[]): string[] => words.filter((word) => !THE_PROJECT_ITSELF.has(word));
+  const asked = itself([...subject]);
+  if (!asked.length) return [];
+  return facts.filter((fact) => {
+    const form = memFormOfKey(fact.key, fact.label);
+    if (fact.aboutId !== project.id || typeof fact.value !== 'string' || (form !== 'words' && form !== 'lower')) return false;
+    const value = itself(aboutWords(fact.value));
+    return value.length === asked.length && value.every((word) => subject.has(word));
+  });
 }
 
 /**
@@ -340,21 +383,34 @@ function namesInFull(subject: ReadonlySet<string>, label: string): boolean {
  * lines about something else, so where nothing bears on the question nothing
  * is said. A value two papers state alike is one line (`saidOnce`).
  *
+ * A kind named in part ("the refuge area" for the refuge area provided)
+ * counts where no kind is named in full and it is the only one on record the
+ * words fit: "the area" is no one of three. Under an answer made from that
+ * kind already, the values the answer is made from are said, as before. Under
+ * one that is not, the kind named is said, or it would go unsaid.
+ *
  * `named` is for a question no rule answered. Then only a kind of value the
- * question names in full is said, and it is the answer: "what is the project
- * type?" is the project's own field. A record the question names, or the
- * project as a whole, is where the file stands and not what was asked. And
- * only a question put for a fact is answered so: "why is it residential?" is
- * not answered by saying that it is, nor "who paid the tax?" by the amount.
+ * question names, in full or in part, is said, and it is the answer: "what is
+ * the project type?" is the project's own field. So is a field of the
+ * project whose value is all the question is about: "is the property in
+ * Bengaluru?" is the city. A record the question names, or the project as a
+ * whole, is where the file stands and not what was asked. And only a question
+ * put for a fact is answered so: "why is it residential?" is not answered by
+ * saying that it is, nor "who paid the tax?" by the amount.
  */
 export function memUnderAnswer(project: DdProject, facts: readonly MemFact[], ask: MemAsk, options: { whole?: boolean; named?: boolean } = {}): MemSaid | undefined {
   if (saidInPassing(ask.question)) return undefined;
   const subject = subjectWords(ask.question);
-  const fitting = options.named && ASKS_WHO.test(ask.question) ? facts.filter(namesSomebody) : facts;
-  const inFull = fitting.filter((fact) => !A_RECORD.has(fact.key) && namesInFull(subject, fact.label));
-  if (options.named && (!inFull.length || !asksForAFact(ask.question))) return undefined;
+  const asksWho = options.named && ASKS_WHO.test(ask.question);
+  const fitting = (asksWho ? facts.filter(namesSomebody) : facts).filter((fact) => !A_RECORD.has(fact.key));
+  const inFull = fitting.filter((fact) => namesInFull(subject, fact.label));
+  const partly = inFull.length ? [] : fitting.filter((fact) => namesInPart(subject, fact.label));
+  const inPart = new Set(partly.map((fact) => fact.label)).size === 1 ? partly : [];
+  const stated = options.named && !inFull.length && !inPart.length && !asksWho ? fieldsStated(project, fitting, subject) : [];
+  if (options.named && ((!inFull.length && !inPart.length && !stated.length) || !asksForAFact(ask.question))) return undefined;
   const answeredFrom = new Set(inFull.length ? [] : factKeysAsked(ask.question));
-  const kinds = inFull.length ? inFull : facts.filter((fact) => answeredFrom.has(fact.key));
+  const apart = options.named ? [...inPart, ...stated] : inPart.filter((fact) => !answeredFrom.has(fact.key));
+  const kinds = inFull.length ? inFull : apart.length || options.named ? apart : facts.filter((fact) => answeredFrom.has(fact.key));
   const records = memSeeds(project, { question: ask.question }).filter((seed) => seed.from === 'named' && seed.aboutIds.length);
   const near = memNear(project.id, records);
   const ofRecords = records.length ? facts.filter((fact) => memIsNear(fact, near)) : [];

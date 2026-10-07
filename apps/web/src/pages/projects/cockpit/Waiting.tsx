@@ -18,6 +18,7 @@ import { AnimatePresence, EASE_ENTER, Stagger, StaggerItem, motion } from '../..
 import { CreateWizard } from '../../../components/create/CreateWizard';
 import { specForProposal } from '../../../components/create/specs';
 import { DecideButtons } from '../../../components/review/Decide';
+import { useLiveHighlight } from '../LiveRow';
 import { tabHolding } from './rail';
 
 export type Waiting = ReturnType<typeof waitingOnCanvas>;
@@ -80,12 +81,14 @@ function WaitingCard({
   project,
   item,
   busy,
+  highlightIds,
   onAccept,
   onSetAside,
 }: {
   project: DdProject;
   item: ChatProposal;
   busy: boolean;
+  highlightIds?: string[];
   onAccept: (id: string, payload?: Record<string, unknown>) => void;
   onSetAside: (id: string) => void;
 }) {
@@ -93,8 +96,10 @@ function WaitingCard({
   const [editing, setEditing] = useState(false);
   const changes = useMemo(() => proposalChanges(project, item), [project, item]);
   const form = useMemo(() => specForProposal(item.kind), [item.kind]);
+  // Lit as a row of a register is, when a chip in the chat names this card.
+  const { ref, on } = useLiveHighlight<HTMLLIElement>(item.id, highlightIds);
   return (
-    <li className="flex flex-col gap-1 px-3 py-2">
+    <li ref={ref} data-live={on ? 'true' : undefined} className={cn('flex flex-col gap-1 px-3 py-2', on && 'bg-brand-soft ring-2 ring-inset ring-brand/35')}>
       <div className="flex items-start gap-2.5">
         <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-provenance" aria-hidden />
         <button
@@ -172,6 +177,7 @@ export function WaitingHere({
   waiting,
   sittingCheckId,
   busy,
+  highlightIds,
   onAccept,
   onSetAside,
   onGo,
@@ -182,6 +188,8 @@ export function WaitingHere({
   /** The check already open on the scope — its values are decided there, not listed here. */
   sittingCheckId?: string | null;
   busy: boolean;
+  /** The records a chip in the chat lit. A card among them is lit here. */
+  highlightIds?: string[];
   onAccept: (id: string, payload?: Record<string, unknown>) => void;
   onSetAside: (id: string) => void;
   onGo: (entry: WaitingEntry) => void;
@@ -199,6 +207,11 @@ export function WaitingHere({
   useEffect(() => {
     if (total <= 4) setFolded(false);
   }, [total]);
+  // A lit card inside a folded list would be lit out of sight: the list opens. It opens again each time the card is lit, so a chip pressed after the list was folded by hand shows it.
+  const litCard = cards.find((item) => highlightIds?.includes(item.id))?.id;
+  useEffect(() => {
+    if (litCard) setFolded(false);
+  }, [litCard, highlightIds]);
   if (!total) return null;
 
   // Checks are grouped: three values on one check are one place to go.
@@ -274,7 +287,7 @@ export function WaitingHere({
             </StaggerItem>
           ))}
           {cards.map((item) => (
-            <WaitingCard key={item.id} project={project} item={item} busy={busy} onAccept={onAccept} onSetAside={onSetAside} />
+            <WaitingCard key={item.id} project={project} item={item} busy={busy} highlightIds={highlightIds} onAccept={onAccept} onSetAside={onSetAside} />
           ))}
         </Stagger>
         </motion.div>

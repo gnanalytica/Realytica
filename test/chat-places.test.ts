@@ -20,6 +20,7 @@ import {
   FIRM_ONLY_PANES,
   SHARED_PLACE_WORDS,
   STAGES,
+  addQuestionnaire,
   addSiteVisit,
   applyProjectChat,
   chatPlaceLabel,
@@ -509,6 +510,60 @@ describe('the chat goes there', () => {
     assert.deepEqual([at.open.pane, at.open.extra.item], ['visits', visit.id]);
     assert.match(cockpitPath(p.id, at.open.pane, at.open.extra), new RegExp(`^/projects/${p.id}/visits\\?item=${visit.id}(?:&stage=\\w+)?$`));
     assert.equal(cockpitPath(p.id, 'visits'), `/projects/${p.id}/visits`, 'the page asked for alone names no row');
+  });
+
+  it('links a questionnaire to the Questions step of its department, at itself, and opens it there by its title', () => {
+    const p = demo();
+    const sheet = (title: string, department: 'legal' | 'construction') => addQuestionnaire(p, { title, department, parsed: { header: [], questions: [{ text: 'Who holds the original deed?' }, { text: 'Is there a mortgage?' }] } }, 'tester');
+    const legal = sheet('Queries on title', 'legal');
+    const technical = sheet('Technical questionnaire', 'construction');
+    // Was: the department's Summary, and for Engineering the technical due diligence, at its first step.
+    const stage = new RegExp(`\\?stage=\\w+&step=questions&item=`);
+    const at = placeOfRecord(p, legal.id)!;
+    assert.equal(cockpitPath(p.id, at.open.pane, at.open.extra).replace(stage, '?…'), `/projects/${p.id}/d/legal?…${legal.id}`);
+    const within = placeOfRecord(p, technical.id)!;
+    assert.equal(cockpitPath(p.id, within.open.pane, within.open.extra).replace(stage, '?…'), `/projects/${p.id}/w/construction.quality?…${technical.id}`);
+    // A part of a function's page is still said as a part.
+    assert.equal(cockpitPath(p.id, 'workstream', { workstream: 'legal.title', section: 'documents', item: 'x' }), `/projects/${p.id}/w/legal.title?part=documents&item=x`);
+
+    // Typed by its title, or by the word for what it is beside a word of its title. Was: "Nothing on this project is called …".
+    for (const said of ['open the Queries on title', 'Open "Queries on title"', 'open the title questionnaire']) {
+      const out = applyProjectChat(p, said);
+      assert.equal(out.assistantTurn.text, '“Queries on title” is open at its questions — 0 of 2 answered.', said);
+      const nav = out.navigations.at(-1)!;
+      assert.equal(cockpitPath(p.id, nav.target as 'department', nav), cockpitPath(p.id, at.open.pane, at.open.extra), said);
+      assert.ok(wantsDeterministicProjectChat(p, said), said);
+    }
+    // The word alone fits both, and neither is picked.
+    assert.deepEqual(applyProjectChat(p, 'open the questionnaire').assistantTurn.choices?.map((choice) => choice.label), ['Queries on title', 'Technical questionnaire']);
+    // With its department switched off it has no page, and no sentence names it: the word alone is then the other one.
+    setProjectDepartments(p, ['finance', 'construction'], 'tester');
+    assert.equal(placeOfRecord(p, legal.id), undefined);
+    assert.notEqual(applyProjectChat(p, 'Open "Queries on title"').navigations.at(-1)?.item, legal.id);
+    assert.equal(applyProjectChat(p, 'open the questionnaire').navigations.at(-1)?.item, technical.id);
+  });
+
+  it('names no questionnaire kept under a department whose page has no Questions step', () => {
+    const kept = (department: 'procurement' | 'commercial' | 'design' | 'construction' | 'finance' | 'legal') => {
+      const p = demo();
+      const sheet = addQuestionnaire(p, { title: 'Tender queries', department, parsed: { header: [], questions: [{ text: 'Which vendors are shortlisted?' }, { text: 'Is a bank guarantee asked for?' }] } }, 'tester');
+      return { p, sheet };
+    };
+    // Was: "“Tender queries” is open at its questions", beside a page that says the department is coming soon and shows none.
+    for (const department of ['procurement', 'commercial', 'design'] as const) {
+      const { p, sheet } = kept(department);
+      assert.equal(applyProjectChat(p, 'open the Tender queries').assistantTurn.text, 'Nothing on this project is called “Tender queries”. Nothing moved.', department);
+      for (const said of ['open the Tender queries', 'Open "Tender queries"', 'open the questionnaire']) {
+        const out = applyProjectChat(p, said);
+        assert.ok(!out.navigations.some((nav) => nav.item === sheet.id) && !/open at its questions/.test(out.assistantTurn.text), `${department}: ${said}`);
+      }
+    }
+    // Engineering, Finance and Legal show the step, and theirs is named as it was.
+    for (const department of ['construction', 'finance', 'legal'] as const) {
+      const { p, sheet } = kept(department);
+      const out = applyProjectChat(p, 'open the Tender queries');
+      assert.deepEqual([out.assistantTurn.text, out.navigations.at(-1)?.item], ['“Tender queries” is open at its questions — 0 of 2 answered.', sheet.id], department);
+    }
   });
 
   it('names a place the way the menu does', () => {

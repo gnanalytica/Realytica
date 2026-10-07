@@ -123,6 +123,32 @@ describe('a choice opens the record on the button', () => {
     assert.equal(press(p, asked.assistantTurn.choices!.find((choice) => choice.label === check.title)!).navigations.at(-1)?.checkId, check.id);
   });
 
+  it('takes “this” for a word that points, and not for a name', () => {
+    const p = seedDemoProject();
+    const titled = p.assessments.flatMap((a) => a.scopes.flatMap((scope) => scope.checks)).filter((check) => /\bthis\b/.test(check.title));
+    assert.ok(titled.length, 'a check on the seeded project has “this” in its title');
+    // Each opened a check with "this" in its title, or asked which of them: the plural was cut off "this" before it was looked at.
+    for (const said of ['show me this', 'open this', 'view this', 'open this check']) {
+      const on = p.assessments[0]!.scopes[0]!;
+      for (const sitting of [undefined, { ddId: p.assessments[0]!.id, scopeId: on.id, checkId: on.checks[0]!.id }]) {
+        const out = applyProjectChat(p, said, { sitting });
+        assert.equal(out.assistantTurn.choices, undefined, said);
+        assert.deepEqual(out.navigations.map((nav) => nav.target), [said.endsWith('check') ? 'dd' : 'overview'], said);
+      }
+    }
+    // The title itself still names its checks.
+    assert.deepEqual(applyProjectChat(p, `Open "${titled[0]!.title}"`).assistantTurn.choices?.map((choice) => choice.sitting?.checkId), titled.map((check) => check.id));
+    assert.deepEqual(applyProjectChat(p, 'open the statutory NOCs').assistantTurn.choices?.map((choice) => choice.sitting?.checkId), titled.map((check) => check.id));
+    // So does the title typed without its quotes: in a longer name "this" is a word of the title. Was: the first due diligence's check was opened, and nobody was asked which.
+    for (const said of [`open ${titled[0]!.title}`, 'show me the statutory NOCs required at this stage']) {
+      const out = applyProjectChat(p, said);
+      assert.deepEqual(out.navigations, [], said);
+      assert.deepEqual(out.assistantTurn.choices?.map((choice) => choice.sitting?.checkId), titled.map((check) => check.id), said);
+    }
+    // A short name that holds it still points, wherever the word stands.
+    for (const said of ['open this stage', 'show me the stage of this']) assert.doesNotMatch(applyProjectChat(p, said).assistantTurn.text, /records match/, said);
+  });
+
   it('pins a paper as the paper, and tells a finding from a risk by its kind', () => {
     const p = createProject({ name: 'Corner plot', type: 'residential', location: 'Northfield', city: 'Bengaluru' }, 'RYT-CR1');
     for (const key of ['a', 'b']) {
@@ -252,6 +278,27 @@ describe('what a valuation run says', () => {
     assert.match(projectRegisterBriefing(p), /^The latest valuation run gave no figure\.$/m);
   });
 
+  it('says how many values wait to be accepted where the page shows a provisional figure', () => {
+    const p = plot();
+    for (const [n, price] of [58_000_000, 62_000_000, 60_500_000].entries()) addComparable(p, { title: `Plot, Sy. ${120 + n}`, price, areaSqm: 1200, kind: 'transaction', weight: 1 }, 'tester');
+    // The sales offer a rate nobody has accepted. The page counts it and shows a figure; the run does not.
+    const page = quickAssessment(p, 'finance.valuation');
+    const figure = /^₹[\d.]+ Cr$/.exec(page.headline)?.[0];
+    assert.ok(figure, page.headline);
+    const out = applyProjectChat(p, 'Run the valuation');
+    // Was: "No figure yet. Comparable rate on saleable area needs rate applied. …" beside the page's figure.
+    assert.equal(out.assistantTurn.text, `No figure yet. 1 value waits on the Valuation page to be accepted. With it the page shows ${figure}, provisional.`);
+    assert.deepEqual(out.assistantTurn.toolCalls, [{ name: 'run_valuation', summary: 'No figure yet · 1 to accept' }]);
+    assert.match(projectRegisterBriefing(p), /^The latest valuation run gave no figure\.$/m);
+
+    // With no area on the file the offered rate gives no figure. An approach is said to need only what nothing offers, as on the page.
+    const bare = createProject({ name: 'Whitefield plot', type: 'residential', location: 'White Field', city: 'Bengaluru' }, 'RYT-VA2');
+    for (const [n, price] of [58_000_000, 62_000_000, 60_500_000].entries()) addComparable(bare, { title: `Plot, Sy. ${120 + n}`, price, areaSqm: 1200, kind: 'transaction', weight: 1 }, 'tester');
+    assert.ok(quickAssessment(bare, 'finance.valuation').points.some((point) => point.text === 'Comparable rate on saleable area: needs area valued'));
+    // Was: "… needs area valued and rate applied."
+    assert.equal(applyProjectChat(bare, 'Run the valuation').assistantTurn.text, 'No figure yet. 1 value waits on the Valuation page to be accepted. Comparable rate on saleable area needs area valued. Depreciated replacement cost needs plot area and land rate.');
+  });
+
   it('names the approach the run used, and writes the amount as the Valuation page does', () => {
     const p = plot();
     for (const [n, price] of [58_000_000, 62_000_000, 60_500_000].entries()) addComparable(p, { title: `Plot, Sy. ${120 + n}`, price, areaSqm: 1200, kind: 'transaction', weight: 1 }, 'tester');
@@ -330,6 +377,8 @@ describe('a draft to send asked for as an email', () => {
       assert.ok(wantsDeterministicProjectChat(p, said), said);
     }
     assert.equal(p.outgoing?.length, 3);
+    // Who it is to ends at what the letter does. Was: to "The lender answering their questions", with no subject.
+    assert.deepEqual([p.outgoing![0]!.to, p.outgoing![0]!.subject], ['The lender', 'Answering their questions']);
     // A reply answers a paper on the file, with a describing word as without one.
     assert.equal(applyProjectChat(p, 'Draft a short reply to the lender’s questions').assistantTurn.text, applyProjectChat(p, 'Draft a reply to the lender’s questions').assistantTurn.text);
   });

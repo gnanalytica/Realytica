@@ -257,9 +257,10 @@ function inline(text: string, isNode: (id: string) => boolean, tags: readonly Me
 /**
  * The spans of a line, and the frame ids taken out of it because nothing
  * could name them. `marks` is off for the words inside bold or code, where no
- * second mark is read.
+ * second mark is read. `before` is what the line said ahead of those words,
+ * so a name said just before a mark is not said again inside it.
  */
-function read(text: string, isNode: (id: string) => boolean, tags: readonly MemTagWords[], marks: boolean): { spans: Inline[]; unnamed: string[] } {
+function read(text: string, isNode: (id: string) => boolean, tags: readonly MemTagWords[], marks: boolean, before = ''): { spans: Inline[]; unnamed: string[] } {
   // An anchor caught inside bold or code is said there in words: a tag is not drawn inside another mark.
   const worded = (words: string): string => words.replace(ANCHORS, (_whole, n: string) => `[${tags[Number(n)] ?? ''}]`);
   /*
@@ -269,8 +270,8 @@ function read(text: string, isNode: (id: string) => boolean, tags: readonly MemT
    * not. Taken as one run of words, that printed the id the brackets were
    * there to replace.
    */
-  const within = (kind: 'bold' | 'code', words: string): { spans: Inline[]; unnamed: string[] } => {
-    const inner = read(worded(words), isNode, [], false);
+  const within = (kind: 'bold' | 'code', words: string, ahead: string): { spans: Inline[]; unnamed: string[] } => {
+    const inner = read(worded(words), isNode, [], false, ahead);
     return { spans: inner.spans.map((span) => (span.kind === 'text' ? { kind, text: span.text } : span)), unnamed: inner.unnamed };
   };
   const out: Inline[] = [];
@@ -292,7 +293,7 @@ function read(text: string, isNode: (id: string) => boolean, tags: readonly MemT
     const done = text.length - rest.length;
     // Bold or code that held nothing but ids taken out goes with them, as a bare id does.
     const marked = (kind: 'bold' | 'code', found: RegExpExecArray): void => {
-      const inner = within(kind, found[1]);
+      const inner = within(kind, found[1], text.slice(0, done + found.index));
       const place = inner.spans.length ? { at: found.index, len: found[0].length } : stretchOf(rest, found.index, found[0].length, done === 0);
       candidates.push({ ...place, spans: inner.spans, unnamed: inner.unnamed });
     };
@@ -326,7 +327,7 @@ function read(text: string, isNode: (id: string) => boolean, tags: readonly MemT
         candidates.push({ at, len, spans: [{ kind: 'node', id }] });
       } else {
         const names = projectFrameNames(id);
-        if (names.length > 0 && !saidJustBefore(text.slice(0, done + at), names)) {
+        if (names.length > 0 && !saidJustBefore(before + text.slice(0, done + at), names)) {
           candidates.push({ at, len, spans: [{ kind: 'text', text: names[0] }] });
         } else {
           candidates.push({ ...stretchOf(rest, at, len, done === 0), spans: [], ...(names.length === 0 ? { unnamed: [id] } : {}) });
@@ -389,6 +390,70 @@ function read(text: string, isNode: (id: string) => boolean, tags: readonly MemT
 const LINKED_ID = /^(?:(?:dd|ev)-|(?:prj|ast|dd|scp|chk|fnd|rsk|act|ev|dec|rep|rpt|mil|log|vis|crt|qnr)_(?=.*\d))/;
 const PAGELESS_ID = /^(?:val|prp|cht|aud|flw|run)_(?=.*\d)/;
 
+/** Closing punctuation written against the end of a chip, with a space or nothing after it. A possessive counts: "[the deed]'s". A dash is kept whatever follows it. */
+const AFTER_CHIP = /^(?:[’']s)?[.,;:!?)\]”’"'…]*(?:—|(?=\s|$))/;
+/** An opening bracket or quotation mark written against the start of a chip, with a space or nothing before it. */
+const BEFORE_CHIP = /(^|\s)([([“‘]+)$/;
+
+/** Punctuation kept against a chip, and whether it was written in bold. */
+export type Beside = { text: string; bold: boolean };
+
+/**
+ * The punctuation each chip keeps beside it, by the chip's place, and the
+ * words of each run of plain or bold text once that is taken from it. A stop
+ * is taken from a bold run as from a plain one: "**See [the deed].**" ends
+ * in a bold stop, and left to itself it stood apart from its chip.
+ */
+export function besideChips(spans: Inline[]): { words: string[]; lead: (Beside | undefined)[]; tail: (Beside | undefined)[] } {
+  const words = spans.map((span) => (span.kind === 'text' || span.kind === 'bold' ? span.text : ''));
+  const lead: (Beside | undefined)[] = [];
+  const tail: (Beside | undefined)[] = [];
+  spans.forEach((span, i) => {
+    if (span.kind === 'text' || span.kind === 'bold' || span.kind === 'code') return;
+    const next = spans[i + 1];
+    const after = next?.kind === 'text' || next?.kind === 'bold' ? AFTER_CHIP.exec(words[i + 1]) : null;
+    if (after?.[0]) {
+      tail[i] = { text: after[0], bold: next?.kind === 'bold' };
+      words[i + 1] = words[i + 1].slice(after[0].length);
+    }
+    const prev = spans[i - 1];
+    const before = prev?.kind === 'text' || prev?.kind === 'bold' ? BEFORE_CHIP.exec(words[i - 1]) : null;
+    if (before) {
+      lead[i] = { text: before[2], bold: prev?.kind === 'bold' };
+      words[i - 1] = words[i - 1].slice(0, words[i - 1].length - before[2].length);
+    }
+  });
+  return { words, lead, tail };
+}
+
+/**
+ * Citations that stand side by side and would read the same, as one.
+ *
+ * A passage and a line of memory cite every copy of a paper that holds the
+ * words, so two copies of one paper put the same chip down twice in a row.
+ * The first is kept. `copies` says, by its place in what is left, how many
+ * papers it stands for. `reads` is what a citation would show, or null for
+ * one that is never folded into another.
+ */
+export function oneOfEach(spans: Inline[], reads: (span: Extract<Inline, { kind: 'evidence' }>) => string | null): { spans: Inline[]; copies: number[] } {
+  const out: Inline[] = [];
+  const papers: Array<Set<string> | undefined> = [];
+  for (const span of spans) {
+    const gap = out[out.length - 1];
+    // The chip before this one, across nothing or a space.
+    const at = gap?.kind === 'text' && gap.text.trim() === '' ? out.length - 2 : out.length - 1;
+    const kept = out[at];
+    const said = span.kind === 'evidence' ? reads(span) : null;
+    if (span.kind === 'evidence' && kept?.kind === 'evidence' && said !== null && reads(kept) === said) {
+      out.length = at + 1;
+      (papers[at] ??= new Set([kept.id])).add(span.id);
+      continue;
+    }
+    out.push(span);
+  }
+  return { spans: out, copies: out.map((_span, i) => papers[i]?.size ?? 1) };
+}
+
 function splitRow(line: string): string[] {
   return line
     .replace(/^\s*\|/, '')
@@ -415,6 +480,9 @@ const HEADING = /^([A-Z][^.!?]{0,60}):\s*$/;
  */
 const ATX = /^#{1,4}\s+(.+?)\s*#*$/;
 
+/** A line of prose that ends in a citation, with whatever closes the sentence after it. */
+const ENDS_CITED = /\[ev:[A-Za-z0-9][A-Za-z0-9_.:-]*\][.,;:!?…)\]”’"']*$/;
+
 const BULLET = /^[-*•]\s+(.*)$/;
 const NUMBERED = /^(\d{1,2})[.)]\s+(.*)$/;
 /** A line of three or more of the same mark and nothing else. */
@@ -428,6 +496,8 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
   const lines = marked.text.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
   let paragraph: string[] = [];
+  // The line a numbered list starts on when it follows straight after one that kept dashed lines standing apart from its items.
+  let apartFrom = -1;
 
   const flush = () => {
     if (paragraph.length === 0) return;
@@ -526,7 +596,9 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
      *
      * A number that starts again at 1 is the first item of another list. It
      * is not when the item before it was written "1." as well: some answers
-     * number every item 1 and leave the counting to whoever draws it.
+     * number every item 1 and leave the counting to whoever draws it. A list
+     * that follows straight after another keeps its dashed lines the way
+     * that one did.
      */
     const numbered = NUMBERED.exec(trimmed);
     if (numbered) {
@@ -539,13 +611,17 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
         return to;
       };
       // The number the last item was written with, and the item at a line when it is the next of this list.
-      let written = Number(numbered[1]);
+      const start = Number(numbered[1]);
+      let written = start;
       const nextItem = (at: number): RegExpExecArray | null => {
         const item = NUMBERED.exec(lines[at]?.trim() ?? '');
-        return item && !(Number(item[1]) === 1 && written > 1) ? item : null;
+        // A list counted from 0 comes to 1 once: a second 1 starts another. So does a second 0, once the count has gone past it.
+        const again = item && ((Number(item[1]) === 1 && (written > 1 || (start === 0 && items.length > 1))) || (Number(item[1]) === 0 && start === 0 && written > 0));
+        return item && !again ? item : null;
       };
-      // An item of this list has taken dashed lines that stood apart from it and were not set in.
-      let apartBefore = false;
+      // An item of this list has taken dashed lines that stood apart from it and were not set in. So has the list
+      // this one follows straight after, starting again at 1: one answer writes its lists one way.
+      let apartBefore = apartFrom === i;
       let j = i + 1;
       while (j < lines.length) {
         const at = skipBlank(j);
@@ -566,7 +642,7 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
         for (const under of lines.slice(at, end)) details[details.length - 1].push(spansOf(BULLET.exec(under.trim())![1]));
         j = end;
       }
-      const start = Number(numbered[1]);
+      apartFrom = apartBefore && NUMBERED.test(lines[skipBlank(j)]?.trim() ?? '') ? skipBlank(j) : -1;
       blocks.push({ kind: 'numbers', items, ...(start === 1 ? {} : { start }), ...(details.some((under) => under.length > 0) ? { details } : {}) });
       i = j - 1;
       continue;
@@ -589,6 +665,10 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
     }
 
     paragraph.push(trimmed);
+    // A line that ends in its source is a block of its own. Joined to the line after, a chip that went to the next line stood
+    // at the head of the next sentence and read as its source. Not when the line after goes on in lower case: that is one sentence, wrapped.
+    // Nor when the line after opens with a source: that one is this line's too, written under it.
+    if (ENDS_CITED.test(trimmed) && !/^\p{Ll}/u.test(next) && !/^\[ev:/.test(next)) flush();
   }
 
   flush();

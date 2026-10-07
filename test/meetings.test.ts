@@ -112,6 +112,21 @@ describe('whether words are the notes of a meeting', () => {
     assert.equal(meetingNotesDropped(typed), 'maybe', 'neither filed as a paper nor kept as a meeting until a person says');
     assert.equal(meetingNotesDropped({ ...typed, read: undefined }), 'yes');
   });
+
+  it('files a dropped paper that only cites a meeting’s minutes, or opens with the word', () => {
+    const dropped = (fileName: string, excerpt: string): ChatIngestFile => ({ fileName, mimeType: 'application/pdf', sizeBytes: 10, storageKey: fileName, excerpt });
+    // Was `yes`: the bank's letter was kept as a meeting, never reached the register, and its values were not read.
+    const letter = 'Ref: DUCB/ADV/2026/114\nDate: 3 October 2026\nSub: Loan against Sy. 118/2\nWith reference to the minutes of the pre-sanction meeting, we confirm the following.\n1. The mortgage in favour of the bank subsists.\nYours faithfully';
+    assert.equal(meetingNotesDropped(dropped('letter.pdf', letter)), 'no');
+    assert.equal(meetingNotesDropped(dropped('opinion.pdf', 'LEGAL OPINION\nOur notes from the client meeting of 3 October are annexed.\nDate: 5 October 2026\nWe have examined the title deeds.')), 'no');
+    // Was `maybe`: a drawing's sheet, a page of accounts and a list somebody kept were asked about as notes of a meeting.
+    assert.equal(meetingNotesDropped(dropped('A-101.pdf', 'NOTES\n1. All dimensions are in millimetres.\n2. Do not scale from this drawing.\n3. Read with structural drawings.')), 'no');
+    assert.equal(meetingNotesDropped(dropped('accounts.pdf', 'NOTES\nto the financial statements for the year ended 31 March 2025\n1. Significant accounting policies')), 'no');
+    assert.equal(meetingNotesDropped(dropped('inspection.pdf', 'Minutes\nof inspection carried out on 3 October 2026\nThe property is a vacant plot.')), 'no');
+    // Notes laid out as notes are still kept, under an everyday heading or the one word, by who was there and what was decided.
+    const under = 'Date: 3 October 2026\nPresent: Asha Rao, Vikram Nair\nDecision: The wall will be rebuilt.\nAction: Vikram to get the receipt.';
+    for (const heading of ['Minutes of the site meeting', 'Notes from the client meeting', 'Minutes', 'NOTES']) assert.equal(meetingNotesDropped(dropped('scan-004.pdf', `${heading}\n${under}`)), 'yes', heading);
+  });
 });
 
 describe('a typed message that mentions a meeting', () => {
@@ -167,6 +182,18 @@ describe('a typed message that mentions a meeting', () => {
     assert.equal(meetingNotesPasted(`Weekly progress meeting, 3 Oct 2026\n${UNDER}`), 'yes');
     assert.equal(meetingNotesPasted(`What was agreed at the site meeting, 3 Oct:\n${UNDER}`), 'yes');
     assert.equal(meetingNotesPasted('Site meeting tomorrow\nDate: 8 October 2026\nPlease remind Vikram to bring the drawings.'), 'no', 'a meeting named over no notes is a message');
+  });
+
+  it('is kept at once under a heading that says notes or minutes of anything, over who was there and a marked line', () => {
+    // Each was asked about: only a heading with the word "meeting" in it counted.
+    for (const heading of ['Call notes', 'Notes from site', 'Minutes from the kick-off', 'Here are the notes from today’s call', 'Site visit notes']) {
+      assert.equal(meetingNotesPasted(`${heading}\n${UNDER}`), 'yes', heading);
+    }
+    // A question over the same notes is still asked about, and the same heading over no notes is a message.
+    assert.equal(meetingNotesPasted(`Can you check these call notes?\n${UNDER}`), 'maybe');
+    assert.equal(meetingNotesPasted('Call notes\nWe spoke to the lender about the mortgage.\nNothing was decided.'), 'no');
+    // Was `maybe`: the one word over a list that holds nothing notes hold.
+    for (const said of ['Notes\nBuy milk\nCall the bank', 'Minutes\n10\n20', 'Notes:\nSeller wants completion by March.\nBroker fee 1 percent.']) assert.equal(meetingNotesPasted(said), 'no', said);
   });
 
   it('is kept at once under a polite first line', () => {

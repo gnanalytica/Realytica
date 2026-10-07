@@ -44,7 +44,7 @@ import {
 } from '@realytica/shared';
 import { api, type ProjectChatResponse } from '../../lib/api';
 import { carriedQuestion } from '../../components/chat/carried-question';
-import { liveTurns, mayDeleteChats, mintSitting, sittingKept, turnKept, waitingElsewhere, type Sitting } from '../../components/chat/chat-list';
+import { laidOver, liveTurns, mayDeleteChats, mintSitting, sittingKept, turnKept, waitingElsewhere, type Sitting } from '../../components/chat/chat-list';
 import { uploadLargeDocument } from '../../lib/workspace-api';
 
 /** Past this, a document goes up in parts: a serverless request carries 4.5 MB at most. */
@@ -284,8 +284,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const goneRef = useRef(false);
   /** Resolves when the send before this one has finished, its last look at the thread included. */
   const settledRef = useRef<Promise<void> | null>(null);
-  /** The message being answered, for the chat to show at once: its words and the names of its files. */
-  const [sending, setSending] = useState<{ text: string; files: string[] } | null>(null);
+  /**
+   * The messages being answered, for the chat to show at once: their words and
+   * the names of their files. More than one when a send was stopped and
+   * another made while the first is still being looked for in the thread.
+   */
+  const [sending, setSending] = useState<Array<{ text: string; files: string[] }>>([]);
   /** Why the last message did not go. Said under the message box, whatever sent it. */
   const [askError, setAskError] = useState<string | null>(null);
   /** Words for the message box: a question carried in an address, or a send handed back with its files. */
@@ -623,7 +627,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       setAsking(true);
       setChatSteps([]);
       setAskError(null);
-      setSending({ text: question.trim(), files: (files ?? []).map((f) => f.name) });
+      const mine = { text: question.trim(), files: (files ?? []).map((f) => f.name) };
+      setSending((was) => [...was, mine]);
       setMobileSurface('chat');
       /*
        * One send at a time. Stop frees the chat at once, while the send it
@@ -733,8 +738,10 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         const turn = now ? turnKept(thread, had, sessionId) : undefined;
         if (now && turn) {
           // Laid over the page's own copy at once: a send that waited for this read starts from the thread with this message in it.
-          projectRef.current = now;
-          setProject(now);
+          // Not over a later copy: a value decided since Stop came back with one. See `laidOver`.
+          const next = laidOver(projectRef.current, now, turn.id);
+          projectRef.current = next;
+          setProject(next);
           setHeld((was) => sittingKept(was, { userTurn: turn }));
         } else if (!kept && !pressed) {
           setDraft({ text: question, files });
@@ -745,11 +752,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       } finally {
         settled();
         if (!fresh) setReading((prev) => (prev && prev.mode === 'live' ? finishReading(prev) : prev));
+        // Its own message only: one sent since is still being answered.
+        setSending((was) => was.filter((m) => m !== mine));
         if (abortRef.current === ac) {
           abortRef.current = null;
           setAsking(false);
           setChatSteps([]);
-          setSending(null);
         }
       }
     },
@@ -891,8 +899,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const goChip = useCallback(
     (chip: TurnChip) => {
       if (chip.open) {
-        const lit = chip.ids ?? [];
-        if (lit.length) setHighlightIds((prev) => [...new Set([...prev, ...lit])]);
+        // Only what this chip names is lit. What the drop lit, or a chip pressed before, is not what was asked for now.
+        if (chip.ids?.length) setHighlightIds([...chip.ids]);
         goPane(chip.open.pane, chip.open.extra);
       } else if (chip.entry) {
         goWaiting(chip.entry);
@@ -1004,7 +1012,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     highlightIds,
     onAcceptWaiting: (id, payload) => void acceptWaiting(id, payload),
     onSetAsideWaiting: (id) => void setAsideWaiting(id),
-    waitingBusy: deciding || asking,
+    // Shut while a stopped send is still being looked for: what is decided then would be drawn over by the read.
+    waitingBusy: deciding || asking || sending.length > 0,
     onReviewDocument: (evidenceId, named) => openReview([evidenceId], evidenceId, shownByChip(evidenceId, named)),
     onOpenCited: openCited,
   };
@@ -1038,7 +1047,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       // A plan that moved while this page only watched it: the thread is read again. A read that fails leaves the page as it is.
       plans={{ projectId: project.id, onChanged: () => void api.getProject(project.id).then(setProject, () => undefined) }}
       screenResult={project.lastScreenResult}
-      askingPrice={project.budget ?? null}
+      valuationRuns={project.valuationRuns}
       onCancel={
         asking
           ? () => {
@@ -1209,13 +1218,20 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </RouteErrorBoundary>
         </div>
       ) : (
-        <div ref={workScrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
+        /*
+         * `relative`, so words kept for a screen reader inside a page are
+         * placed by this scroller. Placed by the Work surface, they gave it
+         * room to scroll, and a row brought into view moved the whole work up
+         * with no way to scroll it back.
+         */
+        <div ref={workScrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
           <WaitingHere
             project={project}
             pane={pane}
             waiting={waiting}
             sittingCheckId={searchParams.get('check')}
-            busy={deciding || asking}
+            busy={deciding || asking || sending.length > 0}
+            highlightIds={highlightIds}
             onAccept={(id, payload) => void acceptWaiting(id, payload)}
             onSetAside={(id) => void setAsideWaiting(id)}
             onGo={goWaiting}

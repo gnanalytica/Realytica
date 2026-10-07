@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Download, FileWarning } from 'lucide-react';
 import { DOCUMENT_WORKSTREAM, factReview, proofSaid, readingLine, sentToModelLine, soundReading, type DdProject, type DocumentFact, type EvidenceAttachment, type EvidenceRecord, type FactMarks } from '@realytica/shared';
 import { OtherReading } from '../../components/reading/FactRow';
+import { pointsAt, type SeenAt } from '../../components/reading/pointed';
 import { Button, cn, useToast } from '../../components/ui/kit';
 import { api } from '../../lib/api';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
@@ -147,8 +148,15 @@ export function EvidenceProof({
    * words. Until one is picked, the citation the caller opened with stands.
    */
   const [picked, setPicked] = useState<DocumentFact | null>(null);
-  /* Pointing at a fact shows it as picking it does, until the pointer moves off. */
+  /*
+   * Pointing at a fact shows it as picking it does, until another is pointed
+   * at or the pointer leaves the list: between two rows the first stands, so
+   * a slow hand does not send the paper to the cited page and back. A fact
+   * drawn under a pointer at rest is not pointed at: the list can open under
+   * the press that cited a page, and would turn the paper from it.
+   */
   const [pointed, setPointed] = useState<DocumentFact | null>(null);
+  const seenAt = useRef<SeenAt | null>(null);
   /*
    * A pick is of one paper. A link in the conversation beside this can open
    * another while it is open, and a fact of the first must not stay picked
@@ -310,7 +318,7 @@ export function EvidenceProof({
                     : 'Nothing was read from it that could be found on a page.'}
                 </p>
               </div>
-              <ul className="divide-y divide-hairline">
+              <ul className="divide-y divide-hairline" onMouseLeave={() => setPointed(null)}>
                 {facts.map((fact, i) => {
                   const on = picked?.key === fact.key;
                   // Where it stands: the viewer shows what the document says, not only what was accepted.
@@ -319,9 +327,18 @@ export function EvidenceProof({
                     <li key={`${fact.key}:${i}`}>
                       <button
                         type="button"
-                        onClick={() => setPicked(on ? null : fact)}
-                        onMouseEnter={() => setPointed(fact)}
-                        onMouseLeave={() => setPointed(null)}
+                        onClick={() => {
+                          // The fact still shown may be the row the pointer came from: a press says which row is meant.
+                          if (pointed !== fact) setPointed(null);
+                          setPicked(on ? null : fact);
+                        }}
+                        onMouseMove={(e) => {
+                          seenAt.current ??= { x: e.clientX, y: e.clientY };
+                          if (pointed !== fact && pointsAt(seenAt.current, e)) setPointed(fact);
+                        }}
+                        onMouseLeave={() => {
+                          seenAt.current = null;
+                        }}
                         onFocus={() => setPointed(fact)}
                         onBlur={() => setPointed(null)}
                         aria-pressed={on}

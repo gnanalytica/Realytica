@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { acceptValueOffers, addComparable, applyProjectChat, changesBetween, createProject, recordAsItStands, seedDemoProject, turnChanged, valueOffers } from '@realytica/shared';
 import type { DdProject, ScreenResult, ValuationRun } from '@realytica/shared';
-import { parseAnswer, parseInline, replyRan } from '../apps/web/src/components/chat/answer-blocks';
+import { besideChips, oneOfEach, parseAnswer, parseInline, replyRan } from '../apps/web/src/components/chat/answer-blocks';
 import type { Block, Inline, ReplyKept } from '../apps/web/src/components/chat/answer-blocks';
 
 const NO_NODES = () => false;
@@ -314,6 +314,104 @@ describe('inline spans', () => {
     // One with a name is said in words there too, with the mark.
     assert.deepEqual(parseInline('**[prj_1a-2b::ws::design.rfis]**', NO_NODES), [{ kind: 'bold', text: 'RFIs' }]);
   });
+
+  it('does not say a name again inside bold or code when the words just before the mark were the name', () => {
+    // The server brackets an id wherever a model wrote it, and a model writes
+    // one in backticks more often than not. The plain id left the sentence
+    // and the marked one printed the name a second time, in its mark.
+    const said = (line: string) => text(parseInline(line, NO_NODES));
+    assert.equal(said('Title & land records (`[prj_1a-2b::ws::legal.title]`) holds five papers.'), 'Title & land records holds five papers.');
+    assert.equal(said('The file is at the Acquisition step `[prj_1a-2b::stage::acquisition]` now.'), 'The file is at the Acquisition step now.');
+    assert.equal(said('The Acquisition step **[prj_1a-2b::stage::acquisition]** is done.'), 'The Acquisition step is done.');
+    // The mark goes with it, and the sentence is one run of words again.
+    assert.deepEqual(parseInline('The Design department (**[prj_1a-2b::dept::design]**) is on.', NO_NODES), [{ kind: 'text', text: 'The Design department is on.' }]);
+    // Other words inside the mark stay, and keep it.
+    assert.deepEqual(parseInline('Acquisition **[prj_1a-2b::stage::acquisition] is done**', NO_NODES), [
+      { kind: 'text', text: 'Acquisition ' },
+      { kind: 'bold', text: 'is done' },
+    ]);
+    // A name a sentence earlier is not the name just before, in a mark as out of one: the sentence still needs its subject.
+    assert.deepEqual(parseInline('The file is at Acquisition. **[prj_1a-2b::stage::acquisition]** closes in March.', NO_NODES), [
+      { kind: 'text', text: 'The file is at Acquisition. ' },
+      { kind: 'bold', text: 'Acquisition' },
+      { kind: 'text', text: ' closes in March.' },
+    ]);
+    // And a marked id nothing was said before is still said in words, with its mark.
+    assert.deepEqual(parseInline('It moved to `[prj_1a-2b::stage::acquisition]` in March.', NO_NODES), [
+      { kind: 'text', text: 'It moved to ' },
+      { kind: 'code', text: 'Acquisition' },
+      { kind: 'text', text: ' in March.' },
+    ]);
+  });
+});
+
+describe('what stands beside a chip', () => {
+  // The chip of a line, and what is kept against it.
+  const beside = (line: string) => {
+    const spans = parseInline(line, nodes('fnd_1a-2b'));
+    const { words, lead, tail } = besideChips(spans);
+    const at = spans.findIndex((s) => s.kind === 'node');
+    return { lead: lead[at], tail: tail[at], words: words.filter(Boolean) };
+  };
+
+  it('keeps closing punctuation against the chip it was written against', () => {
+    for (const mark of ['.', ',', ';', ':', '!', '?', ')', ']', '”', '’', '"', "'", '’s', "'s", '.)', '...']) {
+      assert.deepEqual(beside(`See [fnd_1a-2b]${mark} Next.`), { lead: undefined, tail: { text: mark, bold: false }, words: ['See ', ' Next.'] }, mark);
+    }
+    // At the end of the line as before a space.
+    assert.deepEqual(beside('See [fnd_1a-2b].').tail, { text: '.', bold: false });
+    // An opening bracket or quotation mark before it, with a space or nothing before that.
+    assert.deepEqual(beside('See ([fnd_1a-2b]) now'), { lead: { text: '(', bold: false }, tail: { text: ')', bold: false }, words: ['See ', ' now'] });
+    assert.deepEqual(beside('“[fnd_1a-2b]” it says').lead, { text: '“', bold: false });
+  });
+
+  it('keeps an ellipsis, and a dash whatever follows it', () => {
+    assert.deepEqual(beside('See [fnd_1a-2b]… next.').tail, { text: '…', bold: false });
+    assert.deepEqual(beside('See [fnd_1a-2b]— next.').tail, { text: '—', bold: false });
+    assert.deepEqual(beside('See [fnd_1a-2b]—next.'), { lead: undefined, tail: { text: '—', bold: false }, words: ['See ', 'next.'] });
+    assert.deepEqual(beside('See [fnd_1a-2b])— next.').tail, { text: ')—', bold: false });
+  });
+
+  it('keeps a stop written in bold, as bold', () => {
+    // "**Check the mortgage [chip].** Next." The stop is a bold run of its own, and stood apart from the chip.
+    assert.deepEqual(beside('**Check the mortgage [fnd_1a-2b].** Next.'), { lead: undefined, tail: { text: '.', bold: true }, words: ['Check the mortgage ', ' Next.'] });
+    assert.deepEqual(beside('**Check [fnd_1a-2b], then** go.'), { lead: undefined, tail: { text: ',', bold: true }, words: ['Check ', ' then', ' go.'] });
+    assert.deepEqual(beside('**Check ([fnd_1a-2b])** now'), { lead: { text: '(', bold: true }, tail: { text: ')', bold: true }, words: ['Check ', ' now'] });
+  });
+
+  it('leaves alone what is not written against the chip, or runs on into a word', () => {
+    for (const after of ['', ' and more', '.Next', ' (aside)', ' . Next', '-next', '5 of them', '/a']) {
+      assert.equal(beside(`See [fnd_1a-2b]${after}`).tail, undefined, after);
+    }
+    assert.equal(beside('**See [fnd_1a-2b] and** more').tail, undefined);
+    // Code is not punctuation, and a bracket in the middle of a word is not an opening one.
+    assert.equal(beside('See [fnd_1a-2b]`.`').tail, undefined);
+    assert.equal(beside('f([fnd_1a-2b]').lead, undefined);
+  });
+
+  it('draws citations of two copies of one paper, side by side, as one', () => {
+    // A passage and a line of memory cite every copy that holds the words.
+    const title: Record<string, string> = { 'ev-a': 'Sale deed', 'ev-b': 'Sale deed', 'ev-c': 'Sale deed', 'ev-k': 'Khata' };
+    const reads = (span: { id: string; page?: number }) => (title[span.id] ? `${title[span.id]} p.${span.page ?? ''}` : null);
+    const fold = (line: string) => {
+      const { spans, copies } = oneOfEach(parseInline(line, NO_NODES), reads);
+      return { said: text(spans), copies: copies.filter((n) => n > 1) };
+    };
+    assert.deepEqual(fold('Paid on 28 Apr 2025 [ev:ev-a:p1] [ev:ev-b:p1]'), { said: 'Paid on 28 Apr 2025 <evidence:ev-a>', copies: [2] });
+    assert.deepEqual(fold('Paid [ev:ev-a:p1] [ev:ev-b:p1] [ev:ev-c:p1]. Next [ev:ev-k].'), { said: 'Paid <evidence:ev-a>. Next <evidence:ev-k>.', copies: [3] });
+    // The one drawn is the first, with its page, and a stop after the last is kept against it.
+    const { spans } = oneOfEach(parseInline('Paid [ev:ev-a:p2] [ev:ev-b:p2].', NO_NODES), reads);
+    assert.deepEqual(spans, [{ kind: 'text', text: 'Paid ' }, { kind: 'evidence', id: 'ev-a', page: 2 }, { kind: 'text', text: '.' }]);
+    assert.deepEqual(besideChips(spans).tail[1], { text: '.', bold: false });
+    // One paper cited twice is one chip, and is one paper.
+    assert.deepEqual(fold('Paid [ev:ev-a:p1] [ev:ev-a:p1]'), { said: 'Paid <evidence:ev-a>', copies: [] });
+    // Not folded: another page, another paper, anything written between them, or a paper the project does not have.
+    for (const line of ['[ev:ev-a:p1] [ev:ev-b:p2]', '[ev:ev-a:p1] [ev:ev-k:p1]', '[ev:ev-a:p1], [ev:ev-b:p1]', '[ev:ev-a:p1] and [ev:ev-b:p1]', '[ev:ev-x:p1] [ev:ev-y:p1]', '[ev:ev-a] [ev:ev-b:p1]']) {
+      const kept = oneOfEach(parseInline(line, NO_NODES), reads);
+      assert.equal(kept.spans.filter((s) => s.kind === 'evidence').length, 2, line);
+      assert.ok(kept.copies.every((n) => n === 1), line);
+    }
+  });
 });
 
 describe('blocks', () => {
@@ -405,6 +503,36 @@ describe('blocks', () => {
     assert.deepEqual(lists('1. A\n\n1. B\n- b\n\n1. C'), [{ start: 1, items: ['A', 'B', 'C'], under: [[], ['b'], []] }]);
     // And a list that opens at 0 goes on to 1.
     assert.deepEqual(lists('0. A\n1. B\n2. C'), [{ start: 0, items: ['A', 'B', 'C'], under: [] }]);
+    // Once: a second 1 starts another list, where it ran on as 0, 1, 2.
+    assert.deepEqual(lists('0. Zero\n1. One\n\n1. Again'), [
+      { start: 0, items: ['Zero', 'One'], under: [] },
+      { start: 1, items: ['Again'], under: [] },
+    ]);
+    // A second 0 starts another as well, once the count has gone past it. D ran on as the fourth item and E stood alone as "1.".
+    assert.deepEqual(lists('0. A\n1. B\n2. C\n\n0. D\n1. E'), [
+      { start: 0, items: ['A', 'B', 'C'], under: [] },
+      { start: 0, items: ['D', 'E'], under: [] },
+    ]);
+    assert.deepEqual(lists('0. Zero\n10. Ten\n\n0. Zero\n1. One'), [
+      { start: 0, items: ['Zero', 'Ten'], under: [] },
+      { start: 0, items: ['Zero', 'One'], under: [] },
+    ]);
+    // An answer that writes every item "0." is counting one list, and a 0 in a list that opened at 1 is its next item, as they were.
+    assert.deepEqual(lists('0. A\n\n0. B\n\n0. C'), [{ start: 0, items: ['A', 'B', 'C'], under: [] }]);
+    assert.deepEqual(lists('1. A\n2. B\n0. C'), [{ start: 1, items: ['A', 'B', 'C'], under: [] }]);
+    // A list that follows straight after one that kept its dashed lines standing apart keeps its own the same way.
+    // The last line was drawn as a loose list, so one answer was drawn two ways.
+    assert.deepEqual(lists('1. First\n\n- a\n\n2. Second\n\n- c\n\n1. Again\n\n- d'), [
+      { start: 1, items: ['First', 'Second'], under: [['a'], ['c']] },
+      { start: 1, items: ['Again'], under: [['d']] },
+    ]);
+    // Only straight after: with a sentence between them the second list is read by itself.
+    assert.deepEqual(lists('1. First\n\n- a\n\n2. Second\n\n- c\n\nThen the rest.\n\n1. Again\n\n- d'), [
+      { start: 1, items: ['First', 'Second'], under: [['a'], ['c']] },
+      'paragraph',
+      { start: 1, items: ['Again'], under: [] },
+      ['d'],
+    ]);
   });
 
   it('reads a pipe table', () => {
@@ -442,6 +570,38 @@ describe('blocks', () => {
     const blocks = parseAnswer('The title chain closes\nfrom 1994 to 2019.', NO_NODES);
     assert.deepEqual(kinds(blocks), ['paragraph']);
     assert.equal(text((blocks[0] as Extract<Block, { kind: 'paragraph' }>).spans), 'The title chain closes from 1994 to 2019.');
+  });
+
+  it('sets a line that ends in its source apart from the line after it', () => {
+    // Two sentences on two lines, each with its source. Joined into one
+    // paragraph, a chip that went to the next line stood at the head of the
+    // next sentence and read as its source.
+    const said = (answer: string) => parseAnswer(answer, NO_NODES).map((b) => (b.kind === 'paragraph' ? text(b.spans) : b.kind));
+    assert.deepEqual(said('Residential (Main) under the plan of 2015. [ev:ev-1:p1]\nPermissible FAR 2.25; 2.25 was sanctioned [ev:ev-2:p1].\nNothing else is on file.'), [
+      'Residential (Main) under the plan of 2015. <evidence:ev-1>',
+      'Permissible FAR 2.25; 2.25 was sanctioned <evidence:ev-2>.',
+      'Nothing else is on file.',
+    ]);
+    // Whatever closes the sentence after the source.
+    assert.equal(said('It is on the deed ([ev:ev-1]).\nAnd “on the khata [ev:ev-2].”\nNo more.').length, 3);
+    // A sentence wrapped after its source is still one sentence.
+    assert.deepEqual(said('It is on the deed [ev:ev-1]\nand on the khata [ev:ev-2].\nNo more.'), ['It is on the deed <evidence:ev-1> and on the khata <evidence:ev-2>.', 'No more.']);
+    // A source in the middle of a line does not end it, and lines with no source run on as they did.
+    assert.deepEqual(said('The deed [ev:ev-1] is registered\nand the khata follows it.'), ['The deed <evidence:ev-1> is registered and the khata follows it.']);
+    assert.deepEqual(said('The chain closes\nfrom 1994 to 2019 [ev:ev-1].\nThe khata is clean.'), ['The chain closes from 1994 to 2019 <evidence:ev-1>.', 'The khata is clean.']);
+    // Words in brackets, a record and a link to notes are not a source.
+    assert.equal(said('As noted [see above]\nit runs on. See [fnd_1a-2b]\nand [notes:mtg_1a2b]\nto the end.').length, 1);
+    // In a list a line is an item already.
+    assert.deepEqual(said('- on the deed [ev:ev-1]\n- on the khata [ev:ev-2]'), ['bullets']);
+    // A source written on the line under a cited line is that line's too: it stood as a paragraph of one chip.
+    assert.deepEqual(said('A is so [ev:ev-1:p1]\n[ev:ev-2:p2].\nNo more.'), ['A is so <evidence:ev-1> <evidence:ev-2>.', 'No more.']);
+    assert.deepEqual(said('Sources: [ev:ev-1]\n[ev:ev-2]\n[ev:ev-3]'), ['Sources: <evidence:ev-1> <evidence:ev-2> <evidence:ev-3>']);
+    // A record or words in brackets at the head of the next line are not a source: the line before still ends there.
+    assert.equal(said('On the deed [ev:ev-1].\n[fnd_1a-2b] is open.').length, 2);
+    assert.equal(said('On the deed [ev:ev-1].\n[see above] it runs.').length, 2);
+    // An ellipsis closes the sentence after a source as three stops do.
+    assert.deepEqual(said('It trails off [ev:ev-1]…\nNext thing.'), ['It trails off <evidence:ev-1>…', 'Next thing.']);
+    assert.deepEqual(said('It trails off [ev:ev-1]...\nNext thing.'), ['It trails off <evidence:ev-1>...', 'Next thing.']);
   });
 
   it('sets a flagged line apart from the prose on either side of it', () => {
