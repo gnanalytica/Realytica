@@ -301,8 +301,9 @@ export function EvidenceProof({
             ))}
           </div>
         ) : null}
-        <div className={cn('flex min-h-0 flex-1 flex-col', beside && '[@container(min-width:52rem)]:flex-row')}>
-          <div className="min-h-[18rem] min-w-0 flex-1 overflow-hidden bg-sunken">
+        {/* What is under the header takes the room left and scrolls there, so the header stays on screen. A phone held sideways has no room for the viewer's floor. */}
+        <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', beside && '[@container(min-width:52rem)]:flex-row')}>
+          <div className="min-h-[18rem] min-w-0 flex-1 overflow-hidden bg-sunken short:min-h-0">
             <ProofBody state={state} fileName={file?.fileName ?? evidence.title} citedPage={page} highlightTerm={term} words={words} marks={marks} />
           </div>
           {beside ? (

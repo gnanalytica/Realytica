@@ -20,6 +20,7 @@ import {
   createProject,
   findingSeverityRequested,
   looksLikeFileQuestion,
+  packCompleteness,
   reportKindRequested,
   seedDemoProject,
   wantsDeterministicProjectChat,
@@ -149,6 +150,55 @@ describe('answering from the file', () => {
     const project = createProject({ name: 'Empty', type: 'residential', location: 'X', city: 'Bengaluru' }, 'RYT-E');
     const out = applyProjectChat(project, 'is the land converted?');
     assert.match(out.assistantTurn.text, /DC conversion order/);
+  });
+
+  it('names the priority pack when nothing is listed on the register yet, and not "nothing is outstanding"', () => {
+    const project = createProject({ name: 'Empty', type: 'residential', location: 'X', city: 'Bengaluru' }, 'RYT-E');
+    // The receipt's own count: sixteen papers in the pack, none of them held.
+    const pack = packCompleteness(project);
+    assert.deepEqual([pack.received, pack.total], [0, 16]);
+    const said = `The priority pack is 16 papers and none is on file yet: Title extract; Title chain; Title schedule; Sale deed; Mother deed; Encumbrance; and 10 more.\nDrop any into the chat and I’ll read and file it.`;
+    const answer = answerFromFile(project, 'What documents do I need?')!;
+    assert.equal(answer.text, said);
+    assert.equal(answer.summary, 'Priority pack');
+    assert.deepEqual(answer.navigate, { pane: 'evidence' });
+    // The greeting's own choice sends these words, and "what's missing" is the same question.
+    assert.equal(applyProjectChat(project, 'What documents do I need?').assistantTurn.text, said);
+    assert.equal(answerFromFile(project, "What's missing?")!.text, said);
+  });
+
+  it('answers what is needed from the register wherever one exists, as it did', () => {
+    // The first paper on file and none waited for: the rest of the pack is what is needed. It used to say nothing was outstanding.
+    const filed = createProject({ name: 'One paper', type: 'residential', location: 'X', city: 'Bengaluru' }, 'RYT-F');
+    addEvidence(filed, { title: 'Sale deed', kind: 'document', status: 'received' });
+    const rest = answerFromFile(filed, 'What documents do I need?')!;
+    assert.equal(rest.text, '15 of the 16 priority papers are not on file yet: Title extract; Title chain; Title schedule; Mother deed; Encumbrance; Survey plan; and 9 more.\nDrop any into the chat and I’ll read and file it.');
+    assert.equal(rest.summary, 'Priority pack');
+
+    // The whole pack on file and none waited for: nothing is outstanding.
+    for (let n = 0; n < 20 && packCompleteness(filed).missing; n += 1) addEvidence(filed, { title: packCompleteness(filed).missingTitles[0]!, kind: 'document', status: 'received' });
+    assert.equal(packCompleteness(filed).missing, 0);
+    const none = answerFromFile(filed, 'What documents do I need?')!;
+    assert.equal(none.text, 'Nothing is outstanding on the evidence register.');
+    assert.equal(none.summary, 'Gaps');
+
+    // One paper waited for, outside the pack: the pack still leads.
+    const asked = createProject({ name: 'One asked for', type: 'residential', location: 'X', city: 'Bengaluru' }, 'RYT-G');
+    const letter = addEvidence(asked, { title: 'Contractor’s letter', kind: 'document', status: 'requested' });
+    const one = answerFromFile(asked, 'What documents do I need?')!;
+    assert.equal(one.text, '16 of 16 priority items missing: Title extract; Title chain; Title schedule; Sale deed; Mother deed; Encumbrance.\nDrop any into the chat and I’ll read and file it.');
+    assert.equal(one.summary, 'Evidence gaps');
+    assert.deepEqual(one.citedEvidenceIds, [], `${letter.title} is no part of the pack`);
+
+    // A DD started: its expected papers are listed, the pack first and the rest as a count.
+    const started = createProject({ name: 'DD started', type: 'residential', location: 'X', city: 'Bengaluru' }, 'RYT-H');
+    createAssessment(started, { ddType: 'acquisition', name: 'Acquisition', owner: 'tester', targetType: 'project' });
+    const open = started.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested').length;
+    assert.ok(open > 16);
+    assert.equal(
+      answerFromFile(started, 'What documents do I need?')!.text,
+      `16 of 16 priority items missing: Title extract; Title chain; Title schedule; Sale deed; Mother deed; Encumbrance.\nPlus ${open - 16} other expected documents.\nDrop any into the chat and I’ll read and file it.`,
+    );
   });
 });
 

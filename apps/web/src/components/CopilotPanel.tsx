@@ -1066,6 +1066,8 @@ export function CopilotPanel({
         className={cn(
           'flex min-h-[9rem] flex-col gap-2.5 overflow-y-auto pr-1',
           fill ? 'min-h-0 flex-1' : 'max-h-[26rem]',
+          // A phone held sideways has no room for this floor and a docked card: the thread keeps a few lines.
+          dock && compact && 'short:min-h-[3rem]',
         )}
       >
         {showEmptyState && disabled && fallback ? (
@@ -1226,7 +1228,8 @@ export function CopilotPanel({
         </div>
       ) : null}
 
-      {dock ? <div className="shrink-0">{dock}</div> : null}
+      {/* On a phone the card gives way before the message box does: it takes the room left and scrolls inside itself. */}
+      {dock ? <div className={compact ? 'flex min-h-0 flex-col' : 'shrink-0'}>{dock}</div> : null}
 
       {disabled ? (
         <div className="flex items-start gap-2 rounded-lg bg-sunken px-2.5 py-2 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">

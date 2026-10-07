@@ -60,7 +60,8 @@ export function SittingDock({
   onProject: (next: DdProject) => void;
 }) {
   return (
-    <div className="rounded-xl bg-surface p-3 shadow-sm ring-1 ring-inset ring-[var(--ring)]">
+    // On a phone the chat gives the card the room it has left, and the card scrolls inside itself.
+    <div className={cn('rounded-xl bg-surface p-3 shadow-sm ring-1 ring-inset ring-[var(--ring)]', !compact && 'min-h-0 overflow-y-auto')}>
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-[12px] font-medium text-ink-muted">
           {talk.kind === 'check' ? (compact ? 'On the right' : 'This field') : talk.kind === 'scope' ? 'This scope' : 'On this file'}

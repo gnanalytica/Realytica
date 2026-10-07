@@ -112,6 +112,7 @@ import { keepPageTexts } from '../documents/page-text';
 import { readOntoRegister } from '../documents/register-read';
 import { QUESTIONNAIRE_FILE_SAID, questionnairePdf, questionnaireXlsx, readQuestionnaireFile } from '../documents/questionnaire-file';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
+import { withSentFileName } from '../uploads';
 
 type Params = { projectId: string };
 
@@ -562,6 +563,7 @@ const photoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: PHOTO_MAX_BYTES, files: 6 },
   // Everything is taken in, so a refusal can name the file rather than drop it.
+  fileFilter: withSentFileName,
 });
 
 projectWorkspaceRouter.post<Params>('/site-log/photos', photoUpload.array('photos', 6), async (req, res) => {
@@ -890,7 +892,7 @@ function sheetDepartment(project: DdProject, questionnaireId: string): Departmen
   return sheet ? questionnaireDepartment(sheet) : 'construction';
 }
 const QUESTIONNAIRE_MAX_BYTES = 4 * 1024 * 1024;
-const questionnaireUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: QUESTIONNAIRE_MAX_BYTES, files: 1 } });
+const questionnaireUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: QUESTIONNAIRE_MAX_BYTES, files: 1 }, fileFilter: withSentFileName });
 
 const questionnaireTextSchema = z.object({ title: z.string().trim().min(1).max(160), text: z.string().min(1).max(400_000) });
 

@@ -803,9 +803,21 @@ function answerActions(project: DdProject): FileAnswer {
  */
 function answerMissing(project: DdProject): FileAnswer {
   const open = gaps(project);
-  if (!open.length) return { text: 'Nothing is outstanding on the evidence register.', summary: 'Gaps', citedEvidenceIds: [], citedNodeIds: [], navigate: { pane: 'evidence' } };
   const pack = packCompleteness(project);
   const titled = pack.missingTitles.map((t) => t.replace(/\bnoc\b/gi, 'NOC').replace(/^./, (c) => c.toUpperCase()));
+  // A register with no row waited for has no gaps to name: a new project, or one with only its first papers filed. What is needed is the rest of the priority pack.
+  if (!open.length && pack.missing) {
+    const more = pack.missing - titled.length;
+    const lead = pack.missing === pack.total ? `The priority pack is ${plural(pack.total, 'paper')} and none is on file yet` : `${pack.missing} of the ${pack.total} priority papers are not on file yet`;
+    return {
+      text: `${lead}: ${titled.join('; ')}${more > 0 ? `; and ${more} more` : ''}.\nDrop any into the chat and I’ll read and file it.`,
+      summary: 'Priority pack',
+      citedEvidenceIds: [],
+      citedNodeIds: [],
+      navigate: { pane: 'evidence' },
+    };
+  }
+  if (!open.length) return { text: 'Nothing is outstanding on the evidence register.', summary: 'Gaps', citedEvidenceIds: [], citedNodeIds: [], navigate: { pane: 'evidence' } };
   const lead = pack.missing ? `${pack.missing} of ${pack.total} priority items missing: ${joinTitles(titled, 150)}.` : `${plural(open.length, 'document')} outstanding: ${joinTitles(open.map((e) => e.title), 150)}.`;
   const tail = pack.missing ? open.length - pack.missing : 0;
   return {
