@@ -19,6 +19,8 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { AssignCell } from '../../components/AssignCell';
+import { MeetingSource } from '../../components/meetings/MeetingNotes';
+import { OutgoingStart } from '../../components/outgoing/OutgoingStart';
 import { MineToggle, useMine } from '../../components/MineToggle';
 import { CreateButton } from '../../components/create/CreateWizard';
 import { RemedialCostChart } from '../../components/charts';
@@ -153,6 +155,9 @@ export function RisksActions() {
                           {ACTION_KIND_LABEL[a.kind]}{a.dueDate ? ` · due ${a.dueDate}` : ''}
                         </p>
                         <AssignCell className="-ml-1.5" project={project} targetId={a.id} subject={a.title} owner={a.owner} onAssigned={setProject} />
+                        {/* An action a meeting gave opens that meeting's notes at the words it rests on. */}
+                        <MeetingSource project={project} recordId={a.id} />
+                        <OutgoingStart className="-ml-2.5" projectId={project.id} about={{ kind: 'action', id: a.id }} />
                       </div>
                       <Select
                         value={a.status}
@@ -178,7 +183,11 @@ export function RisksActions() {
 }
 
 export function DecisionRegister() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const [searchParams] = useSearchParams();
+  // A decision a link named is lit, as a finding or a risk a link named is on its register.
+  const linked = searchParams.get('decision');
+  const liveIds = [...(highlightIds ?? []), ...(linked ? [linked] : [])];
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
@@ -192,11 +201,17 @@ export function DecisionRegister() {
             {project.decisions.map((d) => (
               /* Same shape, same fix — a long rationale must not relocate the
                  status dropdown. */
+              <LiveRow key={d.id} id={d.id} highlightIds={liveIds} variant="flush">
               <RegisterRow
-                key={d.id}
                 title={d.title}
                 why={d.rationale}
-                meta={<span>{DECISION_TYPE_LABEL[d.decisionType]} · {d.decisionMaker}</span>}
+                meta={
+                  <>
+                    <span>{DECISION_TYPE_LABEL[d.decisionType]}{d.decisionMaker ? ` · ${d.decisionMaker}` : ''}</span>
+                    {/* A decision a meeting gave opens that meeting's notes at the words it rests on. */}
+                    <MeetingSource project={project} recordId={d.id} short={Boolean(d.decisionMaker)} />
+                  </>
+                }
                 trailing={
                   <Select
                     value={d.status}
@@ -208,6 +223,7 @@ export function DecisionRegister() {
                   </Select>
                 }
               />
+              </LiveRow>
             ))}
           </CardBody>
         </Card>

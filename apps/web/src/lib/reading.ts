@@ -40,6 +40,10 @@ export interface ReadingFile {
   notes?: string;
   /** When its facts arrived, so they are revealed once, not on every render. */
   readAt?: number;
+  /** Its reading is on the project's file, saved, though other papers of the same drop may still be being read. */
+  saved?: boolean;
+  /** The file was no paper and is on no row: a questionnaire taken in as one, or the notes of a meeting. What became of it, in a line. */
+  taken?: { as: 'questionnaire' | 'notes' | 'voice' | 'photo'; said: string; questionnaireId?: string; department?: string };
 }
 
 export interface ReadingSession {
@@ -50,6 +54,8 @@ export interface ReadingSession {
   finished: boolean;
   /** Documents just filed — the desk steps through each one being filed, then hands back to the register. */
   filingKeys?: string[];
+  /** Several papers dropped at once: named from the start in the order dropped, read three at a time, each shown as it is read. */
+  together?: boolean;
 }
 
 export function newReadingSession(mode: ReadingSession['mode'] = 'live'): ReadingSession {
@@ -71,6 +77,27 @@ export function applyReadingEvent(
   ctx: { localFiles?: File[] } = {},
 ): ReadingSession {
   switch (event.event) {
+    case 'queued': {
+      // Named before any is read, in the order dropped: three are read at a time, and they finish in any order.
+      if (session.files.some((f) => f.key === event.key)) return session;
+      const local = localFor(ctx.localFiles, event.fileName, event.sizeBytes);
+      const source: ReadingSource | null = local
+        ? { kind: 'local', file: local }
+        : event.evidenceId && event.fileId
+          ? { kind: 'evidence', evidenceId: event.evidenceId, fileId: event.fileId }
+          : null;
+      return { ...session, together: true, files: [...session.files, { key: event.key, fileName: event.fileName, mimeType: event.mimeType, sizeBytes: event.sizeBytes, source, phase: 'queued', facts: [], modelFacts: [] }] };
+    }
+    case 'filed':
+      return patch(session, event.key, (f) => ({ ...f, saved: true }));
+    case 'taken':
+      return patch(session, event.key, (f) => ({
+        ...f,
+        phase: 'done',
+        failure: undefined,
+        readAt: f.readAt ?? Date.now(),
+        taken: { as: event.as, said: event.said, questionnaireId: event.questionnaireId, department: event.department },
+      }));
     case 'start': {
       const local = localFor(ctx.localFiles, event.fileName, event.sizeBytes);
       const source: ReadingSource | null = local
@@ -117,6 +144,13 @@ export function applyReadingEvent(
               notes: event.notes ?? f.notes,
             },
       );
+    case 'merged':
+      // What the cards will carry: the rules' values, with a model's differing one beside it, then what only the model read.
+      return patch(session, event.key, (f) => ({
+        ...f,
+        facts: event.facts.filter((fact) => fact.source !== 'model'),
+        modelFacts: event.facts.filter((fact) => fact.source === 'model'),
+      }));
     default:
       return session;
   }
@@ -127,7 +161,14 @@ export function finishReading(session: ReadingSession): ReadingSession {
   return {
     ...session,
     finished: true,
-    files: session.files.map((f) => (f.phase === 'reading' || f.phase === 'model' || f.phase === 'read' ? { ...f, phase: f.phase === 'reading' && !f.facts.length ? 'failed' : 'done' } : f)),
+    files: session.files.map((f) =>
+      f.phase === 'queued'
+        ? // Named and never started: the turn's time ran out before its turn came.
+          { ...f, phase: 'failed', failure: 'Not read yet. Say “Read the filed documents” to carry on.' }
+        : f.phase === 'reading' || f.phase === 'model' || f.phase === 'read'
+          ? { ...f, phase: f.phase === 'reading' && !f.facts.length ? 'failed' : 'done' }
+          : f,
+    ),
   };
 }
 

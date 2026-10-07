@@ -19,7 +19,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
 import { clampGraphHops, extractProjectSubgraph, graphImpact } from '@realytica/shared';
-import type { GraphAdapter, ProjectGraphSnapshot } from './types';
+import type { GraphAdapter, GraphSyncRefused, ProjectGraphSnapshot } from './types';
+import { drawingOf } from './drawing';
 import { DATA_DIR } from '../storage/filesystem';
 
 interface ProjectRecord {
@@ -27,6 +28,8 @@ interface ProjectRecord {
   /** Append-only. Keyed by id so a replay cannot double up. */
   authored: { nodes: Record<string, ProjectGraphNode>; edges: Record<string, ProjectGraphEdge> };
   builtAt: string;
+  /** The revision of the project copy the derived half was built from. A record written before revisions has none. */
+  revision?: number;
 }
 
 type ProjectJournalFile = Record<string, ProjectRecord>;
@@ -74,12 +77,34 @@ function openAt(edge: ProjectGraphEdge, asOf?: string): boolean {
 export const journalAdapter: GraphAdapter = {
   kind: 'journal',
 
-  async syncProject(snapshot: ProjectGraphSnapshot): Promise<void> {
-    await serialise(async () => {
+  async syncProject(snapshot: ProjectGraphSnapshot): Promise<GraphSyncRefused | void> {
+    return serialise<GraphSyncRefused | undefined>(async () => {
       const all = await readAll();
       const record = all[snapshot.projectId] ?? emptyRecord(snapshot.builtAt);
       const authoredIds = new Set(snapshot.nodes.filter(n => n.origin === 'authored').map(n => n.id));
+      const derived = snapshot.nodes.filter(n => n.origin === 'derived');
       const incoming = snapshot.edges.filter(e => !authoredIds.has(e.from) && !authoredIds.has(e.to));
+      // Whether the record already draws this, taken from what it holds now
+      // and not from a note of what it was last given: a build that keeps no
+      // such note would rewrite the derived half and leave the note standing.
+      // A project the journal holds nothing for is drawn, whatever it draws.
+      const drawn =
+        snapshot.projectId in all
+        && drawingOf(record.derived.nodes, record.derived.edges.filter(e => !e.closedAt)) === drawingOf(derived, incoming);
+      // An older copy of the project than the one this half was built from
+      // is turned away before anything is touched. Read and written inside
+      // the one queue, so two syncs cannot both pass the comparison.
+      const revision = snapshot.revision ?? 0;
+      const held = record.revision ?? 0;
+      if (revision < held) return { refused: true, held, drawn };
+      // What is stored is already this drawing: only the revision moves.
+      if (drawn) {
+        if (revision === held) return undefined;
+        record.revision = revision;
+        record.builtAt = snapshot.builtAt;
+        await writeAll(all);
+        return undefined;
+      }
       const incomingIds = new Set(incoming.map(e => e.id));
       const closedAt = snapshot.builtAt;
 
@@ -98,13 +123,12 @@ export const journalAdapter: GraphAdapter = {
         return open;
       });
 
-      record.derived = {
-        nodes: snapshot.nodes.filter(n => n.origin === 'derived'),
-        edges: [...reopened, ...closed],
-      };
+      record.derived = { nodes: derived, edges: [...reopened, ...closed] };
       record.builtAt = snapshot.builtAt;
+      if (snapshot.revision !== undefined) record.revision = snapshot.revision;
       all[snapshot.projectId] = record;
       await writeAll(all);
+      return undefined;
     });
   },
 

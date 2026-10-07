@@ -40,6 +40,7 @@ import { z } from 'zod';
 import {
   acknowledgeRevisit,
   actorOf,
+  alertsOfCopy,
   addEvidence,
   addLink,
   addMilestones,
@@ -51,6 +52,7 @@ import {
   createEngagement,
   ensureWorkstreamChecks,
   createProjectGrant,
+  DecisionRefused,
   departmentReach,
   departmentRole,
   fileCertifiedReport,
@@ -68,6 +70,27 @@ import {
   roleCanEdit,
   sameEmail,
   setDocumentWorkstream,
+  DEPARTMENTS,
+  addObservation,
+  departmentDisciplines,
+  departmentsOfDiscipline,
+  questionnaireDepartment,
+  addQuestion,
+  addQuestionnaire,
+  fileSiteLogPhoto,
+  setPhotoDescription,
+  setPhotoInReport,
+  patchObservation,
+  SCOPE_KEYS,
+  answerQuestion,
+  confirmSuggestions,
+  findQuestionnaire,
+  parseQuestionnaire,
+  parseQuestionnaireCsv,
+  parseQuestionnaireText,
+  removeQuestion,
+  removeQuestionnaire,
+  ANSWER_SOURCES,
   setMilestonePercent,
   setProjectDepartments,
   setTeamMember,
@@ -76,14 +99,18 @@ import {
   workstreamDefinition,
   type DdProject,
   type DepartmentKey,
+  type ScopeKey,
   type DepartmentRole,
 } from '@realytica/shared';
+import { decidesFor, viewFor } from '../auth/access';
 import { needs, principalOf } from '../auth/middleware';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { graphAdapter } from '../graph';
+import { keepPageTexts } from '../documents/page-text';
 import { readOntoRegister } from '../documents/register-read';
+import { QUESTIONNAIRE_FILE_SAID, questionnairePdf, questionnaireXlsx, readQuestionnaireFile } from '../documents/questionnaire-file';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 
 type Params = { projectId: string };
@@ -130,8 +157,9 @@ function touch(project: DdProject): void {
   project.updatedAt = new Date().toISOString();
 }
 
+/** A decision refused for want of the role is answered as a refusal, 403, with the department it names. Anything else is the request's own fault. */
 function failed(res: Response, err: unknown, fallback: string): void {
-  res.status(400).json({ error: err instanceof Error ? err.message : fallback });
+  res.status(err instanceof DecisionRefused ? 403 : 400).json({ error: err instanceof Error ? err.message : fallback });
 }
 
 /* ==================================================================== */
@@ -243,7 +271,7 @@ projectWorkspaceRouter.post<Params & { key: string }>('/workstreams/:key/checks'
     res.status(400).json({ error: `${ws.label} has no checks in the library yet.` });
     return;
   }
-  noteProjectEdit(project, `Put the ${ws.label} checks on the project record.`);
+  noteProjectEdit(project, `Put the ${ws.label} checks on the project record.`, { actor: actorOf(principalOf(req)) });
   touch(project);
   await store.save();
   res.status(201).json({ project });
@@ -263,7 +291,7 @@ projectWorkspaceRouter.post<Params>('/engagements', async (req, res) => {
   }
   try {
     const engagement = createEngagement(project, parsed.data, actorOf(principalOf(req)));
-    noteProjectEdit(project, `Opened an engagement: ${engagement.title}${engagement.client ? ` for ${engagement.client}` : ''}.`);
+    noteProjectEdit(project, `Opened an engagement: ${engagement.title}${engagement.client ? ` for ${engagement.client}` : ''}.`, { actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
     res.status(201).json({ project, engagement });
@@ -345,8 +373,9 @@ projectWorkspaceRouter.post<Params>('/certified', async (req, res) => {
   }
   if (!allowed(req, res, project, ws.department, 'decide')) return;
   try {
-    const report = fileCertifiedReport(project, parsed.data, actorOf(principalOf(req)));
-    noteProjectEdit(project, `Filed ${report.title} by ${report.signer.name} as the figure of record for ${ws.label}.`, { citedEvidenceIds: [report.evidenceId] });
+    // Filing a paper another function holds as this workstream's report moves it, and a move is the holding department's to make.
+    const report = fileCertifiedReport(project, parsed.data, actorOf(principalOf(req)), { mayDecide: decidesFor(req, project) });
+    noteProjectEdit(project, `Filed ${report.title} by ${report.signer.name} as the figure of record for ${ws.label}.`, { citedEvidenceIds: [report.evidenceId], actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
     res.status(201).json({ project, report });
@@ -472,7 +501,8 @@ projectWorkspaceRouter.get<Params>('/site', (req, res) => {
     progress: progressSummary(project),
     gate: constructionGate(project),
     log: log.slice(0, 30).map((e) => ({ ...e, photos: e.photos.map((p, i) => ({ index: i, fileName: p.fileName, caption: p.caption, takenAt: p.takenAt, point: p.point })) })),
-    alerts: openAlerts(project).filter((a) => a.department === 'construction').slice(0, 20),
+    // The reader's own copy of the alerts: somebody working from a grant is not told of an action or a meeting withheld from them.
+    alerts: openAlerts(viewFor(req, project).project).filter((a) => a.department === 'construction').slice(0, 20),
   });
 });
 
@@ -511,7 +541,7 @@ projectWorkspaceRouter.post<Params>('/site-log', async (req, res) => {
     const me = principalOf(req);
     const { entry, duplicate } = logSiteEntry(project, parsed.data, me.name ? `${me.name} (${me.email})` : me.email);
     if (!duplicate) {
-      noteProjectEdit(project, `Site log for ${entry.date}: ${entry.workDone.slice(0, 120) || 'entry filed'}${entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}.`);
+      noteProjectEdit(project, `Site log for ${entry.date}: ${entry.workDone.slice(0, 120) || 'entry filed'}${entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}.`, { actor: actorOf(me) });
       touch(project);
       await store.save();
     }
@@ -592,12 +622,17 @@ projectWorkspaceRouter.post<Params>('/alerts/read', async (req, res) => {
     res.status(400).json({ error: 'Say which alerts.' });
     return;
   }
-  const n = markAlertsRead(project, parsed.data.ids, principalOf(req).email.toLowerCase());
+  const reader = principalOf(req).email.toLowerCase();
+  // Somebody working from a grant marks, and is answered with, the alerts their own copy of the project holds and no others.
+  const view = viewFor(req, project);
+  const mine = view.complete ? undefined : new Set((view.project.alerts ?? []).map((alert) => alert.id));
+  const ids = !mine ? parsed.data.ids : parsed.data.ids === 'all' ? [...mine] : parsed.data.ids.filter((id) => mine.has(id));
+  const n = markAlertsRead(project, ids, reader);
   if (n) {
     touch(project);
     await store.save();
   }
-  res.json({ read: n, alerts: openAlerts(project) });
+  res.json({ read: n, alerts: openAlerts(mine ? { ...view.project, alerts: alertsOfCopy(project.alerts, view.project, reader) } : project) });
 });
 
 const linkEnd = z.object({
@@ -635,6 +670,14 @@ projectWorkspaceRouter.delete<Params & { linkId: string }>('/links/:linkId', asy
 
 const ownerSchema = z.object({ workstream: z.string().regex(/^[a-z]+\.[a-z_]+$/).nullable() });
 
+/**
+ * Give a document to a workstream, or with `null` hand it back to what it
+ * is. Which function holds a paper says whose its values are to decide, so
+ * moving one a function already holds takes a lead or signer of the
+ * department that holds it now, and anybody else is answered 403. A paper no
+ * function holds yet is given its first home by any of the firm's people. The
+ * move is written on the trail by the shared function.
+ */
 projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidenceId/workstream', async (req, res) => {
   const project = load(req, res);
   if (!project || !staffOnly(req, res)) return;
@@ -644,7 +687,7 @@ projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidence
     return;
   }
   try {
-    setDocumentWorkstream(project, req.params.evidenceId, parsed.data.workstream);
+    setDocumentWorkstream(project, req.params.evidenceId, parsed.data.workstream, actorOf(principalOf(req)), { mayDecide: decidesFor(req, project) });
     touch(project);
     await store.save();
     res.json({ project });
@@ -657,6 +700,12 @@ projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidence
  * What a change reaches. Neo4j walks it when it is the store; if that fails
  * the same walk runs over the projection, so the answer never depends on the
  * graph store being up.
+ *
+ * Somebody working from a grant is never answered by the store. Its graph is
+ * the whole file's, and what a record reaches is exactly the checks, findings
+ * and costs beside it that they were not given. They are answered by the same
+ * walk over their own copy of the project, and a record that is not on it is
+ * not found.
  */
 projectWorkspaceRouter.get<Params>('/graph/impact', async (req, res) => {
   const project = load(req, res);
@@ -664,6 +713,16 @@ projectWorkspaceRouter.get<Params>('/graph/impact', async (req, res) => {
   const node = typeof req.query.node === 'string' ? req.query.node.slice(0, 200) : '';
   if (!node) {
     res.status(400).json({ error: 'Name the record: ?node=' });
+    return;
+  }
+  const view = viewFor(req, project);
+  if (!view.complete) {
+    const reached = graphImpact(buildProjectGraph(view.project), node);
+    if (!reached) {
+      res.status(404).json({ error: 'That record is not in the graph.' });
+      return;
+    }
+    res.json({ impact: reached, source: 'projection' });
     return;
   }
   let impact = null;
@@ -799,13 +858,385 @@ projectWorkspaceRouter.post<Params & { uploadId: string }>('/uploads/:uploadId/c
   const storageKey = documentKey({ id: randomUUID(), fileName: upload.fileName });
   await storageAdapter.putDocument(project.id, storageKey, bytes, upload.contentType);
   attachEvidenceFile(project, evidenceId, { fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey, capture: {} }, actor);
+  // On the record before anything reads it: a reader that hangs must not leave a filed paper unfiled.
+  touch(project);
+  await store.save();
   // A large scan is read for as long as a request can wait; asking the chat to
   // read the filed documents carries on from there, with a model if one is set.
-  await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor, { deadline: Date.now() + READ_BUDGET_MS }).catch(() => ({ read: 0 }));
-  noteProjectEdit(project, `Filed ${upload.fileName} (${(bytes.length / 1048576).toFixed(1)} MB) in the vault.`, { citedEvidenceIds: [evidenceId] });
+  const reading = await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor, { deadline: Date.now() + READ_BUDGET_MS }).catch(() => ({ read: 0, files: [] }));
+  // Each page's text beside the file, so a later question can be answered from it.
+  await keepPageTexts(project.id, reading.files);
+  noteProjectEdit(project, `Filed ${upload.fileName} (${(bytes.length / 1048576).toFixed(1)} MB) in the vault.`, { citedEvidenceIds: [evidenceId], actor });
   touch(project);
   await store.save();
   // The parts and the manifest have done their job.
   await Promise.all([...Array.from({ length: upload.parts }, (_, n) => storageAdapter.deleteDocument(project.id, partKey(uploadId, n))), storageAdapter.deleteDocument(project.id, manifestKey(uploadId))].map((p) => Promise.resolve(p).catch(() => undefined)));
   res.status(201).json({ project, evidenceId });
 });
+
+/* ==================================================================== */
+/* Questionnaires                                                        */
+/* ==================================================================== */
+
+/**
+ * A questionnaire belongs to one department, and that department's roles
+ * govern it: a contributor imports and answers, as they would file a
+ * document or record a check. One with no department is Engineering's.
+ */
+const departmentSchema = z.enum(DEPARTMENTS.map((d) => d.key) as [DepartmentKey, ...DepartmentKey[]]);
+
+function sheetDepartment(project: DdProject, questionnaireId: string): DepartmentKey {
+  const sheet = (project.questionnaires ?? []).find((q) => q.id === questionnaireId);
+  return sheet ? questionnaireDepartment(sheet) : 'construction';
+}
+const QUESTIONNAIRE_MAX_BYTES = 4 * 1024 * 1024;
+const questionnaireUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: QUESTIONNAIRE_MAX_BYTES, files: 1 } });
+
+const questionnaireTextSchema = z.object({ title: z.string().trim().min(1).max(160), text: z.string().min(1).max(400_000) });
+
+async function parseQuestionnaireFile(file: Express.Multer.File) {
+  const read = await readQuestionnaireFile(file);
+  if (!read) throw new Error(QUESTIONNAIRE_FILE_SAID);
+  return read;
+}
+
+projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.single('file'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const asked = departmentSchema.safeParse(req.body?.department ?? 'construction');
+  if (!asked.success) {
+    res.status(400).json({ error: 'No such department.' });
+    return;
+  }
+  const department = asked.data;
+  if (!allowed(req, res, project, department, 'edit')) return;
+  try {
+    const file = req.file as Express.Multer.File | undefined;
+    let record;
+    if (file) {
+      const title = typeof req.body?.title === 'string' && req.body.title.trim() ? String(req.body.title).trim().slice(0, 160) : file.originalname.replace(/\.[a-z0-9]+$/i, '');
+      const read = await parseQuestionnaireFile(file);
+      record = addQuestionnaire(project, { title, department, fileName: file.originalname, parsed: read.parsed, leftOut: read.leftOut }, actorOf(principalOf(req)));
+    } else {
+      const parsed = questionnaireTextSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Attach a file, or send a title and the questions as text.' });
+        return;
+      }
+      const looksCsv = /^[^\n]*\b(question|query)\b[^\n]*[,\t]/i.test(parsed.data.text);
+      record = addQuestionnaire(project, { title: parsed.data.title, department, parsed: looksCsv ? parseQuestionnaireCsv(parsed.data.text) : parseQuestionnaireText(parsed.data.text) }, actorOf(principalOf(req)));
+    }
+    // What was left out of it is said with it, here and on the questionnaire itself.
+    noteProjectEdit(project, `Imported the questionnaire “${record.title}”: ${record.questions.length} question(s).${record.leftOut ? ` ${record.leftOut}` : ''}`, { actor: actorOf(principalOf(req)) });
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, questionnaireId: record.id, ...(record.leftOut ? { leftOut: record.leftOut } : {}) });
+  } catch (err) {
+    failed(res, err, 'Could not read that questionnaire');
+  }
+});
+
+const proofSchema = z.object({ evidenceId: z.string().min(1), page: z.number().int().min(1).max(100_000).optional(), quote: z.string().max(400).optional() });
+const answerSchema = z.object({
+  answer: z.string().max(4000).nullable().optional(),
+  source: z.enum(ANSWER_SOURCES as unknown as [string, ...string[]]).nullable().optional(),
+  proof: z.array(proofSchema).max(12).optional(),
+  note: z.string().max(1000).nullable().optional(),
+  text: z.string().trim().min(1).max(600).optional(),
+  section: z.string().max(120).nullable().optional(),
+  omitFromReport: z.boolean().optional(),
+});
+
+type QParams = Params & { questionnaireId: string };
+
+projectWorkspaceRouter.patch<QParams & { questionId: string }>('/questionnaires/:questionnaireId/questions/:questionId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, sheetDepartment(project, req.params.questionnaireId), 'edit')) return;
+  const parsed = answerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the answer, where it came from, and what stands behind it.' });
+    return;
+  }
+  try {
+    answerQuestion(project, req.params.questionnaireId, req.params.questionId, parsed.data as Parameters<typeof answerQuestion>[3], actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not save the answer');
+  }
+});
+
+projectWorkspaceRouter.post<QParams>('/questionnaires/:questionnaireId/questions', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, sheetDepartment(project, req.params.questionnaireId), 'edit')) return;
+  const parsed = z.object({ text: z.string().trim().min(1).max(600), section: z.string().max(120).optional() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the question’s wording.' });
+    return;
+  }
+  try {
+    addQuestion(project, req.params.questionnaireId, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not add the question');
+  }
+});
+
+projectWorkspaceRouter.delete<QParams & { questionId: string }>('/questionnaires/:questionnaireId/questions/:questionId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, sheetDepartment(project, req.params.questionnaireId), 'decide')) return;
+  try {
+    removeQuestion(project, req.params.questionnaireId, req.params.questionId, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not remove the question');
+  }
+});
+
+/** Confirm a model's suggested answers: some, or all of them. */
+projectWorkspaceRouter.post<QParams>('/questionnaires/:questionnaireId/confirm', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, sheetDepartment(project, req.params.questionnaireId), 'edit')) return;
+  const parsed = z.object({ questionIds: z.array(z.string()).max(500).optional() }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the ids of the answers to confirm, or none to confirm all.' });
+    return;
+  }
+  try {
+    const confirmed = confirmSuggestions(project, req.params.questionnaireId, parsed.data.questionIds ?? 'all', actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, confirmed });
+  } catch (err) {
+    failed(res, err, 'Could not confirm those answers');
+  }
+});
+
+/**
+ * The file a questionnaire was taken in from, where it was kept: the one
+ * dropped in the chat. So that what was sent can be read beside what was
+ * made of it.
+ */
+projectWorkspaceRouter.get<QParams>('/questionnaires/:questionnaireId/file', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!roleIn(req, project, sheetDepartment(project, req.params.questionnaireId))) {
+    res.status(403).json({ error: 'That needs a place in the department the questionnaire belongs to.' });
+    return;
+  }
+  try {
+    const questionnaire = findQuestionnaire(project, req.params.questionnaireId);
+    const bytes = questionnaire.fileKey ? await storageAdapter.getDocument(project.id, questionnaire.fileKey) : null;
+    if (!bytes) {
+      res.status(404).json({ error: 'The file this questionnaire came from was not kept.' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${(questionnaire.fileName ?? 'questionnaire').replace(/[^A-Za-z0-9._ -]+/g, ' ').trim() || 'questionnaire'}"`);
+    res.send(Buffer.from(bytes));
+  } catch (err) {
+    failed(res, err, 'Could not open that file');
+  }
+});
+
+/**
+ * The answered questionnaire as a file to send back: Excel or PDF, each
+ * answer with where it came from and the paper and page behind it. Anybody
+ * who can open the project can take it out; nothing is changed by it.
+ */
+projectWorkspaceRouter.get<QParams>('/questionnaires/:questionnaireId/export', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!roleIn(req, project, sheetDepartment(project, req.params.questionnaireId))) {
+    res.status(403).json({ error: 'That needs a place in the department the questionnaire belongs to.' });
+    return;
+  }
+  try {
+    const questionnaire = findQuestionnaire(project, req.params.questionnaireId);
+    const pdf = req.query.format === 'pdf';
+    if (!pdf && req.query.format !== 'xlsx') {
+      res.status(400).json({ error: 'Say which: format=xlsx or format=pdf.' });
+      return;
+    }
+    const bytes = pdf ? await questionnairePdf(project, questionnaire) : await questionnaireXlsx(project, questionnaire);
+    const name = `${project.reference}-${questionnaire.title}`.replace(/[^A-Za-z0-9._ -]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    res.setHeader('Content-Type', pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}.${pdf ? 'pdf' : 'xlsx'}"`);
+    res.send(bytes);
+  } catch (err) {
+    failed(res, err, 'Could not take that questionnaire out');
+  }
+});
+
+projectWorkspaceRouter.delete<QParams>('/questionnaires/:questionnaireId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, sheetDepartment(project, req.params.questionnaireId), 'decide')) return;
+  try {
+    const title = findQuestionnaire(project, req.params.questionnaireId).title;
+    removeQuestionnaire(project, req.params.questionnaireId, actorOf(principalOf(req)));
+    noteProjectEdit(project, `Removed the questionnaire “${title}”.`, { actor: actorOf(principalOf(req)) });
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not remove the questionnaire');
+  }
+});
+
+/* ==================================================================== */
+/* Observations and mitigations                                          */
+/* ==================================================================== */
+
+const severitySchema = z.enum(['low', 'medium', 'high', 'critical']);
+const disciplineSchema = z.enum(SCOPE_KEYS as unknown as [string, ...string[]]);
+const observationSchema = z.object({
+  area: z.string().max(120).optional(),
+  description: z.string().trim().min(1).max(4000),
+  severity: severitySchema,
+  mitigation: z.string().max(4000).optional(),
+  standardRef: z.string().max(240).optional(),
+  discipline: disciplineSchema.optional(),
+  department: departmentSchema.optional(),
+  title: z.string().max(200).optional(),
+  evidenceIds: z.array(z.string()).max(40).optional(),
+  cost: z.number().min(0).max(1e13).nullable().optional(),
+  costBand: z.enum(['immediate', 'year_1', 'years_1_5', 'years_5_10']).nullable().optional(),
+});
+const observationPatchSchema = z.object({
+  area: z.string().max(120).nullable().optional(),
+  description: z.string().trim().min(1).max(4000).optional(),
+  title: z.string().max(200).optional(),
+  severity: severitySchema.optional(),
+  mitigation: z.string().max(4000).nullable().optional(),
+  standardRef: z.string().max(240).nullable().optional(),
+  discipline: disciplineSchema.optional(),
+  evidenceIds: z.array(z.string()).max(40).optional(),
+  includeInReport: z.boolean().optional(),
+  cost: z.number().min(0).max(1e13).nullable().optional(),
+  costBand: z.enum(['immediate', 'year_1', 'years_1_5', 'years_5_10']).nullable().optional(),
+});
+
+projectWorkspaceRouter.post<Params>('/observations', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = observationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say what was observed and how much it matters.' });
+    return;
+  }
+  // The department is the one the discipline is worked in, not one the caller names.
+  const { department = 'construction', ...input } = parsed.data;
+  const disciplines = departmentDisciplines(project, department);
+  const discipline = (input.discipline as ScopeKey | undefined) ?? disciplines[0];
+  if (!discipline || !disciplines.includes(discipline)) {
+    res.status(400).json({ error: 'That discipline is not part of this department.' });
+    return;
+  }
+  if (!allowed(req, res, project, department, 'edit')) return;
+  try {
+    const record = addObservation(project, { ...input, discipline } as Parameters<typeof addObservation>[1], actorOf(principalOf(req)));
+    noteProjectEdit(project, `Recorded an observation: ${record.title}`, { actor: actorOf(principalOf(req)) });
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, findingId: record.id });
+  } catch (err) {
+    failed(res, err, 'Could not record the observation');
+  }
+});
+
+projectWorkspaceRouter.patch<Params & { findingId: string }>('/observations/:findingId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = observationPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'That change to the observation is not one this takes.' });
+    return;
+  }
+  // Whoever may edit in a department the finding is worked in may change it, and may only move it to a discipline they also hold.
+  const held = project.findings.find((f) => f.id === req.params.findingId);
+  const mayEditIn = (discipline: ScopeKey) => departmentsOfDiscipline(project, discipline).some((d) => roleCanEdit(roleIn(req, project, d)));
+  if (held && !(mayEditIn(held.discipline) && (!parsed.data.discipline || mayEditIn(parsed.data.discipline as ScopeKey)))) {
+    res.status(403).json({ error: 'That needs a lead, contributor or signer in the department this finding belongs to.' });
+    return;
+  }
+  try {
+    patchObservation(project, req.params.findingId, parsed.data as Parameters<typeof patchObservation>[2], actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not change the observation');
+  }
+});
+
+/** Put a site-log photograph on the document register, so an observation or an answer can cite it. */
+projectWorkspaceRouter.post<Params & { entryId: string; index: string }>('/site-log/:entryId/photos/:index/file', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  try {
+    const row = fileSiteLogPhoto(project, req.params.entryId, Number(req.params.index), actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, evidenceId: row.id });
+  } catch (err) {
+    failed(res, err, 'Could not file that photograph');
+  }
+});
+
+/** The department a filed document or photograph sits in; one filed nowhere is Engineering's, as site photographs are. */
+function evidenceDepartment(project: DdProject, evidenceId: string): DepartmentKey {
+  const key = project.evidence.find((e) => e.id === evidenceId)?.workstream?.split('.')[0];
+  return DEPARTMENTS.some((d) => d.key === key) ? (key as DepartmentKey) : 'construction';
+}
+
+/** Choose whether a filed photograph prints in the report on its own. */
+projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidenceId/in-report', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, evidenceDepartment(project, req.params.evidenceId), 'edit')) return;
+  const parsed = z.object({ inReport: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say whether the photograph is in the report.' });
+    return;
+  }
+  try {
+    setPhotoInReport(project, req.params.evidenceId, parsed.data.inReport, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not change that photograph');
+  }
+});
+
+/** Accept, correct or write what a photograph shows; `null` clears it. */
+projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidenceId/description', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, evidenceDepartment(project, req.params.evidenceId), 'edit')) return;
+  const parsed = z.object({ text: z.string().max(1200).nullable() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send what the photograph shows, or null to clear it.' });
+    return;
+  }
+  try {
+    setPhotoDescription(project, req.params.evidenceId, parsed.data.text, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not save that description');
+  }
+});
+

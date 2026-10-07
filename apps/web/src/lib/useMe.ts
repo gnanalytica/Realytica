@@ -14,6 +14,8 @@ import { onAuthChange } from './auth';
  * button and never an unauthorised write.
  */
 export interface Me {
+  /** Who they are to the system. With the email, it is how their own turns in a chat are signed. */
+  subject: string;
   email: string;
   name?: string;
   tenantId: string;

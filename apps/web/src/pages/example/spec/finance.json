@@ -1,0 +1,3402 @@
+{
+ "department": "Finance",
+ "functions": [
+  {
+   "name": "Valuation",
+   "stages": [
+    "land",
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "certified",
+    "by": "R. Menon",
+    "role": "Registered valuer",
+    "on": "28 Aug 2026",
+    "moved": true
+   },
+   "sections": [
+    {
+     "id": "terms",
+     "name": "Terms of engagement",
+     "icon": "details",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Terms",
+       "items": [
+        {
+         "l": "Purpose",
+         "v": "Bank security",
+         "state": "set",
+         "from": "Valuation engagement letter",
+         "page": 1,
+         "options": [
+          "Bank security",
+          "Company valuation report",
+          "Stamp-value dispute",
+          "Sale or purchase"
+         ]
+        },
+        {
+         "l": "Basis of value",
+         "v": "Market value",
+         "state": "set",
+         "from": "Valuation engagement letter",
+         "page": 2,
+         "options": [
+          "Market value",
+          "Realisable value",
+          "Distress value",
+          "Investment value"
+         ]
+        },
+        {
+         "l": "Valuation date",
+         "v": "28 Aug 2026",
+         "state": "set",
+         "from": "Valuation engagement letter",
+         "page": 1
+        },
+        {
+         "l": "Appointing authority",
+         "v": "Hosakere Bank",
+         "state": "set",
+         "from": "Valuation engagement letter",
+         "page": 1,
+         "options": [
+          "Hosakere Bank",
+          "Lakeview Developers LLP"
+         ]
+        },
+        {
+         "l": "Valuer",
+         "v": "R. Menon, Land and Building",
+         "state": "set",
+         "from": "Valuation engagement letter",
+         "page": 1
+        },
+        {
+         "l": "Conflict disclosure",
+         "v": "",
+         "state": "empty"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Engagement letter",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "Valuation engagement letter",
+           "state": "in",
+           "pages": 4
+          },
+          {
+           "t": "Valuer's conflict declaration",
+           "state": "asked",
+           "who": "R. Menon",
+           "due": "10 Oct 2026"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "property",
+     "name": "Property and documents",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Title and plan papers",
+       "cols": [
+        "Paper",
+        "Survey no.",
+        "What the valuer reads",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Sale deed 2019",
+         "41/2, 41/3",
+         "Area 4,210 sqm, owner, boundaries",
+         "Received"
+        ],
+        [
+         "RTC, survey 41/2",
+         "41/2",
+         "Extent 2,380 sqm, owner entry",
+         "Received"
+        ],
+        [
+         "RTC, survey 41/3",
+         "41/3",
+         "Extent 1,830 sqm, owner entry",
+         "Asked"
+        ],
+        [
+         "e-Khata",
+         "41/2, 41/3",
+         "Khata holder, extent 4,210 sqm",
+         "Received"
+        ],
+        [
+         "Sanctioned plan",
+         "41/2, 41/3",
+         "FAR 2.50, built-up area 22,140 sqm",
+         "Received"
+        ],
+        [
+         "Encumbrance certificate, 1994 to 2026",
+         "41/2, 41/3",
+         "Mortgage to Hosakere Bank, 2024",
+         "Received"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Title",
+       "add": ""
+      },
+      {
+       "type": "fields",
+       "title": "Property",
+       "items": [
+        {
+         "l": "Land area",
+         "v": "4,210 sqm",
+         "state": "set"
+        },
+        {
+         "l": "Tenure",
+         "v": "Freehold",
+         "state": "sug"
+        },
+        {
+         "l": "Zoning",
+         "v": "Residential main zone",
+         "state": "set"
+        },
+        {
+         "l": "Permissible FAR",
+         "v": "2.50",
+         "state": "sug"
+        },
+        {
+         "l": "Road width",
+         "v": "24 m south, 12 m east",
+         "state": "set"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "inspection",
+     "name": "Inspection",
+     "icon": "photos",
+     "blocks": [
+      {
+       "type": "photos",
+       "title": "Photographs, 21 Aug 2026",
+       "items": [
+        {
+         "where": "South boundary, 24 m road",
+         "says": "Road frontage clear, plot level with the road",
+         "art": "road",
+         "state": "ok"
+        },
+        {
+         "where": "West edge, towards the drain",
+         "says": "Storm-water drain visible, about 38 m away",
+         "art": "drain",
+         "state": "sug"
+        },
+        {
+         "where": "Tower frame, south elevation",
+         "says": "Frame under construction, site fenced all round",
+         "art": "column",
+         "state": "ok"
+        },
+        {
+         "where": "North-east corner",
+         "says": "Boundary stone in place, power line in view",
+         "art": "stone",
+         "state": "sug"
+        }
+       ]
+      },
+      {
+       "type": "map",
+       "title": "Site and value drivers",
+       "view": "site",
+       "layers": [
+        "plot",
+        "water",
+        "planning",
+        "roads",
+        "power"
+       ],
+       "pins": [
+        {
+         "t": "Photo 1",
+         "kind": "photo",
+         "x": 50,
+         "y": 74
+        },
+        {
+         "t": "Photo 2",
+         "kind": "photo",
+         "x": 39,
+         "y": 50
+        },
+        {
+         "t": "Photo 3",
+         "kind": "photo",
+         "x": 50,
+         "y": 58
+        },
+        {
+         "t": "Photo 4",
+         "kind": "photo",
+         "x": 61,
+         "y": 32
+        }
+       ],
+       "measures": [
+        {
+         "t": "Storm-water drain",
+         "v": "38 m",
+         "tone": "warn"
+        },
+        {
+         "t": "Lake",
+         "v": "180 m",
+         "tone": "ok"
+        },
+        {
+         "t": "110 kV power line",
+         "v": "95 m",
+         "tone": "warn"
+        },
+        {
+         "t": "South road width",
+         "v": "24 m",
+         "tone": "ok"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "market",
+     "name": "Market evidence",
+     "icon": "map",
+     "blocks": [
+      {
+       "type": "map",
+       "title": "Sales around the site",
+       "view": "area",
+       "layers": [
+        "plot",
+        "rings",
+        "roads"
+       ],
+       "pins": [
+        {
+         "t": "Sale 1, survey 38/1",
+         "kind": "comparable",
+         "x": 41,
+         "y": 42
+        },
+        {
+         "t": "Sale 2, survey 47/2",
+         "kind": "comparable",
+         "x": 63,
+         "y": 36
+        },
+        {
+         "t": "Sale 3, survey 12/4",
+         "kind": "comparable",
+         "x": 47,
+         "y": 24
+        },
+        {
+         "t": "Sale 4, survey 63/1",
+         "kind": "comparable",
+         "x": 72,
+         "y": 58
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Comparable sales",
+       "cols": [
+        "Address",
+        "Area",
+        "Price",
+        "Date",
+        "Source",
+        "Adjustment"
+       ],
+       "rows": [
+        [
+         "Survey 38/1, Hosakere",
+         "38,000 sqft",
+         "₹ 4,150 /sqft",
+         "14 Jun 2026",
+         "Registered sale deed",
+         "-4%, smaller plot"
+        ],
+        [
+         "Survey 47/2, Hosakere",
+         "52,000 sqft",
+         "₹ 3,900 /sqft",
+         "2 Jul 2026",
+         "Registered sale deed",
+         "+2%, narrower road"
+        ],
+        [
+         "Survey 12/4, Hosakere north",
+         "30,000 sqft",
+         "₹ 4,400 /sqft",
+         "23 Jul 2026",
+         "Portal listing",
+         "-10%, asking price"
+        ],
+        [
+         "Survey 63/1, Hosakere east",
+         "45,000 sqft",
+         "₹ 3,950 /sqft",
+         "12 Sep 2026",
+         "Registered sale deed",
+         "+1%, less frontage"
+        ]
+       ],
+       "status": null,
+       "money": [
+        2
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "fetched",
+       "from": "registered sales and portals",
+       "add": "Add comparable"
+      },
+      {
+       "type": "search",
+       "title": "Guidance value",
+       "source": "Kaveri, guidance value",
+       "query": "Hosakere village, survey nos. 41/2 and 41/3",
+       "results": [
+        {
+         "t": "₹ 3,350 /sqft, residential",
+         "sub": "Notified April 2026",
+         "picked": true
+        },
+        {
+         "t": "₹ 3,000 /sqft, residential",
+         "sub": "Notified 2023, replaced",
+         "picked": false
+        },
+        {
+         "t": "₹ 2,200 /sqft, agricultural",
+         "sub": "Before conversion, not applicable",
+         "picked": false
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "methods",
+     "name": "Methods and reconciliation",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Methods and weights",
+       "cols": [
+        "Method",
+        "Value",
+        "Weight",
+        "Rests on"
+       ],
+       "rows": [
+        [
+         "Comparable",
+         "₹ 18.0 Cr",
+         "40%",
+         "Four sales, adjusted to this plot"
+        ],
+        [
+         "Cost",
+         "₹ 17.1 Cr",
+         "10%",
+         "Deed price of 2019, indexed to date"
+        ],
+        [
+         "Income",
+         "₹ 18.3 Cr",
+         "20%",
+         "Sales and costs, discounted to valuation date"
+        ],
+        [
+         "Residual",
+         "₹ 20.1 Cr",
+         "30%",
+         "Sale price, cost, FAR and margin"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1
+       ],
+       "bar": 2,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": ""
+      },
+      {
+       "type": "fields",
+       "title": "Key assumptions",
+       "items": [
+        {
+         "l": "Land rate, adjusted average",
+         "v": "₹ 3,978 /sqft",
+         "state": "calc"
+        },
+        {
+         "l": "Sale price assumed",
+         "v": "₹ 8,400 /sqft",
+         "state": "assume"
+        },
+        {
+         "l": "Developer's margin",
+         "v": "20% of sales value",
+         "state": "assume"
+        },
+        {
+         "l": "Spread of adjusted sales",
+         "v": "0.7%",
+         "state": "calc"
+        },
+        {
+         "l": "Spread across methods",
+         "v": "₹ 3.0 Cr",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "value",
+     "name": "Value and report",
+     "icon": "report",
+     "blocks": [
+      {
+       "type": "figure",
+       "title": "Reconciled value",
+       "label": "Market value",
+       "value": "₹ 18.6 Cr",
+       "range": [
+        "₹ 17.1 Cr",
+        "₹ 20.1 Cr"
+       ],
+       "chips": [
+        "Indicative"
+       ],
+       "stats": [
+        {
+         "l": "Realisable value",
+         "v": "₹ 16.7 Cr",
+         "n": "90% of market"
+        },
+        {
+         "l": "Distress value",
+         "v": "₹ 14.9 Cr",
+         "n": "80% of market"
+        },
+        {
+         "l": "Guidance value",
+         "v": "₹ 15.2 Cr",
+         "n": "₹ 3,350 /sqft"
+        }
+       ],
+       "share": [
+        {
+         "l": "Comparable",
+         "p": 40
+        },
+        {
+         "l": "Cost",
+         "p": 10
+        },
+        {
+         "l": "Income",
+         "p": 20
+        },
+        {
+         "l": "Residual",
+         "p": 30
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Report contents, rule 8(3)",
+       "cols": [
+        "Clause",
+        "The report must state",
+        "Taken from",
+        "Status"
+       ],
+       "rows": [
+        [
+         "8(3)(a)",
+         "Background of the asset being valued",
+         "Property and documents",
+         "Stated"
+        ],
+        [
+         "8(3)(b)",
+         "Purpose of valuation and appointing authority",
+         "Terms of engagement",
+         "Stated"
+        ],
+        [
+         "8(3)(c)",
+         "Identity of the valuer and other experts",
+         "Terms of engagement",
+         "Stated"
+        ],
+        [
+         "8(3)(d)",
+         "Disclosure of valuer interest or conflict",
+         "Terms of engagement",
+         "Missing"
+        ],
+        [
+         "8(3)(e)",
+         "Dates of appointment, valuation and report",
+         "Terms of engagement",
+         "Partial"
+        ],
+        [
+         "8(3)(f)",
+         "Inspections and investigations undertaken",
+         "Inspection",
+         "Stated"
+        ],
+        [
+         "8(3)(g)",
+         "Nature and sources of information relied upon",
+         "Market evidence",
+         "Stated"
+        ],
+        [
+         "8(3)(h)",
+         "Procedures adopted and standards followed",
+         "Methods and reconciliation",
+         "Stated"
+        ],
+        [
+         "8(3)(i)",
+         "Restrictions on use of the report",
+         "Value and report",
+         "Missing"
+        ],
+        [
+         "8(3)(j)",
+         "Major factors that influenced the valuation",
+         "Methods and reconciliation",
+         "Stated"
+        ],
+        [
+         "8(3)(k)",
+         "Conclusion",
+         "Value and report",
+         "Stated"
+        ],
+        [
+         "8(3)(l)",
+         "Caveats, limitations and disclaimers",
+         "Value and report",
+         "Partial"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "",
+       "long": true
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "The four methods span ₹ 3.0 Cr, with cost lowest and residual highest",
+     "rests": [
+      "Spread across methods"
+     ]
+    },
+    {
+     "t": "Adjusted sales agree within 1%, which makes the comparable method firm",
+     "rests": [
+      "Spread of adjusted sales"
+     ]
+    },
+    {
+     "t": "A sale registered on 12 Sep is newer than the certified value",
+     "rests": [
+      "Valuation date"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "No conflict disclosure on file for the valuer",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Running value has moved since it was certified",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "One comparable is a listing, not a registered deed",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Value range from comparables and guidance value",
+     "Residual land value from price, cost, FSI and margin",
+     "Realisable and distress value using the bank's haircut table",
+     "Confidence band from comparable spread, data age, method gap"
+    ],
+    "certified": [
+     "Valuation report: IBBI registered valuer, Land and Building class; Companies Rules 2017, Rule 8",
+     "Bank security valuation: empanelled independent valuer; RBI Credit Risk Management Directions 2025, para 70",
+     "Stamp-value dispute valuation: registered valuer, Form 170; Income-tax Act 2025, section 514"
+    ],
+    "reports": [
+     "Terms of engagement letter (Red Book VPS 1)",
+     "Valuation report (Rule 8; Red Book VPS 6)",
+     "Bank format: market, realisable and distress value",
+     "Valuation file: inspection notes, comparables, working papers"
+    ],
+    "sent": [
+     "Market value and gross development value to Feasibility",
+     "Security value and stage value to Funding",
+     "Market value for stamp duty check to Tax"
+    ]
+   },
+   "mustHave": [
+    "Written terms of engagement first (VPS 1); conflicts disclosed; working papers kept three years.",
+    "Banks need two independent valuations from ₹50 crore; collateral rechecked every three years.",
+    "State basis of value, assumptions and uncertainty (Red Book VPS 2 and VPS 6).",
+    "Guidance value is a stamp-duty floor, not market value; check Kaveri on the day.",
+    "For tax valuation use a valuer on the income-tax register (section 514, Form 170)."
+   ],
+   "standards": [
+    {
+     "name": "Companies (Registered Valuers and Valuation) Rules 2017: Rule 8, Annexure I (code of conduct)",
+     "why": "Report contents, conflict disclosure, working papers kept three years",
+     "url": "https://ibbi.gov.in/uploads/rules.pdf"
+    },
+    {
+     "name": "RICS Valuation – Global Standards (Red Book), effective 31 January 2025, VPS 1 to 6",
+     "why": "Engagement terms, bases of value, inspection records, report content",
+     "url": "https://www.rics.org/profession-standards/rics-standards-and-guidance/sector-standards/valuation-standards/red-book/red-book-global"
+    },
+    {
+     "name": "International Valuation Standards, effective 31 January 2025 (IVS 102, 104, 106, 400, 410)",
+     "why": "Bases of value, data quality, reporting, real property, development property",
+     "url": "https://ivsc.org/new-edition-of-the-international-valuation-standards-ivs-published/"
+    },
+    {
+     "name": "RBI (Commercial Banks – Credit Risk Management) Directions 2025, paras 70 to 73",
+     "why": "Independent valuers, two valuations from ₹50 crore, empanelment",
+     "url": "https://www.rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=13153"
+    }
+   ]
+  },
+  {
+   "name": "Feasibility",
+   "stages": [
+    "land",
+    "pre",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "18 assumptions, 5 dated before July"
+   },
+   "sections": [
+    {
+     "id": "assumptions",
+     "name": "Assumptions",
+     "icon": "links",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Arriving from other functions",
+       "cols": [
+        "Input",
+        "From",
+        "Value",
+        "Updated",
+        "Refresh"
+       ],
+       "rows": [
+        [
+         "Land value",
+         "Valuation",
+         "₹ 18.6 Cr",
+         "9 Sep 2026",
+         "On time"
+        ],
+        [
+         "Built-up area, all floors",
+         "Design",
+         "2,55,000 sqft",
+         "17 Apr 2026",
+         "Due"
+        ],
+        [
+         "Construction cost",
+         "Budget",
+         "₹ 66.3 Cr",
+         "12 Jun 2026",
+         "Due"
+        ],
+        [
+         "Price list",
+         "Market",
+         "₹ 10,800 to 12,500 /sqft",
+         "28 May 2026",
+         "Due"
+        ],
+        [
+         "Taxes and statutory charges",
+         "Tax",
+         "₹ 5.2 Cr",
+         "3 Mar 2026",
+         "Due"
+        ],
+        [
+         "Programme",
+         "Progress",
+         "Completion Jun 2028",
+         "26 Jun 2026",
+         "Due"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Valuation, Design, Budget, Market, Tax, Progress",
+       "add": ""
+      },
+      {
+       "type": "fields",
+       "title": "Appraisal assumptions",
+       "items": [
+        {
+         "l": "Target profit on cost",
+         "v": "20%",
+         "state": "assume"
+        },
+        {
+         "l": "Sales speed",
+         "v": "3.7 units a month",
+         "state": "sug"
+        },
+        {
+         "l": "Sales period",
+         "v": "30 months",
+         "state": "calc"
+        },
+        {
+         "l": "Payment plan",
+         "v": "Linked to construction",
+         "state": "set",
+         "options": [
+          "Linked to construction",
+          "Down payment",
+          "Time linked"
+         ]
+        },
+        {
+         "l": "Marketing and sales cost",
+         "v": "3% of revenue",
+         "state": "assume"
+        },
+        {
+         "l": "Contingency on construction",
+         "v": "5%",
+         "state": "assume"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sales",
+     "name": "Sales and revenue",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Revenue, 112 apartments",
+       "cols": [
+        "Type",
+        "Units",
+        "Carpet area each",
+        "Price per sqft",
+        "Revenue"
+       ],
+       "rows": [
+        [
+         "2 BHK",
+         "40",
+         "750 sqft",
+         "₹ 10,800",
+         "₹ 32.4 Cr"
+        ],
+        [
+         "3 BHK",
+         "44",
+         "1,000 sqft",
+         "₹ 11,500",
+         "₹ 50.6 Cr"
+        ],
+        [
+         "3 BHK large",
+         "20",
+         "1,250 sqft",
+         "₹ 11,800",
+         "₹ 29.5 Cr"
+        ],
+        [
+         "Penthouse",
+         "8",
+         "1,500 sqft",
+         "₹ 12,500",
+         "₹ 15.0 Cr"
+        ]
+       ],
+       "status": null,
+       "money": [
+        4
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add unit type"
+      },
+      {
+       "type": "search",
+       "title": "Nearby registered projects",
+       "source": "K-RERA, registered projects",
+       "query": "Hosakere village, within 5 km, apartments, rates on carpet area",
+       "results": [
+        {
+         "t": "Tower of 96 units, 1.8 km",
+         "sub": "₹ 10,900 /sqft, 22% unsold, 4 sold a month",
+         "picked": true
+        },
+        {
+         "t": "Two towers, 180 units, 2.6 km",
+         "sub": "₹ 10,400 /sqft, 31% unsold, 5 sold a month",
+         "picked": true
+        },
+        {
+         "t": "Tower of 64 units, 3.4 km",
+         "sub": "₹ 11,600 /sqft, 12% unsold, 3 sold a month",
+         "picked": true
+        },
+        {
+         "t": "Tower of 150 units, 4.9 km",
+         "sub": "₹ 9,600 /sqft, 41% unsold, 2 sold a month",
+         "picked": false
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "costs",
+     "name": "Costs and timeline",
+     "icon": "timeline",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Cost by head",
+       "cols": [
+        "Head",
+        "Amount",
+        "Share",
+        "Basis"
+       ],
+       "rows": [
+        [
+         "Land",
+         "₹ 18.6 Cr",
+         "18%",
+         "Valuation, 9 Sep 2026"
+        ],
+        [
+         "Construction",
+         "₹ 66.3 Cr",
+         "63%",
+         "2,55,000 sqft at ₹ 2,600 /sqft"
+        ],
+        [
+         "Approvals and fees",
+         "₹ 5.2 Cr",
+         "5%",
+         "Estimate from Tax"
+        ],
+        [
+         "Finance cost",
+         "₹ 8.1 Cr",
+         "8%",
+         "Interest and fees on drawn debt"
+        ],
+        [
+         "Marketing and sales",
+         "₹ 3.8 Cr",
+         "3%",
+         "3% of revenue"
+        ],
+        [
+         "Contingency",
+         "₹ 3.3 Cr",
+         "3%",
+         "5% of construction"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1
+       ],
+       "bar": 2,
+       "total": true,
+       "low": false,
+       "source": "link",
+       "from": "Budget",
+       "add": ""
+      },
+      {
+       "type": "timeline",
+       "title": "Dates the appraisal relies on",
+       "items": [
+        {
+         "year": "Nov 2025",
+         "t": "Construction starts",
+         "sub": "Basement excavation",
+         "state": "in"
+        },
+        {
+         "year": "Dec 2025",
+         "t": "Financial closure",
+         "sub": "Before the first draw",
+         "state": "in"
+        },
+        {
+         "year": "Jun 2026",
+         "t": "Basement and podium done",
+         "sub": "On the planned date",
+         "state": "in"
+        },
+        {
+         "year": "Jun 2027",
+         "t": "Peak funding",
+         "sub": "₹ 71.2 Cr, forecast",
+         "state": "sug"
+        },
+        {
+         "year": "Jun 2028",
+         "t": "Occupancy certificate expected",
+         "sub": "Planned completion, the lender's DCCO",
+         "state": "in"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "funding",
+     "name": "Funding plan",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Structure chosen",
+       "items": [
+        {
+         "l": "Debt",
+         "v": "₹ 42.0 Cr",
+         "state": "set"
+        },
+        {
+         "l": "Equity",
+         "v": "₹ 33.0 Cr",
+         "state": "set"
+        },
+        {
+         "l": "Interest rate",
+         "v": "10.5%",
+         "state": "sug"
+        },
+        {
+         "l": "Tenor",
+         "v": "42 months",
+         "state": "set"
+        },
+        {
+         "l": "Drawdown rule",
+         "v": "Against construction progress",
+         "state": "set",
+         "options": [
+          "Against construction progress",
+          "Equity first, then debt",
+          "Pro rata with equity"
+         ]
+        },
+        {
+         "l": "Loan class",
+         "v": "CRE-RH, no commercial area",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Lender term sheets",
+       "cols": [
+        "Term",
+        "Hosakere Bank",
+        "Public sector bank",
+        "Housing finance company"
+       ],
+       "rows": [
+        [
+         "Interest rate",
+         "10.5%",
+         "10.9%",
+         "11.2%"
+        ],
+        [
+         "Processing fee",
+         "₹ 50 L",
+         "₹ 42 L",
+         "₹ 60 L"
+        ],
+        [
+         "Interest over the term",
+         "₹ 7.6 Cr",
+         "₹ 7.9 Cr",
+         "₹ 8.1 Cr"
+        ],
+        [
+         "Total finance cost",
+         "₹ 8.1 Cr",
+         "₹ 8.3 Cr",
+         "₹ 8.7 Cr"
+        ],
+        [
+         "Minimum debt cover",
+         "1.50x",
+         "1.40x",
+         "1.60x"
+        ],
+        [
+         "Equity asked",
+         "₹ 33.0 Cr",
+         "₹ 36.0 Cr",
+         "₹ 31.5 Cr"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2,
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": true,
+       "source": "link",
+       "from": "Funding",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "returns",
+     "name": "Returns and cover",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "figure",
+       "title": "Appraisal result",
+       "label": "Profit on cost",
+       "value": "21.1%",
+       "range": [
+        "15.2%",
+        "26.9%"
+       ],
+       "chips": [
+        "Indicative"
+       ],
+       "stats": [
+        {
+         "l": "Residual land value",
+         "v": "₹ 19.6 Cr",
+         "n": "₹ 1.0 Cr above land value"
+        },
+        {
+         "l": "Peak funding",
+         "v": "₹ 71.2 Cr",
+         "n": "Jun 2027, ₹ 3.8 Cr headroom"
+        },
+        {
+         "l": "Break-even price",
+         "v": "₹ 9,430 /sqft",
+         "n": "18% below plan average"
+        },
+        {
+         "l": "Debt cover",
+         "v": "1.9x",
+         "n": "Lender minimum 1.50x"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sensitivity",
+     "name": "Sensitivity",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Return and cover under change",
+       "cols": [
+        "Change",
+        "Profit on cost",
+        "Residual land",
+        "Peak funding",
+        "Debt cover",
+        "Against target"
+       ],
+       "rows": [
+        [
+         "Base case",
+         "21.1%",
+         "₹ 19.6 Cr",
+         "₹ 71.2 Cr",
+         "1.9x",
+         "Met"
+        ],
+        [
+         "Prices 5% lower",
+         "15.2%",
+         "₹ 14.4 Cr",
+         "₹ 73.8 Cr",
+         "1.7x",
+         "Partly"
+        ],
+        [
+         "Construction cost 5% higher",
+         "17.4%",
+         "₹ 16.2 Cr",
+         "₹ 74.0 Cr",
+         "1.8x",
+         "Partly"
+        ],
+        [
+         "Delay of six months",
+         "17.7%",
+         "₹ 16.6 Cr",
+         "₹ 76.8 Cr",
+         "1.4x",
+         "Failed"
+        ],
+        [
+         "Interest 2 points higher",
+         "19.4%",
+         "₹ 18.1 Cr",
+         "₹ 72.4 Cr",
+         "1.8x",
+         "Partly"
+        ],
+        [
+         "Prices 3% lower, delay of six months",
+         "14.3%",
+         "₹ 13.5 Cr",
+         "₹ 78.3 Cr",
+         "1.3x",
+         "Failed"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add scenario"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Plan prices average 5% above the three nearby launches picked",
+     "rests": []
+    },
+    {
+     "t": "Residual land value is only ₹ 1.0 Cr above the land value",
+     "rests": [
+      "Target profit on cost"
+     ]
+    },
+    {
+     "t": "Equity is 31% of cost, above the 25% borrower contribution from April 2027",
+     "rests": [
+      "Equity"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Five of six linked inputs are dated before July",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Six-month delay pushes peak funding past arranged funds",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Profit on cost falls below target at 5% lower prices",
+     "by": "person",
+     "level": "high"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Residual land value, profit on cost, IRR and NPV",
+     "Peak funding and debt cover by quarter",
+     "Break-even price and sales speed",
+     "Sensitivity grid: price, cost, delay, interest rate"
+    ],
+    "certified": [
+     "Techno-economic viability study: independent consultant, per lender policy (not named in RBI directions)",
+     "Promoter contribution and means of finance: chartered accountant certificate to the lender (lender policy)",
+     "Development done and pending (ongoing projects): engineer, architect, chartered accountant; Karnataka RERA Rule 4(2)(c)"
+    ],
+    "reports": [
+     "Development appraisal: residual and cash-flow",
+     "Project report for lenders",
+     "Sources and uses statement",
+     "Scenario and sensitivity note"
+    ],
+    "sent": [
+     "Target cost and contingency to Budget",
+     "Monthly funding need and tranches to Funding",
+     "Appraisal inputs to Valuation for development valuation"
+    ]
+   },
+   "mustHave": [
+    "Before disbursement: financial closure and 75% of land; tenor within 85% of economic life.",
+    "DCCO is expected occupancy certificate date; it can be deferred two years at most.",
+    "From April 2027, 100% risk weight for residential ADC loans needs 25% borrower contribution.",
+    "Commercial area above 10% of total FSI makes the whole loan CRE, not CRE-RH.",
+    "Debt cover and loan-to-value minimums are lender policy, not RBI rules; show downside."
+   ],
+   "standards": [
+    {
+     "name": "RBI (Project Finance) Directions 2025, in force 1 October 2025",
+     "why": "Financial closure, land, DCCO, overrun, provisioning, CRE and CRE-RH definitions",
+     "url": "https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12873&Mode=0"
+    },
+    {
+     "name": "RBI (Commercial Banks – Capital Charge for Credit Risk, Standardised Approach) Directions 2026, from 1 April 2027",
+     "why": "ADC risk weights; 25% borrower contribution for residential",
+     "url": "https://www.rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=13399"
+    },
+    {
+     "name": "RICS professional standard: Valuation of development property, 1st edition, effective 1 February 2020",
+     "why": "Residual method, comparison cross-check, sensitivity analysis",
+     "url": "https://www.rics.org/content/dam/ricsglobal/documents/to-be-sorted/valuation-of-development-property---first-edition.pdf"
+    },
+    {
+     "name": "IVS 410 Development Property (International Valuation Standards, effective 31 January 2025)",
+     "why": "Developer's return allowance; residual and cash-flow methods",
+     "url": "https://ivsc.org/new-edition-of-the-international-valuation-standards-ivs-published/"
+    }
+   ]
+  },
+  {
+   "name": "Budget",
+   "stages": [
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "certified",
+    "by": "K. Shetty",
+    "role": "Chartered accountant",
+    "on": "15 Jul 2026",
+    "moved": false
+   },
+   "sections": [
+    {
+     "id": "budget",
+     "name": "Approved budget",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "figure",
+       "label": "Approved budget",
+       "value": "₹ 107.70 Cr",
+       "chips": [
+        "Class 2 estimate"
+       ],
+       "stats": [
+        {
+         "l": "Committed",
+         "v": "₹ 75.90 Cr",
+         "n": "70% of budget"
+        },
+        {
+         "l": "Certified",
+         "v": "₹ 39.88 Cr",
+         "n": "37% of budget"
+        },
+        {
+         "l": "Paid",
+         "v": "₹ 34.66 Cr",
+         "n": "87% of certified"
+        },
+        {
+         "l": "Contingency left",
+         "v": "₹ 3.60 Cr",
+         "n": "60% of ₹ 6.00 Cr"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Cost plan by package",
+       "cols": [
+        "Package",
+        "Budget",
+        "Share"
+       ],
+       "rows": [
+        [
+         "Civil and structure",
+         "₹ 37.00 Cr",
+         "34%"
+        ],
+        [
+         "MEP and fire services",
+         "₹ 18.10 Cr",
+         "17%"
+        ],
+        [
+         "Finishes and facade",
+         "₹ 28.90 Cr",
+         "27%"
+        ],
+        [
+         "Lifts, clubhouse and external works",
+         "₹ 11.20 Cr",
+         "10%"
+        ],
+        [
+         "Approvals and statutory charges",
+         "₹ 6.50 Cr",
+         "6%"
+        ],
+        [
+         "Contingency",
+         "₹ 6.00 Cr",
+         "6%"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1
+       ],
+       "bar": 2,
+       "total": true,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Add package"
+      }
+     ]
+    },
+    {
+     "id": "contracts",
+     "name": "Packages and contracts",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Orders placed against packages",
+       "cols": [
+        "Package",
+        "Vendor",
+        "Order value",
+        "Retention held",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Civil and structure",
+         "Northline Constructions",
+         "₹ 37.60 Cr",
+         "₹ 1.52 Cr",
+         "In force"
+        ],
+        [
+         "MEP and fire services",
+         "Northline Constructions",
+         "₹ 17.20 Cr",
+         "₹ 0.15 Cr",
+         "In force"
+        ],
+        [
+         "Finishes and facade",
+         "Northline Constructions",
+         "₹ 14.60 Cr",
+         "₹ 0.04 Cr",
+         "Partly"
+        ],
+        [
+         "Lifts, clubhouse and external works",
+         "Not awarded",
+         "₹ 0.00 Cr",
+         "₹ 0.00 Cr",
+         "Open"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "link",
+       "from": "Orders",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "ledger",
+     "name": "Bills and commitments",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Budget ledger by package",
+       "cols": [
+        "Package",
+        "Approved",
+        "Committed",
+        "Certified",
+        "Paid",
+        "Forecast to complete"
+       ],
+       "rows": [
+        [
+         "Civil and structure",
+         "₹ 37.00 Cr",
+         "₹ 37.60 Cr",
+         "₹ 30.33 Cr",
+         "₹ 26.91 Cr",
+         "₹ 7.87 Cr"
+        ],
+        [
+         "MEP and fire services",
+         "₹ 18.10 Cr",
+         "₹ 17.20 Cr",
+         "₹ 2.96 Cr",
+         "₹ 2.35 Cr",
+         "₹ 15.54 Cr"
+        ],
+        [
+         "Finishes and facade",
+         "₹ 28.90 Cr",
+         "₹ 14.60 Cr",
+         "₹ 0.89 Cr",
+         "₹ 0.85 Cr",
+         "₹ 28.81 Cr"
+        ],
+        [
+         "Lifts, clubhouse and external works",
+         "₹ 11.20 Cr",
+         "₹ 0.00 Cr",
+         "₹ 0.00 Cr",
+         "₹ 0.00 Cr",
+         "₹ 11.20 Cr"
+        ],
+        [
+         "Approvals and statutory charges",
+         "₹ 6.50 Cr",
+         "₹ 6.50 Cr",
+         "₹ 5.70 Cr",
+         "₹ 4.55 Cr",
+         "₹ 0.80 Cr"
+        ],
+        [
+         "Contingency",
+         "₹ 6.00 Cr",
+         "₹ 0.00 Cr",
+         "₹ 0.00 Cr",
+         "₹ 0.00 Cr",
+         "₹ 3.60 Cr"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add package"
+      },
+      {
+       "type": "table",
+       "title": "Approval fees and charges",
+       "cols": [
+        "Charge",
+        "Authority",
+        "Amount",
+        "Due",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Plan sanction fee",
+         "City corporation",
+         "₹ 0.92 Cr",
+         "18 Aug 2025",
+         "Paid"
+        ],
+        [
+         "Development charges",
+         "City corporation",
+         "₹ 2.35 Cr",
+         "18 Aug 2025",
+         "Paid"
+        ],
+        [
+         "Registration and consent fees",
+         "K-RERA, KSPCB",
+         "₹ 0.40 Cr",
+         "14 Oct 2025",
+         "Paid"
+        ],
+        [
+         "Labour cess",
+         "City corporation",
+         "₹ 0.88 Cr",
+         "3 Nov 2025",
+         "Paid"
+        ],
+        [
+         "Power connection deposit",
+         "BESCOM",
+         "₹ 1.15 Cr",
+         "31 Oct 2026",
+         "Due"
+        ],
+        [
+         "Water and sewer connection",
+         "BWSSB",
+         "₹ 0.80 Cr",
+         "15 Mar 2027",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        2
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add charge"
+      }
+     ]
+    },
+    {
+     "id": "progress",
+     "name": "Progress and certificates",
+     "icon": "checks",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Certified progress by stage",
+       "cols": [
+        "Stage",
+        "Certified",
+        "Value certified",
+        "Last certificate"
+       ],
+       "rows": [
+        [
+         "Basements and podium",
+         "100%",
+         "₹ 13.60 Cr",
+         "14 Jul 2026"
+        ],
+        [
+         "Structure, levels 1 to 14",
+         "68%",
+         "₹ 16.73 Cr",
+         "28 Sep 2026"
+        ],
+        [
+         "MEP and fire services",
+         "16%",
+         "₹ 2.96 Cr",
+         "28 Sep 2026"
+        ],
+        [
+         "Finishes and facade",
+         "3%",
+         "₹ 0.89 Cr",
+         "28 Sep 2026"
+        ],
+        [
+         "Lifts, clubhouse and external works",
+         "0%",
+         "₹ 0.00 Cr",
+         "—"
+        ],
+        [
+         "All works",
+         "35%",
+         "₹ 34.18 Cr",
+         "28 Sep 2026"
+        ]
+       ],
+       "status": null,
+       "money": [
+        2
+       ],
+       "bar": 1,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Progress",
+       "add": ""
+      },
+      {
+       "type": "slots",
+       "title": "Stage certificates",
+       "groups": [
+        {
+         "name": "Return of 15 Jul 2026",
+         "lines": [
+          {
+           "t": "Architect's certificate, to 30 Jun 2026",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Engineer's certificate, to 30 Jun 2026",
+           "state": "in",
+           "pages": 3
+          },
+          {
+           "t": "Chartered accountant's certificate, to 30 Jun 2026",
+           "state": "in",
+           "pages": 2
+          }
+         ]
+        },
+        {
+         "name": "Return due 15 Oct 2026",
+         "lines": [
+          {
+           "t": "Architect's certificate, to 30 Sep 2026",
+           "state": "asked",
+           "who": "S. Kulkarni",
+           "due": "12 Oct 2026"
+          },
+          {
+           "t": "Engineer's certificate, to 30 Sep 2026",
+           "state": "asked",
+           "who": "N. Rao",
+           "due": "12 Oct 2026"
+          },
+          {
+           "t": "Chartered accountant's certificate, to 30 Sep 2026",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "complete",
+     "name": "Cost to complete",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Estimate at completion",
+       "items": [
+        {
+         "l": "Cost incurred",
+         "v": "₹ 39.88 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Cost to complete",
+         "v": "₹ 67.82 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Estimate at completion",
+         "v": "₹ 107.70 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Contingency left",
+         "v": "₹ 3.60 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Escalation in forecast",
+         "v": "₹ 1.90 Cr",
+         "state": "assume"
+        },
+        {
+         "l": "Cost incurred, last return",
+         "v": "₹ 29.93 Cr",
+         "state": "sug",
+         "from": "Chartered accountant's certificate, to 30 Jun 2026",
+         "page": 2
+        },
+        {
+         "l": "Work completed, last return",
+         "v": "26%",
+         "state": "sug",
+         "from": "Architect's certificate, to 30 Jun 2026",
+         "page": 1
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Cash needed by month",
+       "cols": [
+        "Month",
+        "Cash needed",
+        "Made up of"
+       ],
+       "rows": [
+        [
+         "Oct 2026",
+         "₹ 3.51 Cr",
+         "Unpaid bills, BESCOM deposit"
+        ],
+        [
+         "Nov 2026",
+         "₹ 3.04 Cr",
+         "October bills"
+        ],
+        [
+         "Dec 2026",
+         "₹ 3.33 Cr",
+         "November bills"
+        ],
+        [
+         "Jan 2027",
+         "₹ 3.52 Cr",
+         "December bills"
+        ],
+        [
+         "Feb 2027",
+         "₹ 3.71 Cr",
+         "January bills"
+        ],
+        [
+         "Mar 2027",
+         "₹ 4.70 Cr",
+         "February bills, BWSSB charges"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "variance",
+     "name": "Variance and changes",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Change orders",
+       "cols": [
+        "What changed",
+        "Package",
+        "Amount",
+        "Approved by",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Basement 2 waterproofing upgrade",
+         "Civil and structure",
+         "₹ 0.58 Cr",
+         "S. Rao",
+         "Accepted"
+        ],
+        [
+         "Podium transfer beams strengthened",
+         "Civil and structure",
+         "₹ 0.62 Cr",
+         "A. Fernandes",
+         "Accepted"
+        ],
+        [
+         "Fire pump room relocated",
+         "MEP and fire services",
+         "₹ 0.40 Cr",
+         "A. Menon",
+         "Accepted"
+        ],
+        [
+         "Facade glazing upgraded",
+         "Finishes and facade",
+         "₹ 0.80 Cr",
+         "S. Rao",
+         "Accepted"
+        ],
+        [
+         "Level 8 column strengthening",
+         "Civil and structure",
+         "₹ 0.64 Cr",
+         "Awaiting S. Rao",
+         "Pending"
+        ],
+        [
+         "Clubhouse deck extended",
+         "Lifts, clubhouse and external works",
+         "₹ 0.48 Cr",
+         "Awaiting A. Menon",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        2
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Raise a change"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Half of finishes and facade, ₹ 15.10 Cr, is not yet ordered",
+     "rests": []
+    },
+    {
+     "t": "₹ 5.22 Cr is certified but unpaid, including ₹ 1.71 Cr of retention",
+     "rests": [
+      "Cost incurred"
+     ]
+    },
+    {
+     "t": "Cash need rises to ₹ 4.70 Cr in March 2027",
+     "rests": [
+      "Cost to complete"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Contingency 40% used with 35% of work done",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Pending changes of ₹ 1.12 Cr not in estimate",
+     "by": "person",
+     "level": "medium"
+    },
+    {
+     "t": "Quarterly certificates due 15 Oct 2026",
+     "by": "rule",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Estimate at completion: committed plus cost to complete",
+     "Cost variance and contingency left, by package",
+     "Earned value: cost and schedule performance indices",
+     "Cash needed by month for certified bills"
+    ],
+    "certified": [
+     "Percent of work completed: project architect, Form 5 (Karnataka RERA Bank Account Directions 2020)",
+     "Construction cost incurred: project engineer, Form 6 (Karnataka RERA Bank Account Directions 2020)",
+     "Cost incurred and paid against estimated total: chartered accountant, Form 4, before each withdrawal"
+    ],
+    "reports": [
+     "Budget versus actual by package",
+     "Cost-to-complete statement",
+     "Quarterly progress return, Forms 4, 5 and 6",
+     "Contract and payment register with retention"
+    ],
+    "sent": [
+     "Cost to complete and monthly cash need to Funding",
+     "Bills with GST and tax deducted to Tax",
+     "Overrun alerts to Engineering and project head"
+    ]
+   },
+   "mustHave": [
+    "RERA account withdrawals follow certified completion: architect, engineer and chartered accountant each sign.",
+    "Quarterly Forms 4, 5 and 6 due by 15 April, July, October and January.",
+    "Lender's independent engineer or architect certifies completion stages before disbursement (RBI Project Finance Directions).",
+    "Funded overrun capped at 10% of original cost plus interest, through a standby facility.",
+    "Label estimates by class; early ones are wide ranges (AACE classes 5 to 1)."
+   ],
+   "standards": [
+    {
+     "name": "RERA Act 2016, s.4(2)(l)(D); Karnataka RERA Bank Account Directions 2020, Forms 4, 5, 6",
+     "why": "Completion and cost certificates before each withdrawal",
+     "url": "https://ibclaw.in/guidelines-for-extension-of-registration-process-karnataka-rera-circular-no-rera-finance-section-bad-02-2020-21-dated-07-01-2020/"
+    },
+    {
+     "name": "RBI (Project Finance) Directions 2025, paras 21 and 26",
+     "why": "Lender's engineer certifies stages; overrun and DCCO limits",
+     "url": "https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12873&Mode=0"
+    },
+    {
+     "name": "AACE International RP 18R-97 and 56R-08, cost estimate classification",
+     "why": "Labels estimates by maturity; building version is 56R-08",
+     "url": "https://web.aacei.org/docs/default-source/toc/toc_56r-08.pdf"
+    },
+    {
+     "name": "International Construction Measurement Standards, ICMS 3",
+     "why": "Common cost classification and reporting across projects",
+     "url": "https://icms-coalition.org/"
+    }
+   ]
+  },
+  {
+   "name": "Funding",
+   "stages": [
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "3 drawdowns, 2 conditions open"
+   },
+   "sections": [
+    {
+     "id": "sources",
+     "name": "Sources and uses",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "figure",
+       "label": "Total funding",
+       "value": "₹ 125 Cr",
+       "chips": [
+        "Indicative"
+       ],
+       "stats": [
+        {
+         "l": "Drawn to date",
+         "v": "₹ 10.5 Cr",
+         "n": "26% of limit"
+        },
+        {
+         "l": "Funding gap",
+         "v": "₹ 3.2 Cr",
+         "n": "peaks Jan 2027"
+        }
+       ],
+       "share": [
+        {
+         "l": "Hosakere Bank loan",
+         "p": 32
+        },
+        {
+         "l": "Promoter equity",
+         "p": 24
+        },
+        {
+         "l": "Buyer collections",
+         "p": 44
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Sources against uses",
+       "cols": [
+        "Use",
+        "Hosakere Bank loan",
+        "Promoter equity",
+        "Buyer collections",
+        "Total"
+       ],
+       "rows": [
+        [
+         "Land and approvals",
+         "₹ 0 Cr",
+         "₹ 24.0 Cr",
+         "₹ 6.0 Cr",
+         "₹ 30.0 Cr"
+        ],
+        [
+         "Construction",
+         "₹ 34.0 Cr",
+         "₹ 0 Cr",
+         "₹ 32.0 Cr",
+         "₹ 66.0 Cr"
+        ],
+        [
+         "Design and statutory",
+         "₹ 0 Cr",
+         "₹ 3.0 Cr",
+         "₹ 4.5 Cr",
+         "₹ 7.5 Cr"
+        ],
+        [
+         "Interest during construction",
+         "₹ 6.0 Cr",
+         "₹ 0 Cr",
+         "₹ 0 Cr",
+         "₹ 6.0 Cr"
+        ],
+        [
+         "Sales and marketing",
+         "₹ 0 Cr",
+         "₹ 3.0 Cr",
+         "₹ 2.5 Cr",
+         "₹ 5.5 Cr"
+        ],
+        [
+         "Contingency",
+         "₹ 0 Cr",
+         "₹ 0 Cr",
+         "₹ 10.0 Cr",
+         "₹ 10.0 Cr"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2,
+        3,
+        4
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add use"
+      }
+     ]
+    },
+    {
+     "id": "sanction",
+     "name": "Sanction and conditions",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Papers from Hosakere Bank",
+       "groups": [
+        {
+         "name": "Hosakere Bank",
+         "lines": [
+          {
+           "t": "Term sheet",
+           "state": "in",
+           "pages": 6
+          },
+          {
+           "t": "Sanction letter",
+           "state": "in",
+           "pages": 9
+          },
+          {
+           "t": "Facility agreement",
+           "state": "in",
+           "pages": 64
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "From the sanction letter",
+       "items": [
+        {
+         "l": "Facility limit",
+         "v": "₹ 40 Cr",
+         "state": "set",
+         "from": "Sanction letter",
+         "page": 2
+        },
+        {
+         "l": "Interest rate",
+         "v": "10.9% a year, floating",
+         "state": "sug",
+         "from": "Sanction letter",
+         "page": 3
+        },
+        {
+         "l": "Tenor",
+         "v": "60 months from first drawdown",
+         "state": "set",
+         "from": "Sanction letter",
+         "page": 3
+        },
+        {
+         "l": "Completion date (DCCO)",
+         "v": "30 Sep 2028",
+         "state": "set",
+         "from": "Sanction letter",
+         "page": 4
+        },
+        {
+         "l": "Undrawn limit",
+         "v": "₹ 29.5 Cr",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Conditions before each drawdown",
+       "cols": [
+        "Condition",
+        "Evidence",
+        "Owner",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Stage certified by lender's engineer",
+         "Stage 35% report awaited",
+         "A. Menon",
+         "Open"
+        ],
+        [
+         "Cost to complete covered by funds",
+         "Draft statement, 30 Sep 2026",
+         "A. Fernandes",
+         "Open"
+        ],
+        [
+         "Promoter equity in ahead of loan",
+         "Bank credit advices, equity register",
+         "A. Menon",
+         "Met"
+        ],
+        [
+         "Charges filed with ROC and CERSAI",
+         "Filing receipts, January 2026",
+         "P. Nair",
+         "Met"
+        ],
+        [
+         "RERA account free of lien and charge",
+         "Account bank's confirmation letter",
+         "A. Menon",
+         "Met"
+        ],
+        [
+         "Works insured",
+         "Contractor's all-risk policy schedule",
+         "D. Pinto",
+         "Met"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add condition"
+      }
+     ]
+    },
+    {
+     "id": "accounts",
+     "name": "Accounts",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Cash waterfall, last six months",
+       "cols": [
+        "Month",
+        "Buyer receipts",
+        "To RERA account",
+        "To operating account",
+        "Withdrawn"
+       ],
+       "rows": [
+        [
+         "Apr 2026",
+         "₹ 2.0 Cr",
+         "₹ 1.4 Cr",
+         "₹ 0.6 Cr",
+         "₹ 1.0 Cr"
+        ],
+        [
+         "May 2026",
+         "₹ 3.0 Cr",
+         "₹ 2.1 Cr",
+         "₹ 0.9 Cr",
+         "₹ 1.6 Cr"
+        ],
+        [
+         "Jun 2026",
+         "₹ 2.0 Cr",
+         "₹ 1.4 Cr",
+         "₹ 0.6 Cr",
+         "₹ 1.2 Cr"
+        ],
+        [
+         "Jul 2026",
+         "₹ 3.0 Cr",
+         "₹ 2.1 Cr",
+         "₹ 0.9 Cr",
+         "₹ 1.8 Cr"
+        ],
+        [
+         "Aug 2026",
+         "₹ 2.0 Cr",
+         "₹ 1.4 Cr",
+         "₹ 0.6 Cr",
+         "₹ 1.1 Cr"
+        ],
+        [
+         "Sep 2026",
+         "₹ 3.0 Cr",
+         "₹ 2.1 Cr",
+         "₹ 0.9 Cr",
+         "₹ 1.7 Cr"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2,
+        3,
+        4
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Import statement"
+      }
+     ]
+    },
+    {
+     "id": "drawdown",
+     "name": "Drawdown and withdrawal",
+     "icon": "links",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Drawdown requests",
+       "cols": [
+        "Request",
+        "Certified stage",
+        "Asked",
+        "Released",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Drawdown 1, 9 Jul 2026",
+         "Basement and podium, 14%",
+         "₹ 4.0 Cr",
+         "₹ 4.0 Cr",
+         "Received"
+        ],
+        [
+         "Drawdown 2, 27 Aug 2026",
+         "Superstructure to level 6, 24%",
+         "₹ 6.5 Cr",
+         "₹ 6.5 Cr",
+         "Received"
+        ],
+        [
+         "Drawdown 3, 30 Sep 2026",
+         "Superstructure to level 12, 35%",
+         "₹ 5.0 Cr",
+         "₹ 0 Cr",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "message",
+       "from": "Hosakere Bank",
+       "add": "Raise a request"
+      },
+      {
+       "type": "table",
+       "title": "Certificates behind each request",
+       "cols": [
+        "Request",
+        "Certificate",
+        "Signed by",
+        "Dated",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Drawdown 1",
+         "Stage certificate, 14%",
+         "Lender's engineer",
+         "7 Jul 2026",
+         "Received"
+        ],
+        [
+         "Drawdown 2",
+         "Stage certificate, 24%",
+         "Lender's engineer",
+         "26 Aug 2026",
+         "Received"
+        ],
+        [
+         "Drawdown 3",
+         "Stage certificate, 35%",
+         "Lender's engineer",
+         "Awaited",
+         "Pending"
+        ],
+        [
+         "Drawdown 3",
+         "Cost-to-complete statement",
+         "A. Fernandes",
+         "Draft, 30 Sep 2026",
+         "Pending"
+        ],
+        [
+         "Drawdown 3",
+         "Forms 4 to 6, stage 35%",
+         "S. Kulkarni, N. Rao, K. Shetty",
+         "30 Sep 2026",
+         "Received"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Budget",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "security",
+     "name": "Security and charges",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Charge filings",
+       "items": [
+        {
+         "t": "Mortgage of land and building: ROC filing",
+         "due": "9 Jan 2026",
+         "who": "P. Nair",
+         "state": "Filed"
+        },
+        {
+         "t": "Mortgage of land and building: CERSAI filing",
+         "due": "9 Jan 2026",
+         "who": "Hosakere Bank",
+         "state": "Filed"
+        },
+        {
+         "t": "Hypothecation of receivables: ROC filing",
+         "due": "9 Jan 2026",
+         "who": "P. Nair",
+         "state": "Filed"
+        },
+        {
+         "t": "Hypothecation of receivables: CERSAI filing",
+         "due": "9 Jan 2026",
+         "who": "Hosakere Bank",
+         "state": "Filed"
+        },
+        {
+         "t": "CERSAI modification: units released in September",
+         "due": "20 Oct 2026",
+         "who": "Hosakere Bank",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Security documents",
+       "cols": [
+        "Document",
+        "Covers",
+        "Signed",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Deed of mortgage",
+         "Land, survey nos. 41/2 and 41/3",
+         "10 Dec 2025",
+         "In force"
+        ],
+        [
+         "Deed of hypothecation",
+         "Receivables of unsold apartments",
+         "10 Dec 2025",
+         "In force"
+        ],
+        [
+         "Escrow agreement",
+         "Operating account, not RERA account",
+         "10 Dec 2025",
+         "In force"
+        ],
+        [
+         "Release letters for sold units",
+         "Each apartment under agreement",
+         "Each sale",
+         "Pending"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add document"
+      }
+     ]
+    },
+    {
+     "id": "repayment",
+     "name": "Repayment and covenants",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Covenants",
+       "cols": [
+        "Covenant",
+        "Limit",
+        "Now",
+        "Headroom",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Receipts to RERA account",
+         "At least 70%",
+         "70%",
+         "None",
+         "Met"
+        ],
+        [
+         "Collections against plan",
+         "At least 90%",
+         "86%",
+         "4 points short",
+         "Failed"
+        ],
+        [
+         "Loan to project cost",
+         "At most 35%",
+         "32%",
+         "3 points",
+         "Met"
+        ],
+        [
+         "Security cover on limit",
+         "At least 1.75x",
+         "1.95x",
+         "0.20x",
+         "Met"
+        ],
+        [
+         "Completion by DCCO",
+         "30 Sep 2028",
+         "728 days left",
+         "About 3 months",
+         "Met"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add covenant"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Only 26% of the limit is drawn, with the project 35% complete",
+     "rests": [
+      "Facility limit",
+      "Undrawn limit"
+     ]
+    },
+    {
+     "t": "Drawdown 3 would cover the funding gap once both conditions are met",
+     "rests": []
+    },
+    {
+     "t": "Tenor runs nearly three years past the completion date",
+     "rests": [
+      "Tenor",
+      "Completion date (DCCO)"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Funding gap peaks at ₹ 3.2 Cr in January",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Collections below the covenant for the quarter",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Release letters pending for apartments already sold",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Funding gap by month from sources and uses",
+     "Withdrawal limit from the RERA account today",
+     "Drawdown eligible against the certified stage",
+     "Days to DCCO and covenant headroom"
+    ],
+    "certified": [
+     "RERA account withdrawal: architect, engineer and chartered accountant; s.4(2)(l)(D), Karnataka Forms 4 to 6",
+     "Annual project audit: chartered accountant in practice, Form 7, within six months of year end",
+     "Completion stage before each disbursement: lender's independent engineer or architect (RBI Project Finance Directions, para 21)"
+    ],
+    "reports": [
+     "Sources and uses statement",
+     "RERA account and withdrawal register",
+     "Charge register: ROC and CERSAI filings",
+     "Drawdown request pack with certificates"
+    ],
+    "sent": [
+     "Drawdown request with certificates to the lender",
+     "Reminders: quarterly update, audit, charge filing, covenant dates",
+     "Funds available and withdrawal limit to Budget"
+    ]
+   },
+   "mustHave": [
+    "Put 70% of buyer receipts (excluding pass-through and indirect taxes) in the RERA account.",
+    "Karnataka RERA account: no lien, one per project, local branch, no lender charge.",
+    "Register each charge: company files CHG-1, lender files on CERSAI, each within 30 days.",
+    "No mortgage or charge on a unit after the agreement for sale (RERA s.11(4)).",
+    "Quarterly update by 15th after quarter end; annual audit Form 7 by 30 September."
+   ],
+   "standards": [
+    {
+     "name": "RERA Act 2016, s.4(2)(l)(D); Karnataka RERA Bank Account Directions 2020",
+     "why": "70% account, no lien, certified withdrawals, annual audit",
+     "url": "https://ibclaw.in/guidelines-for-extension-of-registration-process-karnataka-rera-circular-no-rera-finance-section-bad-02-2020-21-dated-07-01-2020/"
+    },
+    {
+     "name": "RBI (Project Finance) Directions 2025",
+     "why": "Financial closure, disbursement against certified stages, cost overrun, DCCO",
+     "url": "https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12873&Mode=0"
+    },
+    {
+     "name": "Companies Act 2013, s.77: registration of charges (Form CHG-1)",
+     "why": "Unregistered charge is ignored by liquidator and other creditors",
+     "url": "https://ca2013.com/duty-to-register-charges-etc/"
+    },
+    {
+     "name": "SARFAESI Act 2002, s.23 and CERSAI Rules, rule 5",
+     "why": "30-day security interest registration; needed to enforce security",
+     "url": "https://vinodkothari.com/2022/12/cersai-beyond-sarfaesi-the-multi-faceted-effects-of-security-interest-registration/"
+    }
+   ]
+  },
+  {
+   "name": "Tax",
+   "stages": [
+    "land",
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "4 filings due, 1 overdue"
+   },
+   "sections": [
+    {
+     "id": "stamp",
+     "name": "Stamp duty and registration",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "search",
+       "title": "Guidance value",
+       "source": "Kaveri, guidance value",
+       "query": "Hosakere village, survey no. 41/2",
+       "results": [
+        {
+         "t": "₹ 6,250 /sqft, apartment",
+         "sub": "Notified April 2026",
+         "picked": true
+        },
+        {
+         "t": "₹ 5,800 /sqft, apartment",
+         "sub": "Notified April 2024",
+         "picked": false
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Duty by instrument",
+       "cols": [
+        "Instrument",
+        "Price",
+        "Stamp value",
+        "Stamp duty",
+        "Registration fee",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Sale deed, flat 204",
+         "₹ 120 L",
+         "₹ 120 L",
+         "₹ 6.0 L",
+         "₹ 2.4 L",
+         "Estimated"
+        ],
+        [
+         "Sale deed, flat 508",
+         "₹ 140 L",
+         "₹ 140 L",
+         "₹ 7.0 L",
+         "₹ 2.8 L",
+         "Estimated"
+        ],
+        [
+         "Sale deed, flat 807",
+         "₹ 94 L",
+         "₹ 100 L",
+         "₹ 5.0 L",
+         "₹ 2.0 L",
+         "Open"
+        ],
+        [
+         "Sale deed, flat 1203",
+         "₹ 75 L",
+         "₹ 80 L",
+         "₹ 4.0 L",
+         "₹ 1.6 L",
+         "Open"
+        ],
+        [
+         "Sale deed, flat 1408",
+         "₹ 160 L",
+         "₹ 160 L",
+         "₹ 8.0 L",
+         "₹ 3.2 L",
+         "Estimated"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        1,
+        2,
+        3,
+        4
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add instrument"
+      }
+     ]
+    },
+    {
+     "id": "gst",
+     "name": "GST",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Tax calendar",
+       "items": [
+        {
+         "t": "TDS deposit, August: ₹ 1.0 L",
+         "due": "7 Sep 2026",
+         "who": "A. Menon",
+         "state": "Overdue"
+        },
+        {
+         "t": "TDS deposit, September: ₹ 0.3 L",
+         "due": "7 Oct 2026",
+         "who": "A. Menon",
+         "state": "Due"
+        },
+        {
+         "t": "GSTR-1, September",
+         "due": "11 Oct 2026",
+         "who": "A. Menon",
+         "state": "Due"
+        },
+        {
+         "t": "GSTR-3B, September: tax ₹ 8.5 L",
+         "due": "20 Oct 2026",
+         "who": "K. Shetty",
+         "state": "Due"
+        },
+        {
+         "t": "TDS statement, July to September",
+         "due": "31 Oct 2026",
+         "who": "K. Shetty",
+         "state": "Upcoming"
+        },
+        {
+         "t": "GSTR-3B, August: tax ₹ 7.0 L",
+         "due": "20 Sep 2026",
+         "who": "K. Shetty",
+         "state": "Filed"
+        },
+        {
+         "t": "GSTR-1, August",
+         "due": "11 Sep 2026",
+         "who": "A. Menon",
+         "state": "Filed"
+        },
+        {
+         "t": "TDS statement, April to June",
+         "due": "31 Jul 2026",
+         "who": "K. Shetty",
+         "state": "Filed"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Purchase register by month",
+       "cols": [
+        "Month",
+        "Purchases",
+        "From registered suppliers",
+        "Share"
+       ],
+       "rows": [
+        [
+         "Apr 2026",
+         "₹ 200 L",
+         "₹ 178 L",
+         "89%"
+        ],
+        [
+         "May 2026",
+         "₹ 240 L",
+         "₹ 216 L",
+         "90%"
+        ],
+        [
+         "Jun 2026",
+         "₹ 180 L",
+         "₹ 153 L",
+         "85%"
+        ],
+        [
+         "Jul 2026",
+         "₹ 250 L",
+         "₹ 215 L",
+         "86%"
+        ],
+        [
+         "Aug 2026",
+         "₹ 230 L",
+         "₹ 207 L",
+         "90%"
+        ],
+        [
+         "Sep 2026",
+         "₹ 200 L",
+         "₹ 144 L",
+         "72%"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2
+       ],
+       "bar": 3,
+       "total": true,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Import a month"
+      },
+      {
+       "type": "fields",
+       "title": "Registered-supplier test",
+       "items": [
+        {
+         "l": "Purchases to date",
+         "v": "₹ 1,300 L",
+         "state": "calc"
+        },
+        {
+         "l": "From registered suppliers",
+         "v": "₹ 1,113 L",
+         "state": "calc"
+        },
+        {
+         "l": "Share from registered suppliers",
+         "v": "86%",
+         "state": "calc"
+        },
+        {
+         "l": "Share needed to pass",
+         "v": "80%",
+         "state": "calc"
+        },
+        {
+         "l": "Room for unregistered purchases",
+         "v": "₹ 91 L",
+         "state": "calc"
+        },
+        {
+         "l": "Shortfall tax at 18%",
+         "v": "₹ 0",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "tds",
+     "name": "Tax deducted at source",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Deducted on payments",
+       "cols": [
+        "Payee",
+        "Payment",
+        "Rate",
+        "Deducted",
+        "Deposited",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Northline Constructions",
+         "₹ 300 L",
+         "2%",
+         "₹ 6.0 L",
+         "₹ 6.0 L",
+         "Paid"
+        ],
+        [
+         "Formwork contractor",
+         "₹ 60 L",
+         "2%",
+         "₹ 1.2 L",
+         "₹ 1.2 L",
+         "Paid"
+        ],
+        [
+         "Waterproofing contractor",
+         "₹ 20 L",
+         "1%",
+         "₹ 0.2 L",
+         "₹ 0.2 L",
+         "Paid"
+        ],
+        [
+         "Electrical contractor",
+         "₹ 50 L",
+         "2%",
+         "₹ 1.0 L",
+         "₹ 0 L",
+         "Overdue"
+        ],
+        [
+         "Plumbing contractor",
+         "₹ 30 L",
+         "1%",
+         "₹ 0.3 L",
+         "₹ 0 L",
+         "Due"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        1,
+        3,
+        4
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "link",
+       "from": "Orders",
+       "add": ""
+      },
+      {
+       "type": "table",
+       "title": "Buyers' deductions",
+       "cols": [
+        "Flat",
+        "Instalment",
+        "Deducted",
+        "Form 141 filed",
+        "Form 132"
+       ],
+       "rows": [
+        [
+         "Flat 204",
+         "₹ 30 L",
+         "₹ 0.3 L",
+         "28 Aug 2026",
+         "Received"
+        ],
+        [
+         "Flat 508",
+         "₹ 40 L",
+         "₹ 0.4 L",
+         "30 Aug 2026",
+         "Pending"
+        ],
+        [
+         "Flat 807",
+         "₹ 20 L",
+         "₹ 0.2 L",
+         "22 Sep 2026",
+         "Pending"
+        ],
+        [
+         "Flat 1203",
+         "₹ 10 L",
+         "₹ 0.1 L",
+         "Not filed",
+         "Overdue"
+        ],
+        [
+         "Flat 1408",
+         "₹ 50 L",
+         "₹ 0.5 L",
+         "12 Sep 2026",
+         "Received"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        1,
+        2
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "link",
+       "from": "Collections",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "property",
+     "name": "Property tax",
+     "icon": "details",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Property record",
+       "items": [
+        {
+         "l": "E-khata number",
+         "v": "KH 41-2/0187",
+         "state": "sug",
+         "from": "E-khata extract",
+         "page": 1
+        },
+        {
+         "l": "Property tax zone",
+         "v": "C",
+         "state": "set"
+        },
+        {
+         "l": "Built-up area",
+         "v": "20,900 sqm",
+         "state": "set"
+        },
+        {
+         "l": "Tax for the year",
+         "v": "₹ 7.6 L",
+         "state": "sug",
+         "from": "Property tax receipt, 2026-27",
+         "page": 1
+        },
+        {
+         "l": "Paid on",
+         "v": "22 Apr 2026",
+         "state": "set",
+         "from": "Property tax receipt, 2026-27",
+         "page": 1
+        },
+        {
+         "l": "Rebate earned",
+         "v": "₹ 0.4 L",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Property tax papers",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "E-khata extract",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Property tax receipt, 2026-27",
+           "state": "in",
+           "pages": 1
+          },
+          {
+           "t": "Property tax receipt, 2025-26",
+           "state": "in",
+           "pages": 1
+          },
+          {
+           "t": "Property tax receipt, 2024-25",
+           "state": "asked",
+           "who": "A. Menon",
+           "due": "14 Oct 2026"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "income",
+     "name": "Income tax and accounts",
+     "icon": "report",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Revenue recognition",
+       "cols": [
+        "Period",
+        "Collections",
+        "Recognised",
+        "Method"
+       ],
+       "rows": [
+        [
+         "Oct to Dec 2025",
+         "₹ 380 L",
+         "₹ 300 L",
+         "Cost to cost, 8% done"
+        ],
+        [
+         "Jan to Mar 2026",
+         "₹ 520 L",
+         "₹ 420 L",
+         "Cost to cost, 15% done"
+        ],
+        [
+         "Apr to Jun 2026",
+         "₹ 600 L",
+         "₹ 560 L",
+         "Cost to cost, 26% done"
+        ],
+        [
+         "Jul to Sep 2026",
+         "₹ 460 L",
+         "₹ 480 L",
+         "Cost to cost, 35% done"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add period"
+      },
+      {
+       "type": "slots",
+       "title": "Tax audit papers",
+       "groups": [
+        {
+         "name": "Year to March 2026",
+         "lines": [
+          {
+           "t": "Audited accounts, 2025-26",
+           "state": "in",
+           "pages": 42,
+           "ref": {
+            "dept": "legal",
+            "fn": "RERA",
+            "t": "Audited accounts 2025 to 2026"
+           }
+          },
+          {
+           "t": "Tax computation, 2025-26",
+           "state": "none"
+          },
+          {
+           "t": "Tax audit report, 2025-26",
+           "state": "asked",
+           "who": "K. Shetty",
+           "due": "24 Oct 2026"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Unregistered purchases can rise by ₹ 91 L before the 80% test fails",
+     "rests": [
+      "Room for unregistered purchases"
+     ]
+    },
+    {
+     "t": "₹ 1.3 L deducted from contractors is not yet deposited",
+     "rests": []
+    },
+    {
+     "t": "Two flats sold below stamp value: duty is charged on ₹ 11 L more",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "TDS deposit for August payments is overdue",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Buyer of flat 1203 has not filed Form 141",
+     "by": "person",
+     "level": "medium"
+    },
+    {
+     "t": "Registered-supplier share fell to 72% in September",
+     "by": "rule",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "GST payable by project and month, including development rights",
+     "80% registered-supplier test and shortfall tax",
+     "TDS to deduct on each payment",
+     "Stamp duty, registration fee and stamp-value gap per unit"
+    ],
+    "certified": [
+     "Tax audit report: chartered accountant in practice, Income-tax Act 2025 (formerly section 44AB)",
+     "Form 132 TDS certificate to seller: buyer, within 15 days of the Form 141 due date",
+     "Registered instrument with stamp duty paid: Sub-Registrar, Karnataka Stamp Act 1957 and Registration Act 1908"
+    ],
+    "reports": [
+     "GST returns: GSTR-1, GSTR-3B and annual GSTR-9",
+     "TDS statements and certificates by quarter",
+     "Project-wise GST input register for the 80% test",
+     "Revenue recognition working (Ind AS 115 or ICAI guidance)"
+    ],
+    "sent": [
+     "Reminders for GST, TDS and property tax due dates",
+     "Stamp duty and registration per unit to Legal",
+     "Tax cost lines to Feasibility and Budget"
+    ]
+   },
+   "mustHave": [
+    "Under-construction GST, effective: residential 5% (1% affordable) no credit; commercial 12% with credit.",
+    "80% of inputs from registered suppliers per project; shortfall taxed 18% under reverse charge.",
+    "TDS: property 1% from ₹50 lakh; contractors 1% or 2%; JDA cash 10%.",
+    "Karnataka: stamp duty 5% above ₹45 lakh; registration fee 2% since 31 August 2025.",
+    "Bengaluru property tax: 5% rebate if paid in full by 30 April; 2026 extended."
+   ],
+   "standards": [
+    {
+     "name": "GST Notification 11/2017-Central Tax (Rate), heading 9954, as amended from 1 April 2019; 56th GST Council, 3 September 2025",
+     "why": "Construction rates, 80% rule, reverse charge; cement cut to 18%",
+     "url": "https://www.gstcouncil.gov.in/sites/default/files/2024-02/11-rate_notification-cgst-01.04.2019.pdf"
+    },
+    {
+     "name": "Income-tax Act 2025 (from 1 April 2026): s.393 TDS, ss.53, 78 and 92 stamp-value rules; Forms 141 and 132",
+     "why": "Property, contractor and JDA TDS; 110% stamp-value tolerance",
+     "url": "https://taxguru.in/income-tax/tds-property-transfers-01-04-2026-forms-141-132.html"
+    },
+    {
+     "name": "Karnataka Stamp Act 1957; registration fee notification of 29 August 2025",
+     "why": "Stamp duty slabs; registration fee doubled to 2% from 31 August 2025",
+     "url": "https://ksandk.com/newsletter/karnataka-doubles-property-registration-fee-in-2025/"
+    },
+    {
+     "name": "Bengaluru property tax: Greater Bengaluru Authority and BBMP tax portal, 2026-27",
+     "why": "Unit-area-value system unchanged; 5% full-payment rebate",
+     "url": "https://bbmptax.karnataka.gov.in/"
+    }
+   ]
+  }
+ ]
+}

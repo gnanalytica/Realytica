@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { seedDemoProject, type DdProject, type ProjectGrant } from '@realytica/shared';
+import { addAction, projectRecordIds, projectView, seedDemoProject, wantsDeterministicProjectChat, type DdProject, type ProjectGrant } from '@realytica/shared';
 
 const JWKS_URL = 'https://example.test/jwks-reach';
 const ISSUER = 'https://securetoken.google.com/realytica-reach';
@@ -90,6 +90,8 @@ before(async () => {
   process.env.REALYTICA_AUTH_ISSUER = ISSUER;
   process.env.REALYTICA_AUTH_AUDIENCE = AUDIENCE;
   process.env.REALYTICA_AUTH_JWKS_URL = JWKS_URL;
+  // Flows are off unless a deployment turns them on. On here, for the one test that runs one as the contractor.
+  process.env.REALYTICA_AUTOMATIONS = 'on';
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     if (String(input) === JWKS_URL) {
@@ -166,6 +168,7 @@ after(async () => {
   globalThis.fetch = realFetch;
   await new Promise<void>((resolve) => server.close(() => resolve()));
   rmSync(dataDir, { recursive: true, force: true });
+  delete process.env.REALYTICA_AUTOMATIONS;
 });
 
 describe('what a granted collaborator can see through the API', () => {
@@ -210,9 +213,38 @@ describe('what a granted collaborator can see through the API', () => {
   });
 
   it('is refused the workspace’s own thinking about the file', async () => {
-    for (const route of ['runs', 'ai/drafts', 'capabilities', 'graph/stored']) {
+    for (const route of ['runs', 'ai/drafts', 'capabilities', 'graph/stored', 'memory']) {
       const res = await call('GET', `/api/projects/${theirs.id}/${route}`, { token: sam() });
       assert.equal(res.status, 404, `/${route} leaked`);
+    }
+    // What memory has been told is mounted beside the project routes, not
+    // inside them: the firm's own people read it, and nobody who has not signed in.
+    assert.equal((await call('GET', `/api/projects/${theirs.id}/memory`, { token: dev() })).status, 200);
+    assert.equal((await call('GET', `/api/projects/${theirs.id}/memory`)).status, 401);
+  });
+
+  it('is told of an action past its date only where their own copy of the project holds the action', async () => {
+    // An action nothing in the grant reaches, long past its date. Saving the project raises the alert for it.
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    const action = addAction(live, { title: 'Ramesh to settle the dispute with the neighbour', kind: 'remediation', owner: 'Ramesh', priority: 'medium', dueDate: '2020-01-10' }, 'dev@builders.in');
+    live.updatedAt = new Date().toISOString();
+    await store.save();
+    const raised = (live.alerts ?? []).find((alert) => alert.key.startsWith(`action:${action.id}:`))!;
+    try {
+      const firm = (await call('GET', `/api/projects/${theirs.id}`, { token: dev() })).body as DdProject;
+      assert.ok((firm.alerts ?? []).some((alert) => alert.id === raised.id), 'the firm reads it');
+      const seen = (await call('GET', `/api/projects/${theirs.id}`, { token: sam() })).body as DdProject;
+      assert.doesNotMatch(JSON.stringify(seen.alerts ?? []), /Ramesh/, 'their copy of the project does not hold it');
+      const marked = await call('POST', `/api/projects/${theirs.id}/alerts/read`, { token: sam(), body: { ids: 'all' } });
+      assert.equal(marked.status, 200);
+      assert.doesNotMatch(JSON.stringify(marked.body), /Ramesh/, 'and marking alerts read does not hand it over');
+      assert.ok(!raised.readBy.includes('sam@site.in'), 'nor mark as read what they were never shown');
+    } finally {
+      live.actions = live.actions.filter((held) => held.id !== action.id);
+      live.alerts = (live.alerts ?? []).filter((alert) => alert.id !== raised.id);
+      live.updatedAt = new Date().toISOString();
+      await store.save();
     }
   });
 });
@@ -337,6 +369,54 @@ describe('the chat, which is the surface that leaks', () => {
       live.conversation.some((t) => t.actor === 'dev@builders.in'),
       'the developer’s own thread must be on the file',
     );
+  });
+
+  it('does not let a collaborator give a document to a function by saying so', async () => {
+    // The register keeps that for the firm's own people. The same sentence typed in the chat is no way round it.
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    const title = live.evidence.find((e) => e.id === allowed.evidenceId)!.title;
+    const given = () => live.evidence.filter((e) => e.title === title && e.workstream === 'legal.approvals');
+
+    const refused = await ask(`File “${title}” under Legal › Approvals`, sam());
+    assert.match(refused.text, /Only the firm’s own people can file a document under a function/);
+    assert.equal(given().length, 0, 'the document is where it was');
+
+    const done = await ask(`File “${title}” under Legal › Approvals`, dev());
+    assert.match(done.text, /is filed under Legal › Approvals\./);
+    assert.equal(given().length, 1, 'the developer’s own instruction runs');
+    // Put back, so the cases below read the file as it was seeded.
+    for (const row of given()) delete row.workstream;
+  });
+
+  it('keeps what one person says out of a chat that is another person’s', async () => {
+    /** Says one thing, and gives back the id the reply says the turn was kept under. */
+    const say = async (question: string, token: string, sessionId: string): Promise<string | undefined> => {
+      const res = await realFetch(`${base}/api/projects/${theirs.id}/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question, sessionId }),
+      });
+      assert.equal(res.status, 200);
+      const lines = (await res.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type?: string; userTurn?: { sessionId?: string } });
+      return lines.find((l) => l.type === 'result')?.userTurn?.sessionId;
+    };
+    // The page mints a sitting's id and sends it. Here the contractor sends the developer's.
+    assert.equal(await say('what is next?', dev(), 'ses_reach_1'), 'ses_reach_1', 'kept as sent for the person whose it is');
+    const kept = await say('where are we', sam(), 'ses_reach_1');
+    assert.match(kept ?? '', /^ses_reach_1~[0-9a-f]{8}$/, 'the reply tells the page the id its turns were kept under');
+    // The page takes that id, and what it sends next is kept under it as it is.
+    assert.equal(await say('and what after that', sam(), kept!), kept);
+
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    const under = live.conversation.filter((t) => t.sessionId === 'ses_reach_1');
+    assert.equal(under.length, 2, 'the developer’s exchange, and nothing else');
+    assert.ok(under.every((t) => t.actor === 'dev@builders.in'));
+    const own = live.conversation.filter((t) => t.sessionId?.startsWith('ses_reach_1~'));
+    assert.equal(own.length, 4, 'both of the contractor’s exchanges');
+    assert.ok(own.every((t) => t.actor === 'sam@site.in'));
+    assert.equal(new Set(own.map((t) => t.sessionId)).size, 1, 'kept as one sitting of their own');
   });
 });
 
@@ -491,6 +571,141 @@ describe('the graph, which draws the whole file', () => {
     const ids = new Set((res.body as { nodes: Array<{ id: string }> }).nodes.map((n) => n.id));
     assert.ok(!ids.has(hidden.checkId));
     assert.ok(!ids.has(hidden.scopeId));
+  });
+
+  it('hands a model answering in their chat no more of the stored graph than that', async () => {
+    /*
+     * The stored graph is written from the whole file, and the chat's model
+     * asks it for a neighbourhood through `get_subgraph`. The model here is a
+     * script: it asks for the three hops round a check the contractor can
+     * see, and what it is handed back is read. Three hops from that check
+     * pass through its assessment to the scopes beside it, which are not the
+     * contractor's.
+     */
+    const MODEL = 'http://reach-model.test';
+    const QUESTION = 'Why would that check matter to whoever builds on the site?';
+    const { store } = await import('../apps/api/src/store');
+    await store.save();
+    await store.graphCaughtUp();
+    const seen = projectView(theirs, { kind: 'granted', grant, email: 'sam@site.in' }).project;
+    assert.equal(wantsDeterministicProjectChat(seen, QUESTION), false, 'worded for the model: no rule of the chat’s own answers it');
+    const within = projectRecordIds(seen);
+    const blocked = [...projectRecordIds(theirs)].filter((id) => !within.has(id));
+    assert.ok(blocked.includes(hidden.scopeId) && blocked.includes(hidden.checkId));
+
+    const handed: string[] = [];
+    const wired = globalThis.fetch;
+    const names = ['REALYTICA_BASE_URL', 'REALYTICA_API_KEY', 'REALYTICA_MODEL_JUDGMENT'];
+    process.env.REALYTICA_BASE_URL = MODEL;
+    process.env.REALYTICA_API_KEY = 'test-key';
+    process.env.REALYTICA_MODEL_JUDGMENT = 'senior/model';
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.startsWith(MODEL)) return wired(input as string, init);
+      const raw = input instanceof Request ? await input.text() : String(init?.body ?? '{}');
+      const body = JSON.parse(raw) as { model: string; messages: Array<{ content: unknown }> };
+      const results = body.messages.flatMap((message) => (Array.isArray(message.content) ? (message.content as Array<{ type?: string; content?: unknown }>) : [])).filter((block) => block.type === 'tool_result');
+      for (const block of results) handed.push(JSON.stringify(block.content));
+      const content = results.length
+        ? [{ type: 'text', text: 'It is the first thing the builder is held to on that scope.' }]
+        : [{ type: 'tool_use', id: 'tu_graph', name: 'get_subgraph', input: { query: allowed.checkId, hops: 3 } }];
+      const reply = { id: `msg_${handed.length}`, type: 'message', role: 'assistant', model: body.model, content, stop_reason: results.length ? 'end_turn' : 'tool_use', stop_sequence: null, usage: { input_tokens: 900, output_tokens: 40 } };
+      return new Response(JSON.stringify(reply), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      const res = await realFetch(`${base}/api/projects/${theirs.id}/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${sam()}` },
+        body: JSON.stringify({ question: QUESTION }),
+      });
+      assert.equal(res.status, 200);
+      const lines = (await res.text()).split('\n').filter(Boolean).map((line) => JSON.parse(line) as { type: string; assistantTurn?: { text: string } });
+      assert.equal(lines.find((line) => line.type === 'result')?.assistantTurn?.text, 'It is the first thing the builder is held to on that scope.', 'the model answered, having asked the graph');
+    } finally {
+      globalThis.fetch = wired;
+      for (const name of names) delete process.env[name];
+      // What the turn left for the graph store and for memory is written before anything else is asked.
+      await store.graphCaughtUp();
+    }
+
+    assert.ok(handed.length > 0, 'the model was handed what the graph answered');
+    const answer = handed[0]!;
+    assert.match(answer, /source=journal nodes=\d+/, 'and it was the stored graph that answered, not the one built from their own copy');
+    assert.ok(answer.includes(`[${allowed.checkId}]`), 'their own check is in it');
+    // Not as a record, and not inside an id the graph made for one: what the developer said in the chat is filed there under `chat:<turn id>`.
+    assert.ok(blocked.some((id) => theirs.conversation.some((turn) => turn.id === id)), 'somebody else has spoken in the chat of this project');
+    assert.deepEqual(blocked.filter((id) => answer.includes(id)), [], 'and nothing outside their reach is');
+
+    // The page's own way to the same stored graph is cut the same.
+    const page = await call('GET', `/api/projects/${theirs.id}/graph/neighbourhood?query=${encodeURIComponent(allowed.checkId)}&hops=3`, { token: sam() });
+    assert.equal((page.body as { source: string }).source, 'journal');
+    assert.deepEqual(blocked.filter((id) => JSON.stringify(page.body).includes(id)), []);
+  });
+
+  it('answers what a change reaches from their own copy, and finds nothing for a record that is not on it', async () => {
+    /*
+     * What a record reaches is the functions downstream of it and everything
+     * that rests on it. Asked of the stored graph, that is the whole file's:
+     * so somebody working from a grant is answered from their own copy, and a
+     * record outside it is not there to ask about.
+     */
+    const impact = (node: string, token: string) => call('GET', `/api/projects/${theirs.id}/graph/impact?node=${encodeURIComponent(node)}`, { token });
+    const seen = projectView(theirs, { kind: 'granted', grant, email: 'sam@site.in' }).project;
+    const within = projectRecordIds(seen);
+    const blocked = [...projectRecordIds(theirs)].filter((id) => !within.has(id));
+
+    // The developer is answered about anything on the file.
+    for (const node of [hidden.checkId, hidden.evidenceId, hidden.scopeId]) assert.equal((await impact(node, dev())).status, 200, node);
+    // The contractor is not told that any of it exists.
+    for (const node of [hidden.checkId, hidden.evidenceId, hidden.scopeId, hidden.assessmentId]) {
+      const res = await impact(node, sam());
+      assert.equal(res.status, 404, node);
+      assert.deepEqual(res.body, { error: 'That record is not in the graph.' });
+    }
+    // About their own work they are answered, from their copy, with nothing in the answer that is outside it.
+    for (const node of [allowed.checkId, allowed.evidenceId, theirs.id]) {
+      const res = await impact(node, sam());
+      assert.equal(res.status, 200, node);
+      assert.equal((res.body as { source: string }).source, 'projection');
+      assert.deepEqual(blocked.filter((id) => JSON.stringify(res.body).includes(id)), [], node);
+    }
+  });
+
+  it('hands a flow they run no more of the stored graph than that either', async () => {
+    const { store } = await import('../apps/api/src/store');
+    await store.save();
+    await store.graphCaughtUp();
+    const seen = projectView(theirs, { kind: 'granted', grant, email: 'sam@site.in' }).project;
+    const within = projectRecordIds(seen);
+    const blocked = [...projectRecordIds(theirs)].filter((id) => !within.has(id));
+
+    // A flow the developer drew: read what is within three steps of the project in the graph.
+    const made = await call('POST', '/api/flows', {
+      token: dev(),
+      body: {
+        name: 'What is near the project',
+        nodes: [
+          { id: 'start', kind: 'trigger', position: { x: 0, y: 0 }, config: { kind: 'trigger', on: 'manual' } },
+          { id: 'near', kind: 'retrieve', position: { x: 200, y: 0 }, config: { kind: 'retrieve', from: 'graph', query: '{{project.id}}', hops: 3, limit: 400 } },
+        ],
+        edges: [{ id: 'e1', from: 'start', fromPort: 'out', to: 'near' }],
+      },
+    });
+    assert.equal(made.status, 201, JSON.stringify(made.body).slice(0, 300));
+    const flowId = (made.body as { flow: { id: string } }).flow.id;
+    const run = (token: string) => call('POST', `/api/flows/${flowId}/run`, { token, body: { projectId: theirs.id, dryRun: false } });
+
+    // Run by the developer it reads the whole file's graph, the scopes the contractor was not given among it.
+    const whole = await run(dev());
+    assert.equal(whole.status, 200, JSON.stringify(whole.body).slice(0, 300));
+    assert.ok(JSON.stringify(whole.body).includes(hidden.scopeId), 'the stored graph answered, and holds the whole file');
+
+    // Run by the contractor, what the store answered is cut to their reach before a node of it is read.
+    const mine = await run(sam());
+    assert.equal(mine.status, 200, JSON.stringify(mine.body).slice(0, 300));
+    const handed = JSON.stringify(mine.body);
+    assert.ok(handed.includes(grant.assessmentIds[0]!), 'their own assessment is in what the flow read');
+    assert.deepEqual(blocked.filter((id) => handed.includes(id)), [], 'and nothing outside their reach is');
   });
 
   it('gives the developer the whole picture, unchanged', async () => {

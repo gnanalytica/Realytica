@@ -102,4 +102,37 @@ describe('linkRecordIds', () => {
       `Legal DD: scope [${scopeId}] ("legal") under the Approval / Compliance DD. It has 5 checks, all pending.`,
     );
   });
+
+  it('wraps the id of a stage, a department or a function whole', () => {
+    // Each is the project's id with a tail. Matched as far as the project's id
+    // and no further, it came out as a chip for the project and then
+    // "::stage::construction" as text.
+    const { project } = fixture();
+    const id = project.id;
+    const out = linkRecordIds(project, `The file is at ${id}::stage::construction. ${id}::dept::legal holds ${id}::ws::legal.title, and so on.`);
+    assert.equal(out, `The file is at [${id}::stage::construction]. [${id}::dept::legal] holds [${id}::ws::legal.title], and so on.`);
+    assert.ok(!out.includes(`[${id}]`), 'no chip for the project with the tail left behind');
+
+    // One the frame no longer draws is wrapped too: the renderer says it in
+    // words or takes it out, and can do neither for an id left bare.
+    assert.equal(linkRecordIds(project, `It left ${id}::ws::design.drawings in March.`), `It left [${id}::ws::design.drawings] in March.`);
+    // One already written as a token is not wrapped twice.
+    assert.equal(linkRecordIds(project, `At [${id}::stage::construction] now.`), `At [${id}::stage::construction] now.`);
+    // And the project's own id, standing alone, is still a link to the project.
+    assert.equal(linkRecordIds(project, `Open ${id} to see it.`), `Open [${id}] to see it.`);
+  });
+
+  it('leaves a longer id under the project’s exactly as written', () => {
+    // An approval, a title node, a note: each starts with the project's id and
+    // is none of the things the renderer can show. A chip for the project in
+    // front of the rest would be a link to the wrong thing.
+    const { project } = fixture();
+    const id = project.id;
+    for (const text of [
+      `Held under ${id}::approval::fire since March.`,
+      `See ${id}::ws::legal.title::note for the reasoning.`,
+      `See ${id}::stage::construction::note for the reasoning.`,
+      'Another file is at prj_another-file::stage::construction.',
+    ]) assert.equal(linkRecordIds(project, text), text, text);
+  });
 });

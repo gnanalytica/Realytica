@@ -77,7 +77,8 @@ export function PhaseRecordCard({
   project: DdProject;
   phase: PhaseRef;
   onOpen: PhaseOpen;
-  onClose: () => void;
+  /** Where the card is something to put away: in a sheet. As a section of a page it stays. */
+  onClose?: () => void;
 }) {
   const record = useMemo(() => phaseRecord(project, phase), [project, phase]);
   const count = phaseCount(record);
@@ -87,17 +88,20 @@ export function PhaseRecordCard({
   return (
     <Card className="animate-rise-in">
       <CardHeader
-        title={`In ${record.label}`}
+        // The name alone: "In Completed" and "In Under construction" do not read.
+        title={record.label}
         subtitle={spans || 'The project has not been here yet.'}
         action={
-          <button type="button" onClick={onClose} aria-label="Close the phase" className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink">
-            <X size={15} />
-          </button>
+          onClose ? (
+            <button type="button" onClick={onClose} aria-label="Close the phase" className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink">
+              <X size={15} />
+            </button>
+          ) : undefined
         }
       />
       <CardBody>
         {count === 0 ? (
-          <p className="text-[13px] text-ink-secondary">Nothing was filed, started or recorded while the project was in {record.label}.</p>
+          <p className="text-[13px] text-ink-secondary">Nothing was filed, started or recorded while the project was here.</p>
         ) : (
           <div className={cn('grid gap-x-6 gap-y-4 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]')}>
             <Section title="Documents filed" items={record.documents} kind="document" onOpen={onOpen} />

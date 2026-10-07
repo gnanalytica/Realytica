@@ -4,13 +4,15 @@
  * Read from the project's state each time it changes — an approval expiring
  * or lapsed, a certified report flagged for revisiting, work logged before
  * the approvals that allow it, a milestone running late, a serious issue from
- * site. Each condition has a key, so it is raised once and resolved when the
- * condition clears; a new one is what goes out by email and to phones.
+ * site, an action still open after the day it was due. Each condition has a
+ * key, so it is raised once and resolved when the condition clears; a new one
+ * is what goes out by email and to phones.
  */
 
 import type { DdProject } from './types';
 import type { DepartmentKey } from './departments';
 import { approvalsRegister, constructionGate } from './approvals';
+import { actionsPastDue } from './meetings';
 import { progressSummary } from './progress';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
@@ -31,6 +33,8 @@ export interface ProjectAlert {
   readBy: string[];
   /** When it went out by email and push, if it did. */
   sentAt?: string;
+  /** The people it is for besides the department's lead, as the record names them: who an overdue action is on. */
+  to?: string[];
 }
 
 interface Condition {
@@ -41,6 +45,7 @@ interface Condition {
   title: string;
   detail: string;
   dueOn?: string;
+  to?: string[];
 }
 
 /** Every condition worth an alert right now. */
@@ -87,6 +92,8 @@ export function alertConditions(project: DdProject, now = new Date()): Condition
       out.push({ key: `issue:${entry.id}:${i}`, department: 'construction', workstream: 'construction.quality', severity: 'critical', title: `From site: ${issue.title}`, detail: `${entry.author}, ${entry.date}${issue.note ? ` — ${issue.note}` : ''}` });
     });
   }
+  // An action still open after its date: once for that date, to the person it is on and the lead.
+  out.push(...actionsPastDue(project, now));
   return out;
 }
 
@@ -111,6 +118,9 @@ export function syncAlerts(project: DdProject, now = new Date()): ProjectAlert[]
       // when it was raised, stay as they were.
       open.title = c.title;
       open.detail = c.detail;
+      // So does who it names: an action handed to somebody else is theirs from here.
+      if (c.to?.length) open.to = c.to;
+      else delete open.to;
       continue;
     }
     const alert: ProjectAlert = { id: `alr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`, ...c, raisedAt: at, readBy: [] };
@@ -119,6 +129,28 @@ export function syncAlerts(project: DdProject, now = new Date()): ProjectAlert[]
   }
   project.alerts = held.slice(-500);
   return raised;
+}
+
+/**
+ * The alerts a reader's own copy of a project holds: the open ones that copy
+ * raises from what is on it, in that copy's words.
+ *
+ * An alert is written from the whole file. One about an action past its date
+ * says what the action is and the meeting it came from, so handed as it is to
+ * somebody the action or the meeting is withheld from, it tells them both. A
+ * copy keeps an alert only where its own records raise the same condition,
+ * and words it as they do: nothing in it is from a record the copy does not
+ * hold. Of who has read it, the copy keeps its own reader and nobody else.
+ */
+export function alertsOfCopy(alerts: readonly ProjectAlert[] | undefined, copy: DdProject, reader: string, now = new Date()): ProjectAlert[] {
+  const raised = new Map(alertConditions(copy, now).map((condition) => [condition.key, condition]));
+  const me = reader.trim().toLowerCase();
+  return (alerts ?? []).flatMap((alert) => {
+    const own = alert.resolvedAt ? undefined : raised.get(alert.key);
+    if (!own) return [];
+    const { to: _to, ...rest } = alert;
+    return [{ ...rest, title: own.title, detail: own.detail, readBy: alert.readBy.filter((email) => email.trim().toLowerCase() === me), ...(own.to?.length ? { to: own.to } : {}) }];
+  });
 }
 
 export function markAlertsRead(project: DdProject, ids: readonly string[] | 'all', reader: string): number {

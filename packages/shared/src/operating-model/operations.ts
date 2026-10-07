@@ -6,6 +6,7 @@ import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
+import { statusTitle, statusWeekSoFar } from './status-report';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
 import { CAPTURE_OFF_SITE_M, captureDistanceM, describeCapture, isGeotagged, type CaptureFacts, type CaptureFactsInput, type CapturePurpose } from './capture';
 import { readSheetFit, type SheetFitReading, type SheetKind, type SheetRecord } from './geo-sheet';
@@ -85,6 +86,9 @@ function audit(
     reason: event.reason,
     oldValue: event.oldValue,
     newValue: event.newValue,
+    ...(event.factKey ? { factKey: event.factKey } : {}),
+    ...(event.fields ? { fields: event.fields } : {}),
+    ...(event.about?.length ? { about: event.about } : {}),
   });
 }
 
@@ -1820,7 +1824,9 @@ export function changesSincePrevious(project: DdProject, assessmentId: string): 
 export function generateReport(project: DdProject, input: GenerateReportInput, actor = DEFAULT_ACTOR): GeneratedReport {
   const at = nowIso();
   const assessmentIds = input.assessmentIds ?? [];
-  const blocks: ReportBlock[] = reportTemplate(input.kind).map((row) => ({
+  // A status report covers a period, the week so far when none is named, and is called by it.
+  const period = input.kind === 'status' ? (input.period ?? statusWeekSoFar(new Date(at))) : undefined;
+  const blocks: ReportBlock[] = reportTemplate(input.kind, period).map((row) => ({
     id: id('rbk'),
     heading: row.heading,
     origin: row.source ? 'derived' : 'authored',
@@ -1831,7 +1837,7 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   const report: GeneratedReport = {
     id: id('rpt'),
     kind: input.kind,
-    title: `${REPORT_KIND_LABEL[input.kind]} — ${project.name}`,
+    title: period ? statusTitle(project, period, input.audience) : `${REPORT_KIND_LABEL[input.kind]} — ${project.name}`,
     status: 'generated',
     assessmentIds,
     scopeInstanceIds: [],
@@ -2084,6 +2090,7 @@ export function issueReport(
     const resolved = resolveReportBlock(project, block);
     block.frozen = resolved.lines;
     block.frozenRecordIds = resolved.recordIds;
+    if (resolved.table) block.frozenTable = resolved.table;
   }
   report.body.summary = reportSummaryLine(project);
   report.status = 'issued';

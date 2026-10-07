@@ -7,12 +7,17 @@ import type {
   Membership,
   ProjectGrant,
   DdProject,
+  MemWatermark,
   Tenant,
 } from '@realytica/shared';
 import { deriveHealth, evaluateRevisits, migrateWorkspaceRole, syncAlerts, type ProjectAlert } from '@realytica/shared';
 import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 import type { DeviceRecord, PairCode } from './devices';
+import type { GraphSettlement, GraphSyncRun, OwedGraph } from './graph/sync';
+import type { MemoryLooks } from './graph/mem/sync';
+import type { GraphSyncRefused } from './graph/types';
+import { finishAfterReply } from './runs/background';
 
 /**
  * The in-memory case store, durably backed by whichever `StorageAdapter` is
@@ -232,6 +237,23 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
 const PROJECT_KEY = 'project.json';
 
 /**
+ * The key a project's document carries its revision under.
+ *
+ * The revision is the store's and not the project's. It is taken off a
+ * document as it is read and put on as one is written, so nothing above the
+ * store sees it, and nothing above the store, undo included, can put an old
+ * one back. A build that predates it loads the key as part of the project and
+ * writes it back as it found it.
+ */
+const REVISION_KEY = 'storeRevision';
+
+/** A project as its document holds it, and the revision the document carried. */
+interface Shard {
+  project: DdProject;
+  revision: number;
+}
+
+/**
  * How often a miss may pay for a re-read of the workspace document.
  *
  * Long enough that a wrong id in a URL cannot turn into a storage read per
@@ -263,13 +285,150 @@ export class Store {
   data: StoreData = emptyStore();
 
   /**
+   * Told each project whose held copy has just been replaced, in place, by
+   * the one storage has (`pullProject`). The project is the same object and
+   * every list on it is a new one, so whoever watches what is written to a
+   * project's lists (`chat-changes.ts`) watches the ones that are there now.
+   */
+  onReplaced: ((project: DdProject) => void) | undefined;
+
+  /**
    * projectId -> the `updatedAt` its shard was last written from.
    *
-   * The same "a record that has not moved cannot need rewriting" rule the
-   * graph sync runs on. It is what turns a save from one 700KB rewrite into
-   * one small write for the project that actually changed.
+   * A record that has not moved cannot need rewriting. It is what turns a
+   * save from one 700KB rewrite into one small write for the project that
+   * actually changed.
    */
   private persistedAt = new Map<string, string>();
+
+  /**
+   * projectId -> the highest revision this instance has read or written for
+   * that project's document.
+   *
+   * A revision orders the copies of one project. `updatedAt` cannot: it is
+   * set to the time of whatever was read or decided, not to the time of the
+   * write, and undo puts an older one back. So every write of a project's
+   * document carries a number higher than any this instance has seen for it,
+   * and never behind the clock.
+   *
+   * What that guarantees: a write is numbered above every copy the writing
+   * instance has read or written, whatever the project's own fields say, and
+   * above the number the graph store last turned it away with. What it does
+   * not: between two instances that have not read each other's writes the
+   * order is their clocks', so the later write has the higher number only as
+   * far as the two clocks agree. Where they do not, the graph store turns
+   * the later write away, and `offerAbove` is what puts that right.
+   */
+  private revisions = new Map<string, number>();
+
+  /**
+   * projectId -> the revision the graph store is owed that project at.
+   *
+   * Every copy this instance writes is owed at the number it was written
+   * under, and every copy it reads is owed at the number it was read with,
+   * until the graph store is seen to hold it. Owing what is read is what
+   * catches a graph up when it was left behind: by a sync lost with its
+   * instance, an outage, or new code that draws the same record differently.
+   * It is safe because the graph store refuses a copy older than the one it
+   * holds, and cheap because it writes nothing for one it has already drawn.
+   */
+  private graphOwed = new Map<string, number>();
+
+  /**
+   * projectId -> the `updatedAt` of the copy this instance last saw the
+   * graph store settle, so that reading the same copy again owes nothing.
+   */
+  private graphSeen = new Map<string, string>();
+
+  /** Projects that have left this instance's list and whose graph has not been seen to go with them. */
+  private graphGone = new Set<string>();
+
+  /** Projects offered to the graph store in a call it has not answered yet. */
+  private graphOffering = new Set<string>();
+
+  /** The pass now offering the graph store what it is still owed, when there is one. */
+  private catchingUp: Promise<void> | undefined;
+
+  /**
+   * True from a pass in which the graph store failed every call, until one
+   * in which it answers any. While it is, only a save asks: a store that is
+   * down is not asked again by every request that reads a project.
+   */
+  private graphDown = false;
+
+  /** What the graph sync reports back, as each answer lands. */
+  private readonly graphSettlement: GraphSettlement = {
+    synced: ({ project, revision }, builtAt) => {
+      // Only if the copy offered is still the one owed: a save or a read
+      // overlapping the offer may have moved the project on since.
+      if (this.graphOwed.get(project.id) !== revision) return;
+      this.graphOwed.delete(project.id);
+      this.graphSeen.set(project.id, builtAt);
+    },
+    purged: (projectId) => {
+      this.graphGone.delete(projectId);
+    },
+    refused: (owed, answer, builtAt) => this.offerAbove(owed, answer, builtAt),
+  };
+
+  /**
+   * Projects whose memory may not hold what this instance's copy of them
+   * tells: every copy it writes and every copy it reads, until a pass has
+   * told memory or found it told. Memory is kept in the graph store, apart
+   * from the graph; see `graph/mem/sync.ts`. A copy read again is owed
+   * again, which costs the memory store nothing: the pass knows where its
+   * memory stands and finds nothing after it.
+   */
+  private memoryOwed = new Set<string>();
+
+  /** projectId -> where this instance last knew the project's memory to stand. */
+  private memoryKnown = new Map<string, MemWatermark>();
+
+  /** Projects that are gone, document and all, whose memory has not been seen to go with them. */
+  private memoryGone = new Set<string>();
+
+  /** The pass now telling memory what it is owed, when there is one. */
+  private remembering: Promise<void> | undefined;
+
+  /** True when a save asked for a pass while one was running. The pass goes round again before it ends. */
+  private rememberAgain = false;
+
+  /** True from a pass in which the memory store failed every call, until one in which it answers any. */
+  private memoryDown = false;
+
+  /** True once the memory store has answered this instance, until a pass in which it fails every call. */
+  private memoryAnswers = false;
+
+  /** True from a pass the memory store answered that it has no room, until one in which it takes a write. Only a save asks it then. */
+  private memoryFull = false;
+
+  /** When this instance next looks for memory whose project is gone, and what it carries from one look to the next. */
+  private memorySweepAt = 0;
+  private readonly memoryLooks: MemoryLooks = { seenGone: new Set(), from: 0 };
+
+  /**
+   * Projects this instance has taken off its list and is removing: from
+   * `takeOff` until the removal has ended (`letGo`) or failed (`putBack`).
+   * No read of storage lists one of them meanwhile.
+   */
+  private removing = new Set<string>();
+
+  /**
+   * How many removals this instance has ended, and for each project it has
+   * removed, the count as its removal ended. It tells a read of storage that
+   * began before a project's removal ended from one that began after: what
+   * the first found is a document on its way out, and what the second finds
+   * is a document that came back.
+   */
+  private removalsEnded = 0;
+  private removedAt = new Map<string, number>();
+
+  /**
+   * projectId -> the writes of its document this instance has begun and
+   * storage has not answered yet, as one promise that settles when all of
+   * them have. A removal waits on it; see `written`.
+   */
+  private writing = new Map<string, Promise<void>>();
 
   /** Load persisted state via the active adapter. Must be awaited once at
    * boot, before any route handler runs — after that, `data` is
@@ -295,22 +454,26 @@ export class Store {
      * project somebody deleted.
      */
     const ids = this.data.projectIds ?? [];
-    this.indexed = new Set(ids);
     if (ids.length > 0) {
-      const loadedProjects = await Promise.all(ids.map(id => this.readProject(id)));
-      const shards = loadedProjects.filter((p): p is DdProject => p !== null);
+      const read = await Promise.all(ids.map(id => this.readShard(id)));
+      const shards = read.filter((shard): shard is Shard => shard !== null);
       const missing = ids.length - shards.length;
       if (missing > 0) console.warn(`[store] ${missing} project shard(s) named in the store could not be read`);
       // Inline projects win only when there are no shards at all, which is
       // the legacy shape; otherwise a half-migrated document would duplicate.
       const byId = new Map<string, DdProject>();
-      for (const project of [...(this.data.projects ?? []), ...shards]) byId.set(project.id, project);
+      for (const project of [...(this.data.projects ?? []), ...shards.map(shard => shard.project)]) byId.set(project.id, project);
       this.data.projects = [...byId.values()];
+      for (const shard of shards) this.owe(shard.project, shard.revision);
     }
     this.data.projectIds = undefined;
     // Everything loaded is by definition already persisted, so nothing is
     // rewritten until it actually changes.
     for (const project of this.data.projects ?? []) this.persistedAt.set(project.id, project.updatedAt);
+    // Only what loaded. An id the index names and this instance could not
+    // read is not this instance's to drop from the index on its next save.
+    const held = new Set((this.data.projects ?? []).map(project => project.id));
+    this.indexed = new Set(ids.filter(id => held.has(id)));
     this.coreBaseline = coreSnapshot(this.data);
   }
 
@@ -328,9 +491,14 @@ export class Store {
   async syncIndex(): Promise<void> {
     const now = Date.now();
     if (this.indexSync && now - this.indexSync.at < INDEX_SYNC_INTERVAL_MS) return this.indexSync.promise;
-    const promise = this.pullIndex().catch((err: unknown) => {
-      console.warn(`[store] could not sync the workspace: ${(err as Error).message}`);
-    });
+    const promise = this.pullIndex()
+      .catch((err: unknown) => {
+        console.warn(`[store] could not sync the workspace: ${(err as Error).message}`);
+      })
+      .then(() => {
+        this.catchUpGraph();
+        this.remember();
+      });
     this.indexSync = { at: now, promise };
     return promise;
   }
@@ -356,20 +524,72 @@ export class Store {
     const projects = this.data.projects ?? (this.data.projects = []);
     const held = new Set(projects.map((project) => project.id));
     const missing = [...stored].filter((id) => !held.has(id));
-    const shards = (await Promise.all(missing.map((id) => this.readProject(id)))).filter((p): p is DdProject => p !== null);
-    for (const shard of shards) {
-      if (projects.some((project) => project.id === shard.id)) continue;
-      projects.push(shard);
-      this.persistedAt.set(shard.id, shard.updatedAt);
+    const began = this.removalsEnded;
+    const shards = (await Promise.all(missing.map((id) => this.readShard(id)))).filter((shard): shard is Shard => shard !== null);
+    for (const { project, revision } of shards) {
+      if (!this.mayList(project.id, began) || projects.some((other) => other.id === project.id)) continue;
+      projects.push(project);
+      this.persistedAt.set(project.id, project.updatedAt);
+      this.owe(project, revision);
     }
-    // Removed through another instance: this one knew it as stored, storage
-    // no longer names it, and nothing about it here is waiting to be written.
-    this.data.projects = projects.filter(
-      (project) => stored.has(project.id) || !this.indexed.has(project.id) || this.persistedAt.get(project.id) !== project.updatedAt,
+    /*
+     * A project this instance knew as stored, that the index no longer names,
+     * with nothing about it here waiting to be written.
+     *
+     * Removed through another instance, if its document went too: a removal
+     * takes the document first and the index entry after. If the document is
+     * still there, nothing removed the project. The index is read, merged and
+     * written with nothing between, so two instances writing it at once can
+     * lose an entry one of them added. Such a project stays in this
+     * instance's list, and because the index does not name it, this
+     * instance's next save names it there again.
+     */
+    const unnamed = projects.filter(
+      (project) => !stored.has(project.id) && this.indexed.has(project.id) && this.persistedAt.get(project.id) === project.updatedAt,
     );
+    const there = await Promise.all(unnamed.map((project) => this.hasShard(project.id)));
+    const removed = new Set(unnamed.filter((_, at) => there[at] === false).map((project) => project.id));
+    this.data.projects = projects.filter((project) => !removed.has(project.id));
     const live = new Set(this.data.projects.map((project) => project.id));
-    for (const id of [...this.persistedAt.keys()]) if (!live.has(id)) this.persistedAt.delete(id);
-    this.indexed = stored;
+    for (const id of [...this.persistedAt.keys()]) if (!live.has(id)) this.forget(id);
+    // Only the ids this instance holds. One the index names and this
+    // instance could not read is not this instance's to drop from the index.
+    // And the ids it is removing, which stay here until the save that ends
+    // the removal has taken them out of the index.
+    this.indexed = new Set([...stored].filter((id) => live.has(id) || this.removing.has(id)));
+  }
+
+  /**
+   * A project this instance held as stored has left its list. What was kept
+   * about it goes, and its graph is dropped by this instance's next save,
+   * whichever instance removed the project: the one that did may not have
+   * reached the graph store. By a save and not sooner, and only if the
+   * project is still gone then, document and all: a project that left the
+   * list and came back, or whose document is still in storage, keeps its
+   * graph and the notes written on it.
+   */
+  private forget(id: string): void {
+    this.persistedAt.delete(id);
+    this.revisions.delete(id);
+    this.graphOwed.delete(id);
+    this.graphSeen.delete(id);
+    this.graphGone.add(id);
+    this.memoryOwed.delete(id);
+    this.memoryKnown.delete(id);
+  }
+
+  /**
+   * Whether a project's document is still in storage, or nothing when
+   * storage cannot say. A project is taken for gone only on a clear answer,
+   * because what follows from gone, dropping its graph, its notes and its
+   * memory, is not undone.
+   */
+  private async hasShard(id: string): Promise<boolean | undefined> {
+    try {
+      return (await storageAdapter.getDocument(id, PROJECT_KEY)) !== null;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -388,29 +608,122 @@ export class Store {
     const now = Date.now();
     const last = this.projectSyncs.get(id);
     if (!opts.force && last && now - last.at < PROJECT_SYNC_INTERVAL_MS) return last.promise;
-    const promise = this.pullProject(id).catch((err: unknown) => {
-      console.warn(`[store] could not sync project ${id}: ${(err as Error).message}`);
-    });
+    const promise = this.pullProject(id)
+      .catch((err: unknown) => {
+        console.warn(`[store] could not sync project ${id}: ${(err as Error).message}`);
+      })
+      .then(() => {
+        this.catchUpGraph();
+        this.remember();
+      });
     this.projectSyncs.set(id, { at: now, promise });
     return promise;
   }
 
   private async pullProject(id: string): Promise<void> {
-    const stored = await this.readProject(id);
-    if (!stored) return;
+    const began = this.removalsEnded;
+    const shard = await this.readShard(id);
+    if (!shard) return;
+    const { project: stored, revision } = shard;
     const projects = this.data.projects ?? (this.data.projects = []);
-    const held = projects.find((project) => project.id === id);
+    let held = projects.find((project) => project.id === id);
     if (!held) {
+      if (!this.mayList(id, began)) return;
+      held = stored;
       projects.push(stored);
       this.persistedAt.set(id, stored.updatedAt);
-      return;
+    } else if (stored.updatedAt !== held.updatedAt) {
+      // A change of this instance's own, not written yet: its save is about to write it.
+      if (held.updatedAt !== this.persistedAt.get(id)) return;
+      const target = held as unknown as Record<string, unknown>;
+      for (const key of Object.keys(target)) delete target[key];
+      Object.assign(target, stored);
+      this.persistedAt.set(id, stored.updatedAt);
+      this.onReplaced?.(held);
     }
-    if (stored.updatedAt === held.updatedAt) return;
-    if (held.updatedAt !== this.persistedAt.get(id)) return;
-    const target = held as unknown as Record<string, unknown>;
-    for (const key of Object.keys(target)) delete target[key];
-    Object.assign(target, stored);
-    this.persistedAt.set(id, stored.updatedAt);
+    // Newly held, replaced or the same: the copy held is the one storage has.
+    this.owe(held, revision);
+  }
+
+  /**
+   * Take a project off this instance's list, to remove it: the project and
+   * where it stood, or nothing when the list has none by that id.
+   *
+   * Removing a project's documents is not done in an instant, and requests
+   * about the project go on arriving while it is. Each reads the project
+   * from storage first. One that found the document still there put the
+   * project back on the list, and the removal ended with the project listed,
+   * in the index and served, and no document behind it. So from here until
+   * the removal has ended (`letGo`) or failed (`putBack`), no read of storage
+   * lists the project on this instance, and no save writes its document.
+   */
+  takeOff(projectId: string): { project: DdProject; at: number } | undefined {
+    const projects = this.data.projects ?? [];
+    const at = projects.findIndex((project) => project.id === projectId);
+    if (at < 0) return undefined;
+    this.removing.add(projectId);
+    return { project: projects.splice(at, 1)[0]!, at };
+  }
+
+  /**
+   * Put back a project that was taken off and could not be removed, where
+   * it stood. Storage is read for it again.
+   *
+   * And it counts as unsaved. A removal that failed may have taken the
+   * project's own document before it did, and a project kept on this
+   * instance with no document in storage is one no other instance lists:
+   * the next save writes it again.
+   */
+  putBack(taken: { project: DdProject; at: number }): void {
+    this.removing.delete(taken.project.id);
+    this.persistedAt.delete(taken.project.id);
+    (this.data.projects ?? (this.data.projects = [])).splice(taken.at, 0, taken.project);
+  }
+
+  /**
+   * The removal of a project has ended: its documents are out of storage and
+   * a save has taken it out of the index. This instance lets go of it.
+   *
+   * Nothing in storage says a project was removed, so its document can come
+   * back: another instance that still held the project, with a change not
+   * yet written, saves it. A read of storage that begins from here on lists
+   * what it finds, which is how this instance comes to hold such a project
+   * again, to serve it and to remove it when asked a second time. A read
+   * that began before this does not: what it found was on its way out.
+   */
+  letGo(projectId: string): void {
+    if (!this.removing.delete(projectId)) return;
+    this.removalsEnded += 1;
+    this.removedAt.set(projectId, this.removalsEnded);
+  }
+
+  /** Whether a read of storage that began when `began` removals had ended may put this project on the list; see `letGo`. */
+  private mayList(id: string, began: number): boolean {
+    return !this.removing.has(id) && (this.removedAt.get(id) ?? 0) <= began;
+  }
+
+  /**
+   * Settles once storage has answered every write of this project's document
+   * that this instance has begun. A removal waits here before it removes the
+   * documents: a write already on its way would otherwise land after them,
+   * and leave a document in storage for a project nothing lists. It never
+   * rejects: whether a write went through is its own save's to know.
+   */
+  async written(projectId: string): Promise<void> {
+    while (this.writing.has(projectId)) await this.writing.get(projectId);
+  }
+
+  /**
+   * The copy just read from storage is the one this instance holds, so the
+   * graph store is owed it at the number it was read with: unless this
+   * instance has already seen the graph store settle that very copy.
+   * `updatedAt` moves with every write, so the same one is the same copy.
+   */
+  private owe(project: DdProject, revision: number): void {
+    // And memory is owed whatever this copy tells.
+    this.memoryOwed.add(project.id);
+    if (this.graphSeen.get(project.id) === project.updatedAt) return;
+    this.graphOwed.set(project.id, Math.max(this.graphOwed.get(project.id) ?? 0, revision));
   }
 
   /** When the core document was last re-read, for the throttle below. */
@@ -422,7 +735,17 @@ export class Store {
    */
   private coreBaseline = new Map<string, string>();
 
-  /** The project ids the stored index held when this instance last read or wrote it. */
+  /**
+   * Of the project ids the stored index held when this instance last read or
+   * wrote it, the ones this instance holds.
+   *
+   * A held project that is not in here was created here and is added to the
+   * index by the next save. One that is in here and no longer held was
+   * removed here and is taken out by the next save. So it must never name a
+   * project this instance does not hold: one whose document would not load,
+   * or one another instance created since. It did, and the next save took
+   * those out of the index, though nobody had deleted them.
+   */
   private indexed = new Set<string>();
 
   private indexSync: { at: number; promise: Promise<void> } | undefined;
@@ -486,15 +809,24 @@ export class Store {
     }
   }
 
-  /** One project shard, or null when it is absent or unreadable. */
-  private async readProject(id: string): Promise<DdProject | null> {
+  /** One project shard and the revision it was written under, or null when it is absent or unreadable. */
+  private async readShard(id: string): Promise<Shard | null> {
     try {
       const bytes = await storageAdapter.getDocument(id, PROJECT_KEY);
       if (!bytes) return null;
       const parsed: unknown = JSON.parse(bytes.toString('utf-8'));
       if (typeof parsed !== 'object' || parsed === null) return null;
       const project = parsed as DdProject;
-      return typeof project.id === 'string' ? project : null;
+      if (typeof project.id !== 'string') return null;
+      // The revision comes off here, the one place a document is read, and
+      // is remembered if it is the highest seen for this project. A document
+      // written before revisions, or by a build that has none, is the lowest.
+      const document = parsed as Record<string, unknown>;
+      const stored = document[REVISION_KEY];
+      delete document[REVISION_KEY];
+      const revision = Number.isSafeInteger(stored) ? (stored as number) : 0;
+      if (revision > (this.revisions.get(project.id) ?? 0)) this.revisions.set(project.id, revision);
+      return { project, revision };
     } catch (err) {
       console.warn(`[store] could not read project ${id}: ${(err as Error).message}`);
       return null;
@@ -555,29 +887,74 @@ export class Store {
       }
     }
     for (const project of changed) {
-      await storageAdapter.putDocument(
+      // Off the list since this save began: it is being removed, or has been, and its document is not written back.
+      if (!(this.data.projects ?? []).includes(project)) continue;
+      // See `revisions`. Raised before the write is awaited, so a save that
+      // overlaps this one takes a higher number still.
+      const revision = Math.max((this.revisions.get(project.id) ?? 0) + 1, Date.now());
+      this.revisions.set(project.id, revision);
+      const put = storageAdapter.putDocument(
         project.id,
         PROJECT_KEY,
-        Buffer.from(JSON.stringify(project)),
+        Buffer.from(JSON.stringify({ ...project, [REVISION_KEY]: revision })),
         'application/json',
       );
+      // Said to be on its way until storage answers, with any other write of the same document still out; see `written`.
+      const out: Promise<void> = Promise.allSettled([this.writing.get(project.id), put]).then(() => {
+        if (this.writing.get(project.id) === out) this.writing.delete(project.id);
+      });
+      this.writing.set(project.id, out);
+      await put;
       this.persistedAt.set(project.id, project.updatedAt);
+      this.graphOwed.set(project.id, revision);
+      this.memoryOwed.add(project.id);
     }
     // Shards for projects that are gone are dropped from the index here; the
     // documents themselves go with the project's own delete.
     const live = new Set(projects.map(project => project.id));
     for (const id of [...this.persistedAt.keys()]) {
-      if (!live.has(id)) this.persistedAt.delete(id);
+      if (!live.has(id)) this.forget(id);
     }
 
     await this.writeCore(live);
 
     // After the store is durable, never before: the graph is an index over it,
     // and an index written ahead of the thing it indexes can point at a state
-    // that never existed. Imported lazily to keep the store module free of a
-    // dependency on the graph layer, which imports it back.
-    const { syncGraph } = await import('./graph/sync');
-    await syncGraph(projects);
+    // that never existed.
+    //
+    // A save waits, for a bounded time, on two things only: the copies it
+    // wrote, and the graphs of projects that are gone. A project is gone only
+    // if it is out of this instance's list now and its document is out of
+    // storage: one that left the list and came back, or that the index lost
+    // while its document stayed, keeps its graph and its notes. Whatever else
+    // the graph store is owed is offered once the save is out of the way.
+    // A project that is gone takes its memory with it too, once the reply is
+    // out. One whose document is still there, or that storage could not
+    // answer for, stays as it is and is asked about again by the next save:
+    // a delete saves before it removes the documents, and that save must
+    // not be the last time the project is looked for. While one stays, each
+    // save reads its document to ask.
+    const gone: string[] = [];
+    for (const id of [...this.graphGone]) {
+      if (live.has(id)) {
+        this.graphGone.delete(id);
+      } else if ((await this.hasShard(id)) === false) {
+        gone.push(id);
+        this.memoryGone.add(id);
+      }
+    }
+    const run = await this.offerGraph(
+      changed.flatMap(project => {
+        const revision = this.graphOwed.get(project.id);
+        return revision === undefined ? [] : [{ project, revision }];
+      }),
+      gone,
+    );
+    if (!(await run.waited)) {
+      console.warn('[graph] the store had not answered in time: the save went on without it, and what it has not taken stays owed');
+    }
+    this.catchUpGraph(true);
+    this.remember(true);
 
     // Then tell people. Sent after the write, so an alert nobody can open is never mailed.
     if (raised.size) {
@@ -626,7 +1003,184 @@ export class Store {
       data[key] = key in adopted ? adopted[key] : merged[key];
     }
     this.coreBaseline = coreSnapshot(this.data);
-    this.indexed = ids;
+    // Of what the index now names, only what this instance holds: see `indexed`.
+    this.indexed = new Set([...ids].filter((id) => live.has(id)));
+  }
+
+  /**
+   * One pass of the graph sync over these copies and these departed projects.
+   * Imported lazily to keep the store module free of a dependency on the
+   * graph layer, which imports it back.
+   */
+  private async offerGraph(owed: OwedGraph[], gone: string[]): Promise<GraphSyncRun> {
+    const { syncGraph } = await import('./graph/sync');
+    for (const { project } of owed) this.graphOffering.add(project.id);
+    const run = syncGraph(owed, gone, this.graphSettlement);
+    void run.finished.then(({ made, failed }) => {
+      for (const { project } of owed) this.graphOffering.delete(project.id);
+      // Down when every call of the pass failed. One project the graph store
+      // will not take must not stop the others being caught up.
+      if (made > 0) this.graphDown = failed === made;
+    });
+    return run;
+  }
+
+  /**
+   * Offer the graph store the copies it is still owed, with nothing waiting
+   * on it: a reply is never held for a graph that some other instance, or an
+   * earlier save, left behind. One pass at a time, each going on starting
+   * calls for as long as a save would wait, and kept alive past the reply by
+   * the platform. What a pass does not reach stays owed for the next read or
+   * save.
+   *
+   * A read asks only while the graph store is answering. A save asks either
+   * way, which is how a store that was down is found to be back.
+   */
+  private catchUpGraph(afterSave = false): void {
+    if (this.catchingUp || this.graphOwed.size === 0 || (this.graphDown && !afterSave)) return;
+    this.catchingUp = this.catchUp()
+      .catch((err: unknown) => {
+        console.warn(`[graph] could not catch the graph up: ${(err as Error).message}`);
+      })
+      .finally(() => {
+        this.catchingUp = undefined;
+      });
+    finishAfterReply(this.catchingUp);
+  }
+
+  private async catchUp(): Promise<void> {
+    // Not before the code that read the project has gone on with its own work.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const owed = (this.data.projects ?? []).flatMap((project) => {
+      const revision = this.graphOwed.get(project.id);
+      if (revision === undefined) return [];
+      // Only a copy as stored. One with a change not yet written is owed by
+      // the save that writes it, at the number that save gives it. And not
+      // one whose last offer has yet to be answered.
+      if (this.persistedAt.get(project.id) !== project.updatedAt || this.graphOffering.has(project.id)) return [];
+      return [{ project, revision }];
+    });
+    await (await this.offerGraph(owed, [])).finished;
+  }
+
+  /**
+   * Tell memory what it is owed, with nothing waiting on it: once the reply
+   * is out, one pass at a time, each for a bounded time of its own and kept
+   * alive past the reply by the platform. A failure is logged by the pass
+   * and leaves the copy owed, for the next save or read of it on any
+   * instance. A read asks only while the memory store is answering; a save
+   * asks either way, and a save that finds a pass running has it go round
+   * again, because what the save wrote may have missed it.
+   */
+  private remember(afterSave = false): void {
+    if (this.remembering) {
+      if (!afterSave) return;
+      this.rememberAgain = true;
+      finishAfterReply(this.remembering);
+      return;
+    }
+    if ((this.memoryDown || this.memoryFull) && !afterSave) return;
+    if (this.memoryOwed.size === 0 && this.memoryGone.size === 0 && !this.lookDue()) return;
+    const rounds = async (): Promise<void> => {
+      do {
+        this.rememberAgain = false;
+        await this.tellMemory().catch((err: unknown) => {
+          console.warn(`[memory] could not tell memory: ${(err as Error).message}`);
+        });
+      } while (this.rememberAgain);
+    };
+    this.remembering = rounds().finally(() => {
+      this.remembering = undefined;
+    });
+    finishAfterReply(this.remembering);
+  }
+
+  /**
+   * Whether it is time to look for memory left behind by a project that is
+   * gone: now and then, and only once the memory store has answered this
+   * instance. One that holds no project has asked it nothing, and does not
+   * start by asking it this; one it is failing does not ask it more.
+   */
+  private lookDue(): boolean {
+    return this.memoryAnswers && Date.now() >= this.memorySweepAt;
+  }
+
+  private async tellMemory(): Promise<void> {
+    // Not before the code that read or wrote the project has gone on with its own work.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const { syncMemory, sweepMemory, MEMORY_SWEEP_MS } = await import('./graph/mem/sync');
+    const projects = this.data.projects ?? [];
+    const bootstrap = this.data.tenants?.[0]?.id ?? '';
+    // Only a copy as stored: a change this instance has not written yet is not in the project store.
+    const owed = projects.flatMap((project) =>
+      this.memoryOwed.has(project.id) && this.persistedAt.get(project.id) === project.updatedAt ? [{ project, tenantId: project.tenantId ?? bootstrap }] : [],
+    );
+    const passed = await syncMemory({
+      owed,
+      gone: [...this.memoryGone],
+      known: this.memoryKnown,
+      stillStored: async (projectId, updatedAt) => (await this.readShard(projectId))?.project.updatedAt === updatedAt,
+    });
+    for (const { projectId, builtAt } of passed.settled) {
+      // Only if the copy told is still the copy stored here: a save or a read may have moved the project on since.
+      if (this.persistedAt.get(projectId) === builtAt) this.memoryOwed.delete(projectId);
+    }
+    for (const projectId of passed.purged) this.memoryGone.delete(projectId);
+    if (passed.made > 0) {
+      this.memoryDown = passed.failed === passed.made;
+      this.memoryAnswers = !this.memoryDown;
+      this.memoryFull = passed.full === true;
+    }
+
+    if (!this.lookDue()) return;
+    this.memorySweepAt = Date.now() + MEMORY_SWEEP_MS;
+    try {
+      await sweepMemory({
+        tenantIds: new Set((this.data.tenants ?? []).map((tenant) => tenant.id)),
+        held: new Set((this.data.projects ?? []).map((project) => project.id)),
+        gone: async (projectId) => (await this.hasShard(projectId)) === false,
+        looks: this.memoryLooks,
+      });
+    } catch (err) {
+      console.warn(`[memory] could not look for memory left behind: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Settles when the passes now catching the graph up and telling memory, if
+   * there are any, have finished. For a caller that has to see the graph
+   * store as this instance leaves it: a script, a test.
+   */
+  async graphCaughtUp(): Promise<void> {
+    await this.catchingUp;
+    await this.remembering;
+  }
+
+  /**
+   * The graph store turned a copy away: what it holds was built from a later
+   * revision, and is a different drawing.
+   *
+   * Usually the graph store is right. Another instance wrote the project
+   * since, this copy is the older one, and the refusal stands. But a later
+   * number is not always a later copy: an instance whose clock runs behind
+   * numbers its write below one made before it, and a build that does not
+   * raise the number can put an older copy back. The project store keeps
+   * whichever copy was written last, so storage is asked. If it still holds
+   * the copy that was offered, the graph is of a copy the project store no
+   * longer has, and this one is owed again above the number held.
+   */
+  private async offerAbove({ project, revision }: OwedGraph, { held, drawn }: GraphSyncRefused, builtAt: string): Promise<number | undefined> {
+    // Whatever this instance next writes of the project is numbered above it.
+    if (held > (this.revisions.get(project.id) ?? 0)) this.revisions.set(project.id, held);
+    if (drawn) return undefined;
+    const stored = await this.readShard(project.id);
+    // Against the copy as it was offered, not as the project stands now: a
+    // request may have changed the project in memory since it was drawn.
+    if (!stored || stored.project.updatedAt !== builtAt || this.graphOwed.get(project.id) !== revision) return undefined;
+    const above = held + 1;
+    this.revisions.set(project.id, Math.max(this.revisions.get(project.id) ?? 0, above));
+    this.graphOwed.set(project.id, above);
+    return above;
   }
 
   /** Alias for `save()`, kept for the SIGINT/SIGTERM shutdown path. */

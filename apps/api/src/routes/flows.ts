@@ -16,6 +16,7 @@ import { allDescriptors, allRoutes } from '@realytica/agents';
 import { store } from '../store';
 import { needs, principalOf } from '../auth/middleware';
 import { projectFor } from '../auth/access';
+import { withinReach } from '../auth/project-guard';
 import { promptStore } from '../prompts';
 import { handlersFor } from '../flows/handlers';
 import {
@@ -300,7 +301,8 @@ flowsRouter.post('/:flowId/run', needs('write'), async (req, res) => {
   const dryRun = parsed.data.dryRun !== false;
 
   const result = await runFlow(flow, {
-    handler: handlersFor({ tenantId: me.tenantId, project, actor: me.email }),
+    // The graph store holds the whole file's graph. What it answers is cut to this caller's reach, as the project above was.
+    handler: handlersFor({ tenantId: me.tenantId, project, actor: me.email, withinReach: (graph) => withinReach(req, found, graph) }),
     input: { project: { id: project.id, name: project.name, reference: project.reference }, ...(parsed.data.input ?? {}) },
     dryRun,
   });

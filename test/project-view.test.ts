@@ -27,6 +27,11 @@ import {
   type ProjectGrant,
   type ProjectRole,
   type ScopeKey,
+  addEvidence,
+  addQuestionnaire,
+  createProject,
+  logSiteEntry,
+  suggestFromFile,
 } from '@realytica/shared';
 
 function grantOf(over: Partial<ProjectGrant> = {}): ProjectGrant {
@@ -85,6 +90,32 @@ describe('a grant with nothing ticked', () => {
     assert.equal(complete, false);
     assert.ok(withheld.includes('valuation'));
     assert.ok(withheld.includes('assessments'));
+  });
+});
+
+describe('a questionnaire answered from the whole file', () => {
+  it('is not in an outside collaborator’s copy: its answers quote papers they may not see', () => {
+    const project = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0061');
+    const deed = addEvidence(project, { title: 'Sale deed', kind: 'document', status: 'received' });
+    deed.documentType = 'Sale deed';
+    deed.facts = [{ key: 'consideration', label: 'Sale consideration', value: 31850000, display: 'Rs 3.19 Cr', page: 4, quote: 'for a total sale consideration of Rs. 3,18,50,000', review: 'accepted' }];
+    const sheet = addQuestionnaire(project, { title: 'Queries', parsed: { header: [], questions: [{ text: 'What was the sale consideration?' }] } }, 'tester');
+    assert.equal(suggestFromFile(project, sheet.id, 'tester'), 1);
+    assert.match(JSON.stringify(project.questionnaires), /Rs 3\.19 Cr \(Sale deed, p\. 4\)/);
+    const copy = view(project).project;
+    assert.deepEqual(copy.questionnaires, []);
+    assert.equal(JSON.stringify(copy).includes('3.19 Cr'), false, 'nothing of the deed they cannot see reaches them');
+  });
+});
+
+describe('the site’s day-by-day entries', () => {
+  it('are not in an outside collaborator’s copy, whatever the grant ticks: a voice note’s words land there', () => {
+    const project = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0062');
+    logSiteEntry(project, { clientId: 'phone-1', date: '2026-10-05', workDone: 'Footing concrete poured at grid C4', voiceNote: { storageKey: 'note-1.m4a', fileName: 'note.m4a', mimeType: 'audio/mp4', wordsKey: 'note-1.m4a.words.txt' } }, 'site@firm.in');
+    const copy = view(project, { areas: [...GRANT_AREAS] }).project;
+    assert.deepEqual(copy.siteLog, []);
+    assert.equal(JSON.stringify(copy).includes('grid C4'), false, 'nor do its words reach them any other way');
+    assert.equal(fullView(project).project.siteLog?.length, 1, 'the firm’s own people see it as it is');
   });
 });
 

@@ -29,11 +29,13 @@ import {
   IMPACT_HOPS,
   IMPACT_RELATIONS,
   clampGraphHops,
+  extractProjectSubgraph,
   isProjectNodeKind,
   PROJECT_NODE_KINDS,
   projectLayerFor,
 } from '@realytica/shared';
-import type { GraphAdapter, ProjectGraphSnapshot } from './types';
+import type { GraphAdapter, GraphSyncRefused, ProjectGraphSnapshot } from './types';
+import { drawingOf } from './drawing';
 
 let driver: Driver | null = null;
 
@@ -52,8 +54,12 @@ function database(): string | undefined {
   return name ? name : undefined;
 }
 
-/** Every session goes through here, so the database cannot be set in one place and forgotten in another. */
-function openSession() {
+/**
+ * Every session goes through here, so the database cannot be set in one place
+ * and forgotten in another. The project's memory is kept in the same database
+ * and opens its sessions here too.
+ */
+export function openSession() {
   const name = database();
   return name ? client().session({ database: name }) : client().session();
 }
@@ -87,6 +93,69 @@ function client(): Driver {
  * traversal costs the same.
  */
 const REL = 'RYT_EDGE';
+
+/**
+ * The node that says which copy of a project its stored graph was built from.
+ *
+ * One per project, holding the revision the project store gave that copy. A
+ * sync takes it before it writes anything, in the same transaction, and
+ * writes only if its own revision is not lower. Several instances hold the
+ * same project, and one still holding the nine o'clock copy must not delete
+ * what the ten o'clock copy drew.
+ *
+ * It is not a `:Ryt` node and no relationship joins it to one, so nothing
+ * that reads or rebuilds the graph meets it, and neither does a build that
+ * predates it and matches `:Ryt` alone.
+ */
+const SYNC = 'GraphSync';
+
+/**
+ * Take a project's marker and answer whether this revision may write.
+ *
+ * `asked` is set before `revision` is read, and the order is the point. A
+ * write takes the node's lock until the transaction ends, so a second sync of
+ * the same project waits at that line and then reads what the first left.
+ * Reading first would let both see the old revision and both write. It also
+ * leaves the last revision offered beside the last one taken, which is how a
+ * refusal shows in the Browser.
+ *
+ * Floats throughout: the driver sends a JavaScript number as one, and a
+ * revision is far below where a float stops being exact.
+ *
+ * `drawing` is what the stored graph draws (see `drawing.ts`), and `drawn`
+ * answers whether this snapshot would draw the same. It moves with the
+ * revision and in the transaction that writes the graph, so between builds
+ * that know the marker the two cannot part.
+ *
+ * A build that predates the marker can part them: it rewrites or purges the
+ * graph and leaves the marker as it was. A rising revision does not put that
+ * right by itself, because a copy that draws what the marker says is drawn
+ * already writes nothing. So `drawn` also asks that the project holds as many
+ * derived nodes as this snapshot would draw. That notices a purge, and a
+ * redraw by a build that draws the project in a different number of nodes,
+ * which a build with an older projection does. A redraw to the same number
+ * of nodes is not noticed, and stays until the drawing next changes.
+ */
+const CLAIM_REVISION = `
+  MERGE (s:${SYNC} { projectId: $projectId })
+  SET s.asked = $revision
+  WITH s, coalesce(s.revision, 0.0) AS held
+  OPTIONAL MATCH (n:Ryt { projectId: $projectId, origin: 'derived' })
+  WITH s, held, count(n) AS stored
+  WITH s, held, coalesce(s.drawing = $drawing, false) AND stored = toInteger($nodes) AS drawn
+  SET s.revision = CASE WHEN $revision < held THEN held ELSE $revision END,
+      s.drawing = CASE WHEN $revision < held THEN s.drawing ELSE $drawing END
+  RETURN held, $revision >= held AS current, drawn
+`;
+
+/**
+ * How long the database lets one write of this adapter's run before it ends
+ * it. A sync takes well under a second. One that is still open after this
+ * long is waiting on something that will not come, a lock held by an
+ * instance that was frozen in the middle of its own write, and ending it is
+ * what lets the pass that started it close and another begin.
+ */
+export const WRITE_TIMEOUT_MS = 10_000;
 
 interface NodeRow {
   id: string;
@@ -142,11 +211,27 @@ function edgeParams(projectId: string, edges: ProjectGraphEdge[], origin: 'deriv
 const LAYERS = [...new Set(PROJECT_NODE_KINDS.map(projectLayerFor))];
 
 /**
- * Node upsert.
+ * The labels a row asks for, set in the statement that writes the row.
  *
- * Cypher cannot set a label from a parameter, so the labels are applied in a
- * second pass (`labelStatements`) that interpolates them from the ontology's
- * own arrays. This statement clears the whole closed vocabulary first:
+ * Cypher cannot take a label from a parameter, so each is spelled out from
+ * the ontology's own arrays, and a `FOREACH` over a list of one or of none
+ * sets it on the rows of that kind. Generated from the ontology, so a new
+ * kind cannot be added without this following it. It used to be a statement
+ * a kind after the upsert, which made a sync of a full project some twenty
+ * round trips; it is now part of the one.
+ */
+const SET_LABELS = [
+  ...PROJECT_NODE_KINDS.map(
+    kind => `FOREACH (ignoreMe IN CASE WHEN row.kind = '${kind}' THEN [1] ELSE [] END | SET n:${kind}:${projectLayerFor(kind)})`,
+  ),
+  `FOREACH (ignoreMe IN CASE WHEN row.origin = 'derived' THEN [1] ELSE [] END | SET n:derived)`,
+  `FOREACH (ignoreMe IN CASE WHEN row.origin = 'authored' THEN [1] ELSE [] END | SET n:authored)`,
+].join('\n  ');
+
+/**
+ * Node upsert, labels included.
+ *
+ * It clears the whole closed vocabulary before it sets the row's own:
  * `REMOVE` of a label a node does not have is a no-op, and without it a node
  * whose kind changed between two syncs would answer `MATCH (n:Ryt:check)`
  * forever after it stopped being one.
@@ -160,6 +245,7 @@ const WRITE_NODES = `
   REMOVE n:${[...PROJECT_NODE_KINDS].join(':')}
   REMOVE n:${LAYERS.join(':')}
   REMOVE n:derived:authored
+  ${SET_LABELS}
 `;
 
 const WRITE_EDGES = `
@@ -172,59 +258,19 @@ const WRITE_EDGES = `
   REMOVE r.closedAt
 `;
 
-/**
- * The per-kind label pass.
- *
- * One statement per kind rather than one per node: `$rows` is filtered to the
- * kind in the query, so a sync of 400 nodes across 12 kinds costs 12 round
- * trips inside one transaction rather than 400. Generated from the ontology,
- * so a new kind cannot be added without this following it.
- */
-function labelStatements(): { kind: string; cypher: string }[] {
-  return PROJECT_NODE_KINDS.map(kind => ({
-    kind,
-    cypher: `
-      UNWIND $rows AS row
-      MATCH (n:Ryt { id: row.id })
-      SET n:${kind}:${projectLayerFor(kind)}
-    `,
-  }));
-}
-
-const ORIGIN_LABELS = `
-  UNWIND $rows AS row
-  MATCH (n:Ryt { id: row.id })
-  SET n:derived
-`;
-
-const AUTHORED_LABELS = `
-  UNWIND $rows AS row
-  MATCH (n:Ryt { id: row.id })
-  SET n:authored
-`;
-
 async function writeNodes(
   tx: { run: (q: string, p?: Record<string, unknown>) => Promise<unknown> },
   projectId: string,
   nodes: ProjectGraphNode[],
 ): Promise<void> {
   if (nodes.length === 0) return;
-  const rows = nodeParams(projectId, nodes);
-  await tx.run(WRITE_NODES, { rows });
-  for (const { kind, cypher } of labelStatements()) {
-    const forKind = rows.filter(r => r.kind === kind);
-    if (forKind.length > 0) await tx.run(cypher, { rows: forKind });
-  }
-  const derived = rows.filter(r => r.origin === 'derived');
-  const authored = rows.filter(r => r.origin === 'authored');
-  if (derived.length > 0) await tx.run(ORIGIN_LABELS, { rows: derived });
-  if (authored.length > 0) await tx.run(AUTHORED_LABELS, { rows: authored });
+  await tx.run(WRITE_NODES, { rows: nodeParams(projectId, nodes) });
 }
 
 export const neo4jAdapter: GraphAdapter = {
   kind: 'neo4j',
 
-  async syncProject(snapshot: ProjectGraphSnapshot): Promise<void> {
+  async syncProject(snapshot: ProjectGraphSnapshot): Promise<GraphSyncRefused | void> {
     const session = openSession();
     try {
       const authored = new Set(snapshot.nodes.filter(n => n.origin === 'authored').map(n => n.id));
@@ -245,8 +291,25 @@ export const neo4jAdapter: GraphAdapter = {
        * dropped is deleted, and losing the annotation on something no longer
        * on file is correct — an edge naming an absent node is the fabricated
        * connection the projection already refuses.
+       *
+       * Before any of it, the marker. An older copy of the project than the
+       * one the stored graph was built from writes nothing: the removal below
+       * would otherwise delete every node the newer copy added. And a copy
+       * that draws what is already stored has nothing left to write once the
+       * marker carries its revision, which is most syncs: one statement.
        */
-      await session.executeWrite(async tx => {
+      return await session.executeWrite(async tx => {
+        const claim = await tx.run(CLAIM_REVISION, {
+          projectId: snapshot.projectId,
+          revision: snapshot.revision ?? 0,
+          drawing: drawingOf(derivedNodes, derivedEdges),
+          nodes: new Set(derivedNodes.map(n => n.id)).size,
+        });
+        const marker = claim.records[0];
+        if (!marker) throw new Error(`the sync marker of ${snapshot.projectId} did not answer`);
+        const drawn = Boolean(marker.get('drawn'));
+        if (!marker.get('current')) return { refused: true as const, held: Number(marker.get('held')), drawn };
+        if (drawn) return undefined;
         await writeNodes(tx, snapshot.projectId, derivedNodes);
         if (derivedEdges.length > 0) {
           await tx.run(WRITE_EDGES, { rows: edgeParams(snapshot.projectId, derivedEdges, 'derived') });
@@ -267,7 +330,8 @@ export const neo4jAdapter: GraphAdapter = {
            SET r.closedAt = $closedAt`,
           { projectId: snapshot.projectId, keep: derivedEdges.map(e => e.id), closedAt: snapshot.builtAt },
         );
-      });
+        return undefined;
+      }, { timeout: WRITE_TIMEOUT_MS });
     } finally {
       await session.close();
     }
@@ -281,7 +345,7 @@ export const neo4jAdapter: GraphAdapter = {
       await session.executeWrite(async tx => {
         await writeNodes(tx, projectId, authored);
         if (edges.length > 0) await tx.run(WRITE_EDGES, { rows: edgeParams(projectId, edges, 'authored') });
-      });
+      }, { timeout: WRITE_TIMEOUT_MS });
     } finally {
       await session.close();
     }
@@ -361,12 +425,16 @@ export const neo4jAdapter: GraphAdapter = {
           { projectId, keep },
         ),
       );
-      return {
-        projectId,
-        builtAt: new Date().toISOString(),
+      // The walk fetches the plain neighbourhood and the shared rule trims it
+      // (`extractProjectSubgraph`, same seeds and hops), so the store never
+      // answers with more than the algorithm would: a bill's lines come in
+      // only as a seed or straight from one.
+      const fetched = {
         nodes: nodeRecords.map(r => toNode(r.toObject() as unknown as NodeRow)),
         edges: edgeResult.records.map(r => r.toObject() as unknown as ProjectGraphEdge),
       };
+      const kept = extractProjectSubgraph(fetched, seedIds, depth);
+      return { projectId, builtAt: new Date().toISOString(), nodes: kept.nodes, edges: kept.edges };
     } finally {
       await session.close();
     }
@@ -465,7 +533,13 @@ export const neo4jAdapter: GraphAdapter = {
   async purgeProject(projectId: string): Promise<void> {
     const session = openSession();
     try {
-      await session.executeWrite(tx => tx.run(`MATCH (n:Ryt { projectId: $projectId }) DETACH DELETE n`, { projectId }));
+      await session.executeWrite(async tx => {
+        // The marker first. Deleting it takes its lock, which a sync of this
+        // project that is still writing holds until it commits: the purge
+        // waits for it, and then removes what that sync wrote with the rest.
+        await tx.run(`MATCH (s:${SYNC} { projectId: $projectId }) DELETE s`, { projectId });
+        await tx.run(`MATCH (n:Ryt { projectId: $projectId }) DETACH DELETE n`, { projectId });
+      }, { timeout: WRITE_TIMEOUT_MS });
     } finally {
       await session.close();
     }
@@ -502,6 +576,9 @@ export async function ensureNeo4jSchema(): Promise<void> {
       await tx.run('CREATE INDEX ryt_node_key IF NOT EXISTS FOR (n:Ryt) ON (n.key)');
       await tx.run(`CREATE INDEX ryt_edge_kind IF NOT EXISTS FOR ()-[r:${REL}]-() ON (r.kind)`);
       await tx.run(`CREATE INDEX ryt_edge_open IF NOT EXISTS FOR ()-[r:${REL}]-() ON (r.closedAt)`);
+      // One marker a project: two instances syncing a project for the first
+      // time must merge the same node, or each would hold its own revision.
+      await tx.run(`CREATE CONSTRAINT graph_sync_project IF NOT EXISTS FOR (s:${SYNC}) REQUIRE s.projectId IS UNIQUE`);
     });
   } finally {
     await session.close();
@@ -512,4 +589,13 @@ export async function ensureNeo4jSchema(): Promise<void> {
 export async function closeNeo4j(): Promise<void> {
   await driver?.close();
   driver = null;
+}
+
+/**
+ * Runs the adapter over a driver it is handed instead of one opened from the
+ * environment. Tests only: theirs records the statements it is asked, which is
+ * the one way the Cypher's order and parameters are checked without a database.
+ */
+export function useNeo4jDriver(replacement: Driver): void {
+  driver = replacement;
 }

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { EXAMPLE_HOME } from './example/paths';
 import { ArrowRight, Check, CheckCircle2, CloudOff, FileText, Lock, Menu, Minus, Plus, Smartphone, Sparkles, Waypoints, X } from 'lucide-react';
-import { DEPARTMENTS, STAGES, SUB_STAGE_LABEL, type DepartmentKey, type StageKey } from '@realytica/shared';
+import { DEPARTMENTS, DEPARTMENT_SHORT, MENU_DEPARTMENTS, STAGES, SUB_STAGE_LABEL, menuDepartment, type DepartmentKey, type StageKey } from '@realytica/shared';
 import { AnimatePresence, EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AiMark, cn } from '../components/ui/kit';
 import { DEPARTMENT_ICON } from '../components/departments/icons';
@@ -735,7 +736,7 @@ export default function Landing() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: EASE_ENTER, delay: 0.35 }}
             >
-              Every project moves through {inWords(STAGES.length)} stages, and its work through {inWords(DEPARTMENTS.length)} departments. Realytica gives each its place — title and approvals, progress and the site, the valuation — reads the documents for you, Kannada included, with the page behind every value, and keeps a copilot beside every view.
+              Every project moves through {inWords(STAGES.length)} stages, and its work through {inWords(MENU_DEPARTMENTS.length)} departments. Realytica gives each its place — title and approvals, progress and the site, the valuation — reads the documents for you, Kannada included, with the page behind every value, and keeps a copilot beside every view.
             </motion.p>
             <motion.div
               className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
@@ -750,6 +751,11 @@ export default function Landing() {
               <a href="#structure" className="inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-surface">
                 See how it is organised
               </a>
+              {/* The one thing here that can be tried without an account: a whole project, with made-up data. */}
+              <Link to={EXAMPLE_HOME} className="group inline-flex items-center justify-center gap-1.5 px-2 py-3 text-[14px] font-medium text-brand hover:underline">
+                Open an example project
+                <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+              </Link>
             </motion.div>
             <motion.p
               className="mt-6 flex items-start gap-2 text-[13px] text-ink-muted"
@@ -775,7 +781,7 @@ export default function Landing() {
             title="Organised the way the work is."
             note={
               <>
-                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(DEPARTMENTS.length)} departments and the workstreams inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold.
+                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(MENU_DEPARTMENTS.length)} departments and the functions inside them. {DEPARTMENT_SHORT.design} is worked inside {DEPARTMENT_SHORT[menuDepartment('design')]} and is shown on its own here. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold.
                 <span className="hidden lg:inline"> Point at a department to follow its work across the life of the project.</span>
                 <span className="lg:hidden"> Pick a stage to see what each department produces in it.</span>
               </>
@@ -846,7 +852,7 @@ export default function Landing() {
             title="See what a change reaches."
             note={
               <>
-                The project is a graph — stages, departments, workstreams and every record in them. When an approval lapses, the walk shows what it gates and what that feeds, and who is standing on each. <span className="inline-flex items-center gap-1 text-ink"><Waypoints size={14} /> Walked in Neo4j.</span>
+                The project is a graph — stages, departments, functions and every record in them. When an approval lapses, the walk shows what it gates and what that feeds, and who is standing on each. <span className="inline-flex items-center gap-1 text-ink"><Waypoints size={14} /> Walked in Neo4j.</span>
               </>
             }
           />
@@ -879,7 +885,7 @@ export default function Landing() {
           <InView className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="max-w-[62ch] space-y-4 text-[16px] leading-[1.7] text-ink-secondary">
               <p>
-                A portfolio by stage, a workspace per project with its departments and their workstreams, one chat across all of it, a graph of how the work connects, and a site app for Android and iOS. Reports are built from the records and export to Word or PDF.
+                A portfolio by stage, a workspace per project with its departments and their functions, one chat across all of it, a graph of how the work connects, and a site app for Android and iOS. Reports are built from the records and export to Word or PDF.
               </p>
               <p>
                 It is <span className="font-medium text-ink">not</span> a certified valuation, a legal title certificate or a live-registry product. Indicative figures and AI drafts sit on the same records and never replace a registered valuer or the engineer who signs.

@@ -8,11 +8,12 @@
  * and only Anthropic's citations could prove a page. OpenRouter strips those
  * even when the model behind it is Claude.
  *
- * So the page is now checked here: against the page's own text where this
- * server read it, or by cutting that one page out and asking a reader whether
- * the words are printed on it. These tests hold the rule that matters: a page
- * reaches a fact only when its words were found on it, and a quote looked for
- * on its page and not there is dropped.
+ * So the page is now checked here: the value against the words quoted for
+ * it, then against the page's own text where this server read it, then by
+ * cutting that one page out and asking a second reader for the value by its
+ * name. These tests hold the rules that matter: a page reaches a fact only
+ * when the value was found on it; an exact value is held to its own quote;
+ * and the second reader is never shown what the first one read.
  */
 
 import assert from 'node:assert/strict';
@@ -21,19 +22,24 @@ import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import {
-  answerConfirms,
   findQuoteInPages,
+  itemsPrompt,
   normalizeForPage,
   onePagePdf,
+  numbersIn,
   pageHolds,
-  passagesPrompt,
+  pageStates,
   pdfPageCount,
-  placeQuotes,
-  type CheckPage,
+  placeReadings,
+  quoteStates,
+  sameReading,
+  type PageReading,
+  type ReadPage,
+  type ReadingToPlace,
 } from '../packages/agents/src/agents/page-check';
 import { CUT_OFF_REASON, describeChecks, originalPage, runDocumentIntelligence } from '../packages/agents/src/agents/document-intelligence';
 import { enrichIngestWithDocumentIntelligence } from '../packages/agents/src/project/ingest-intelligence';
-import { createProject, type CaseDocument, type ChatIngestFile, type PropertyIdentity } from '../packages/shared/src';
+import { acceptedOneAtATime, createProject, STANDARD_FACT_KEYS, standardFact, type CaseDocument, type ChatIngestFile, type PropertyIdentity } from '../packages/shared/src';
 
 /** Each page of the test PDF is one point wider than the last, so a reader shown one page can tell which it is. */
 const PAGE_TEXT = [
@@ -76,6 +82,19 @@ describe('matching a quote against a page', () => {
     assert.equal(pageHolds('Sy 51', 'Sy'), false, 'too short to say where it is');
   });
 
+  it('holds a number to its every digit, however many of the other words are there', () => {
+    // Every word of the quote but its last is on the page, and that last is a digit out: one character, too short to count as a word.
+    const page = 'The schedule property is the land in Survey No. 73/4 of Navilugudda Village, Kallusanka Hobli, measuring 2,450 square metres';
+    assert.equal(pageHolds(page, 'the land in Survey No. 73/1 of Navilugudda Village, Kallusanka Hobli'), false, '73/1 is not on a page that prints 73/4');
+    assert.equal(pageHolds(page, 'the land in Survey No. 73/4 of Navilugudda Village, Kallusanka Hobli'), true);
+    assert.equal(pageHolds(page, 'Village, Kallusanka Hobli, measuring 2,540 square metres'), false, 'nor 2,540 on one that prints 2,450');
+    assert.equal(pageHolds('Khata No. 1907/88/32 of the register', 'Khata No. 1907/88/3'), false, 'a number is not found inside a longer one');
+    assert.equal(pageHolds('ಸರ್ವೆ ನಂಬರ್ 141/2 ರ ಜಮೀನು', 'ಸರ್ವೆ ನಂಬರ್ 141/2'), true);
+    assert.equal(pageHolds('ಸರ್ವೆ ನಂಬರ್ 141/2 ರ ಜಮೀನು', 'ಸರ್ವೆ ನಂಬರ್ 143/2'), false);
+    assert.equal(pageHolds('ಸರ್ವೆ ನಂಬರ್ ೧೪೧/೨ ರ ಜಮೀನು, ಕಲ್ಲುಸಂಕ ಹೋಬಳಿ', 'ಸರ್ವೆ ನಂಬರ್ ೧೪೩/೨ ರ ಜಮೀನು, ಕಲ್ಲುಸಂಕ ಹೋಬಳಿ'), false, 'in whichever digits the page writes it');
+    assert.deepEqual(numbersIn('Rs. 3,18,50,000/- on 09-07-2021 for Sy. No. 73/4.'), ['3-18-50-000', '09-07-2021', '73-4']);
+  });
+
   it('places a quote on the page that holds it, preferring the page the reading named', () => {
     const pages = ['Khata No. KH-7741-B/2019', 'Nothing here', 'Khata No. KH-7741-B/2019 repeated'];
     assert.equal(findQuoteInPages('Khata No. KH-7741-B/2019', pages, 3), 3, 'the named page holds it, so it is that page');
@@ -84,40 +103,165 @@ describe('matching a quote against a page', () => {
   });
 });
 
-describe('a reader’s answer about one page', () => {
-  it('confirms only when it says present and copies out the same words', () => {
-    const quote = 'Sale consideration Rs. 45,00,000 paid in full';
-    assert.ok(answerConfirms(quote, { present: true, text: 'Sale consideration Rs.45,00,000 paid in full' }));
-    assert.equal(answerConfirms(quote, { present: true, text: 'Stamp duty Rs. 2,92,500 paid' }), false, 'present, but other words');
-    assert.equal(answerConfirms(quote, { present: true }), false, 'present, with nothing copied out');
-    assert.equal(answerConfirms(quote, { present: false, text: quote }), false);
-    assert.equal(answerConfirms(quote, undefined), false);
+describe('a value held to the words quoted for it', () => {
+  it('holds a date to the day its quote states', () => {
+    // The shape of a reading measured on 5 October 2026: the quote right, the value a digit out.
+    assert.equal(quoteStates({ key: 'ec_to', value: '31-01-2024' }, 'Period of search: from 01-04-1994 to 31-03-2024'), false);
+    assert.equal(quoteStates({ key: 'ec_to', value: '31-03-2024' }, 'Period of search: from 01-04-1994 to 31-03-2024'), true);
+    assert.equal(quoteStates({ key: 'registration_date', value: '28-06-2011' }, 'made on the 28th day of June 2011 at Bengaluru'), true, 'however the page writes the day');
+    assert.equal(quoteStates({ key: 'registration_date', value: '28-06-2011' }, 'registered as document number 2811 of 2011'), false, 'digits that are not that date are not that date');
+    assert.equal(quoteStates({ key: 'ec_from', value: '01-04-1994' }, 'ಶೋಧನೆಯ ಅವಧಿ: ೦೧-೦೪-೧೯೯೪ ರಿಂದ'), true, 'in whichever digits the page writes it');
   });
 
-  it('numbers the passages it is shown', () => {
-    assert.equal(passagesPrompt(['one\n two', 'three']), 'Passages:\n1. one two\n2. three');
+  it('holds an area and a width to the unit its quote writes, not to the number alone', () => {
+    // Measured by the third review: 2,450 sqm placed by the words "measuring 2,450 square feet", and taken by "accept all".
+    assert.equal(quoteStates({ key: 'extent_title', value: '2,450', unit: 'sqm' }, 'measuring 2,450 square feet'), false);
+    assert.equal(quoteStates({ key: 'extent_title', value: '2,450', unit: 'sqft' }, 'measuring 2,450 square feet'), true);
+    assert.equal(quoteStates({ key: 'extent_title', value: '12', unit: 'acres' }, 'and a second item measuring 12 guntas'), false);
+    assert.equal(quoteStates({ key: 'extent_khata', value: '1 acre' }, 'Extent held: 1 Acre 22 Guntas'), false, 'the whole measure, not its first part');
+    assert.equal(quoteStates({ key: 'road_width_ft', value: '30', unit: 'ft' }, 'abutting a road 30 metres wide'), false);
+    // Where the quote writes no unit the rules know, the figure alone is looked for, and the value is accepted one at a time.
+    const bare = { key: 'extent_khata', label: 'Extent per khata', value: 1115, unit: 'sqm', display: '1,115 sqm', page: 1, quote: 'ನಿವೇಶನದ ವಿಸ್ತೀರ್ಣ: 1,115 ಚದರ ಮೀಟರ್', source: 'model' as const, proof: 'page_text' as const };
+    assert.equal(acceptedOneAtATime(bare), true);
+    assert.equal(acceptedOneAtATime({ ...bare, quote: 'Site area: 1,115 square metres' }), false);
+    // A date, an amount and an area in Kannada digits are put in the rules' forms.
+    assert.deepEqual([standardFact('ec_to', '೩೧-೦೩-೨೦೨೪')?.value, standardFact('consideration', '೩,೧೮,೫೦,೦೦೦')?.value, standardFact('extent_khata', '೧,೧೧೫', 'sqm')?.value], ['2024-03-31', 31850000, 1115]);
+  });
+
+  it('holds an area, a width and a count to a figure in the quote', () => {
+    assert.equal(quoteStates({ key: 'extent_title', value: '2450', unit: 'sqm' }, 'measuring 2,450 square metres'), true);
+    assert.equal(quoteStates({ key: 'extent_title', value: '2540', unit: 'sqm' }, 'measuring 2,450 square metres'), false);
+    assert.equal(quoteStates({ key: 'extent_khata', value: '1 acre 22 guntas' }, 'Extent held: 1 Acre 22 Guntas'), true);
+    assert.equal(quoteStates({ key: 'extent_khata', value: '1,115', unit: 'sqm' }, 'ನಿವೇಶನದ ವಿಸ್ತೀರ್ಣ: 1,115 ಚದರ ಮೀಟರ್'), true, 'a unit in another script cannot be converted, and the figure is still there');
+    assert.equal(quoteStates({ key: 'extent_khata', value: '1,151', unit: 'sqm' }, 'ನಿವೇಶನದ ವಿಸ್ತೀರ್ಣ: 1,115 ಚದರ ಮೀಟರ್'), false);
+    assert.equal(quoteStates({ key: 'road_width_ft', value: '60', unit: 'ft' }, 'abutting a road 30 feet wide'), false, 'the width measured wrong on 5 October: 60 for a page that prints 30');
+    assert.equal(quoteStates({ key: 'road_width_ft', value: '30', unit: 'ft' }, 'abutting a road 9.14 metres wide'), true, 'the same width, as the page writes it');
+    assert.equal(quoteStates({ key: 'subsisting_charges', value: '2' }, 'a mortgage dated 2-3-2019 in favour of the bank'), false, 'the 2 of a date is not a count of two');
+    assert.equal(quoteStates({ key: 'ec_transactions', value: '4' }, 'Number of transactions found: 4'), true);
+    assert.equal(quoteStates({ key: 'permissible_far', value: '2.25' }, 'permissible FAR of 2.25 on the plot'), true);
+  });
+
+  it('holds an amount and an identifier as before, and more strictly', () => {
+    assert.equal(quoteStates({ key: 'consideration', value: '3185000' }, 'ರೂ. 3,18,50,000'), false, 'a digit short');
+    assert.equal(quoteStates({ key: 'consideration', value: '31850000' }, 'ರೂ. 3,18,50,000'), true);
+    assert.equal(quoteStates({ key: 'consideration', value: '31800000' }, 'for a sum of Rs. 3.18 crore only'), true, 'said in crores');
+    assert.equal(quoteStates({ key: 'survey_numbers', value: '73/4' }, 'Survey No. 73/4, situated at Navilugudda Village'), true);
+    assert.equal(quoteStates({ key: 'survey_numbers', value: '73/1' }, 'Survey No. 73/4, situated at Navilugudda Village'), false);
+    assert.equal(quoteStates({ key: 'survey_numbers', value: '73/4' }, 'Survey No. 7/34 of the village'), false, 'the same digits cut differently are another number');
+    assert.equal(quoteStates({ key: 'survey_numbers', value: '73/4' }, 'Survey No. 73/4/5 of the village'), false, 'nor is a part of 73/4 the whole of it');
+    assert.equal(quoteStates({ key: 'survey_numbers', value: '9' }, 'Survey No. 9/8, Bettadakoppa'), false, 'nor 9 the same as 9/8');
+    assert.equal(quoteStates({ key: 'survey_numbers', value: '73/4, 73/5, 74/1' }, 'Survey Nos. 73/5 and others listed in the schedule'), true, 'a list is held to one of its numbers');
+    assert.equal(quoteStates({ key: 'khata_number', value: '1907/88/3' }, 'ಖಾತಾ ಸಂಖ್ಯೆ: ೧೯೦೭/೮೮/೩'), true);
+  });
+
+  it('asks nothing of a name, a place, or a yes or no, and holds a number under a key of the reader’s own', () => {
+    assert.equal(quoteStates({ key: 'owner', value: 'Rathnamma Siddalingaiah' }, 'Name of the owner: Smt. Rathnamma Siddalingaiah'), true);
+    assert.equal(quoteStates({ key: 'ec_nil', value: 'yes' }, 'no other encumbrance was found'), true);
+    assert.equal(quoteStates({ key: 'agreementDate', value: '12-03-2019' }, 'this agreement dated 12th March 2019'), true);
+    assert.equal(quoteStates({ key: 'agreementDate', value: '12-03-2019' }, 'this agreement dated 21st March 2019'), false);
+    assert.equal(quoteStates({ key: 'plotDimensions', value: '40 ft x 60 ft' }, 'East to West 40 feet and North to South 60 feet'), true);
+    assert.equal(quoteStates({ key: 'plotDimensions', value: '40 ft x 80 ft' }, 'East to West 40 feet and North to South 60 feet'), false);
   });
 });
 
-describe('placing a reading’s quotes', () => {
-  const quotes = [
-    { quote: 'Khata No. KH-7741-B/2019 issued to Sri Ramaiah', hint: 1 },
-    { quote: 'Sale consideration Rs. 45,00,000 paid in full', hint: 2 },
-    { quote: 'bounded on the north by Sy. No. 118/3', hint: 1 }, // really on page 3
-    { quote: 'Document No. BNG-1-02345', hint: undefined }, // on no page, and no page named
+describe('a value on a page', () => {
+  const khata = 'KHATA EXTRACT\nName of the owner: Smt. Rathnamma Siddalingaiah\nKhata No. 1907/88/3';
+
+  it('needs the value’s own words there, not only most of the quote', () => {
+    const quote = (surname: string) => `Name of the owner: Smt. Rathnamma ${surname}`;
+    assert.equal(pageHolds(khata, quote('Siddaramaiah')), true, 'nearly every word of the quote is on the page');
+    assert.equal(pageStates(khata, { key: 'owner', value: 'Rathnamma Siddaramaiah' }, quote('Siddaramaiah')), false, 'and the surname that is the value is not');
+    assert.equal(pageStates(khata, { key: 'owner', value: 'Rathnamma Siddalingaiah' }, quote('Siddalingaiah')), true);
+    assert.equal(pageStates(khata, { key: 'owner', value: 'Rathnamma' }, quote('Siddalingaiah')), true, 'a name the page does print, however short');
+  });
+
+  it('takes the value as the page prints it, where the page is not in English', () => {
+    const page = 'ಮಾಲೀಕರ ಹೆಸರು: ಶ್ರೀಮತಿ ರತ್ನಮ್ಮ ಸಿದ್ದಲಿಂಗಯ್ಯ';
+    assert.equal(pageStates(page, { key: 'owner', value: 'Rathnamma Siddalingaiah', originalValue: 'ರತ್ನಮ್ಮ ಸಿದ್ದಲಿಂಗಯ್ಯ' }, 'ಮಾಲೀಕರ ಹೆಸರು: ಶ್ರೀಮತಿ ರತ್ನಮ್ಮ ಸಿದ್ದಲಿಂಗಯ್ಯ'), true);
+    assert.equal(pageStates(page, { key: 'owner', value: 'Rathnamma Siddaramaiah', originalValue: 'ರತ್ನಮ್ಮ ಸಿದ್ದರಾಮಯ್ಯ' }, 'ಮಾಲೀಕರ ಹೆಸರು: ಶ್ರೀಮತಿ ರತ್ನಮ್ಮ ಸಿದ್ದಲಿಂಗಯ್ಯ'), false);
+    assert.equal(pageStates(page, { key: 'owner', value: 'Rathnamma Siddalingaiah' }, 'ಮಾಲೀಕರ ಹೆಸರು: ಶ್ರೀಮತಿ ರತ್ನಮ್ಮ ಸಿದ್ದಲಿಂಗಯ್ಯ'), false, 'a spelling in Latin letters is on no Kannada page');
+  });
+
+  it('rests a yes or no, and an exact value, on the quote', () => {
+    assert.equal(pageStates('It is certified that no other encumbrance was found for the period.', { key: 'ec_nil', value: 'yes' }, 'no other encumbrance was found'), true);
+    assert.equal(pageStates(khata, { key: 'khata_number', value: '1907/88/3' }, 'Khata No. 1907/88/3'), true);
+  });
+});
+
+describe('two readings of one thing', () => {
+  it('compares each in the form its key is kept in', () => {
+    assert.equal(sameReading('ec_to', { key: 'ec_to', value: '31-03-2024' }, { key: 'ec_to', value: '31 March 2024' }), true);
+    assert.equal(sameReading('ec_to', { key: 'ec_to', value: '31-01-2024' }, { key: 'ec_to', value: '31-03-2024' }), false);
+    assert.equal(sameReading('consideration', { key: 'consideration', value: '31850000' }, { key: 'consideration', value: '3,18,50,000' }), true);
+    assert.equal(sameReading('extent_title', { key: 'extent_title', value: '2450', unit: 'sqm' }, { key: 'extent_title', value: '2,450 square metres' }), true);
+    assert.equal(sameReading('extent_title', { key: 'extent_title', value: '2450', unit: 'sqm' }, { key: 'extent_title', value: '2450', unit: 'sqft' }), false, 'the same figure in another unit is another area');
+    assert.equal(sameReading('road_width_ft', { key: 'road_width_ft', value: '60', unit: 'ft' }, { key: 'road_width_ft', value: '30', unit: 'ft' }), false);
+    assert.equal(sameReading('ec_nil', { key: 'ec_nil', value: 'yes' }, { key: 'ec_nil', value: 'no' }), false);
+    assert.equal(sameReading('khata_type', { key: 'khata_type', value: 'A Khata' }, { key: 'khata_type', value: 'A-Khata' }), true);
+  });
+
+  it('takes an identifier part by part, and a list as the same set', () => {
+    assert.equal(sameReading('survey_numbers', { key: 'survey_numbers', value: 'Survey No. 73/4' }, { key: 'survey_numbers', value: '73/4' }), true);
+    assert.equal(sameReading('survey_numbers', { key: 'survey_numbers', value: '73/4' }, { key: 'survey_numbers', value: '73/1' }), false);
+    assert.equal(sameReading('survey_numbers', { key: 'survey_numbers', value: '73/4' }, { key: 'survey_numbers', value: '7/34' }), false);
+    assert.equal(sameReading('survey_numbers', { key: 'survey_numbers', value: '73/4, 73/5' }, { key: 'survey_numbers', value: '73/5 and 73/4' }), true);
+    assert.equal(sameReading('survey_numbers', { key: 'survey_numbers', value: '73/4, 73/5' }, { key: 'survey_numbers', value: '73/4' }), false, 'one of two is not both');
+    assert.equal(sameReading('pid', { key: 'pid', value: '47-212-0903' }, { key: 'pid', value: '47/212/0903' }), true);
+  });
+
+  it('takes a name as the same name, never roughly the same', () => {
+    assert.equal(sameReading('owner', { key: 'owner', value: 'Smt. Rathnamma Siddalingaiah' }, { key: 'owner', value: 'Rathnamma Siddalingaiah' }), true, 'an honorific apart');
+    assert.equal(sameReading('owner', { key: 'owner', value: 'Rathnamma Siddaramaiah' }, { key: 'owner', value: 'Rathnamma Siddalingaiah' }), false, 'another surname');
+    assert.equal(sameReading('owner', { key: 'owner', value: 'Narasimha Murthy' }, { key: 'owner', value: 'Narasimhamurthy' }), true, 'one name spaced two ways');
+    assert.equal(sameReading('owner', { key: 'owner', value: 'Ramaiah' }, { key: 'owner', value: 'K. Ramaiah Gowda' }), false, 'a part of a name is not the name');
+    assert.equal(
+      sameReading('owner', { key: 'owner', value: 'Siddalingayya', originalValue: 'ಸಿದ್ದಲಿಂಗಯ್ಯ' }, { key: 'owner', value: 'Siddalingaiah', originalValue: 'ಸಿದ್ದಲಿಂಗಯ್ಯ' }),
+      true,
+      'two spellings in Latin letters of one name as the page prints it',
+    );
+    assert.equal(sameReading('boundaryNorth', { key: 'boundaryNorth', value: 'a road' }, { key: 'boundaryNorth', value: 'a road' }), false, 'a key of the reader’s own is not asked, so is never agreed');
+  });
+
+  it('shows the second reader the names of what to read, and nothing anybody read', () => {
+    const prompt = itemsPrompt(['survey_numbers', 'ec_to', 'khata_type']);
+    assert.equal(
+      prompt,
+      [
+        'Read these from the page:',
+        `1. Survey number: ${STANDARD_FACT_KEYS.survey_numbers!.says}`,
+        `2. EC searched to: ${STANDARD_FACT_KEYS.ec_to!.says}`,
+        `3. Khata type: ${STANDARD_FACT_KEYS.khata_type!.says}; one of: A-Khata, B-Khata, E-Khata`,
+      ].join('\n'),
+    );
+  });
+});
+
+describe('placing a reading’s values', () => {
+  const readings: ReadingToPlace[] = [
+    { key: 'khata_number', value: 'KH-7741-B/2019', quote: 'Khata No. KH-7741-B/2019 issued to Sri Ramaiah', hint: 1 },
+    { key: 'consideration', value: '4500000', unit: 'INR', quote: 'Sale consideration Rs. 45,00,000 paid in full', hint: 2 },
+    { key: 'boundary_north', value: 'Sy. No. 118/3', quote: 'bounded on the north by Sy. No. 118/3', hint: 1 }, // really on page 3
+    { key: 'document_number', value: 'BNG-1-02345', quote: 'Document No. BNG-1-02345', hint: undefined }, // on no page, and no page named
   ];
 
-  /** A reader that sees the test document's pages, recording what it was asked. */
-  function reader(asked: Array<{ page: number; quotes: string[] }>): CheckPage {
-    return async (page, qs) => {
-      asked.push({ page, quotes: qs });
-      return qs.map((q) => (pageHolds(PAGE_TEXT[page - 1] ?? '', q) ? { present: true, text: q } : { present: false }));
+  /** What each page of the test document states, as a second reader that reads it for itself would give it. */
+  const ON_PAGE: Array<Record<string, PageReading>> = [
+    { khata_number: { found: true, value: 'KH-7741-B/2019', words: 'Khata No. KH-7741-B/2019 issued to Sri Ramaiah' } },
+    { consideration: { found: true, value: '45,00,000', words: 'Sale consideration Rs. 45,00,000 paid in full' } },
+    { boundary_north: { found: true, value: 'Sy. No. 118/3', words: 'bounded on the north by Sy. No. 118/3' } },
+  ];
+
+  /** A second reader that reads the test document's pages for itself, recording what it was asked. */
+  function reader(asked: Array<{ page: number; keys: string[] }>, pages = ON_PAGE): ReadPage {
+    return async (page, keys) => {
+      asked.push({ page, keys });
+      return keys.map((key) => pages[page - 1]?.[key] ?? { found: false });
     };
   }
 
   it('places from the text when it has it, wherever the reading said, and calls no model', async () => {
-    const asked: Array<{ page: number; quotes: string[] }> = [];
-    const { placements, pagesChecked } = await placeQuotes({ quotes, pageTexts: PAGE_TEXT, checkPage: reader(asked) });
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const { placements, pagesChecked } = await placeReadings({ readings, pageTexts: PAGE_TEXT, readPage: reader(asked) });
     assert.deepEqual(placements.slice(0, 3), [
       { status: 'placed', page: 1, method: 'text' },
       { status: 'placed', page: 2, method: 'text' },
@@ -128,9 +272,33 @@ describe('placing a reading’s quotes', () => {
     assert.equal(asked.length, 0);
   });
 
-  it('otherwise reads each named page once, with every quote said to be on it', async () => {
-    const asked: Array<{ page: number; quotes: string[] }> = [];
-    const { placements, pagesChecked } = await placeQuotes({ quotes, pageCount: 3, checkPage: reader(asked) });
+  it('does not place an exact value by words OCR read, and has the page read a second time instead', async () => {
+    // Page 2 is a scan: its words here are OCR's. The amount is in them, and so is the vendor's name.
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const mixed: ReadingToPlace[] = [
+      { key: 'consideration', value: '4500000', quote: 'Sale consideration Rs. 45,00,000 paid in full', hint: 2 },
+      { key: 'vendor', value: 'Ramaiah', quote: 'Khata No. KH-7741-B/2019 issued to Sri Ramaiah', hint: 2 },
+      { key: 'khata_number', value: 'KH-7741-B/2019', quote: 'Khata No. KH-7741-B/2019 issued to Sri Ramaiah', hint: 1 },
+      { key: 'stamp_duty', value: '4500000', quote: 'Sale consideration Rs. 45,00,000 paid in full', hint: undefined },
+    ];
+    const { placements, pagesChecked } = await placeReadings({ readings: mixed, pageTexts: PAGE_TEXT, ocrPages: [2], pageCount: 3, readPage: reader(asked) });
+    assert.deepEqual(placements, [
+      { status: 'placed', page: 2, method: 'page' },
+      { status: 'placed', page: 1, method: 'text' },
+      { status: 'placed', page: 1, method: 'text' },
+      { status: 'unchecked' },
+    ], 'the exact one on the scanned page by a second reading; a name, and one on a page with a text layer, by the text; one with no page to look on, not at all');
+    assert.equal(pagesChecked, 1);
+    assert.deepEqual(asked, [{ page: 2, keys: ['consideration'] }], 'asked for the key, and handed no value and no quote');
+
+    // With no second reader, it stays unchecked: OCR's words do not stand in for the page.
+    const alone = await placeReadings({ readings: mixed.slice(0, 1), pageTexts: PAGE_TEXT, ocrPages: [2], pageCount: 3 });
+    assert.deepEqual(alone.placements, [{ status: 'unchecked' }]);
+  });
+
+  it('otherwise has each named page read once, for every key said to be on it', async () => {
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const { placements, pagesChecked } = await placeReadings({ readings, pageCount: 3, readPage: reader(asked) });
     assert.deepEqual(placements, [
       { status: 'placed', page: 1, method: 'page' },
       { status: 'placed', page: 2, method: 'page' },
@@ -138,47 +306,104 @@ describe('placing a reading’s quotes', () => {
       { status: 'unchecked' },
     ]);
     assert.equal(pagesChecked, 2);
-    assert.deepEqual(asked.map((a) => [a.page, a.quotes.length]).sort(), [[1, 2], [2, 1]], 'one read per page, the busiest first');
+    assert.deepEqual(asked.map((a) => [a.page, a.keys.length]).sort(), [[1, 2], [2, 1]], 'one read per page, the busiest first');
   });
 
-  it('leaves quotes unchecked, never refuted, when a page could not be read', async () => {
-    const { placements } = await placeQuotes({ quotes: quotes.slice(0, 2), pageCount: 3, checkPage: async () => null });
+  it('refutes a value the second reader read differently, and does not take the second reader’s for it', async () => {
+    // The first reader's value is a digit out, in the value and in its quote alike. A reader shown that quote would say yes to it.
+    const wrong: ReadingToPlace[] = [
+      { key: 'ec_to', value: '31-01-2024', quote: 'Period of search: from 01-04-1994 to 31-01-2024', hint: 1 },
+      { key: 'owner', value: 'Rathnamma Siddaramaiah', quote: 'Name of the owner: Smt. Rathnamma Siddaramaiah', hint: 1 },
+      { key: 'survey_numbers', value: '143/2', quote: 'ಸರ್ವೆ ನಂಬರ್ 143/2', hint: 1 },
+    ];
+    const page: Record<string, PageReading> = {
+      ec_to: { found: true, value: '31-03-2024', words: 'to 31-03-2024' },
+      owner: { found: true, value: 'Rathnamma Siddalingaiah', words: 'Name of the owner: Smt. Rathnamma Siddalingaiah' },
+      survey_numbers: { found: true, value: '141/2', words: 'ಸರ್ವೆ ನಂಬರ್ 141/2' },
+    };
+    const { placements } = await placeReadings({ readings: wrong, pageCount: 1, readPage: reader([], [page]) });
+    assert.deepEqual(placements, [{ status: 'refuted', page: 1 }, { status: 'refuted', page: 1 }, { status: 'refuted', page: 1 }]);
+  });
+
+  it('goes no further with an exact value its own quote does not state', async () => {
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const split: ReadingToPlace[] = [{ key: 'ec_to', value: '31-01-2024', quote: 'Period of search: from 01-04-1994 to 31-03-2024', hint: 1 }];
+    // The page's text holds the quote, and a second reader would agree with the value: neither is asked.
+    const agreeing: Record<string, PageReading> = { ec_to: { found: true, value: '31-01-2024', words: 'to 31-01-2024' } };
+    const { placements, pagesChecked } = await placeReadings({ readings: split, pageTexts: ['Period of search: from 01-04-1994 to 31-03-2024'], pageCount: 1, readPage: reader(asked, [agreeing]) });
+    assert.deepEqual(placements, [{ status: 'unsupported' }]);
+    assert.equal(pagesChecked, 0);
+    assert.equal(asked.length, 0);
+  });
+
+  it('does not take a second reading that cannot show its own words', async () => {
+    const one: ReadingToPlace[] = [{ key: 'ec_to', value: '31-03-2024', quote: 'to 31-03-2024', hint: 1 }];
+    const unshown: Record<string, PageReading> = { ec_to: { found: true, value: '31-03-2024', words: 'the period of search ends on the date above' } };
+    const { placements } = await placeReadings({ readings: one, pageCount: 1, readPage: reader([], [unshown]) });
+    assert.deepEqual(placements, [{ status: 'unchecked' }], 'a value it gave with no words that state it is not a second reading');
+  });
+
+  it('places a value only on a page the first reader was sent', async () => {
+    // Ten pages. The office of an earlier deed is named on page 1; only pages 9 and 10 were sent.
+    const pages = ['registered in the office of the Sub-Registrar, Suvarnagiri', ...Array.from({ length: 7 }, () => 'conditions of the conveyance'), 'the schedule property', 'in witness whereof'];
+    const read: ReadingToPlace[] = [{ key: 'sub_registrar', value: 'Suvarnagiri', quote: 'in the office of the Sub-Registrar, Suvarnagiri', hint: 10 }];
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const none = await placeReadings({ readings: read, pageTexts: pages, pageCount: 10, pagesSent: [9, 10], readPage: reader(asked, []) });
+    assert.deepEqual(none.placements, [{ status: 'refuted', page: 10 }], 'not placed on page 1, which it never saw; the page it named was read a second time and does not state it');
+    assert.deepEqual(asked, [{ page: 10, keys: ['sub_registrar'] }]);
+    const whole = await placeReadings({ readings: read, pageTexts: pages, pageCount: 10 });
+    assert.deepEqual(whole.placements, [{ status: 'placed', page: 1, method: 'text' }], 'sent whole, page 1 is where it was read');
+    // And a page it names that was not sent is not read a second time on its account.
+    const unsent = await placeReadings({ readings: [{ ...read[0]!, hint: 3 }], pageCount: 10, pagesSent: [9, 10], readPage: reader(asked, []) });
+    assert.deepEqual(unsent.placements, [{ status: 'unchecked' }]);
+  });
+
+  it('asks the second reader only for the rules’ own keys', async () => {
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const own: ReadingToPlace[] = [{ key: 'stampVendorLicence', value: 'KA-SV-2291', quote: 'Stamp vendor licence KA-SV-2291', hint: 1 }];
+    const { placements } = await placeReadings({ readings: own, pageCount: 1, readPage: reader(asked) });
+    assert.deepEqual(placements, [{ status: 'unchecked' }], 'there is no fixed name to ask it by');
+    assert.equal(asked.length, 0);
+  });
+
+  it('leaves values unchecked, never refuted, when a page could not be read', async () => {
+    const { placements } = await placeReadings({ readings: readings.slice(0, 2), pageCount: 3, readPage: async () => null });
     assert.deepEqual(placements, [{ status: 'unchecked' }, { status: 'unchecked' }]);
-    const thrown = await placeQuotes({ quotes: quotes.slice(0, 1), pageCount: 3, checkPage: async () => { throw new Error('rate limited'); } });
+    const thrown = await placeReadings({ readings: readings.slice(0, 1), pageCount: 3, readPage: async () => { throw new Error('rate limited'); } });
     assert.deepEqual(thrown.placements, [{ status: 'unchecked' }]);
   });
 
-  it('leaves a quote unchecked when the reader could not make out its part of the page', async () => {
-    const { placements } = await placeQuotes({
-      quotes: quotes.slice(0, 2),
+  it('leaves a value unchecked when the reader could not make out its part of the page', async () => {
+    const { placements } = await placeReadings({
+      readings: readings.slice(0, 2),
       pageCount: 3,
-      checkPage: async (_page, qs) => qs.map(() => ({ present: false, legible: false })),
+      readPage: async (_page, keys) => keys.map(() => ({ found: false, legible: false })),
     });
-    assert.deepEqual(placements, [{ status: 'unchecked' }, { status: 'unchecked' }], 'a script the reader cannot read is no evidence the words are not there');
+    assert.deepEqual(placements, [{ status: 'unchecked' }, { status: 'unchecked' }], 'a script the reader cannot read is no evidence the value is not there');
   });
 
-  it('leaves a quote unchecked when the reader gave no answer about it', async () => {
-    const { placements } = await placeQuotes({ quotes: quotes.slice(0, 1), pageCount: 3, checkPage: async () => [undefined] });
+  it('leaves a value unchecked when the reader gave no answer about it', async () => {
+    const { placements } = await placeReadings({ readings: readings.slice(0, 1), pageCount: 3, readPage: async () => [undefined] });
     assert.deepEqual(placements, [{ status: 'unchecked' }]);
   });
 
-  it('spends at most its page budget, on the pages with the most quotes', async () => {
-    const asked: Array<{ page: number; quotes: string[] }> = [];
-    const { placements } = await placeQuotes({ quotes, pageCount: 3, checkPage: reader(asked), maxPages: 1 });
-    assert.deepEqual(asked.map((a) => a.page), [1], 'page 1 has two quotes');
+  it('spends at most its page budget, on the pages with the most values', async () => {
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const { placements } = await placeReadings({ readings, pageCount: 3, readPage: reader(asked), maxPages: 1 });
+    assert.deepEqual(asked.map((a) => a.page), [1], 'page 1 has two values');
     assert.deepEqual(placements[1], { status: 'unchecked' }, 'page 2 was over the budget');
   });
 
   it('ignores a named page the document does not have', async () => {
-    const asked: Array<{ page: number; quotes: string[] }> = [];
-    const { placements } = await placeQuotes({ quotes: [{ quote: 'Sale consideration Rs. 45,00,000', hint: 9 }], pageCount: 3, checkPage: reader(asked) });
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const { placements } = await placeReadings({ readings: [{ ...readings[1]!, hint: 9 }], pageCount: 3, readPage: reader(asked) });
     assert.deepEqual(placements, [{ status: 'unchecked' }]);
     assert.equal(asked.length, 0);
   });
 
   it('looks on page 1 of a one-page document even when no page was named', async () => {
-    const asked: Array<{ page: number; quotes: string[] }> = [];
-    const { placements } = await placeQuotes({ quotes: [{ quote: PAGE_TEXT[0]! }], pageCount: 1, checkPage: reader(asked) });
+    const asked: Array<{ page: number; keys: string[] }> = [];
+    const { placements } = await placeReadings({ readings: [{ ...readings[0]!, hint: undefined }], pageCount: 1, readPage: reader(asked) });
     assert.deepEqual(placements, [{ status: 'placed', page: 1, method: 'page' }]);
   });
 });
@@ -221,7 +446,8 @@ describe('a page the model named, as a page of the original', () => {
   });
 
   it('is described in words a person reads', () => {
-    assert.equal(describeChecks({ placed: 3, refuted: 1, unchecked: 0 }), 'Each quote was looked for on its page here: 3 of 4 found.');
+    assert.equal(describeChecks({ placed: 3, refuted: 1, unchecked: 0 }), 'Each value was looked for on its page here: 3 of 4 found.');
+    assert.equal(describeChecks({ placed: 3, refuted: 0, unchecked: 0, unsupported: 1 }), 'Each value was looked for on its page here: 3 of 4 found.', 'one its own quote does not state was not found either');
     assert.match(describeChecks({ placed: 1, refuted: 0, unchecked: 2 }), /2 could not be checked, so they stay readings with no page/);
     assert.equal(describeChecks({ placed: 0, refuted: 0, unchecked: 0 }), '');
   });
@@ -234,10 +460,13 @@ describe('a page the model named, as a page of the original', () => {
 interface Seen {
   tool: string;
   model: string;
-  /** For a page check: which page it was shown, read off the page's width, and how many pages it had. */
+  /** For a second reading: which page it was shown, read off the page's width, and how many pages it had. */
   page?: number;
   pages?: number;
-  quotes?: string[];
+  /** The keys it was asked for, told from the names it was shown. */
+  keys?: string[];
+  /** Everything it was sent in words, to hold that none of it is what the first reader read. */
+  shown?: string;
 }
 
 /** The extraction a model on a gateway returns: good values, a page for most, no citation for any. */
@@ -246,12 +475,22 @@ const EXTRACTION = {
   kindConfidence: 0.9,
   notes: '',
   fields: [
-    { key: 'khataNumber', label: 'Khata number', value: 'KH-7741-B/2019', unit: null, confidence: 0.92, quote: PAGE_TEXT[0], originalValue: null, page: 1 },
-    { key: 'saleConsideration', label: 'Sale consideration', value: '4500000', unit: 'INR', confidence: 0.9, quote: PAGE_TEXT[1], originalValue: null, page: 2 },
-    { key: 'boundaryNorth', label: 'North boundary', value: 'Sy. No. 118/3', unit: null, confidence: 0.85, quote: 'bounded on the north by Sy. No. 118/3', originalValue: null, page: 1 },
-    { key: 'registrationNumber', label: 'Registration number', value: 'BNG-1-02345', unit: null, confidence: 0.8, quote: 'Document No. BNG-1-02345', originalValue: null, page: null },
+    { key: 'khata_number', label: 'Khata number', value: 'KH-7741-B/2019', unit: null, confidence: 0.92, quote: PAGE_TEXT[0], originalValue: null, page: 1 },
+    { key: 'consideration', label: 'Sale consideration', value: '4500000', unit: 'INR', confidence: 0.9, quote: PAGE_TEXT[1], originalValue: null, page: 2 },
+    { key: 'boundary_north', label: 'North boundary', value: 'Sy. No. 118/3', unit: null, confidence: 0.85, quote: 'bounded on the north by Sy. No. 118/3', originalValue: null, page: 1 },
+    { key: 'document_number', label: 'Registration number', value: 'BNG-1-02345', unit: null, confidence: 0.8, quote: 'Document No. BNG-1-02345', originalValue: null, page: null },
   ],
 };
+
+/** What each page of the test PDF states, as a second reader that reads the page for itself gives it. */
+const SECOND_READER: Array<Record<string, { value: string; words: string }>> = [
+  { khata_number: { value: 'KH-7741-B/2019', words: PAGE_TEXT[0]! } },
+  { consideration: { value: '45,00,000', words: PAGE_TEXT[1]! } },
+  { boundary_north: { value: 'Sy. No. 118/3', words: 'bounded on the north by Sy. No. 118/3' } },
+];
+/** On a photographed sheet, which this stand-in cannot see, it reads what the first reader read. */
+const ON_THE_SHEET = Object.fromEntries(EXTRACTION.fields.map((f) => [f.key, { value: f.value, words: f.quote! }]));
+const KEY_OF_LABEL = new Map(Object.entries(STANDARD_FACT_KEYS).map(([key, known]) => [known.label, key]));
 
 function streamMessage(
   res: ServerResponse,
@@ -303,6 +542,11 @@ describe('a reading through a gateway that returns no citations', () => {
           streamMessage(res, [{ type: 'text', text: 'The first transaction is a sale deed dated' }], 'max_tokens');
           return;
         }
+        if (asked.includes('lift.pdf')) {
+          // A gateway does not hold a model to the list of kinds: a paper it has no name for comes back under one of the model's own.
+          streamMessage(res, [{ type: 'tool_use', name: tool, input: { ...EXTRACTION, kind: 'lift_fitness_certificate', fields: EXTRACTION.fields.slice(0, 1) } }]);
+          return;
+        }
         // Visible text and a tool call, as a model behind a gateway answers: no citations anywhere.
         streamMessage(res, [
           { type: 'text', text: 'The khata number is KH-7741-B/2019.' },
@@ -310,26 +554,26 @@ describe('a reading through a gateway that returns no citations', () => {
         ]);
         return;
       }
-      // A page check: one page (or one image) and numbered passages.
+      // A second reading: one page (or one image) and the numbered names of what to read from it.
       const [part, text] = call.messages[0].content as Array<Record<string, any>>;
-      const quotes = String(text?.text ?? '').split('\n').slice(1).map((line) => line.replace(/^\d+\.\s*/, ''));
+      const keys = String(text?.text ?? '').split('\n').slice(1).map((line) => KEY_OF_LABEL.get(line.replace(/^\d+\.\s*/, '').split(':')[0]!) ?? '');
       let page = 1;
       let pages = 1;
-      let printed = 'any words at all on a photographed sheet';
+      let states: Record<string, { value: string; words: string }> = ON_THE_SHEET;
       if (part?.type === 'document') {
         const doc = await PDFDocument.load(Buffer.from(part.source.data, 'base64'));
         pages = doc.getPageCount();
         page = Math.round(doc.getPage(0).getWidth()) - 500;
-        printed = PAGE_TEXT[page - 1] ?? '';
+        states = SECOND_READER[page - 1] ?? {};
       }
-      seen.push({ tool, model: call.model, page, pages, quotes });
+      seen.push({ tool, model: call.model, page, pages, keys, shown: `${JSON.stringify(call.system)} ${String(text?.text ?? '')}` });
       streamMessage(res, [{
         type: 'tool_use',
         name: tool,
         input: {
-          passages: quotes.map((q, i) => (part?.type !== 'document' || pageHolds(printed, q)
-            ? { n: i + 1, present: true, text: q }
-            : { n: i + 1, present: false, text: null })),
+          values: keys.map((key, i) => (states[key]
+            ? { n: i + 1, found: true, legible: true, value: states[key]!.value, unit: null, originalValue: null, words: states[key]!.words }
+            : { n: i + 1, found: false, legible: true, value: null, unit: null, originalValue: null, words: null })),
         },
       }]);
     });
@@ -361,7 +605,7 @@ describe('a reading through a gateway that returns no citations', () => {
     } as CaseDocument;
   }
 
-  it('files the values found on their pages, drops the one not on its page, and keeps the unplaced one as a reading', async () => {
+  it('files the values a second reader read the same, drops the one not read on its page, and keeps the unplaced one as a reading', async () => {
     seen.length = 0;
     const result = await runDocumentIntelligence({
       caseId: 'case-1', document: document('deed.pdf', 'application/pdf'), fileBytes: await threePagePdf(), identity, now: '2026-10-02T00:00:00.000Z',
@@ -370,24 +614,33 @@ describe('a reading through a gateway that returns no citations', () => {
     assert.ok(result.run.capabilityGaps?.includes('citations_unavailable'), 'the gateway still returned no citations, and that is still recorded');
 
     const byKey = new Map(result.fields.map((f) => [f.key, f]));
-    assert.equal(byKey.get('khataNumber')?.sourcePage, 1);
-    assert.equal(byKey.get('khataNumber')?.pageCheck, 'page');
-    assert.equal(byKey.get('khataNumber')?.confidence, 0.92, 'a checked page keeps the reading’s confidence');
-    assert.equal(byKey.get('saleConsideration')?.sourcePage, 2);
-    assert.equal(byKey.has('boundaryNorth'), false, 'looked for on the page it was said to be on, and not there');
-    const unplaced = byKey.get('registrationNumber');
+    assert.equal(byKey.get('khata_number')?.sourcePage, 1);
+    assert.equal(byKey.get('khata_number')?.pageCheck, 'page');
+    assert.equal(byKey.get('khata_number')?.confidence, 0.92, 'a checked page keeps the reading’s confidence');
+    assert.equal(byKey.get('consideration')?.sourcePage, 2, 'the second reader wrote the amount as the page does, and it is the same amount');
+    assert.equal(byKey.has('boundary_north'), false, 'the page it was said to be on was read a second time, and does not state it');
+    assert.deepEqual((result.unconfirmed ?? []).filter((f) => f.key === 'boundary_north').map((f) => [f.namedPage, f.looked]), [[1, true]], 'it is handed back apart, as looked for and not read there');
+    const unplaced = byKey.get('document_number');
     assert.ok(unplaced, 'a value nothing could check is kept as a reading');
     assert.equal(unplaced.sourcePage, undefined, 'with no page');
     assert.ok(unplaced.confidence <= 0.45, 'and at the discount of an unverified reading');
 
-    const checks = seen.filter((s) => s.tool === 'record_page_check');
-    assert.deepEqual(checks.map((c) => [c.page, c.pages, c.quotes?.length]).sort(), [[1, 1, 2], [2, 1, 1]], 'each page shown alone, once');
-    assert.ok(checks.every((c) => c.model === 'other-vendor/checker'), 'on the model set to check');
+    const second = seen.filter((s) => s.tool === 'record_page_values');
+    assert.deepEqual(second.map((c) => [c.page, c.pages, c.keys]).sort(), [[1, 1, ['khata_number', 'boundary_north']], [2, 1, ['consideration']]], 'each page shown alone, once, with the names of what to read');
+    assert.ok(second.every((c) => c.model === 'other-vendor/checker'), 'on the model set to read a second time');
     assert.equal(seen.find((s) => s.tool === 'record_document_extraction')?.model, 'vendor/reader');
-    assert.equal(result.pageCheckUsage?.length, 2, 'what the checks cost is reported with the reading');
+    assert.equal(result.pageCheckUsage?.length, 2, 'what the second readings cost is reported with the reading');
+    // Blind: nothing the first reader read is in what the second reader was sent, in its prompt or beside the page.
+    for (const call of second) {
+      for (const field of EXTRACTION.fields) {
+        assert.equal(call.shown!.includes(field.value), false, `the second reader was shown the first reader's ${field.key}`);
+        assert.equal(call.shown!.includes(field.quote!), false, `the second reader was shown the words quoted for ${field.key}`);
+      }
+    }
 
-    assert.match(result.notes, /Each quote was looked for on its page here: 2 of 4 found\./);
+    assert.match(result.notes, /Each value was looked for on its page here: 2 of 4 found\./);
     assert.doesNotMatch(result.notes, /self-reported/, 'not said of values that were checked');
+    assert.equal(result.checksCut, undefined, 'and no second reading went unmade for want of time');
   });
 
   it('places from the server’s own text without a single check when it has the pages', async () => {
@@ -397,11 +650,22 @@ describe('a reading through a gateway that returns no citations', () => {
       pageTexts: PAGE_TEXT,
     });
     const pages = Object.fromEntries(result.fields.map((f) => [f.key, [f.sourcePage, f.pageCheck]]));
-    assert.deepEqual(pages.khataNumber, [1, 'text']);
-    assert.deepEqual(pages.saleConsideration, [2, 'text']);
-    assert.deepEqual(pages.boundaryNorth, [3, 'text'], 'found on page 3, though the reading said page 1');
-    assert.equal(seen.filter((s) => s.tool === 'record_page_check').length, 0);
+    assert.deepEqual(pages.khata_number, [1, 'text']);
+    assert.deepEqual(pages.consideration, [2, 'text']);
+    assert.deepEqual(pages.boundary_north, [3, 'text'], 'found on page 3, though the reading said page 1');
+    assert.equal(seen.filter((s) => s.tool === 'record_page_values').length, 0);
     assert.equal(result.pageCheckUsage, undefined);
+  });
+
+  it('keeps a reading under a kind the catalogue does not have, as “other”, and types nothing by it', async () => {
+    seen.length = 0;
+    const result = await runDocumentIntelligence({
+      caseId: 'case-1', document: document('lift.pdf', 'application/pdf'), fileBytes: await threePagePdf(), identity, now: '2026-10-02T00:00:00.000Z',
+      pageTexts: PAGE_TEXT,
+    });
+    assert.equal(result.run.status, 'succeeded', 'a paper the catalogue has no name for is still a paper that was read');
+    assert.deepEqual([result.kind, result.paper], ['other', 'other']);
+    assert.deepEqual(result.fields.map((f) => [f.key, f.sourcePage]), [['khata_number', 1]], 'what it states is kept as any reading is');
   });
 
   it('checks a photographed sheet as page 1', async () => {
@@ -410,9 +674,9 @@ describe('a reading through a gateway that returns no citations', () => {
     const result = await runDocumentIntelligence({
       caseId: 'case-1', document: document('khata.png', 'image/png'), fileBytes: png, identity, now: '2026-10-02T00:00:00.000Z',
     });
-    assert.ok(result.fields.length > 0);
-    assert.ok(result.fields.every((f) => f.sourcePage === 1 && f.pageCheck === 'page'), 'every quote found on the one sheet there is');
-    assert.equal(seen.filter((s) => s.tool === 'record_page_check').length, 1, 'one look at the one sheet');
+    assert.equal(result.fields.length, 4);
+    assert.ok(result.fields.every((f) => f.sourcePage === 1 && f.pageCheck === 'page'), 'every value read a second time on the one sheet there is');
+    assert.equal(seen.filter((s) => s.tool === 'record_page_values').length, 1, 'one look at the one sheet');
   });
 
   it('says a reading was cut off at its length limit, not that the file could not be read', async () => {
@@ -439,8 +703,9 @@ describe('a reading through a gateway that returns no citations', () => {
       caseId: 'case-1', document: document('deed.pdf', 'application/pdf'), fileBytes: await threePagePdf(), identity, now: '2026-10-02T00:00:00.000Z',
       checkDeadline: Date.now() - 1,
     });
-    assert.equal(seen.filter((s) => s.tool === 'record_page_check').length, 0);
+    assert.equal(seen.filter((s) => s.tool === 'record_page_values').length, 0);
     assert.ok(result.fields.every((f) => f.sourcePage === undefined), 'nothing was checked, so nothing has a page');
     assert.equal(result.fields.length, 4, 'and nothing was refuted either');
+    assert.equal(result.checksCut, true, 'and the reading says its checks were cut for time, so the paper is one to read again');
   });
 });

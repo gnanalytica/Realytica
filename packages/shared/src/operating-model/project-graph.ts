@@ -16,7 +16,7 @@
  * chains, parties and instruments the screen already worked out become nodes
  * here, alongside the parcel the file's own particulars describe.
  *
- * Four rules the builder holds to:
+ * Five rules the builder holds to:
  *
  * - **Everything is derived.** A rebuild reproduces this graph exactly from
  *   the registers, so a store holding it is an index. Authored nodes — an
@@ -39,6 +39,18 @@
  *
  * - **The vocabulary is closed.** Kinds and relations come from
  *   `project-ontology.ts` and nothing invents one inline.
+ *
+ * - **Nothing floats.** Every node can be reached from the project. A record
+ *   that nothing places (an action with no finding behind it, a document no
+ *   check cites) is on the file all the same, and a walk that starts at the
+ *   project and never arrives at it has left part of the file out. Whatever
+ *   the registers leave unreached is tied to the project at the end, by the
+ *   relation its kind already has or by `has_record`.
+ *
+ * The frame the records sit in is the one the menu shows: four stages, the
+ * menu's five departments, and their functions, with Design as one function
+ * inside Engineering. The names come from `departments.ts`, the same place
+ * the menu reads them.
  */
 
 import { SCOPE_LABEL } from './catalogs';
@@ -49,6 +61,7 @@ import { REMEDIAL_BAND_LABEL, ricsConditionRating } from './standards';
 import { ensureProjectShape } from './operations';
 import {
   PROJECT_EDGE_KINDS,
+  PROJECT_EDGE_LABEL,
   PROJECT_NODE_KINDS,
   projectEdgeDirectionValid,
   projectEdgeEndpointsValid,
@@ -57,11 +70,36 @@ import {
   type ProjectGraphNodeKind,
 } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
-import { DEPARTMENTS, DEPARTMENT_ROLE_LABEL, STAGES, SUB_STAGES, SUB_STAGE_LABEL, stageAt, workstreamOfCheck, type DepartmentRole } from './departments';
+import {
+  DEPARTMENT_KEYS,
+  DEPARTMENT_ROLE_LABEL,
+  DEPARTMENT_SHORT,
+  MENU_DEPARTMENTS,
+  STAGES,
+  SUB_STAGES,
+  SUB_STAGE_LABEL,
+  departmentDefinition,
+  departmentHomeWorkstream,
+  functionKey,
+  menuDepartment,
+  menuDepartmentsOf,
+  menuFunctions,
+  stageAt,
+  stageOf,
+  withDepartment,
+  workstreamDefinition,
+  workstreamOfCheck,
+  type DepartmentKey,
+  type DepartmentRole,
+  type MenuFunction,
+  type StageKey,
+} from './departments';
+import { questionStatus, questionnaireDepartment, questionnaireSummary } from './questionnaire';
 import { projectDepartments } from './team';
 import { quickAssessment, QUICK_VERDICT_LABEL } from './quick-assessments';
 import { approvalsRegister, APPROVAL_STATUS_LABEL } from './approvals';
-import { projectLinks, type LinkEnd } from './links';
+import { COST_DEDUCTION_LABEL, billLineStatus, billPosition, contractPosition, costRegister, costSourceSaid, moneySaid, packagePosition, type BillLine } from './cost';
+import { linkEdge, projectLinks, type LinkEnd } from './links';
 import { documentWorkstream } from './vault';
 import type { TitleEdgeKind, TitleGraph, TitleGraphSummary, TitleNodeKind } from '../types';
 
@@ -75,6 +113,8 @@ interface Builder {
   node(kind: ProjectGraphNodeKind, id: string, label: string, detail?: string, tags?: { key?: string; status?: string }): string;
   edge(from: string, to: string, rel: ProjectGraphEdgeKind): void;
   has(id: string): boolean;
+  /** The kind of the node written under an id, if one has been. */
+  kindOf(id: string): ProjectGraphNodeKind | undefined;
 }
 
 export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] } {
@@ -121,6 +161,9 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
     has(id) {
       return byId.has(id);
     },
+    kindOf(id) {
+      return byId.get(id)?.kind;
+    },
   };
 
   b.node('project', project.id, project.name, project.reference);
@@ -135,7 +178,108 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
   // legitimately names an evidence row several hundred lines before that row
   // becomes a node.
   const edges = pending.filter(e => byId.has(e.from) && byId.has(e.to));
+  tieUnreached(project.id, nodes, edges);
   return { nodes, edges };
+}
+
+/**
+ * The relation that ties each kind of record to the project when nothing
+ * else places it.
+ *
+ * The kind's own word where it has one and the word is true of a record
+ * nothing places: a risk left unplaced is the project's by `has_risk`, the
+ * same edge a risk with no finding has always had. `has_record` for the
+ * kinds that have no such word, and for the two whose word would claim too
+ * much. The only parcel or party left unreached is one a title chain names
+ * on a file with no land declared, and `sited_at` would say the project
+ * stands on that parcel and `engaged_on` that it engaged that party. A kind
+ * left out is one that always arrives under a parent (a check under its
+ * scope, an answer under its questionnaire, a bill's line and its certificate
+ * under the bill) or that points at the project itself, as every question,
+ * thought and proposal does.
+ */
+const PROJECT_TIE: Partial<Record<ProjectGraphNodeKind, ProjectGraphEdgeKind>> = {
+  department: 'has_department',
+  asset: 'has_asset',
+  parcel: 'has_record',
+  party: 'has_record',
+  authority: 'governed_by',
+  assessment: 'assessed_by',
+  risk: 'has_risk',
+  report: 'reported_in',
+  site_visit: 'has_visit',
+  sheet: 'has_sheet',
+  evidence: 'has_record',
+  finding: 'has_record',
+  action: 'has_record',
+  decision: 'has_record',
+  approval: 'has_record',
+  milestone: 'has_record',
+  site_entry: 'has_record',
+  questionnaire: 'has_record',
+  certified_report: 'has_record',
+  engagement: 'has_record',
+  member: 'has_record',
+  contradiction: 'has_record',
+  work_package: 'has_record',
+  contract: 'has_record',
+  bill: 'has_record',
+};
+
+/**
+ * Ties to the project whatever cannot be reached from it.
+ *
+ * Run last, over the edges that survived the dangling guard, because whether
+ * a record is placed is only known once every register has had its say: an
+ * action is placed by a finding written before it and by a check written
+ * after.
+ *
+ * A record with no edge at all gets one from the project. Records joined only
+ * to each other (an action resting on a document that nothing else cites)
+ * get one between them, on whichever was written first, and the rest are
+ * reached through it. A record the project already reaches gets none, so this
+ * edge is never a second way of saying what another edge says.
+ *
+ * Talk does not place a record. An edge that starts at a question, a thought
+ * or a proposal is left out of the walk: a chat turn citing an action, or a
+ * draft that became one, says the action was discussed, not where it sits.
+ * Counting it would also make the tie come and go with the conversation,
+ * because only the latest turns are drawn. An action nothing places would
+ * lose its tie the day somebody asked about it and get it back when that turn
+ * left the window, and every sync would close the edge and reopen it.
+ *
+ * Walked in the order the nodes were written, which is what keeps a rebuild
+ * byte-identical.
+ */
+function tieUnreached(projectId: string, nodes: ProjectGraphNode[], edges: ProjectGraphEdge[]): void {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const beside = new Map<string, string[]>(nodes.map(n => [n.id, []]));
+  for (const edge of edges) {
+    if (byId.get(edge.from)?.layer === 'deliberation') continue;
+    beside.get(edge.from)?.push(edge.to);
+    beside.get(edge.to)?.push(edge.from);
+  }
+  const reached = new Set<string>();
+  const walkFrom = (start: string) => {
+    const queue = [start];
+    reached.add(start);
+    while (queue.length > 0) {
+      for (const id of beside.get(queue.pop() as string) ?? []) {
+        if (reached.has(id)) continue;
+        reached.add(id);
+        queue.push(id);
+      }
+    }
+  };
+
+  walkFrom(projectId);
+  for (const node of nodes) {
+    if (reached.has(node.id)) continue;
+    const rel = PROJECT_TIE[node.kind];
+    if (!rel) continue;
+    edges.push({ id: `${projectId}:${rel}:${node.id}`, from: projectId, to: node.id, rel });
+    walkFrom(node.id);
+  }
 }
 
 /* ==================================================================== */
@@ -189,7 +333,12 @@ function addRegisters(project: DdProject, b: Builder): void {
     ]
       .filter(Boolean)
       .join(' · ');
-    b.node('evidence', row.id, row.title, meta);
+    // Its standing travels as the node's status as well as in the meta line.
+    // A check is joined to every paper it names, and whether "rests on" is
+    // true of one depends on whether the paper has come and whether it is
+    // still relied on: `projectNodeAwaited` and `projectNodeSetAside` read it
+    // here.
+    b.node('evidence', row.id, row.title, meta, { status: row.status });
     for (const assessmentId of row.assessmentIds) b.edge(assessmentId, row.id, 'supported_by');
     for (const checkId of row.checkIds) b.edge(checkId, row.id, 'supported_by');
     // Every visit a file on this row was taken on. The edge is what makes a
@@ -464,11 +613,95 @@ function addTitleChain(
 /* How the work is organised                                             */
 /* ==================================================================== */
 
-/** The node id each kind of link end is drawn as. */
+/*
+ * The ids the frame is drawn under. Kept in one place because the builder is
+ * not their only reader: `projectFrameLabels` hands them to the chat, which
+ * has to know a stage or a function by the same id the graph gives it.
+ */
+const stageNodeId = (projectId: string, key: StageKey) => `${projectId}::stage::${key}`;
+/** A function's node, from the key of a workstream it stands for or from its own. */
+const functionNodeId = (projectId: string, workstream: string) => `${projectId}::ws::${functionKey(workstream)}`;
+const departmentNodeId = (projectId: string, menu: DepartmentKey) => `${projectId}::dept::${menu}`;
+
+/**
+ * The departments drawn for a project and the functions drawn under each:
+ * the menu's departments that are switched on, with the functions whose own
+ * department is. Engineering is drawn while either it or Design is on, and
+ * holds Design only while Design is.
+ */
+function drawnDepartments(project: DdProject): Array<{ menu: DepartmentKey; functions: MenuFunction[] }> {
+  const enabled = projectDepartments(project);
+  return menuDepartmentsOf(enabled).map((menu) => ({ menu, functions: menuFunctions(menu).filter((fn) => enabled.includes(fn.department)) }));
+}
+
+/**
+ * The frame's nodes by id, each with the name a person knows it by: the four
+ * stages, the departments drawn and their functions.
+ *
+ * For whatever has to turn one of these ids back into words without building
+ * the graph. The chat does: an answer quotes `[…::ws::legal.title]` from what
+ * the copilot read, and the renderer shows the name in its place. An id that
+ * is not here is one the frame does not draw (a step, the Design department,
+ * one of Design's workstreams, a department switched off): the renderer says
+ * it in words, from `projectFrameNames`, and opens nothing.
+ *
+ * A function is named with its department, because Legal and Commercial each
+ * have a Handover.
+ */
+export function projectFrameLabels(project: DdProject): Array<{ id: string; label: string }> {
+  return [
+    ...STAGES.map((stage) => ({ id: stageNodeId(project.id, stage.key), label: stage.label })),
+    ...drawnDepartments(project).flatMap(({ menu, functions }) => [
+      { id: departmentNodeId(project.id, menu), label: DEPARTMENT_SHORT[menu] },
+      ...functions.map((fn) => ({ id: functionNodeId(project.id, fn.key), label: withDepartment(fn.key, fn.label) })),
+    ]),
+  ];
+}
+
+/**
+ * An id of the frame in words, from the id alone: the names a person knows
+ * the stage, step, department or function by. The first is the one to print.
+ *
+ * `projectFrameLabels` names what one project's frame draws now. This names
+ * whatever an id of the frame's shape has stood for, drawn or not: a step,
+ * which was a node while there were twelve of them; the Design department and
+ * each of its four workstreams; a department the project has switched off. An
+ * answer that quotes one of those has still said where it is talking about,
+ * and the chat prints the name where the id stood.
+ *
+ * The names after the first are the other ways the same thing is said
+ * ("Legal", "Legal & Compliance"). The chat uses them to tell that the
+ * sentence had already named it, and so not to say it twice.
+ *
+ * Empty for an id of any other shape, and for a key that was never a stage, a
+ * step, a department or a workstream.
+ */
+export function projectFrameNames(id: string): string[] {
+  const match = /::(stage|dept|ws)::([^:]+)$/.exec(id);
+  const kind = match?.[1];
+  const key = match?.[2];
+  if (!kind || !key) return [];
+  if (kind === 'stage') {
+    const stage = STAGES.find((s) => s.key === key);
+    if (stage) return [stage.label];
+    const step = SUB_STAGES.find((s) => s === key);
+    return step ? [SUB_STAGE_LABEL[step]] : [];
+  }
+  if (kind === 'dept') {
+    const department = DEPARTMENT_KEYS.find((d) => d === key);
+    return department ? [DEPARTMENT_SHORT[department], departmentDefinition(department).label] : [];
+  }
+  const fn = MENU_DEPARTMENTS.flatMap((menu) => menuFunctions(menu)).find((f) => f.key === key);
+  if (fn) return [...new Set([fn.name, fn.label])];
+  const workstream = workstreamDefinition(key);
+  return workstream ? [workstream.label] : [];
+}
+
+/** The node id each kind of link end is drawn as. A link names a workstream; the node is its function. */
 function linkEndId(project: DdProject, end: LinkEnd): string {
   switch (end.kind) {
     case 'workstream':
-      return `${project.id}::ws::${end.id}`;
+      return functionNodeId(project.id, end.id);
     case 'approval':
       return `${project.id}::approval::${end.id}`;
     default:
@@ -484,58 +717,86 @@ const ROLE_EDGE: Record<DepartmentRole, ProjectGraphEdgeKind> = {
 };
 
 /**
- * Stages, departments, workstreams, engagements, people, milestones, the
- * site log, quick assessments and certified reports, and every record placed
- * in its workstream and in the stage it happened in.
+ * Stages, departments, functions, engagements, people, milestones, the site
+ * log, the cost register, quick assessments and certified reports, and every
+ * record placed in its function and in the stage it arrived in.
  *
  * This is the frame the departments share. The registers above say what the
  * file holds; this says whose work each record is, when it happened, and how
  * one department's work reaches another's.
+ *
+ * It is drawn as the menu shows it. The record keeps twelve steps, six
+ * departments and a workstream for each of Design's four pieces of work; the
+ * graph draws the four stages, the menu's five departments and one Design
+ * function, so what a person walks here is what they move between in the app.
+ * `wsId` takes a workstream's key and answers with the function it is drawn
+ * as.
+ *
+ * What the frame leaves out stays findable. People still say "Mobilisation",
+ * "RFIs" and "Legal & Compliance", so each node carries in its detail the
+ * names it stands for: a stage its steps, a department its name in full,
+ * Design its four workstreams. `findProjectNodes` reads the detail.
  */
 function addStructure(project: DdProject, b: Builder): void {
   const pid = project.id;
-  const stageId = (key: string) => `${pid}::stage::${key}`;
-  const wsId = (key: string) => `${pid}::ws::${key}`;
-  const deptId = (key: string) => `${pid}::dept::${key}`;
+  const stageId = (key: StageKey) => stageNodeId(pid, key);
+  const wsId = (workstream: string) => functionNodeId(pid, workstream);
+  const deptId = (menu: DepartmentKey) => departmentNodeId(pid, menu);
 
-  // Stages: the twelve steps in order, each inside its macro stage.
-  const currentIndex = SUB_STAGES.indexOf(project.currentStage);
-  for (const stage of STAGES) {
-    for (const sub of stage.subStages) {
-      const i = SUB_STAGES.indexOf(sub);
-      b.node('stage', stageId(sub), SUB_STAGE_LABEL[sub], stage.label, {
-        key: sub,
-        status: i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'ahead',
-      });
-    }
-  }
-  SUB_STAGES.forEach((sub, i) => {
-    const next = SUB_STAGES[i + 1];
-    if (next) b.edge(stageId(sub), stageId(next), 'precedes');
+  // Stages: the four, in order. A step is not a node. Each stage lists its
+  // steps, and the stage the project is in says first which one it is at.
+  const current = stageOf(project.currentStage);
+  const currentIndex = STAGES.findIndex((s) => s.key === current);
+  const step = SUB_STAGE_LABEL[project.currentStage];
+  STAGES.forEach((stage, i) => {
+    const steps = `Steps: ${stage.subStages.map((sub) => SUB_STAGE_LABEL[sub]).join(', ')}`;
+    b.node('stage', stageId(stage.key), stage.label, i === currentIndex && step ? `At the ${step} step · ${steps}` : steps, {
+      key: stage.key,
+      status: i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'ahead',
+    });
   });
-  b.edge(pid, stageId(project.currentStage), 'at_stage');
+  STAGES.forEach((stage, i) => {
+    const next = STAGES[i + 1];
+    if (next) b.edge(stageId(stage.key), stageId(next.key), 'precedes');
+  });
+  b.edge(pid, stageId(current), 'at_stage');
   const inStage = (id: string, at: string | undefined) => {
-    if (at) b.edge(id, stageId(stageAt(project, at)), 'in_stage');
+    if (at) b.edge(id, stageId(stageOf(stageAt(project, at))), 'in_stage');
   };
 
-  // Departments and their workstreams, as switched on for this project.
-  const enabled = new Set(projectDepartments(project));
+  // Departments as the menu has them, and under each the functions whose own
+  // department is switched on.
+  const enabled = projectDepartments(project);
   const live = new Set<string>();
-  for (const dept of DEPARTMENTS) {
-    if (!enabled.has(dept.key)) continue;
-    b.node('department', deptId(dept.key), dept.label, dept.purpose, { key: dept.key, status: dept.status });
-    b.edge(pid, deptId(dept.key), 'has_department');
-    for (const ws of dept.workstreams) {
-      b.node('workstream', wsId(ws.key), ws.label, ws.purpose, { key: ws.key, status: ws.status });
-      b.edge(deptId(dept.key), wsId(ws.key), 'has_workstream');
-      if (ws.status === 'live') live.add(ws.key);
+  for (const { menu, functions } of drawnDepartments(project)) {
+    // Described by what is drawn under it. Its own department when that is
+    // on. With only Design on, Engineering here stands for Design alone: it
+    // is described as Design is, and it is no more built than Design. Its
+    // name in full leads, so "Legal & Compliance" and "Construction" find it.
+    const said = departmentDefinition(enabled.includes(menu) ? menu : (functions[0]?.department ?? menu));
+    b.node('department', deptId(menu), DEPARTMENT_SHORT[menu], `${said.label} · ${said.purpose}`, {
+      key: menu,
+      status: functions.some((fn) => fn.built) ? 'live' : 'coming_soon',
+    });
+    b.edge(pid, deptId(menu), 'has_department');
+    for (const fn of functions) {
+      // The one word is the label. The name in full leads the detail where
+      // the two differ, and a function standing for several workstreams
+      // names them, so "land records" finds Title and "RFIs" finds Design.
+      const stands = fn.workstreams.length > 1 ? fn.workstreams.map((key) => workstreamDefinition(key)?.label ?? key).join(', ') : '';
+      b.node('workstream', wsId(fn.key), fn.label, [fn.name === fn.label ? '' : fn.name, stands, fn.purpose].filter(Boolean).join(' · '), {
+        key: fn.key,
+        status: fn.built ? 'live' : 'coming_soon',
+      });
+      b.edge(deptId(menu), wsId(fn.key), 'has_workstream');
+      for (const key of fn.workstreams) if (workstreamDefinition(key)?.status === 'live') live.add(key);
     }
   }
   const holds = (workstream: string | undefined, id: string) => {
     if (workstream && b.has(wsId(workstream))) b.edge(wsId(workstream), id, 'holds');
   };
 
-  // Every check sits in exactly one workstream.
+  // Every check sits in exactly one function.
   for (const assessment of project.assessments) {
     for (const scope of assessment.scopes) {
       for (const check of scope.checks) {
@@ -581,6 +842,122 @@ function addStructure(project: DdProject, b: Builder): void {
     for (const update of entry.milestoneUpdates) b.edge(entry.id, update.milestoneId, 'advances');
   }
 
+  /*
+   * The cost register: the budget's work packages, the contracts that cover
+   * them, each contractor's bills with their lines, and the certificates
+   * issued on them.
+   *
+   * Every line of a bill is a node of its own, so that a question about one
+   * item finds it ("what was passed for the waterproofing in the third
+   * bill"). Its detail carries its amounts and where on the paper they were
+   * read, because the detail is what a search reads and what the chat is
+   * handed. A line that said only "item 4.2" would be found and say nothing.
+   * It also names its bill and its work package: a neighbourhood taken around
+   * one line does not walk on from them to every other line they have
+   * (`extractProjectSubgraph`), so the line says where it sits by itself.
+   *
+   * A node's detail also says what its status says. The neighbourhood handed
+   * to the chat is written from the label and the detail alone, so a
+   * certificate that was withdrawn has to say so in words, or it reads as one
+   * that stands. For the same reason a line is "certified" only while its
+   * bill's certificate stands: what was passed for it before one is issued,
+   * or after it was withdrawn, is said as passed, with no certificate.
+   *
+   * Budget holds a package, a contract and a bill. A line and a certificate
+   * arrive under their bill.
+   */
+  const cost = costRegister(project);
+  const money = (amount: number): string => moneySaid(amount, project.currency);
+  const packageNames = new Map(cost.workPackages.map((pack) => [pack.id, [pack.code, pack.name].filter(Boolean).join(' ')]));
+  for (const pack of cost.workPackages) {
+    const at = packagePosition(project, pack.id);
+    const over = at.balance !== undefined && at.balance < 0;
+    const detail = [
+      at.budget === undefined ? 'No budget set' : `Budget ${money(at.budget)}`,
+      `claimed ${money(at.claimed)}`,
+      `certified ${money(at.certified)}`,
+      at.balance === undefined ? '' : over ? `over budget by ${money(-at.balance)}` : `left of the budget ${money(at.balance)}`,
+    ];
+    b.node('work_package', pack.id, packageNames.get(pack.id) ?? pack.name, detail.filter(Boolean).join(' · '), {
+      status: over ? 'over_budget' : at.claimed !== 0 || at.certified !== 0 ? 'under_way' : 'not_started',
+    });
+    holds('finance.budget', pack.id);
+    if (pack.source) b.edge(pack.id, pack.source.evidenceId, 'supported_by');
+    if (pack.milestoneId) b.edge(pack.id, pack.milestoneId, 'measured_against');
+  }
+  for (const contract of cost.contracts) {
+    const at = contractPosition(project, contract.id);
+    const detail = [
+      `Contract value ${money(at.value)}`,
+      `certified ${money(at.certified)}`,
+      `paid ${money(at.paid)}`,
+      at.balance < 0 ? `certified beyond the contract value by ${money(-at.balance)}` : `left to certify ${money(at.balance)}`,
+      contract.reference ? `ref. ${contract.reference}` : '',
+    ];
+    b.node('contract', contract.id, `${contract.contractor}: ${contract.title}`, detail.filter(Boolean).join(' · '));
+    holds('finance.budget', contract.id);
+    for (const packageId of contract.workPackageIds) b.edge(contract.id, packageId, 'covers');
+    if (contract.source) b.edge(contract.id, contract.source.evidenceId, 'supported_by');
+  }
+  for (const bill of cost.bills) {
+    const at = billPosition(bill);
+    const contractor = cost.contracts.find((contract) => contract.id === bill.contractId)?.contractor;
+    const label = contractor ? `${contractor} bill ${bill.number}` : `Bill ${bill.number}`;
+    const detail = [
+      bill.date,
+      `claimed ${money(at.claimed)}`,
+      at.gross !== undefined && at.net !== undefined ? `certified ${money(at.gross)} gross, ${money(at.net)} net` : 'not certified',
+      `paid ${money(at.paid)}`,
+      at.overpaid ? `overpaid by ${money(at.overpaid)}` : '',
+    ];
+    b.node('bill', bill.id, label, detail.filter(Boolean).join(' · '), { key: bill.number, status: at.status });
+    holds('finance.budget', bill.id);
+    b.edge(bill.id, bill.contractId, 'billed_under');
+    if (bill.evidenceId) b.edge(bill.id, bill.evidenceId, 'supported_by');
+    inStage(bill.id, `${bill.date}T12:00:00.000Z`);
+    for (const line of bill.lines) {
+      const status = billLineStatus(line, bill);
+      const sits = { bill: label, workPackage: line.workPackageId ? packageNames.get(line.workPackageId) : undefined, certified: status === 'certified' || status === 'adjusted' };
+      b.node('bill_line', line.id, [line.item, line.description].filter(Boolean).join(' ').slice(0, 120), billLineDetail(line, sits, money), { status });
+      b.edge(bill.id, line.id, 'has_line');
+      if (line.workPackageId) b.edge(line.id, line.workPackageId, 'prices');
+      if (line.source) b.edge(line.id, line.source.evidenceId, 'supported_by');
+    }
+    for (const certificate of bill.certifications) {
+      const less = certificate.deductions.map((deduction) => `${deduction.label ?? COST_DEDUCTION_LABEL[deduction.kind].toLowerCase()} ${money(deduction.amount)}`).join(', ');
+      const detail = [
+        certificate.withdrawn ? `Withdrawn ${certificate.withdrawn.at.slice(0, 10)}${certificate.withdrawn.reason ? `: ${certificate.withdrawn.reason.slice(0, 160)}` : ''}` : '',
+        `${certificate.signer.name ?? certificate.signer.email}, ${certificate.signer.profession}`,
+        `gross ${money(certificate.gross)}`,
+        less ? `less ${less}` : 'no deductions',
+        `net ${money(certificate.net)}`,
+        certificate.certifiedOn,
+      ];
+      // Named by its bill's own label, contractor and all: two contractors each have a bill RA-1.
+      b.node('certification', certificate.id, `Certificate for ${label}`, detail.filter(Boolean).join(' · '), { status: certificate.withdrawn ? 'withdrawn' : 'current' });
+      b.edge(certificate.id, bill.id, 'certifies_bill');
+      if (certificate.evidenceId) b.edge(certificate.id, certificate.evidenceId, 'supported_by');
+      inStage(certificate.id, `${certificate.certifiedOn}T12:00:00.000Z`);
+    }
+  }
+
+  // A questionnaire sits in its department's work. Each question that has an
+  // answer is a node of its own, joined to what proves it, so "what does this
+  // answer rest on" and "which answers cite this photograph" are both one hop.
+  for (const sheet of project.questionnaires ?? []) {
+    const summary = questionnaireSummary(sheet);
+    b.node('questionnaire', sheet.id, sheet.title, `${summary.answered} of ${summary.total} answered`, { key: questionnaireDepartment(sheet), status: summary.unanswered ? 'open' : 'answered' });
+    holds(departmentHomeWorkstream(questionnaireDepartment(sheet)), sheet.id);
+    inStage(sheet.id, sheet.createdAt);
+    for (const question of sheet.questions) {
+      const status = questionStatus(question);
+      if (status === 'unanswered') continue;
+      b.node('answer', question.id, question.text.slice(0, 120), (question.answer ?? '').slice(0, 160), { key: question.source, status: status === 'suggested' ? 'suggested' : question.proof.length ? 'proven' : 'unproven' });
+      b.edge(question.id, sheet.id, 'answers');
+      for (const proof of question.proof) b.edge(question.id, proof.evidenceId, 'supported_by');
+    }
+  }
+
   // A living estimate on every live workstream, and the certified reports beside it.
   for (const key of live) {
     const qa = quickAssessment(project, key);
@@ -602,38 +979,95 @@ function addStructure(project: DdProject, b: Builder): void {
     for (const reportId of engagement.reportIds) b.edge(engagement.id, reportId, 'delivers');
   }
 
-  // People, by the role they hold in each department.
+  /*
+   * People, by the role they hold in each department.
+   *
+   * A role is said by its own department ("Signer, Design") and joins the
+   * person to that department's node. Design has no node of its own: its
+   * work is drawn as a function of Engineering, and a role in Design is not
+   * a role in Engineering. Drawing it as one would name Design's signer as
+   * answering for the site record, and make a person who only reads
+   * Engineering its lead. So a role in Design draws no edge, as a role in a
+   * department that is switched off draws none. A person left with no edge
+   * is tied to the project at the end, like any record nothing places.
+   */
   for (const member of project.team ?? []) {
     const id = `${pid}::member::${member.email.toLowerCase()}`;
-    const roles = Object.entries(member.departments) as Array<[string, DepartmentRole]>;
-    b.node('member', id, member.name || member.email, roles.map(([d, r]) => `${DEPARTMENT_ROLE_LABEL[r]}, ${d}`).join(' · ') || undefined, member.signer ? { status: 'signer' } : undefined);
+    const roles = Object.entries(member.departments) as Array<[DepartmentKey, DepartmentRole]>;
+    b.node('member', id, member.name || member.email, roles.map(([d, r]) => `${DEPARTMENT_ROLE_LABEL[r]}, ${DEPARTMENT_SHORT[d] ?? d}`).join(' · ') || undefined, member.signer ? { status: 'signer' } : undefined);
     for (const [dept, role] of roles) {
-      if (b.has(deptId(dept))) b.edge(id, deptId(dept), ROLE_EDGE[role]);
+      if (enabled.includes(dept) && menuDepartment(dept) === dept) b.edge(id, deptId(dept), ROLE_EDGE[role]);
     }
   }
 
-  // The links between departments: the system's own and those people drew.
+  /*
+   * The links between departments: the system's own and those people drew.
+   * `linkEdge` says which way round each is drawn and by which relation.
+   *
+   * A link is drawn only when both its ends are nodes and the relation may
+   * join the kinds those nodes really are. `addLink` refuses a link that
+   * could not be, but a link is a stored record and the refusal is newer
+   * than some of them: one taken before it existed, or one whose end was a
+   * document's id sent as a certified report's, is still on the file. It is
+   * left out here, so nothing stored can put an edge in the graph that the
+   * ontology forbids. Every node a link can name has been written by now.
+   */
   for (const link of projectLinks(project)) {
-    const from = linkEndId(project, link.from);
-    const to = linkEndId(project, link.to);
-    switch (link.type) {
-      case 'gates':
-      case 'feeds':
-      case 'certifies':
-      case 'draws_on':
-      case 'relates':
-        if (link.type === 'certifies' && link.from.kind === 'document') {
-          // A document certifying an approval is the approval resting on it.
-          b.edge(to, from, 'supported_by');
-        } else b.edge(from, to, link.type);
-        break;
-      case 'cites':
-        // Evidence is cited by what rests on it: drawn from the conclusion to the paper.
-        if (link.from.kind === 'document') b.edge(to, from, 'supported_by');
-        else b.edge(from, to, 'supported_by');
-        break;
-    }
+    const edge = linkEdge(link);
+    const from = linkEndId(project, edge.from);
+    const to = linkEndId(project, edge.to);
+    const fromKind = b.kindOf(from);
+    const toKind = b.kindOf(to);
+    if (fromKind && toKind && projectEdgeEndpointsValid(edge.rel, fromKind, toKind)) b.edge(from, to, edge.rel);
   }
+}
+
+/**
+ * One line of a bill, as its node says it: the bill it is on and the work
+ * package it prices, what it claims, with the quantity and the rate where the
+ * bill gives them, what was passed for it, by whom and why, and the page or
+ * the cell it was read from.
+ *
+ * What was passed is said as certified only where the bill's certificate
+ * stands. Before one is issued, and after it was withdrawn, the same decision
+ * is passed and no more, and the line says there is no certificate.
+ *
+ * Each person keeps the verb that is theirs. Whoever decided the line passed
+ * it; the certificate was signed by its signer, who is named on the
+ * certificate and may be somebody else. So a certified line reads "certified
+ * ₹2,00,000, passed by junior@firm.in", never "certified by" the person who
+ * only passed it.
+ *
+ * A model's reading of a page says that it is one, as a model's reading of a
+ * photograph does: the figures are what the model made of the page until a
+ * certifier has been through them.
+ */
+function billLineDetail(line: BillLine, sits: { bill: string; workPackage?: string; certified: boolean }, money: (amount: number) => string): string {
+  const unit = line.unit ? ` ${line.unit}` : '';
+  const rate = line.rate === undefined ? '' : `${money(line.rate)}${line.unit ? ` per ${line.unit}` : ''}`;
+  const quantity = line.quantityToDate === undefined ? '' : `${line.quantityToDate.toLocaleString('en-IN')}${unit} to date`;
+  const passed = line.certified;
+  const decision = !passed
+    ? 'not yet decided'
+    : [
+        `${sits.certified ? 'certified' : 'passed'} ${money(passed.amount)}`,
+        passed.quantity === undefined ? '' : ` for ${passed.quantity.toLocaleString('en-IN')}${unit}`,
+        sits.certified ? `, passed by ${passed.by}` : ` by ${passed.by}, no certificate`,
+        passed.note ? `: ${passed.note.slice(0, 160)}` : '',
+      ].join('');
+  return [
+    sits.bill,
+    sits.workPackage ? `work package ${sits.workPackage}` : '',
+    `claimed ${money(line.amount)}`,
+    quantity && rate ? `${quantity} at ${rate}` : quantity || (rate ? `rate ${rate}` : ''),
+    line.amountToDate === undefined ? '' : `amount to date ${money(line.amountToDate)}`,
+    line.previousAmount === undefined ? '' : `previously ${money(line.previousAmount)}`,
+    decision,
+    [line.source ? costSourceSaid(line.source) : '', line.readBy === 'model' ? 'read by a model' : ''].filter(Boolean).join(', '),
+    line.variation ? 'variation' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function addDeliberation(project: DdProject, b: Builder): void {
@@ -789,7 +1223,10 @@ export function titleGraphFromProject(project: DdProject): TitleGraph {
         kind: REL[e.rel]!,
         fromNodeId: e.from,
         toNodeId: e.to,
-        label: e.rel.replace(/_/g, ' '),
+        // What the diagram shows when a line is pointed at. The relation in
+        // plain words, said of the end the line leaves: "passed the land to",
+        // not the key with its underscores taken out.
+        label: PROJECT_EDGE_LABEL[e.rel].forward,
         // Every edge here came out of the projection rather than a document
         // read, so there is nothing to cite and nothing to be less than sure
         // about. Claiming a confidence below 1 would invent a doubt.

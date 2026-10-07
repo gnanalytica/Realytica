@@ -20,6 +20,8 @@
  * such thing as the English spelling of an identifier — only the identifier.
  */
 
+import { standardKeyForm } from './operating-model/document-parse';
+
 export type DocScript = 'latin' | 'kannada' | 'telugu' | 'devanagari' | 'tamil' | 'malayalam' | 'mixed' | 'unknown';
 
 const SCRIPT_RANGES: { script: Exclude<DocScript, 'mixed' | 'unknown'>; test: RegExp }[] = [
@@ -110,10 +112,13 @@ export function scriptedValue(value: string, original?: string): ScriptedValue {
  * can look like anything, and by the time you are inspecting the value you
  * have already lost the chance to protect it.
  */
-const IDENTIFIER_KEY = /(number|no|id|khata|survey|sy|pid|folio|volume|page|registration|document)$/i;
+const IDENTIFIER_KEY = /(numbers?|no|id|khata|survey|sy|pid|folio|volume|page|registration|document)$/i;
 
 export function isIdentifierKey(key: string): boolean {
-  return IDENTIFIER_KEY.test(key.replace(/[^A-Za-z]/g, ''));
+  // A key the rules file under says what it is. Its name does not: `extent_khata` is an area and ends in "khata",
+  // `tax_paid` is an amount and ends in "id", and an area treated as an identifier was filed in the page's script, unconverted.
+  const form = standardKeyForm(key);
+  return form ? form === 'identifier' : IDENTIFIER_KEY.test(key.replace(/[^A-Za-z]/g, ''));
 }
 
 /**

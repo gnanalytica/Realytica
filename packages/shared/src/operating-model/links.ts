@@ -10,8 +10,10 @@
 
 import type { DdProject } from './types';
 import { recordAuditEvent } from './operations';
-import { approvalsRegister } from './approvals';
+import { APPROVAL_KINDS, approvalsRegister } from './approvals';
+import { workstreamDefinition } from './departments';
 import { allChecks } from './engagements';
+import { projectEdgeEndpointsValid, type ProjectGraphEdgeKind, type ProjectGraphNodeKind } from './project-ontology';
 
 export type LinkType = 'gates' | 'feeds' | 'cites' | 'certifies' | 'draws_on' | 'relates';
 
@@ -92,8 +94,111 @@ export function systemLinks(project: DdProject): ProjectLink[] {
   return out;
 }
 
+/** The kind of graph node each end of a link is drawn as. */
+const LINK_END_NODE_KIND: Record<LinkEndKind, ProjectGraphNodeKind> = {
+  workstream: 'workstream',
+  check: 'check',
+  document: 'evidence',
+  certified: 'certified_report',
+  milestone: 'milestone',
+  approval: 'approval',
+  engagement: 'engagement',
+  finding: 'finding',
+  site_entry: 'site_entry',
+};
+
+/** An end's kind, as a person would say it. */
+const LINK_END_WORD: Record<LinkEndKind, string> = {
+  workstream: 'a function',
+  check: 'a check',
+  document: 'a document',
+  certified: 'a certified report',
+  milestone: 'a milestone',
+  approval: 'an approval',
+  engagement: 'an engagement',
+  finding: 'a finding',
+  site_entry: 'a site entry',
+};
+
+/**
+ * The graph edge a link is drawn as: which way round, and by which relation.
+ *
+ * A link is said the way a person says it ("this document cites that check",
+ * "this certificate certifies that approval"). The graph says the same thing
+ * from the conclusion to the paper: the check rests on the document, the
+ * approval on its certificate. Every other link is drawn as it is said.
+ */
+export function linkEdge(link: { from: LinkEnd; to: LinkEnd; type: LinkType }): { from: LinkEnd; to: LinkEnd; rel: ProjectGraphEdgeKind } {
+  if (link.type === 'cites' || (link.type === 'certifies' && link.from.kind === 'document')) {
+    return link.from.kind === 'document' ? { from: link.to, to: link.from, rel: 'supported_by' } : { from: link.from, to: link.to, rel: 'supported_by' };
+  }
+  return { from: link.from, to: link.to, rel: link.type };
+}
+
+/**
+ * Whether an end names what it says it names, on this project.
+ *
+ * A link carries an id and the kind the caller says that id is. The two can
+ * disagree: a document's id sent as a certified report's. The kind decides
+ * which relations the link may use, so a wrong one buys a relation the record
+ * could never have. The id is looked up in the register of the kind declared,
+ * and nowhere else.
+ *
+ * A workstream and an approval are not records a project adds. A workstream
+ * is one the product defines, whether or not its department is switched on;
+ * an approval is one of the kinds the approvals register knows.
+ */
+function endIsOnFile(project: DdProject, end: LinkEnd): boolean {
+  switch (end.kind) {
+    case 'workstream':
+      return workstreamDefinition(end.id) !== undefined;
+    case 'approval':
+      return APPROVAL_KINDS.some((kind) => kind.key === end.id);
+    case 'check':
+      return allChecks(project).some((check) => check.id === end.id);
+    case 'document':
+      return project.evidence.some((row) => row.id === end.id);
+    case 'certified':
+      return (project.certifiedReports ?? []).some((report) => report.id === end.id);
+    case 'milestone':
+      return (project.milestones ?? []).some((milestone) => milestone.id === end.id);
+    case 'engagement':
+      return (project.engagements ?? []).some((engagement) => engagement.id === end.id);
+    case 'finding':
+      return project.findings.some((finding) => finding.id === end.id);
+    case 'site_entry':
+      return (project.siteLog ?? []).some((entry) => entry.id === end.id);
+  }
+}
+
+/**
+ * Draw a link by hand.
+ *
+ * A link the graph cannot draw is refused, for either of two reasons.
+ *
+ * The relation does not join those kinds. The ontology says which kinds each
+ * relation may join: a check cannot gate a function, a milestone cannot feed
+ * a document. `relates` joins any two things, so it is what the refusal
+ * offers instead.
+ *
+ * Or an end is not what it is said to be. The rule above is asked of the
+ * kinds the caller declares, so it is only worth anything if each id is a
+ * record of that kind on this project.
+ *
+ * Taken as it came, such a link would sit on the file and be one the graph
+ * has to leave out every time it is built.
+ */
 export function addLink(project: DdProject, input: { from: LinkEnd; to: LinkEnd; type: LinkType; note?: string }, actor: string): ProjectLink {
   if (input.from.kind === input.to.kind && input.from.id === input.to.id) throw new Error('A link joins two different things.');
+  const edge = linkEdge(input);
+  if (!projectEdgeEndpointsValid(edge.rel, LINK_END_NODE_KIND[edge.from.kind], LINK_END_NODE_KIND[edge.to.kind])) {
+    throw new Error(
+      `“${LINK_TYPE_LABEL[input.type]}” cannot join ${LINK_END_WORD[input.from.kind]} to ${LINK_END_WORD[input.to.kind]}. To say two things belong together, link them with “relates”.`,
+    );
+  }
+  for (const end of [input.from, input.to]) {
+    if (!endIsOnFile(project, end)) throw new Error(`“${end.id}” is not ${LINK_END_WORD[end.kind]} on this project.`);
+  }
   const held = (project.links ?? []).find((l) => l.type === input.type && l.from.id === input.from.id && l.to.id === input.to.id);
   if (held) return held;
   const link: ProjectLink = {

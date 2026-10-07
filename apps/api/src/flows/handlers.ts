@@ -1,11 +1,15 @@
 import {
   asText,
+  buildProjectGraph,
   evaluateGroup,
+  extractProjectSubgraph,
   fillTemplate,
   type DdProject,
   type NodeHandler,
   type NodeHandlerInput,
   type Payload,
+  type ProjectGraphEdge,
+  type ProjectGraphNode,
 } from '@realytica/shared';
 import { agentCapability, allDescriptors, resolveRoute } from '@realytica/agents';
 import { graphAdapter } from '../graph';
@@ -34,6 +38,14 @@ export interface HandlerContext {
   /** The project a run is about, already redacted to whoever started it. */
   project: DdProject;
   actor: string;
+  /**
+   * Cuts what the graph store answers back to what whoever started the run
+   * may see. `project` is their copy, but the store holds the whole file's
+   * graph under the same id, so what it hands back is cut before a node of it
+   * is read. A run a person started is given their reach; one an event
+   * started is the firm's own, and is given everything.
+   */
+  withinReach: <T extends { nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] }>(graph: T) => T;
 }
 
 /** A run stops rather than guessing. Every throw here is a sentence for the trace. */
@@ -67,8 +79,13 @@ async function runRetrieve(input: NodeHandlerInput, ctx: HandlerContext): Promis
   if (input.dryRun) return { retrieved: [], retrievedFrom: from, retrievedQuery: text };
 
   if (from === 'graph') {
-    const stored = await graphAdapter.neighbourhood(ctx.project.id, [text], hops ?? 2);
-    const nodes = stored?.nodes ?? [];
+    // Not indexed is not empty, and neither is a store that did not answer:
+    // the registers are the source, so walk them.
+    const stored = await graphAdapter.neighbourhood(ctx.project.id, [text], hops ?? 2).catch((err: Error) => {
+      console.warn(`[graph] a flow's retrieve fell back to the projection: ${err.message}`);
+      return null;
+    });
+    const nodes = (stored ? ctx.withinReach(stored) : extractProjectSubgraph(buildProjectGraph(ctx.project), [text], hops ?? 2)).nodes;
     return { retrieved: nodes.slice(0, limit ?? 40), retrievedFrom: from, count: nodes.length };
   }
   if (from === 'memory') {

@@ -12,6 +12,9 @@ import { initTelemetry } from './telemetry';
 import { UPLOAD_LIMITS } from './uploads';
 import { referenceRouter } from './routes/reference';
 import { librariesRouter, projectsRouter } from './routes/projects';
+import { projectMemoryRouter } from './routes/project-memory';
+import { reviewLibraryRouter, reviewTableRouter } from './routes/review-table';
+import { outgoingRouter } from './routes/outgoing';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
@@ -20,6 +23,7 @@ import { portfolioRouter } from './routes/portfolio';
 import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
+import { graphAnsweredBy } from './graph/preview';
 import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
 import { corsPolicy, rateLimits, securityHeaders } from './http/hardening';
 import { reportOperators } from './auth/operator';
@@ -86,7 +90,8 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     version: ENGINE_VERSION,
     projects: store.data.projects?.length ?? 0,
-    graph: graphAdapter.kind,
+    // A preview keeps no graph and reads the live registers instead.
+    graph: graphAnsweredBy(graphAdapter),
     upload: UPLOAD_LIMITS,
     auth: { mode: authSettings().mode },
   });
@@ -130,6 +135,8 @@ app.use('/api', limits.api);
  * business rather than any member's, so both sit behind `admin`.
  */
 app.use('/api/reference', needs('read'), referenceRouter);
+// The workspace's saved asks and playbooks: its own people's, with their own guard.
+app.use('/api/libraries/review', reviewLibraryRouter);
 app.use('/api/libraries', needs('read'), librariesRouter);
 /*
  * A model call and an upload cost orders of magnitude more than a register
@@ -150,6 +157,14 @@ app.use('/api/projects/:projectId/gis-overlay/revenue', (req, res, next) =>
 app.use('/api/projects/:projectId/ai/drafts', limits.expensive);
 app.use('/api/projects/:projectId/photographs/read', limits.expensive);
 app.use('/api/projects/:projectId/evidence', limits.upload);
+// What the project's memory has been told: one read, with its own guard.
+app.use('/api/projects/:projectId/memory', projectMemoryRouter);
+// The review table: a run asks a model once a paper, so it is budgeted as a model call is.
+app.use('/api/projects/:projectId/review/runs', limits.expensive);
+app.use('/api/projects/:projectId/review', reviewTableRouter);
+// What goes out: making a draft or asking for its body asks a model once, so those two are budgeted as a model call is.
+app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method === 'POST' && (req.path === '/' || req.path.endsWith('/write')) ? limits.expensive(req, res, next) : next()));
+app.use('/api/projects/:projectId/outgoing', outgoingRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);

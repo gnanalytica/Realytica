@@ -1,0 +1,3347 @@
+{
+ "department": "Engineering",
+ "functions": [
+  {
+   "name": "Design",
+   "stages": [
+    "land",
+    "pre",
+    "build"
+   ],
+   "standing": {
+    "state": "certified",
+    "by": "N. Rao",
+    "role": "Structural engineer",
+    "on": "12 Sep 2026",
+    "moved": true
+   },
+   "sections": [
+    {
+     "id": "basis",
+     "name": "Design basis",
+     "icon": "details",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Sanction and design papers",
+       "groups": [
+        {
+         "name": "Approvals",
+         "lines": [
+          {
+           "t": "Plan sanction letter",
+           "state": "in",
+           "pages": 6
+          },
+          {
+           "t": "Sanctioned drawings",
+           "state": "in",
+           "pages": 38
+          },
+          {
+           "t": "Fire NOC",
+           "state": "in",
+           "pages": 3,
+           "ref": {
+            "dept": "legal",
+            "fn": "Approvals",
+            "t": "Fire NOC"
+           }
+          }
+         ]
+        },
+        {
+         "name": "Structure",
+         "lines": [
+          {
+           "t": "Structural design basis report",
+           "state": "in",
+           "pages": 24
+          },
+          {
+           "t": "Structural stability certificate",
+           "state": "none",
+           "ref": {
+            "dept": "engineering",
+            "fn": "Technical",
+            "t": "Structural stability certificate"
+           }
+          },
+          {
+           "t": "Proof-check report",
+           "state": "asked",
+           "who": "Independent engineer",
+           "due": "20 Oct 2026"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Structural design basis",
+       "items": [
+        {
+         "l": "Codes followed",
+         "v": "IS 456, IS 875, IS 1893 (Part 1):2016, IS 13920",
+         "state": "set",
+         "from": "Structural design basis report",
+         "page": 2
+        },
+        {
+         "l": "Seismic zone",
+         "v": "II",
+         "state": "sug",
+         "from": "Structural design basis report",
+         "page": 3
+        },
+        {
+         "l": "Structural system",
+         "v": "Shear walls with beam and slab floors",
+         "state": "set",
+         "from": "Structural design basis report",
+         "page": 4
+        },
+        {
+         "l": "Concrete grade",
+         "v": "M30, M40 in columns to level 4",
+         "state": "set",
+         "from": "Structural design basis report",
+         "page": 5
+        },
+        {
+         "l": "Reinforcement steel",
+         "v": "Fe 500D",
+         "state": "set",
+         "from": "Structural design basis report",
+         "page": 5
+        },
+        {
+         "l": "Foundation",
+         "v": "Raft, 8.2 m below ground",
+         "state": "set",
+         "from": "Structural design basis report",
+         "page": 7
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "From Site",
+       "cols": [
+        "Item",
+        "Value",
+        "From",
+        "Revision",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Safe bearing capacity",
+         "380 kN/m²",
+         "Soil investigation report",
+         "Rev 2",
+         "In force"
+        ],
+        [
+         "Founding level",
+         "8.2 m below ground",
+         "Soil investigation report",
+         "Rev 2",
+         "In force"
+        ],
+        [
+         "Water table",
+         "5.8 m below ground",
+         "Soil investigation report",
+         "Rev 2",
+         "In force"
+        ],
+        [
+         "Plot levels and boundary",
+         "Area 4,196 sqm",
+         "Survey drawing",
+         "Rev 3",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Site",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "register",
+     "name": "Drawing register",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Drawing register",
+       "cols": [
+        "Sheet",
+        "Discipline",
+        "Title",
+        "Rev",
+        "Status",
+        "Issued",
+        "Queries"
+       ],
+       "rows": [
+        [
+         "A-101",
+         "Architecture",
+         "Ground floor plan",
+         "C",
+         "In force",
+         "12 Aug 2026",
+         "None"
+        ],
+        [
+         "A-214",
+         "Architecture",
+         "Typical floor plan, levels 3 to 12",
+         "D",
+         "In force",
+         "24 Sep 2026",
+         "RFI 15"
+        ],
+        [
+         "S-312",
+         "Structure",
+         "Level 11 slab reinforcement",
+         "B",
+         "Superseded",
+         "4 Sep 2026",
+         "None"
+        ],
+        [
+         "S-312",
+         "Structure",
+         "Level 11 slab reinforcement",
+         "C",
+         "In force",
+         "21 Sep 2026",
+         "RFI 14"
+        ],
+        [
+         "E-120",
+         "Electrical",
+         "Basement 1 cable trays",
+         "A",
+         "Pending",
+         "18 Sep 2026",
+         "None"
+        ],
+        [
+         "P-402",
+         "Plumbing",
+         "Storm-water outfall to drain",
+         "—",
+         "Missing",
+         "—",
+         "RFI 16"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Add sheet"
+      },
+      {
+       "type": "fields",
+       "title": "Register summary",
+       "items": [
+        {
+         "l": "Sheets in register",
+         "v": "214",
+         "state": "set"
+        },
+        {
+         "l": "In force",
+         "v": "176",
+         "state": "calc"
+        },
+        {
+         "l": "Superseded and archived",
+         "v": "31",
+         "state": "calc"
+        },
+        {
+         "l": "Pending or missing",
+         "v": "7",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "compliance",
+     "name": "Code compliance",
+     "icon": "checks",
+     "blocks": [
+      {
+       "type": "search",
+       "title": "Zone, roads and widening",
+       "source": "Zonal Regulations and GBA records",
+       "query": "Hosakere village, survey nos. 41/2 and 41/3",
+       "results": [
+        {
+         "t": "Residential main zone",
+         "sub": "RMP 2015 land-use map",
+         "picked": true
+        },
+        {
+         "t": "South road 24 m, east road 12 m",
+         "sub": "GBA road records",
+         "picked": true
+        },
+        {
+         "t": "East road proposed at 18 m",
+         "sub": "RMP 2015 proposed roads",
+         "picked": true
+        },
+        {
+         "t": "Setback and parking rules, as amended",
+         "sub": "Zonal Regulations, 5 Jan 2026",
+         "picked": true
+        }
+       ]
+      },
+      {
+       "type": "map",
+       "title": "Plot against sanctioned figures",
+       "view": "plot",
+       "layers": [
+        "plot",
+        "planning",
+        "roads"
+       ],
+       "measures": [
+        {
+         "t": "South setback, sanctioned 6.0 m",
+         "v": "7.5 m",
+         "tone": "ok"
+        },
+        {
+         "t": "East setback after widening, sanctioned 4.5 m",
+         "v": "5.2 m",
+         "tone": "ok"
+        },
+        {
+         "t": "West setback, sanctioned 4.0 m",
+         "v": "4.3 m",
+         "tone": "ok"
+        },
+        {
+         "t": "Ground coverage, sanctioned 35%",
+         "v": "31%",
+         "tone": "ok"
+        },
+        {
+         "t": "FAR, sanctioned 2.50",
+         "v": "2.48",
+         "tone": "warn"
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Designed against sanctioned",
+       "items": [
+        {
+         "l": "South setback",
+         "v": "7.5 m (sanctioned 6.0 m)",
+         "state": "calc"
+        },
+        {
+         "l": "East setback after widening",
+         "v": "5.2 m (sanctioned 4.5 m)",
+         "state": "calc"
+        },
+        {
+         "l": "West setback",
+         "v": "4.3 m (sanctioned 4.0 m)",
+         "state": "calc"
+        },
+        {
+         "l": "North setback",
+         "v": "4.6 m (sanctioned 4.0 m)",
+         "state": "calc"
+        },
+        {
+         "l": "Ground coverage",
+         "v": "31% (sanctioned 35%)",
+         "state": "calc"
+        },
+        {
+         "l": "FAR",
+         "v": "2.48 (sanctioned 2.50)",
+         "state": "calc"
+        },
+        {
+         "l": "Building height",
+         "v": "48.6 m",
+         "state": "calc"
+        },
+        {
+         "l": "Car parking provided",
+         "v": "186 spaces",
+         "state": "sug",
+         "from": "Sanctioned drawings",
+         "page": 6
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "coordination",
+     "name": "Coordination",
+     "icon": "links",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Clash list",
+       "cols": [
+        "Clash",
+        "Between",
+        "Where",
+        "Raised",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Beam against duct",
+         "Structure and services",
+         "Level 4 corridor",
+         "18 Sep 2026",
+         "Open"
+        ],
+        [
+         "Sleeve missing in shear wall",
+         "Structure and plumbing",
+         "Core, levels 1 to 6",
+         "11 Sep 2026",
+         "Open"
+        ],
+        [
+         "Cable tray under beam soffit",
+         "Services and structure",
+         "Basement 1",
+         "2 Sep 2026",
+         "Closed"
+        ],
+        [
+         "Lift pit depth against waterproofing",
+         "Architecture and structure",
+         "Core, basement 2",
+         "26 Aug 2026",
+         "Closed"
+        ],
+        [
+         "Fire pump room door swing",
+         "Architecture and services",
+         "Basement 2",
+         "18 Aug 2026",
+         "Closed"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Add clash"
+      }
+     ]
+    },
+    {
+     "id": "queries",
+     "name": "Queries (RFIs)",
+     "icon": "chat",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Query log",
+       "cols": [
+        "No.",
+        "Sheet",
+        "Question",
+        "Raised",
+        "Response due",
+        "Status",
+        "Effect"
+       ],
+       "rows": [
+        [
+         "RFI 16",
+         "P-402",
+         "Outfall level for drain connection",
+         "25 Sep 2026",
+         "6 Oct 2026",
+         "Open",
+         "Not yet known"
+        ],
+        [
+         "RFI 15",
+         "A-214",
+         "Balcony drain slope at level 6",
+         "22 Sep 2026",
+         "29 Sep 2026",
+         "Overdue",
+         "None so far"
+        ],
+        [
+         "RFI 14",
+         "S-312",
+         "Lap length at wall corner, level 11",
+         "9 Sep 2026",
+         "16 Sep 2026",
+         "Overdue",
+         "3 days on level 11 slab"
+        ],
+        [
+         "RFI 13",
+         "E-120",
+         "Cable tray route at basement ramp",
+         "28 Aug 2026",
+         "4 Sep 2026",
+         "Closed",
+         "None"
+        ],
+        [
+         "RFI 12",
+         "M-205",
+         "Fire pump room door swing",
+         "18 Aug 2026",
+         "25 Aug 2026",
+         "Closed",
+         "None"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "Northline Constructions",
+       "add": "Add query"
+      }
+     ]
+    },
+    {
+     "id": "approvals",
+     "name": "Approvals",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Approvals and certificates",
+       "cols": [
+        "Approval",
+        "Issued by",
+        "Date",
+        "Conditions",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Plan sanction",
+         "City corporation",
+         "14 Feb 2025",
+         "9, 2 open",
+         "In force"
+        ],
+        [
+         "Airport height clearance",
+         "AAI",
+         "6 Mar 2025",
+         "None",
+         "In force"
+        ],
+        [
+         "Fire NOC before construction",
+         "Karnataka Fire and Emergency Services",
+         "20 Mar 2025",
+         "4, all met",
+         "In force"
+        ],
+        [
+         "Structural design and stability",
+         "N. Rao",
+         "12 Sep 2026",
+         "None",
+         "In force"
+        ],
+        [
+         "Proof-check of structure",
+         "Independent engineer",
+         "—",
+         "Report due 20 Oct 2026",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add approval"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "FAR is within 1% of the sanctioned figure",
+     "rests": [
+      "FAR"
+     ]
+    },
+    {
+     "t": "Sheet S-312 was revised on 21 Sep, after the stability certificate",
+     "rests": []
+    },
+    {
+     "t": "At 48.6 m the tower needs a fire NOC before construction; it is on file",
+     "rests": [
+      "Building height"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Storm-water outfall sheet P-402 not issued",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Two queries past their response date",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "S-312 revised after the stability certificate",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Zoning check: FAR, coverage, setbacks, height, parking against sanctioned figures",
+     "Register gaps: sheets missing, superseded or issued without approval",
+     "Clash list between architectural, structural and services models",
+     "Overdue queries and their likely cost or time effect"
+    ],
+    "certified": [
+     "Structural design and stability certificate; registered structural engineer; bye-laws, IS 456, IS 875, IS 1893.",
+     "Independent proof-check of structure for tall buildings; independent structural engineer; IS 16700:2023 and authority's rules.",
+     "Fire NOC before construction of high-rise; Karnataka Fire and Emergency Services; Fire Force Act s.13."
+    ],
+    "reports": [
+     "Structural design basis report",
+     "Drawing register and transmittal log",
+     "RFI log with response dates",
+     "Design compliance checklist: zoning, fire, accessibility, energy"
+    ],
+    "sent": [
+     "Drawing issue notice to contractor and consultants on each revision",
+     "Reminder to the answering consultant when a query is overdue",
+     "Design change cost and time flags to Finance and Progress"
+    ]
+   },
+   "mustHave": [
+    "NBC 2016 withdrawn 30 April 2026; confirm which edition sanction and Fire NOC cite.",
+    "Setbacks, parking follow Zonal Regulations as amended 5 January 2026 (UDD 235 MNJ 2025(E)).",
+    "Design to IS 1893 (Part 1):2016; the 2025 edition was withdrawn in March 2026.",
+    "21 m or taller needs fire NOC before construction (Karnataka Fire Force Act s.13).",
+    "Only the current approved revision goes to site; superseded sheets are archived, never deleted."
+   ],
+   "standards": [
+    {
+     "name": "NBCS 2026 (SP 7:2026), replacing NBC 2016 from 30 April 2026",
+     "why": "National building standard; voluntary until states adopt it",
+     "url": "https://www.pib.gov.in/PressReleasePage.aspx?PRID=2301458®=48&lang=2"
+    },
+    {
+     "name": "Zonal Regulations of RMP 2015, amended 5 January 2026 (UDD 235 MNJ 2025(E))",
+     "why": "FAR, setbacks, height and parking for Bengaluru",
+     "url": "https://data.opencity.in/dataset/greater-bengaluru-amendment-regulations-2025"
+    },
+    {
+     "name": "IS 456:2000, IS 875, IS 1893 (Part 1):2016, IS 13920:2016, IS 16700:2023",
+     "why": "Structural design basis, seismic detailing, tall-building criteria",
+     "url": "https://law.resource.org/pub/in/bis/S03/is.456.2000.pdf"
+    },
+    {
+     "name": "ISO 19650-2:2018 (with ISO 19650-1:2018) information management using BIM",
+     "why": "Document states, status codes and revision control",
+     "url": "https://www.iso.org/standard/68080.html"
+    }
+   ]
+  },
+  {
+   "name": "Progress",
+   "stages": [
+    "pre",
+    "build"
+   ],
+   "standing": {
+    "state": "certified",
+    "by": "S. Kulkarni",
+    "role": "Architect",
+    "on": "28 Sep 2026",
+    "moved": true
+   },
+   "sections": [
+    {
+     "id": "baseline",
+     "name": "Baseline programme",
+     "icon": "timeline",
+     "blocks": [
+      {
+       "type": "board",
+       "title": "Programme against actual",
+       "items": [
+        {
+         "t": "Basement and podium",
+         "plan": 100,
+         "actual": 100,
+         "due": "30 Jun 2026",
+         "state": "Done"
+        },
+        {
+         "t": "Structure, levels 1 to 14",
+         "plan": 87,
+         "actual": 83,
+         "due": "31 Oct 2026",
+         "state": "Late"
+        },
+        {
+         "t": "Blockwork and plaster",
+         "plan": 55,
+         "actual": 40,
+         "due": "28 Feb 2027",
+         "state": "Late"
+        },
+        {
+         "t": "Services and lifts",
+         "plan": 10,
+         "actual": 3,
+         "due": "31 Mar 2028",
+         "state": "Late"
+        },
+        {
+         "t": "Finishes and façade",
+         "plan": 0,
+         "actual": 0,
+         "due": "30 Apr 2028",
+         "state": "Not started"
+        },
+        {
+         "t": "Clubhouse and external works",
+         "plan": 0,
+         "actual": 0,
+         "due": "30 Jun 2028",
+         "state": "Not started"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Activity weights",
+       "cols": [
+        "Activity",
+        "Weight",
+        "Done",
+        "Counts"
+       ],
+       "rows": [
+        [
+         "Basement and podium",
+         "14%",
+         "100%",
+         "14.0"
+        ],
+        [
+         "Structure, levels 1 to 14",
+         "21%",
+         "83%",
+         "17.4"
+        ],
+        [
+         "Blockwork and plaster",
+         "7%",
+         "40%",
+         "2.8"
+        ],
+        [
+         "Services and lifts",
+         "24%",
+         "3%",
+         "0.8"
+        ],
+        [
+         "Finishes and façade",
+         "24%",
+         "0%",
+         "0.0"
+        ],
+        [
+         "Clubhouse and external works",
+         "10%",
+         "0%",
+         "0.0"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": 2,
+       "total": false,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": ""
+      },
+      {
+       "type": "slots",
+       "title": "Programme papers",
+       "groups": [
+        {
+         "name": "Programme",
+         "lines": [
+          {
+           "t": "Baseline programme file",
+           "state": "in",
+           "pages": 14
+          },
+          {
+           "t": "Priced bill of quantities",
+           "state": "in",
+           "pages": 46
+          },
+          {
+           "t": "Main contract",
+           "state": "in",
+           "pages": 168
+          }
+         ]
+        },
+        {
+         "name": "Contractor reports",
+         "lines": [
+          {
+           "t": "Monthly progress report, September",
+           "state": "in",
+           "pages": 9
+          },
+          {
+           "t": "Interim bill 14",
+           "state": "asked",
+           "who": "Northline Constructions",
+           "due": "5 Oct 2026"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "daily",
+     "name": "Daily progress",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "figure",
+       "title": "Complete against plan",
+       "label": "Percent complete",
+       "value": "35%",
+       "chips": [
+        "Indicative"
+       ],
+       "stats": [
+        {
+         "l": "Planned today",
+         "v": "38%",
+         "n": "Baseline programme"
+        },
+        {
+         "l": "Last certified",
+         "v": "34%",
+         "n": "28 Sep 2026"
+        },
+        {
+         "l": "Forecast completion",
+         "v": "Aug 2028",
+         "n": "Plan Jun 2028"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Daily progress log",
+       "cols": [
+        "Date",
+        "Labour",
+        "Weather",
+        "Work done",
+        "Photos",
+        "Instructions"
+       ],
+       "rows": [
+        [
+         "3 Oct 2026",
+         "281",
+         "Clear",
+         "Level 12 curing, level 13 column steel",
+         "9",
+         "Fix edge rail, level 12"
+        ],
+        [
+         "2 Oct 2026",
+         "286",
+         "Clear",
+         "Level 12 curing, blockwork level 7",
+         "11",
+         "None"
+        ],
+        [
+         "1 Oct 2026",
+         "290",
+         "Cloudy",
+         "Level 12 slab pour, 118 m³",
+         "14",
+         "Extra cubes taken"
+        ],
+        [
+         "30 Sep 2026",
+         "279",
+         "Cloudy",
+         "Level 12 slab steel, blockwork level 6",
+         "7",
+         "Edge work stopped"
+        ],
+        [
+         "29 Sep 2026",
+         "283",
+         "Clear",
+         "Level 12 shuttering, blockwork level 6",
+         "8",
+         "None"
+        ],
+        [
+         "28 Sep 2026",
+         "288",
+         "Clear",
+         "Level 12 shuttering, blockwork level 5",
+         "10",
+         "None"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Add daily report"
+      }
+     ]
+    },
+    {
+     "id": "delays",
+     "name": "Delays",
+     "icon": "flags",
+     "blocks": [
+      {
+       "type": "figure",
+       "title": "Delay days by party",
+       "label": "Delay days logged",
+       "value": "12 days",
+       "chips": [
+        "Indicative"
+       ],
+       "stats": [
+        {
+         "l": "Contractor",
+         "v": "8 days",
+         "n": "67%"
+        },
+        {
+         "l": "Design",
+         "v": "3 days",
+         "n": "25%"
+        },
+        {
+         "l": "Weather",
+         "v": "1 day",
+         "n": "8%"
+        }
+       ],
+       "share": [
+        {
+         "l": "Contractor",
+         "p": 67
+        },
+        {
+         "l": "Design",
+         "p": 25
+        },
+        {
+         "l": "Weather",
+         "p": 8
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Hindrance and delay register",
+       "cols": [
+        "Date",
+        "Cause",
+        "Party",
+        "Activity affected",
+        "Days",
+        "Status"
+       ],
+       "rows": [
+        [
+         "28 Aug 2026",
+         "Heavy rain, concreting stopped",
+         "Weather",
+         "Level 9 columns",
+         "1",
+         "Accepted"
+        ],
+        [
+         "9 Sep 2026",
+         "RFI 14 unanswered",
+         "Design",
+         "Level 11 slab",
+         "3",
+         "Open"
+        ],
+        [
+         "15 Sep 2026",
+         "Cement delivery late",
+         "Contractor",
+         "Level 10 slab",
+         "2",
+         "Accepted"
+        ],
+        [
+         "22 Sep 2026",
+         "NCR 11 hold on level 8",
+         "Contractor",
+         "Blockwork, level 8",
+         "5",
+         "Open"
+        ],
+        [
+         "30 Sep 2026",
+         "Edge protection missing, work stopped",
+         "Contractor",
+         "Level 12 edge work",
+         "1",
+         "Accepted"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add delay"
+      },
+      {
+       "type": "table",
+       "title": "From Design",
+       "cols": [
+        "Item",
+        "Reference",
+        "Late by",
+        "Affects",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Query",
+         "RFI 14, lap length level 11",
+         "17 days",
+         "Level 11 slab",
+         "Open"
+        ],
+        [
+         "Query",
+         "RFI 15, balcony drain slope",
+         "4 days",
+         "Balcony screed, level 6",
+         "Open"
+        ],
+        [
+         "Drawing",
+         "P-402, storm-water outfall",
+         "Not issued",
+         "Site drainage",
+         "Open"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Design",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "extensions",
+     "name": "Time extensions",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Time limits and dates",
+       "items": [
+        {
+         "l": "Claim notice limit, cl. 20.2",
+         "v": "28 days",
+         "state": "set",
+         "from": "Main contract",
+         "page": 41
+        },
+        {
+         "l": "RERA force-majeure cap",
+         "v": "One year",
+         "state": "set"
+        },
+        {
+         "l": "Lender extension cap",
+         "v": "Two years",
+         "state": "set"
+        },
+        {
+         "l": "Planned completion",
+         "v": "Jun 2028",
+         "state": "set",
+         "from": "Baseline programme file",
+         "page": 2
+        },
+        {
+         "l": "Forecast completion",
+         "v": "Aug 2028",
+         "state": "calc"
+        },
+        {
+         "l": "Days claimed",
+         "v": "9",
+         "state": "calc"
+        },
+        {
+         "l": "Days granted",
+         "v": "3",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Extension requests",
+       "cols": [
+        "No.",
+        "Event",
+        "Days claimed",
+        "Event date",
+        "Notice given",
+        "Response",
+        "Status"
+       ],
+       "rows": [
+        [
+         "EOT 3",
+         "NCR 11 hold on level 8",
+         "5",
+         "22 Sep 2026",
+         "29 Sep 2026",
+         "Under review",
+         "Pending"
+        ],
+        [
+         "EOT 2",
+         "RFI 14 unanswered",
+         "3",
+         "9 Sep 2026",
+         "17 Sep 2026",
+         "3 days granted",
+         "Accepted"
+        ],
+        [
+         "EOT 1",
+         "Heavy rain, level 9 columns",
+         "1",
+         "28 Aug 2026",
+         "30 Sep 2026",
+         "Out of time",
+         "Rejected"
+        ]
+       ],
+       "status": 6,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "Northline Constructions",
+       "add": "Add request"
+      }
+     ]
+    },
+    {
+     "id": "certification",
+     "name": "Certification",
+     "icon": "report",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Percent complete",
+       "items": [
+        {
+         "l": "Percent complete, measured",
+         "v": "35%",
+         "state": "calc"
+        },
+        {
+         "l": "Percent complete, contractor's report",
+         "v": "38%",
+         "state": "sug",
+         "from": "Monthly progress report, September",
+         "page": 3
+        },
+        {
+         "l": "Last certified",
+         "v": "34% on 28 Sep 2026",
+         "state": "set"
+        },
+        {
+         "l": "Certified by",
+         "v": "S. Kulkarni, architect",
+         "state": "set"
+        }
+       ]
+      },
+      {
+       "type": "calendar",
+       "title": "Certificates and returns",
+       "items": [
+        {
+         "t": "RERA quarterly update, April to June",
+         "due": "15 Jul 2026",
+         "who": "S. Kulkarni",
+         "state": "Filed"
+        },
+        {
+         "t": "Interim payment certificate 14",
+         "due": "12 Oct 2026",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "RERA quarterly update, July to September",
+         "due": "15 Oct 2026",
+         "who": "S. Kulkarni",
+         "state": "Due"
+        },
+        {
+         "t": "Stage certificate for loan drawdown",
+         "due": "20 Oct 2026",
+         "who": "S. Kulkarni",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Contractor reports 38% complete; the measured figure is 35%",
+     "rests": [
+      "Percent complete, contractor's report",
+      "Percent complete, measured"
+     ]
+    },
+    {
+     "t": "Of 12 delay days logged, 8 fall to the contractor and 3 to Design",
+     "rests": []
+    },
+    {
+     "t": "Rain claim EOT 1 was notified 33 days after the event, past the 28-day limit",
+     "rests": [
+      "Claim notice limit, cl. 20.2"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Progress 35% against 38% planned",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "RERA quarterly update due 15 Oct 2026",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Two delay events lack the contractor's countersignature",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Percent complete by building and floor, weighted by value",
+     "Forecast completion date and float on critical activities",
+     "Days of delay by cause and responsible party",
+     "Whether the registered RERA completion date is at risk"
+    ],
+    "certified": [
+     "Percent complete (architect) and cost incurred (engineer) per withdrawal and quarter; RERA s.4(2)(l)(D).",
+     "Interim payment certificate to contractor; engineer or Engineer-in-Charge; FIDIC 2017 cl. 14.6, CPWD GCC cl. 7.",
+     "Stage completion for loan drawdown; lender's independent engineer or architect; RBI Directions 2025 para 21."
+    ],
+    "reports": [
+     "Daily progress report",
+     "Monthly progress report with photographs",
+     "RERA quarterly update, due 15 days after quarter end",
+     "Hindrance register and extension-of-time claims"
+    ],
+    "sent": [
+     "Delay and hindrance notices to contractor within contract time limits",
+     "Extension-of-time response (granted, refused, part) to contractor",
+     "Certified percent complete to Finance and Legal for filings"
+    ]
+   },
+   "mustHave": [
+    "RERA quarterly update within 15 days of quarter end: floor-wise percent complete, photographs.",
+    "FIDIC 2017 claim notice: 28 days. CPWD GCC 2023 extension request: 14 days.",
+    "RERA force-majeure extension is capped at one year (Section 6); record dated evidence.",
+    "Contemporaneous daily records of labour, equipment, weather and instructions decide delay claims (SCL Protocol).",
+    "Lender DCCO extension capped at 2 years for non-infrastructure (RBI Directions 2025, para 26)."
+   ],
+   "standards": [
+    {
+     "name": "RERA 2016 s.4(2)(l)(D), s.11; Karnataka RERD Rules 2017 rule 5",
+     "why": "Architect and engineer certificates, quarterly updates, 70% account",
+     "url": "https://naredco.in/notification/pdfs/Karnataka%20Real%20Estate%20(Regulation%20and%20Development)%20Rules,%202017.pdf"
+    },
+    {
+     "name": "RBI (Project Finance) Directions 2025, paras 9(e), 21, 26",
+     "why": "Independent engineer certifies stages; DCCO and extension limits",
+     "url": "https://taxguru.in/rbi/reserve-bank-india-project-finance-directions-2025.html"
+    },
+    {
+     "name": "SCL Delay and Disruption Protocol, 2nd ed. 2017; AACE RP 29R-03 and 52R-06",
+     "why": "Programme records, delay analysis, time impact analysis",
+     "url": "https://www.scl.org.uk/resources/delay-disruption-protocol"
+    },
+    {
+     "name": "FIDIC 2017 Red Book cl. 8.3, 8.5, 20.2; CPWD GCC 2023 cl. 5",
+     "why": "Programme, extension of time, claim notice limits, hindrance",
+     "url": "https://iitk.ac.in/iwd/file/2025/04-AC-EE-2025/GCC2023.pdf"
+    }
+   ]
+  },
+  {
+   "name": "Technical",
+   "stages": [
+    "land",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "6 observations, 2 tests open"
+   },
+   "sections": [
+    {
+     "id": "plan",
+     "name": "Inspection and test plan",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Papers for the review",
+       "groups": [
+        {
+         "name": "Structural",
+         "lines": [
+          {
+           "t": "Inspection and test plan",
+           "state": "in",
+           "pages": 22
+          },
+          {
+           "t": "As-built structural drawings",
+           "state": "asked",
+           "who": "Northline Constructions",
+           "due": "14 Oct 2026"
+          },
+          {
+           "t": "Structural stability certificate",
+           "state": "none"
+          }
+         ]
+        },
+        {
+         "name": "Materials",
+         "lines": [
+          {
+           "t": "Cement and steel test certificates",
+           "state": "in",
+           "pages": 31
+          },
+          {
+           "t": "Concrete cube test reports",
+           "state": "in",
+           "pages": 18
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "qa",
+       "title": "The client's questions",
+       "items": [
+        {
+         "q": "Has any structural repair been done?",
+         "a": "Column jacketing at level 2 in 2025",
+         "source": "From a document",
+         "proof": "Inspection and test plan, p. 14",
+         "state": "answered"
+        },
+        {
+         "q": "Is the waterproofing under warranty?",
+         "a": "Ten years from 2025",
+         "source": "Seller said",
+         "proof": "",
+         "state": "suggested"
+        },
+        {
+         "q": "Were cores taken where cubes failed?",
+         "a": "",
+         "source": "",
+         "proof": "",
+         "state": "open"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "tests",
+     "name": "Tests and results",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Concrete",
+       "items": [
+        {
+         "l": "Grade specified",
+         "v": "M30",
+         "state": "set",
+         "from": "Inspection and test plan",
+         "page": 6
+        },
+        {
+         "l": "Pours to date",
+         "v": "48",
+         "state": "set",
+         "from": "Concrete cube test reports",
+         "page": 2
+        },
+        {
+         "l": "Samples required",
+         "v": "96",
+         "state": "calc"
+        },
+        {
+         "l": "Samples taken",
+         "v": "88",
+         "state": "sug",
+         "from": "Concrete cube test reports",
+         "page": 2
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Test register",
+       "cols": [
+        "Test",
+        "Location",
+        "Result",
+        "Limit",
+        "Outcome"
+       ],
+       "rows": [
+        [
+         "Cube, 28 days",
+         "Level 9 slab",
+         "33.5 N/mm²",
+         "30 N/mm²",
+         "Passed"
+        ],
+        [
+         "Cube, 28 days",
+         "Level 8 columns",
+         "27.1 N/mm²",
+         "30 N/mm²",
+         "Failed"
+        ],
+        [
+         "Rebound hammer",
+         "Level 8 columns",
+         "Awaited",
+         "—",
+         "Pending"
+        ],
+        [
+         "Rebar tensile",
+         "Batch 14",
+         "565 N/mm²",
+         "500 N/mm²",
+         "Passed"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Add test"
+      }
+     ]
+    },
+    {
+     "id": "ncr",
+     "name": "Non-conformances",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Non-conformance reports",
+       "cols": [
+        "No.",
+        "What",
+        "Where",
+        "Raised",
+        "Status"
+       ],
+       "rows": [
+        [
+         "NCR 11",
+         "Cube strength below grade",
+         "Level 8 columns",
+         "22 Sep 2026",
+         "Open"
+        ],
+        [
+         "NCR 09",
+         "Cover less than specified",
+         "Basement 2 wall",
+         "4 Sep 2026",
+         "Closed"
+        ],
+        [
+         "NCR 07",
+         "Honeycombing",
+         "Level 9, column C4",
+         "28 Aug 2026",
+         "Open"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Raise a report"
+      }
+     ]
+    },
+    {
+     "id": "survey",
+     "name": "Condition survey",
+     "icon": "photos",
+     "blocks": [
+      {
+       "type": "photos",
+       "title": "Site photographs",
+       "items": [
+        {
+         "where": "Level 9, column C4",
+         "says": "Honeycombing about 300 mm wide, aggregate exposed",
+         "art": "column",
+         "state": "sug"
+        },
+        {
+         "where": "Basement 2, retaining wall",
+         "says": "Damp patch about one metre wide",
+         "art": "damp",
+         "state": "ok"
+        },
+        {
+         "where": "Level 12, slab edge",
+         "says": "Edge protection missing over six metres",
+         "art": "edge",
+         "state": "sug"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "defects",
+     "name": "Defects and cost",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Observations and mitigations",
+       "cols": [
+        "Area",
+        "What was seen",
+        "Risk",
+        "Mitigation",
+        "Code",
+        "Cost",
+        "When"
+       ],
+       "rows": [
+        [
+         "Level 9, column C4",
+         "Honeycombing, aggregate exposed",
+         "High",
+         "Cut back, repair mortar",
+         "IS 456",
+         "₹ 1.8 L",
+         "Immediately"
+        ],
+        [
+         "Level 8 columns",
+         "Cube strength below grade",
+         "High",
+         "Core test, then jacket",
+         "IS 456",
+         "₹ 6.4 L",
+         "Immediately"
+        ],
+        [
+         "Basement 2 wall",
+         "Seepage at wall base",
+         "Moderate",
+         "Injection grouting",
+         "IS 456",
+         "₹ 2.2 L",
+         "Within a year"
+        ],
+        [
+         "Terrace",
+         "Water ponding",
+         "Low",
+         "Relay screed to falls",
+         "NBC",
+         "₹ 0.9 L",
+         "Years 1 to 5"
+        ]
+       ],
+       "status": 2,
+       "money": [
+        5
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add observation"
+      }
+     ]
+    },
+    {
+     "id": "commissioning",
+     "name": "Commissioning",
+     "icon": "report",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Services to commission",
+       "items": [
+        {
+         "t": "Lifts: test and licence",
+         "due": "20 Mar 2028",
+         "who": "N. Rao",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Fire pumps and alarm",
+         "due": "10 Apr 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Sewage plant trial run",
+         "due": "2 May 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Fewer cube samples were taken than the pours require",
+     "rests": [
+      "Samples required",
+      "Samples taken"
+     ]
+    },
+    {
+     "t": "Both open non-conformances are on levels 8 and 9",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Cube strength below grade at level 8",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Edge protection missing on level 12",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Cube compliance check: four-result mean and individual results against grade",
+     "Test shortfall: samples taken against samples required by the plan",
+     "Defects ranked immediate, short-term or later, with draft cost range",
+     "Remaining useful life and replacement reserve table for building systems"
+    ],
+    "certified": [
+     "Technical due diligence report and cost opinion; chartered building surveyor or engineer; RICS standard, ASTM E2018-24.",
+     "Structural assessment of existing building; registered structural engineer; IS 15988:2013, IS 456, CPWD repair handbook.",
+     "Concrete acceptance, core or load-test decision; engineer-in-charge; IS 456:2000 clauses 16 and 17."
+    ],
+    "reports": [
+     "Material test and cube register",
+     "Non-conformance reports and closure log",
+     "Technical due diligence report with defect schedule",
+     "Commissioning file: lift licence, fire, electrical, STP consents"
+    ],
+    "sent": [
+     "Non-conformance report to contractor with corrective action and due date",
+     "Failed-test alert to Progress to hold dependent work",
+     "Defect notice and cost to remedy to contractor and Finance"
+    ]
+   },
+   "mustHave": [
+    "Cubes: 4 samples for 31-50 m³, then 1 per extra 50 m³ (IS 456).",
+    "Cubes: 4-result mean at least fck+4 (M20 up); no result below fck-3 N/mm².",
+    "RERA s.14(3): promoter fixes defects reported within 5 years of possession, in 30 days.",
+    "Lifts: erection permission lasts 12 months; licence needed before use (Karnataka Lifts Act).",
+    "Condition assessment reports immediate repairs, short-term costs and usually 12-year reserves separately (ASTM E2018-24)."
+   ],
+   "standards": [
+    {
+     "name": "IS 456:2000 cl. 15-17: sampling, acceptance, cores and load tests",
+     "why": "Cube frequency, acceptance rule and core test",
+     "url": "https://law.resource.org/pub/in/bis/S03/is.456.2000.pdf"
+    },
+    {
+     "name": "IS 516 (Part 4) cores and (Part 5) non-destructive tests; IS 13311 withdrawn",
+     "why": "Current test methods replacing IS 13311 Parts 1 and 2",
+     "url": "https://www.intertekinform.com/en-us/standards/is-516-part-5-sec-4-2020-1198587_saig_bis_bis_2890239/"
+    },
+    {
+     "name": "RICS Technical due diligence of commercial property, 1st ed. (2020; standard since 2023)",
+     "why": "Scope and reporting of technical due diligence",
+     "url": "https://www.rics.org/profession-standards/rics-standards-and-guidance/sector-standards/real-estate-standards/technical-due-diligence-of-commercial-property"
+    },
+    {
+     "name": "ASTM E2018-24 baseline property condition assessment",
+     "why": "Immediate costs, short-term costs and replacement reserves",
+     "url": "https://www.astm.org/news/press-releases/e2018-revision"
+    }
+   ]
+  },
+  {
+   "name": "Site",
+   "stages": [
+    "land",
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "10 values, 1 assumed"
+   },
+   "sections": [
+    {
+     "id": "survey",
+     "name": "Survey and boundary",
+     "icon": "map",
+     "blocks": [
+      {
+       "type": "map",
+       "title": "Surveyed plot and boreholes",
+       "view": "site",
+       "layers": [
+        "plot",
+        "survey",
+        "roads"
+       ],
+       "pins": [
+        {
+         "t": "Borehole 1",
+         "kind": "borehole",
+         "x": 43,
+         "y": 36
+        },
+        {
+         "t": "Borehole 2",
+         "kind": "borehole",
+         "x": 57,
+         "y": 36
+        },
+        {
+         "t": "Borehole 3",
+         "kind": "borehole",
+         "x": 50,
+         "y": 50
+        },
+        {
+         "t": "Borehole 4",
+         "kind": "borehole",
+         "x": 43,
+         "y": 64
+        },
+        {
+         "t": "Borehole 5",
+         "kind": "borehole",
+         "x": 57,
+         "y": 64
+        }
+       ],
+       "measures": [
+        {
+         "t": "Surveyed area",
+         "v": "4,196 sqm",
+         "tone": "ok"
+        },
+        {
+         "t": "Deed and khata area",
+         "v": "4,210 sqm",
+         "tone": "ok"
+        },
+        {
+         "t": "Difference",
+         "v": "14 sqm short",
+         "tone": "warn"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Survey and drone papers",
+       "groups": [
+        {
+         "name": "Survey",
+         "lines": [
+          {
+           "t": "Topographic and boundary survey drawing",
+           "state": "in",
+           "pages": 3
+          }
+         ]
+        },
+        {
+         "name": "Drone",
+         "lines": [
+          {
+           "t": "Drone orthophoto",
+           "state": "asked",
+           "who": "R. Iyer",
+           "due": "10 Oct 2026"
+          },
+          {
+           "t": "Digital Sky airspace check",
+           "state": "in",
+           "pages": 1
+          },
+          {
+           "t": "Drone pilot certificate",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "search",
+       "title": "RTC and khata look-up",
+       "source": "Bhoomi and e-Khata",
+       "query": "Hosakere village, survey nos. 41/2 and 41/3",
+       "results": [
+        {
+         "t": "Survey 41/2: 2,529 sqm",
+         "sub": "RTC extract",
+         "picked": true
+        },
+        {
+         "t": "Survey 41/3: 1,681 sqm",
+         "sub": "RTC extract",
+         "picked": true
+        },
+        {
+         "t": "Khata area: 4,210 sqm",
+         "sub": "e-Khata, Hosakere",
+         "picked": true
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "soil",
+     "name": "Soil investigation",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Geotechnical papers",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "Soil investigation report with borelogs",
+           "state": "in",
+           "pages": 48
+          },
+          {
+           "t": "Laboratory test results",
+           "state": "in",
+           "pages": 21
+          },
+          {
+           "t": "Safe bearing capacity certificate",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Ground figures",
+       "items": [
+        {
+         "l": "Boreholes drilled",
+         "v": "5",
+         "state": "set",
+         "from": "Soil investigation report with borelogs",
+         "page": 4
+        },
+        {
+         "l": "Boreholes against IS 1892 guidance",
+         "v": "5 of 5",
+         "state": "calc"
+        },
+        {
+         "l": "Deepest borehole",
+         "v": "15 m",
+         "state": "set",
+         "from": "Soil investigation report with borelogs",
+         "page": 4
+        },
+        {
+         "l": "Weathered rock from",
+         "v": "6.6 m below ground",
+         "state": "sug",
+         "from": "Soil investigation report with borelogs",
+         "page": 7
+        },
+        {
+         "l": "Water table",
+         "v": "5.8 m below ground",
+         "state": "set",
+         "from": "Soil investigation report with borelogs",
+         "page": 9
+        },
+        {
+         "l": "Founding level",
+         "v": "8.2 m below ground",
+         "state": "set",
+         "from": "Soil investigation report with borelogs",
+         "page": 12
+        },
+        {
+         "l": "Safe bearing capacity",
+         "v": "380 kN/m²",
+         "state": "set",
+         "from": "Soil investigation report with borelogs",
+         "page": 12
+        },
+        {
+         "l": "Ground improvement",
+         "v": "None needed",
+         "state": "assume"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Borehole summary",
+       "cols": [
+        "Borehole",
+        "Depth",
+        "Rock from",
+        "Water level"
+       ],
+       "rows": [
+        [
+         "Borehole 1",
+         "15 m",
+         "6.2 m",
+         "5.6 m"
+        ],
+        [
+         "Borehole 2",
+         "12 m",
+         "6.8 m",
+         "5.9 m"
+        ],
+        [
+         "Borehole 3",
+         "15 m",
+         "6.5 m",
+         "5.8 m"
+        ],
+        [
+         "Borehole 4",
+         "12 m",
+         "7.0 m",
+         "6.0 m"
+        ],
+        [
+         "Borehole 5",
+         "12 m",
+         "6.4 m",
+         "5.7 m"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "constraints",
+     "name": "Constraints",
+     "icon": "flags",
+     "blocks": [
+      {
+       "type": "map",
+       "title": "Water, power and planning",
+       "view": "site",
+       "layers": [
+        "plot",
+        "water",
+        "planning",
+        "power",
+        "airport"
+       ],
+       "measures": [
+        {
+         "t": "Lake, north-west",
+         "v": "180 m",
+         "tone": "ok"
+        },
+        {
+         "t": "Storm-water drain, west",
+         "v": "38 m",
+         "tone": "warn"
+        },
+        {
+         "t": "Drain buffer on plot",
+         "v": "None",
+         "tone": "ok"
+        },
+        {
+         "t": "110 kV line, north-east",
+         "v": "95 m",
+         "tone": "ok"
+        },
+        {
+         "t": "Road widening, east",
+         "v": "3 m strip",
+         "tone": "warn"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Constraints register",
+       "cols": [
+        "Constraint",
+        "Distance",
+        "Effect on plot",
+        "Checked",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Lake, north-west",
+         "180 m",
+         "None",
+         "8 Sep 2026",
+         "Met"
+        ],
+        [
+         "Storm-water drain, west",
+         "38 m from boundary",
+         "Buffer clear, to confirm on drone image",
+         "8 Sep 2026",
+         "Open"
+        ],
+        [
+         "110 kV line, north-east",
+         "95 m",
+         "None",
+         "8 Sep 2026",
+         "Met"
+        ],
+        [
+         "Road widening, east road to 18 m",
+         "3 m strip",
+         "Plot area reduced, setback moves",
+         "8 Sep 2026",
+         "Open"
+        ],
+        [
+         "Airport height zone",
+         "14 km",
+         "Height clearance on file",
+         "8 Sep 2026",
+         "Received"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "fetched",
+       "from": "RMP 2015 and GBA records",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "visits",
+     "name": "Site visits",
+     "icon": "people",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Visit notes",
+       "cols": [
+        "Date",
+        "Visitor",
+        "Purpose",
+        "Findings",
+        "Action"
+       ],
+       "rows": [
+        [
+         "30 Sep 2026",
+         "S. Kulkarni",
+         "Architect's monthly visit",
+         "Edge rail missing, level 12",
+         "Rail fixed by 4 Oct"
+        ],
+        [
+         "22 Sep 2026",
+         "N. Rao",
+         "Level 8 columns, cube result",
+         "Strength below grade",
+         "Core test advised"
+        ],
+        [
+         "15 Sep 2026",
+         "A. Fernandes",
+         "Progress walk with contractor",
+         "Blockwork behind plan",
+         "Add gang, review weekly"
+        ],
+        [
+         "8 Sep 2026",
+         "Lender's engineer",
+         "Hosakere Bank stage visit",
+         "Structure at level 9",
+         "Report to lender"
+        ],
+        [
+         "28 Aug 2026",
+         "R. Iyer",
+         "Level 9 column inspection",
+         "Honeycombing at C4",
+         "NCR 07 raised"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Log a visit"
+      }
+     ]
+    },
+    {
+     "id": "diary",
+     "name": "Site diary",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Site diary",
+       "cols": [
+        "Date",
+        "Weather",
+        "Labour",
+        "Events and instructions",
+        "Visitors",
+        "Entry"
+       ],
+       "rows": [
+        [
+         "3 Oct 2026",
+         "Clear",
+         "281",
+         "Edge rail instructed at level 12",
+         "None",
+         "Open"
+        ],
+        [
+         "2 Oct 2026",
+         "Clear",
+         "286",
+         "Rebound hammer test done, level 8; result awaited",
+         "None",
+         "Done"
+        ],
+        [
+         "1 Oct 2026",
+         "Cloudy",
+         "290",
+         "Level 12 slab poured, 118 m³",
+         "N. Rao",
+         "Done"
+        ],
+        [
+         "30 Sep 2026",
+         "Cloudy",
+         "279",
+         "Edge work stopped, level 12",
+         "S. Kulkarni",
+         "Done"
+        ],
+        [
+         "29 Sep 2026",
+         "Clear",
+         "283",
+         "Steel delivery, 22 tonnes",
+         "None",
+         "Done"
+        ],
+        [
+         "28 Sep 2026",
+         "Clear",
+         "288",
+         "Level 12 shuttering started",
+         "None",
+         "Done"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Add diary entry"
+      },
+      {
+       "type": "fields",
+       "title": "Record gaps",
+       "items": [
+        {
+         "l": "Diary entries, September",
+         "v": "29 of 30 days",
+         "state": "calc"
+        },
+        {
+         "l": "Days without photographs, September",
+         "v": "3",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "photographs",
+     "name": "Photographs",
+     "icon": "photos",
+     "blocks": [
+      {
+       "type": "photos",
+       "title": "Dated site photographs",
+       "items": [
+        {
+         "where": "North-west corner, plot boundary",
+         "says": "Boundary stone in place, matches the survey",
+         "art": "stone",
+         "state": "ok"
+        },
+        {
+         "where": "West side, storm-water drain",
+         "says": "Drain flowing, bank clear of debris",
+         "art": "drain",
+         "state": "sug"
+        },
+        {
+         "where": "East boundary, 12 m road",
+         "says": "Road edge intact, no widening work begun",
+         "art": "road",
+         "state": "ok"
+        },
+        {
+         "where": "Level 12, slab edge",
+         "says": "Edge rail missing over six metres",
+         "art": "edge",
+         "state": "sug"
+        }
+       ]
+      },
+      {
+       "type": "map",
+       "title": "Where they were taken",
+       "view": "site",
+       "layers": [
+        "plot",
+        "roads"
+       ],
+       "pins": [
+        {
+         "t": "Boundary stone",
+         "kind": "photo",
+         "x": 39,
+         "y": 31
+        },
+        {
+         "t": "Storm-water drain",
+         "kind": "photo",
+         "x": 28,
+         "y": 52
+        },
+        {
+         "t": "East road edge",
+         "kind": "photo",
+         "x": 70,
+         "y": 50
+        },
+        {
+         "t": "Level 12 slab edge",
+         "kind": "photo",
+         "x": 52,
+         "y": 46
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Founding level sits 2.4 m below the water table",
+     "rests": [
+      "Founding level",
+      "Water table"
+     ]
+    },
+    {
+     "t": "Surveyed area is 14 sqm below the deed and khata area",
+     "rests": []
+    },
+    {
+     "t": "Three September days have no dated photographs",
+     "rests": [
+      "Days without photographs, September"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "East road widening takes a 3 m strip",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Surveyed area 14 sqm short of deed",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Drone orthophoto not yet uploaded",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Surveyed area against title and khata area, with the difference",
+     "Borehole count and depth against IS 1892 guidance",
+     "Founding level options with bearing capacity, for engineer review",
+     "Days without a diary entry or dated photographs"
+    ],
+    "certified": [
+     "Boundary and topographic survey plan; licensed surveyor; Karnataka Land Revenue Act 1964.",
+     "Geotechnical report and safe bearing capacity; geotechnical engineer; IS 1892, IS 6403, IS 2131.",
+     "Drone flight clearance and pilot certificate; DGCA-authorised remote pilot; Drone Rules 2021."
+    ],
+    "reports": [
+     "Topographic and boundary survey report",
+     "Geotechnical investigation report with borelogs",
+     "Site visit reports",
+     "Site diary and dated photograph register"
+    ],
+    "sent": [
+     "Surveyed levels and boundary to Design for plot layout",
+     "Safe bearing capacity and water level to Design",
+     "Area or boundary mismatch to Legal for title check"
+    ]
+   },
+   "mustHave": [
+    "IS 1892: explore 1.5 times footing width; 5 boreholes for compact 0.4 ha site.",
+    "Check the Digital Sky map before every drone flight; yellow zones need ATC permission.",
+    "Daily diary entries lock at day end; corrections are dated amendments, never overwrites.",
+    "Photographs carry date, time and location; RERA quarterly updates need progress photographs.",
+    "Reconcile surveyed area with RTC and khata area before design; record any difference."
+   ],
+   "standards": [
+    {
+     "name": "IS 1892:1979 subsurface investigation for foundations; IS 2131; IS 6403",
+     "why": "Borehole number, spacing, depth; standard penetration test; bearing capacity",
+     "url": "https://law.resource.org/pub/in/bis/S03/is.1892.1979.pdf"
+    },
+    {
+     "name": "Drone Rules 2021 as amended 2022; Digital Sky airspace map",
+     "why": "Zones, remote pilot certificate and permissions for survey flights",
+     "url": "https://static.pib.gov.in/writereaddata/specificdocs/documents/2022/jan/doc202212810701.pdf"
+    },
+    {
+     "name": "CPWD Works Manual 2022: site order book, hindrance register, measurement book",
+     "why": "Model for site registers and who signs them",
+     "url": "https://cpwd.gov.in/newsitem/latestnewspdf/Final-WorksManual.pdf"
+    },
+    {
+     "name": "SCL Delay and Disruption Protocol 2017, records and programme principles",
+     "why": "Contemporaneous site records are what delay claims rest on",
+     "url": "https://www.scl.org.uk/resources/delay-disruption-protocol"
+    }
+   ]
+  },
+  {
+   "name": "Safety",
+   "stages": [
+    "build"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "13 values, 1 assumed"
+   },
+   "sections": [
+    {
+     "id": "registrations",
+     "name": "Registrations",
+     "icon": "key",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Compliance calendar",
+       "items": [
+        {
+         "t": "Annual medicals, workers 40 and over",
+         "due": "30 Sep 2026",
+         "who": "A. Fernandes",
+         "state": "Overdue"
+        },
+        {
+         "t": "Tower crane examination",
+         "due": "16 Oct 2026",
+         "who": "R. Iyer",
+         "state": "Due"
+        },
+        {
+         "t": "Hoist examination",
+         "due": "12 Nov 2026",
+         "who": "R. Iyer",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Environmental clearance report, April to September",
+         "due": "1 Dec 2026",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Labour licence, Northline Constructions",
+         "due": "31 Dec 2026",
+         "who": "P. Nair",
+         "state": "Upcoming"
+        },
+        {
+         "t": "KSPCB consent, validity",
+         "due": "31 Mar 2027",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Fire extinguisher and hydrant check",
+         "due": "2 Oct 2026",
+         "who": "R. Iyer",
+         "state": "Done"
+        },
+        {
+         "t": "Environmental clearance report, October to March",
+         "due": "1 Jun 2026",
+         "who": "A. Fernandes",
+         "state": "Filed"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Licences and consents",
+       "groups": [
+        {
+         "name": "Consents",
+         "lines": [
+          {
+           "t": "Environmental clearance letter",
+           "state": "in",
+           "pages": 14,
+           "ref": {
+            "dept": "legal",
+            "fn": "Approvals",
+            "t": "Environmental clearance"
+           }
+          },
+          {
+           "t": "KSPCB consent letter",
+           "state": "in",
+           "pages": 6
+          },
+          {
+           "t": "C&D waste registration",
+           "state": "in",
+           "pages": 3
+          }
+         ]
+        },
+        {
+         "name": "Licences and examinations",
+         "lines": [
+          {
+           "t": "Labour licence, Northline Constructions",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Hoist examination certificate",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Tower crane examination certificate",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Annual medical examination records",
+           "state": "asked",
+           "who": "A. Fernandes",
+           "due": "7 Oct 2026"
+          },
+          {
+           "t": "Recycler and EPR certificates",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Notices from authorities",
+       "cols": [
+        "Received",
+        "From",
+        "Notice",
+        "Reply due",
+        "Status"
+       ],
+       "rows": [
+        [
+         "24 Sep 2026",
+         "KSPCB",
+         "Dust control inspection, reply requested",
+         "8 Oct 2026",
+         "Open"
+        ],
+        [
+         "10 Sep 2026",
+         "City corporation",
+         "Debris on east road, clear and reply",
+         "17 Sep 2026",
+         "Closed"
+        ],
+        [
+         "2 Sep 2026",
+         "BESCOM",
+         "Temporary supply review visit",
+         "9 Sep 2026",
+         "Closed"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "KSPCB, city corporation, BESCOM",
+       "add": "Add notice"
+      }
+     ]
+    },
+    {
+     "id": "permits",
+     "name": "Risk and permits",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Permits to work",
+       "cols": [
+        "Permit",
+        "Work",
+        "Where",
+        "Signatory",
+        "Valid to",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Work at height",
+         "Edge rail fixing",
+         "Level 12 slab edge",
+         "R. Iyer",
+         "3 Oct 2026",
+         "Open"
+        ],
+        [
+         "Hot work",
+         "Welding, column starter bars",
+         "Level 13",
+         "R. Iyer",
+         "3 Oct 2026",
+         "Open"
+        ],
+        [
+         "Crane lift",
+         "Shuttering lift",
+         "Tower crane 1",
+         "R. Iyer",
+         "2 Oct 2026",
+         "Closed"
+        ],
+        [
+         "Confined space",
+         "Sump cleaning",
+         "Basement 2",
+         "A. Fernandes",
+         "30 Sep 2026",
+         "Closed"
+        ],
+        [
+         "Excavation",
+         "Utility trench",
+         "East boundary",
+         "A. Fernandes",
+         "28 Sep 2026",
+         "Expired"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Raise a permit"
+      },
+      {
+       "type": "table",
+       "title": "Risk assessments",
+       "cols": [
+        "Activity",
+        "Hazard",
+        "Risk",
+        "Control",
+        "Reviewed"
+       ],
+       "rows": [
+        [
+         "Slab formwork, levels 10 to 14",
+         "Fall from edge",
+         "High",
+         "Edge rail and nets",
+         "30 Sep 2026"
+        ],
+        [
+         "Tower crane lifts",
+         "Dropped load",
+         "High",
+         "Lift plan, signaller",
+         "14 Sep 2026"
+        ],
+        [
+         "Pump line, concrete pours",
+         "Hose whip",
+         "Medium",
+         "Pressure check, clamps",
+         "1 Oct 2026"
+        ],
+        [
+         "Basement dewatering",
+         "Cable electrocution",
+         "Medium",
+         "Leakage trip, armoured cable",
+         "5 Sep 2026"
+        ],
+        [
+         "Blockwork on scaffold",
+         "Scaffold failure",
+         "Medium",
+         "Weekly tag check",
+         "21 Sep 2026"
+        ]
+       ],
+       "status": 2,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add assessment"
+      }
+     ]
+    },
+    {
+     "id": "inspections",
+     "name": "Inspections and training",
+     "icon": "checks",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Site inspections",
+       "cols": [
+        "Date",
+        "Area",
+        "Finding",
+        "Action",
+        "Due",
+        "Status"
+       ],
+       "rows": [
+        [
+         "2 Oct 2026",
+         "Level 12 slab edge",
+         "Edge rail missing, six metres",
+         "Fix, then re-inspect",
+         "4 Oct 2026",
+         "Open"
+        ],
+        [
+         "30 Sep 2026",
+         "Level 12 slab edge",
+         "Edge rail missing, 12 metres",
+         "Stop work on edge",
+         "30 Sep 2026",
+         "Closed"
+        ],
+        [
+         "29 Sep 2026",
+         "Tower crane 1",
+         "Limit switch and brakes checked",
+         "None",
+         "—",
+         "Closed"
+        ],
+        [
+         "28 Sep 2026",
+         "Scaffold, levels 9 to 12",
+         "Two tags missing",
+         "Re-tag after check",
+         "1 Oct 2026",
+         "Closed"
+        ],
+        [
+         "26 Sep 2026",
+         "Labour camp",
+         "Drinking water tank unclean",
+         "Clean and test",
+         "29 Sep 2026",
+         "Closed"
+        ],
+        [
+         "25 Sep 2026",
+         "Basement 2",
+         "Dewatering cable on floor",
+         "Raise and cover",
+         "27 Sep 2026",
+         "Closed"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Log an inspection"
+      },
+      {
+       "type": "table",
+       "title": "Toolbox talks and inductions",
+       "cols": [
+        "Date",
+        "Session",
+        "Led by",
+        "Attended",
+        "Status"
+       ],
+       "rows": [
+        [
+         "3 Oct 2026",
+         "Induction, new joiners",
+         "R. Iyer",
+         "12",
+         "Done"
+        ],
+        [
+         "1 Oct 2026",
+         "Talk: working at height",
+         "R. Iyer",
+         "176",
+         "Done"
+        ],
+        [
+         "25 Sep 2026",
+         "Talk: crane signals",
+         "A. Fernandes",
+         "64",
+         "Done"
+        ],
+        [
+         "19 Sep 2026",
+         "Induction, plumbing crew",
+         "R. Iyer",
+         "19",
+         "Partly"
+        ],
+        [
+         "12 Sep 2026",
+         "Talk: electrical safety",
+         "A. Fernandes",
+         "88",
+         "Done"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Log a session"
+      }
+     ]
+    },
+    {
+     "id": "incidents",
+     "name": "Incidents",
+     "icon": "flags",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Incidents and near misses",
+       "cols": [
+        "Logged",
+        "What happened",
+        "Where",
+        "Type",
+        "Action",
+        "Status"
+       ],
+       "rows": [
+        [
+         "2 Oct 2026",
+         "Plank fell from level 11",
+         "Level 11 east",
+         "Near miss",
+         "Toe boards fitted",
+         "Closed"
+        ],
+        [
+         "30 Sep 2026",
+         "Edge rail missing, work stopped",
+         "Level 12 slab edge",
+         "Unsafe condition",
+         "Rail being fixed",
+         "Open"
+        ],
+        [
+         "24 Sep 2026",
+         "Hand cut by rebar",
+         "Level 10",
+         "First aid",
+         "Gloves reissued",
+         "Closed"
+        ],
+        [
+         "12 Sep 2026",
+         "Fell from ladder, sprained ankle",
+         "Basement 1",
+         "Lost time",
+         "Three days rest",
+         "Closed"
+        ],
+        [
+         "28 Aug 2026",
+         "Pump hose whipped at joint",
+         "Level 9",
+         "Near miss",
+         "Clamps added",
+         "Closed"
+        ],
+        [
+         "18 Jul 2026",
+         "Brick pallet slipped off hoist",
+         "Hoist, level 4",
+         "Near miss",
+         "Pallet straps fitted",
+         "Closed"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Log an incident"
+      },
+      {
+       "type": "fields",
+       "title": "Safety record",
+       "items": [
+        {
+         "l": "Lost-time injuries, last 90 days",
+         "v": "1",
+         "state": "calc"
+        },
+        {
+         "l": "Days since last lost-time injury",
+         "v": "21",
+         "state": "calc"
+        },
+        {
+         "l": "Near misses, last 90 days",
+         "v": "3",
+         "state": "calc"
+        },
+        {
+         "l": "Main cause, last 90 days",
+         "v": "Working at height",
+         "state": "sug"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "environment",
+     "name": "Environment",
+     "icon": "truck",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Waste, dust and noise",
+       "cols": [
+        "Date",
+        "Debris loads",
+        "To",
+        "Dust",
+        "Noise",
+        "Status"
+       ],
+       "rows": [
+        [
+         "2 Oct 2026",
+         "4",
+         "Recycler",
+         "Not read",
+         "70 dB",
+         "Missing"
+        ],
+        [
+         "1 Oct 2026",
+         "6",
+         "Recycler",
+         "82 µg/m³",
+         "74 dB",
+         "Done"
+        ],
+        [
+         "30 Sep 2026",
+         "5",
+         "Recycler",
+         "79 µg/m³",
+         "71 dB",
+         "Done"
+        ],
+        [
+         "29 Sep 2026",
+         "3",
+         "Landfill",
+         "88 µg/m³",
+         "69 dB",
+         "Done"
+        ],
+        [
+         "28 Sep 2026",
+         "5",
+         "Recycler",
+         "76 µg/m³",
+         "72 dB",
+         "Done"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add readings"
+      },
+      {
+       "type": "fields",
+       "title": "Clearance and waste",
+       "items": [
+        {
+         "l": "Built-up area",
+         "v": "24,600 sqm",
+         "state": "set",
+         "from": "Environmental clearance letter",
+         "page": 2
+        },
+        {
+         "l": "Clearance issued by",
+         "v": "SEIAA Karnataka",
+         "state": "set",
+         "from": "Environmental clearance letter",
+         "page": 1
+        },
+        {
+         "l": "Wind-breaker needed",
+         "v": "10 m",
+         "state": "calc"
+        },
+        {
+         "l": "Wind-breaker built",
+         "v": "10 m",
+         "state": "set"
+        },
+        {
+         "l": "Debris recycled, September",
+         "v": "84%",
+         "state": "assume"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "workers",
+     "name": "Workers and welfare",
+     "icon": "people",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Workforce by contractor",
+       "cols": [
+        "Contractor",
+        "Workers",
+        "Inducted",
+        "Medicals overdue",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Northline Constructions",
+         "164",
+         "164",
+         "7",
+         "Overdue"
+        ],
+        [
+         "Formwork subcontractor",
+         "58",
+         "58",
+         "5",
+         "Overdue"
+        ],
+        [
+         "Electrical subcontractor",
+         "24",
+         "24",
+         "0",
+         "Done"
+        ],
+        [
+         "Plumbing subcontractor",
+         "21",
+         "19",
+         "2",
+         "Overdue"
+        ],
+        [
+         "Security and housekeeping",
+         "19",
+         "19",
+         "0",
+         "Done"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add contractor"
+      },
+      {
+       "type": "fields",
+       "title": "Headcount duties",
+       "items": [
+        {
+         "l": "Workers on site, 2 Oct",
+         "v": "286",
+         "state": "set"
+        },
+        {
+         "l": "Safety officer required",
+         "v": "Yes, 250 or more workers",
+         "state": "calc"
+        },
+        {
+         "l": "Workers aged 40 and over",
+         "v": "58",
+         "state": "sug"
+        },
+        {
+         "l": "Medicals overdue",
+         "v": "14",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Fourteen workers aged 40 and over are past their annual medical",
+     "rests": [
+      "Medicals overdue"
+     ]
+    },
+    {
+     "t": "Headcount of 286 is above the 250 that requires a safety officer",
+     "rests": [
+      "Workers on site, 2 Oct",
+      "Safety officer required"
+     ]
+    },
+    {
+     "t": "Level 12 edge rail was missing on 30 Sep and still open on 2 Oct",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Annual medicals overdue for 14 workers",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Edge rail missing over six metres, level 12",
+     "by": "person",
+     "level": "high"
+    },
+    {
+     "t": "Utility trench permit expired on 28 Sep",
+     "by": "rule",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Safety officer and welfare duties triggered by headcount",
+     "Overdue licences, examinations, inspections and returns",
+     "Lost-time injury frequency and near-miss trend",
+     "C&D waste generated and recycled share against EPR target"
+    ],
+    "certified": [
+     "Lifting appliance and hoist examination; competent person; OSH Code and Central Rules 2026.",
+     "Cost of construction for 1% cess self-assessment; chartered engineer; Code on Social Security 2020 s.100.",
+     "Annual medical examination, workers 40 and over; qualified practitioner; OSH Central Rules 2026, Form VIII."
+    ],
+    "reports": [
+     "Environmental clearance compliance report, 1 June and 1 December",
+     "Accident and dangerous occurrence register and notices",
+     "Registers of workers, lifting appliances and inspections",
+     "C&D waste records and EPR certificates"
+    ],
+    "sent": [
+     "Accident and dangerous-occurrence notices to inspector, police and family",
+     "Expiry reminders for licences and consents to Legal",
+     "Stop-work days and reasons to Progress as delay evidence"
+    ]
+   },
+   "mustHave": [
+    "Safety officer once 250 or more workers are employed (OSH Code s.22(2)).",
+    "Fatal accident reported at once; dangerous occurrences, such as scaffold collapse, within 12 hours.",
+    "Dust: wind-breaker one-third of building height, up to 10 m (G.S.R. 94(E), 2018).",
+    "EC half-yearly compliance reports due 1 June and 1 December; KSPCB consents kept current.",
+    "C&D Rules 2025: 20,000 sq m projects register before starting and meet EPR targets."
+   ],
+   "standards": [
+    {
+     "name": "OSH Code 2020 s.22; OSH (Central) Rules 2026, in force 8 May 2026",
+     "why": "Safety officer, accident notice, welfare, medical examination",
+     "url": "https://dgfasli.gov.in/public/Admin/Cms/AllPdf/650059fbb8f1a9.98699174.pdf"
+    },
+    {
+     "name": "ISO 45001:2018",
+     "why": "Hazard identification, risk assessment, contractor control, emergency preparedness",
+     "url": "https://www.iso.org/standard/63787.html"
+    },
+    {
+     "name": "Environment (Construction and Demolition) Waste Management Rules 2025, G.S.R. 219(E)",
+     "why": "Producer registration, EPR targets, segregation, recycled content from 1 April 2026",
+     "url": "https://www.legal500.com/intelligence/india/environment/implementation-of-the-environment-construction-and-demolition-waste-management-rules-2025-by-project-developers"
+    },
+    {
+     "name": "EIA Notification 2006, item 8(a), post-clearance reports; G.S.R. 94(E) of 2018 on dust",
+     "why": "Clearance for 20,000 sq m and above; half-yearly reports; dust control",
+     "url": "https://environmentclearance.nic.in/writereaddata/EIA_notifications/2006_09_14_EIA.pdf"
+    }
+   ]
+  }
+ ]
+}

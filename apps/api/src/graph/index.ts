@@ -22,10 +22,16 @@
  * rather than accepted — see the route.
  *
  * Locally, the journal is the right default and needs no account.
+ *
+ * **A preview deployment keeps no graph at all.** It shares the live site's
+ * store and may project a different graph from the same record, so it is
+ * handed the store with its writes refused and its reads unanswered. See
+ * `preview.ts`.
  */
 
 import type { GraphAdapter } from './types';
 import { journalAdapter } from './journal';
+import { detached, isPreviewDeployment } from './preview';
 
 /** True on Vercel, where the filesystem the journal writes to is `/tmp`. */
 function isServerless(): boolean {
@@ -45,6 +51,9 @@ async function selectAdapter(): Promise<GraphAdapter> {
   }
 
   const { neo4jAdapter, ensureNeo4jSchema } = await import('./neo4j');
+  // A preview shares the live site's store and keeps no graph in it, so it
+  // neither waits on the store at boot nor touches its schema.
+  if (isPreviewDeployment()) return detached(neo4jAdapter);
   if (!(await neo4jAdapter.healthy())) {
     // Unreachable is not misconfigured. Keep serving — the case store is
     // durable and the derived half rebuilds — but never pretend the store is
@@ -59,6 +68,10 @@ async function selectAdapter(): Promise<GraphAdapter> {
 
 export const graphAdapter: GraphAdapter = await selectAdapter();
 
-console.log(`[graph] using the ${graphAdapter.kind} adapter`);
+console.log(
+  graphAdapter.detached
+    ? '[graph] preview deployment: reading the live registers and storing no graph'
+    : `[graph] using the ${graphAdapter.kind} adapter`,
+);
 
 export type { GraphAdapter, ProjectGraphSnapshot } from './types';

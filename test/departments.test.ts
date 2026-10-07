@@ -12,6 +12,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   DEPARTMENTS,
+  DEPARTMENT_SHORT,
+  FUNCTION_SHORT,
+  LIFECYCLE_STAGE_LABEL,
+  MENU_DEPARTMENTS,
+  STAGES,
+  SUB_STAGES,
+  SUB_STAGE_LABEL,
   WORKSTREAMS,
   addEvidence,
   addMilestones,
@@ -31,8 +38,14 @@ import {
   ensureWorkstreamChecks,
   evaluateRevisits,
   fileCertifiedReport,
+  functionDepartment,
+  functionKey,
   graphImpact,
+  interpretConversation,
   logSiteEntry,
+  menuDepartment,
+  menuDepartmentsOf,
+  menuFunctions,
   parseDocumentText,
   progressSummary,
   quickAssessment,
@@ -42,6 +55,7 @@ import {
   stageTimeline,
   syncAlerts,
   validateProjectGraph,
+  withDepartment,
   workstreamChecks,
   workstreamOfCheck,
   type DdProject,
@@ -68,9 +82,35 @@ describe('the frame', () => {
     assert.deepEqual(scopesOfWorkstreams(['legal.title']).includes('legal'), true);
   });
 
-  it('names the stage once where the step is named for it', () => {
-    assert.equal(stageAndStep('construction'), 'Construction');
-    assert.equal(stageAndStep('approvals'), 'Design & Tender · Approvals');
+  it('names the stage alone for the step that is the stage itself', () => {
+    assert.equal(stageAndStep('construction'), 'Under construction');
+    assert.equal(stageAndStep('approvals'), 'Pre-construction · Approvals');
+    assert.equal(stageAndStep('pre_construction'), 'Under construction · Mobilisation');
+  });
+
+  it('calls no step by the name of a stage, and each step by one name', () => {
+    for (const step of SUB_STAGES) {
+      for (const stage of STAGES) {
+        assert.notEqual(SUB_STAGE_LABEL[step].toLowerCase(), stage.label.toLowerCase(), `the step ${step} carries the name of the stage ${stage.key}`);
+      }
+      assert.equal(LIFECYCLE_STAGE_LABEL[step], SUB_STAGE_LABEL[step], `${step} has two names`);
+    }
+  });
+
+  it('reads a stage named in chat as that stage, not as the step that once had its name', () => {
+    const movedTo = (said: string, from: DdProject['currentStage'] = 'feasibility') => {
+      const move = interpretConversation(project(from), said).proposals.find((x) => x.kind === 'change_stage');
+      return (move?.payload as { stage?: string } | undefined)?.stage;
+    };
+    assert.equal(movedTo('move the project to pre-construction'), 'design', 'the stage is entered by its first step');
+    assert.equal(movedTo('move the project to under construction'), 'construction');
+    assert.equal(movedTo('move the project to completed'), 'handover');
+    assert.equal(movedTo('move the project to land', 'design'), 'opportunity_site');
+    assert.equal(movedTo('move the project to mobilisation'), 'pre_construction', 'the step is reached by its own name');
+    assert.equal(movedTo('move the project to construction'), 'construction');
+    assert.equal(movedTo('move the project to tender & procurement'), 'procurement');
+    assert.equal(movedTo('move the project to approvals'), 'approvals');
+    assert.equal(movedTo('the project moved to the land registry office'), undefined, 'an ordinary word is not a stage');
   });
 
   it('reads the timeline from the project and its phases', () => {
@@ -98,6 +138,62 @@ describe('the frame', () => {
     const e = createEngagement(p, { kind: 'lender_monitoring', client: 'A bank' }, 'tester');
     assert.deepEqual(e.workstreams, ['construction.progress', 'construction.quality', 'legal.approvals', 'finance.budget']);
     assert.ok(workstreamChecks(p, 'construction.progress').length > 0);
+  });
+});
+
+describe('the menu', () => {
+  it('shows five departments by one word, with Design inside Engineering', () => {
+    assert.deepEqual([...MENU_DEPARTMENTS], ['legal', 'finance', 'construction', 'commercial', 'procurement']);
+    assert.deepEqual(MENU_DEPARTMENTS.map((key) => DEPARTMENT_SHORT[key]), ['Legal', 'Finance', 'Engineering', 'Commercial', 'Procurement']);
+    assert.equal(menuDepartment('design'), 'construction');
+    for (const key of MENU_DEPARTMENTS) assert.equal(menuDepartment(key), key, `${key} sits under itself`);
+  });
+
+  it('lists Engineering while either it or Design is switched on', () => {
+    assert.deepEqual(menuDepartmentsOf(['design']), ['construction']);
+    assert.deepEqual(menuDepartmentsOf(['construction']), ['construction']);
+    assert.deepEqual(menuDepartmentsOf(['finance', 'legal', 'design']), ['legal', 'finance', 'construction'], 'in menu order');
+    assert.deepEqual(menuDepartmentsOf(['procurement']), ['procurement']);
+  });
+
+  it('calls a workstream a function, and Design’s four one function', () => {
+    for (const w of WORKSTREAMS) assert.equal(functionKey(w.key), w.department === 'design' ? 'design' : w.key);
+    const engineering = menuFunctions('construction');
+    assert.deepEqual(engineering.map((f) => f.key), ['design', 'construction.progress', 'construction.quality', 'construction.site', 'construction.safety'], 'Design leads');
+    assert.deepEqual(engineering.map((f) => f.label), ['Design', 'Progress', 'Technical', 'Site', 'Safety']);
+    const design = engineering[0]!;
+    assert.deepEqual(design.workstreams, ['design.drawings', 'design.compliance', 'design.rfis', 'design.coordination']);
+    assert.equal(design.department, 'design', 'its work stays under Design on the record');
+    assert.equal(design.built, false);
+    assert.equal(engineering[1]!.built, true);
+    assert.deepEqual(menuFunctions('design'), engineering, 'asked of Design, the menu answers for Engineering');
+  });
+
+  it('gives every workstream to exactly one function, each with one word', () => {
+    const functions = MENU_DEPARTMENTS.flatMap((menu) => menuFunctions(menu));
+    assert.equal(functions.length, 24);
+    assert.deepEqual(functions.flatMap((f) => f.workstreams).sort(), WORKSTREAMS.map((w) => w.key).sort());
+    for (const f of functions) {
+      assert.match(f.label, /^[A-Za-z]+$/, `${f.key} is not one word`);
+      for (const key of f.workstreams) assert.equal(functionKey(key), f.key);
+      if (f.key !== 'design') assert.equal(f.label, FUNCTION_SHORT[f.key]);
+    }
+  });
+
+  it('tells two functions with one word apart by their department', () => {
+    // Legal and Commercial each have a Handover. Beside each other the word
+    // is not a name, so a function named among others carries its department.
+    const functions = MENU_DEPARTMENTS.flatMap((menu) => menuFunctions(menu).map((f) => ({ menu, ...f })));
+    const handovers = functions.filter((f) => f.label === 'Handover');
+    assert.deepEqual(handovers.map((f) => f.key), ['legal.handover', 'commercial.handover']);
+    assert.deepEqual(handovers.map((f) => withDepartment(f.key, f.label)), ['Legal › Handover', 'Commercial › Handover']);
+    for (const f of functions) assert.equal(functionDepartment(f.key), f.menu, `${f.key} is under ${f.menu}`);
+    const said = functions.map((f) => withDepartment(f.key, f.label));
+    assert.equal(new Set(said).size, said.length, 'with its department, every function has a name of its own');
+    assert.equal(functionDepartment('design.rfis'), 'construction', 'a design workstream is under Engineering too');
+    assert.equal(withDepartment('design', 'Design'), 'Engineering › Design');
+    assert.equal(functionDepartment('not.a.function'), undefined);
+    assert.equal(withDepartment('not.a.function', 'Something'), 'Something');
   });
 });
 
@@ -135,20 +231,27 @@ describe('approvals and the construction gate', () => {
 });
 
 describe('the vault', () => {
-  it('files a document the model classified under the register’s own type', () => {
+  it('offers what a model took a document for in the register’s own words, and types the row only when a person confirms', () => {
     assert.equal(documentTypeOfKind('encumbrance_certificate'), 'Encumbrance certificate');
     assert.equal(documentTypeOfKind('sanctioned_plan_bbmp'), 'Sanctioned building plan');
     assert.equal(documentTypeOfKind('other'), undefined);
     const p = project('construction');
     // Read by the model, with nothing it could place on a page: no facts, but
-    // the model said what the document is.
-    applyProjectChat(p, '', {
-      ingest: [{ fileName: 'ECs part 1.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'k-ec-1', kindHint: 'encumbrance_certificate', extractionNotes: 'Form 15 and Form 16 encumbrance certificates.' }],
-    });
+    // the model said what the document is. The file's name says nothing of it.
+    const scan = { fileName: 'scan 0042.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'k-ec-1', kindHint: 'encumbrance_certificate', extractionNotes: 'Form 15 and Form 16 encumbrance certificates.' };
+    applyProjectChat(p, '', { ingest: [scan] });
     const row = p.evidence.find((e) => e.attachments.some((a) => a.storageKey === 'k-ec-1'))!;
-    assert.equal(row.documentType, 'Encumbrance certificate');
-    assert.equal(documentWorkstream(p, row), 'legal.title');
-    assert.deepEqual(row.facts ?? [], [], 'a type is filed; no fact is invented for it');
+    assert.equal(row.documentType, undefined, 'a model’s word for a paper types no row');
+    assert.equal(row.proposedDocumentType, 'Encumbrance certificate', 'it is an offer on the row');
+    assert.notEqual(documentWorkstream(p, row), 'legal.title', 'and files the paper under nothing until a person confirms it');
+    assert.deepEqual(row.facts ?? [], [], 'no fact is invented for it');
+
+    // A person says it is not; the same paper read again is not offered the same kind a second time.
+    row.refusedDocumentType = row.proposedDocumentType;
+    delete row.proposedDocumentType;
+    applyProjectChat(p, '', { ingest: [scan] });
+    assert.equal(row.proposedDocumentType, undefined);
+    assert.equal(row.documentType, undefined);
   });
 });
 
@@ -224,5 +327,44 @@ describe('the graph', () => {
     assert.ok(impact.downstream.some((d) => d.node.key === 'construction.progress' && d.via === 'gates'));
     assert.ok(impact.downstream.some((d) => d.node.key === 'finance.valuation'));
     assert.ok(impact.engagements.length === 1);
+  });
+
+  it('says a role in Design as one in Design, and draws it to no department', () => {
+    // Design is a function of Engineering in the graph and has no department
+    // node. A role in it is not a role in Engineering, so it is said on the
+    // person and joins them to nothing; the project keeps them on file.
+    const p = project('construction');
+    setTeamMember(p, { email: 'architect@firm.in', name: 'Architect', departments: { design: 'lead' } }, 'tester');
+    const graph = buildProjectGraph(p);
+    assert.deepEqual(validateProjectGraph(graph), []);
+    const member = graph.nodes.find((n) => n.kind === 'member')!;
+    assert.equal(member.detail, 'Lead, Design');
+    assert.deepEqual(graph.edges.filter((e) => e.from === member.id), [], 'no edge to Engineering, or to anything');
+    assert.deepEqual(
+      graph.edges.filter((e) => e.to === member.id).map((e) => [e.rel, e.from]),
+      [['has_record', p.id]],
+      'tied like any record nothing places',
+    );
+  });
+
+  it('never names Design’s signer as answering for an Engineering function', () => {
+    const p = project('construction');
+    setTeamMember(p, { email: 'architect@firm.in', name: 'Architect', departments: { design: 'signer' }, signer: { profession: 'Architect' } }, 'tester');
+    setTeamMember(p, { email: 'pm@firm.in', name: 'Project manager', departments: { construction: 'lead' } }, 'tester');
+    // Reads Engineering, leads Design: the lead is of Design and of nothing else.
+    setTeamMember(p, { email: 'both@firm.in', name: 'Both', departments: { construction: 'viewer', design: 'lead' } }, 'tester');
+    const graph = buildProjectGraph(p);
+    assert.deepEqual(validateProjectGraph(graph), []);
+    const both = graph.nodes.find((n) => n.label === 'Both')!;
+    assert.equal(both.detail, 'Viewer, Engineering · Lead, Design');
+    assert.deepEqual(
+      graph.edges.filter((e) => e.from === both.id).map((e) => [e.rel, e.to]),
+      [['views', `${p.id}::dept::construction`]],
+      'a viewer of Engineering who leads Design does not lead Engineering',
+    );
+    for (const fn of ['construction.progress', 'construction.site', 'design']) {
+      const impact = graphImpact(graph, `${p.id}::ws::${fn}`)!;
+      assert.deepEqual(impact.people.map((x) => [x.node.label, x.role]), [['Project manager', 'leads']], `${fn} is answered for by Engineering’s own lead alone`);
+    }
   });
 });

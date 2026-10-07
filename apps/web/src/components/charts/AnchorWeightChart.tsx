@@ -170,7 +170,9 @@ export default function AnchorWeightChart({ anchors, currency, height }: AnchorW
         ))}
       </ChartSvg>
       <ChartTooltip state={tooltip} containerWidth={size.width} />
+      {/* One method left without a label is still named: the legend's own rule would draw nothing for it. */}
       <Legend
+        single
         className="mt-2 px-1"
         items={ordered
           .filter((s) => !directLabelled.some((d) => d.anchor.id === s.anchor.id))

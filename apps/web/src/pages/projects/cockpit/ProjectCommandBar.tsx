@@ -1,30 +1,88 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, Search } from 'lucide-react';
 import {
+  DEPARTMENT_SHORT,
+  FIRM_ONLY_PANES,
+  MENU_DEPARTMENTS,
   SEARCH_KIND_LABEL,
-  paneForTalk,
+  STAGES,
+  menuAt,
+  menuDepartmentsOf,
+  menuFunctions,
+  openPlace,
+  projectDepartments,
+  reachesEveryProject,
   searchProject,
+  stageOf,
+  withDepartment,
+  type ChatPlace,
   type CockpitPathExtra,
   type DdProject,
+  type DepartmentKey,
   type ProjectCockpitPane,
-  type SearchKind,
+  type StageKey,
 } from '@realytica/shared';
 import { api } from '../../../lib/api';
+import { composing } from '../../../components/chat/carried-question';
 import { cn, useToast } from '../../../components/ui/kit';
 import { SPRING, motion } from '../../../lib/motion';
+import { useMe } from '../../../lib/useMe';
+import { SECTIONS } from './rail';
+
+/** A page of the menu, or a stage to look at. `name` is its own word, which typing finds first. */
+type Place =
+  | { kind: 'go'; id: string; label: string; hint: string; name: string; pane: ProjectCockpitPane; extra?: CockpitPathExtra }
+  | { kind: 'stage'; id: string; label: string; hint: string; name: string; stage: StageKey };
 
 type Command =
-  | { kind: 'go'; id: string; label: string; hint: string; pane: ProjectCockpitPane }
-  /** A record on this project, opened where it lives. */
-  | { kind: 'open'; id: string; label: string; hint: string; pane: ProjectCockpitPane; extra: CockpitPathExtra }
+  | Place
+  /** A record on this project, opened where a link to it in the chat opens it. */
+  | { kind: 'open'; id: string; label: string; hint: string; recordId: string }
   | { kind: 'do'; id: string; label: string; hint: string; run: () => Promise<void> }
   | { kind: 'ask'; id: string; label: string; hint: string };
 
-/** Decisions have no deep link yet, so they open their register. */
-function paneForHit(kind: SearchKind): ProjectCockpitPane {
-  if (kind === 'decision') return 'decisions';
-  if (kind === 'assessment') return 'dd';
-  return paneForTalk(kind);
+/**
+ * Where a person can go, by the menu's own names.
+ *
+ * `top` is what the selector lists: Overview, the departments that show at
+ * the stage being looked at, and the places the whole project shares. `more`
+ * is what sits under those and is found by typing: each function, written
+ * with its department ("Legal › Title"), each tab of a shared place that has
+ * a word of its own (Findings, Outgoing), a department with no work at this
+ * stage, and the other stages.
+ *
+ * A department and a function open as they do when the chat is asked for
+ * them by name: at the stage being looked at where they show there. One that
+ * is switched off is left out, and so is what only the firm's own people may
+ * open.
+ */
+function placesOf(project: DdProject, here: ChatPlace, staff: boolean): { top: Place[]; more: Place[] } {
+  const page = (id: string, label: string, name: string, want: { department?: DepartmentKey; fn?: string }): Place[] => {
+    const reading = openPlace(project, want, undefined, here);
+    return reading.kind === 'go' ? [{ kind: 'go', id, label, hint: 'Go', name, pane: reading.open.pane, extra: reading.open.extra }] : [];
+  };
+  const mine = (pane: ProjectCockpitPane): boolean => staff || !FIRM_ONLY_PANES.has(pane);
+  const shared = SECTIONS.filter((section) => mine(section.home)).map((section): Place => ({ kind: 'go', id: `go:${section.key}`, label: section.label, hint: 'Go', name: section.label, pane: section.home }));
+  const tabs = SECTIONS.flatMap((section) =>
+    section.tabs
+      .filter((tab) => tab.label !== section.label && mine(tab.pane))
+      .map((tab): Place => ({ kind: 'go', id: `go:tab:${tab.pane}`, label: tab.label, hint: 'Go', name: tab.label, pane: tab.pane })),
+  );
+  const listed = menuDepartmentsOf(projectDepartments(project), menuAt(project, here.stage ?? stageOf(project.currentStage)));
+  const department = (menu: DepartmentKey): Place[] => page(`go:d:${menu}`, DEPARTMENT_SHORT[menu], DEPARTMENT_SHORT[menu], { department: menu });
+  const shown = MENU_DEPARTMENTS.filter((menu) => listed.includes(menu) || menu === here.department);
+  const functions = MENU_DEPARTMENTS.flatMap((menu) => menuFunctions(menu).flatMap((fn) => page(`go:w:${fn.key}`, withDepartment(fn.key, fn.label), fn.label, { fn: fn.key })));
+  const stages = STAGES.filter((stage) => stage.key !== here.stage).map((stage): Place => ({ kind: 'stage', id: `stage:${stage.key}`, label: `${stage.label} stage`, hint: 'Go', name: stage.label, stage: stage.key }));
+  return {
+    top: [...shared.slice(0, 1), ...shown.flatMap(department), ...shared.slice(1)],
+    more: [...functions, ...tabs, ...MENU_DEPARTMENTS.filter((menu) => !shown.includes(menu)).flatMap(department), ...stages],
+  };
+}
+
+/** Whether a place's own name is what was typed: the name, or a word of it, begins with it. */
+function namedBy(name: string, typed: string): boolean {
+  const words = name.toLowerCase();
+  return words.startsWith(typed) || words.split(/[\s-]+/).some((word) => word.startsWith(typed));
 }
 
 /**
@@ -37,38 +95,34 @@ function paneForHit(kind: SearchKind): ProjectCockpitPane {
 const LIST_ID = 'command-bar-matches';
 const optionId = (index: number): string => `command-bar-option-${index}`;
 
-const GO: Array<{ pane: ProjectCockpitPane; label: string; hint: string }> = [
-  { pane: 'overview', label: 'Open overview', hint: 'Go' },
-  { pane: 'assets', label: 'Open assets', hint: 'Go' },
-  { pane: 'dd', label: 'Open assessments', hint: 'Go' },
-  { pane: 'evidence', label: 'Open evidence', hint: 'Go' },
-  { pane: 'visits', label: 'Open site record', hint: 'Go' },
-  { pane: 'findings', label: 'Open findings', hint: 'Go' },
-  { pane: 'risks', label: 'Open risks & actions', hint: 'Go' },
-  { pane: 'decisions', label: 'Open decisions', hint: 'Go' },
-  { pane: 'reports', label: 'Open reports', hint: 'Go' },
-  { pane: 'graph', label: 'Open knowledge graph', hint: 'Go' },
-  { pane: 'valuation', label: 'Open valuation', hint: 'Go' },
-  { pane: 'orchestrate', label: 'Open orchestrator', hint: 'Go' },
-  { pane: 'drafts', label: 'Open AI drafts', hint: 'Go' },
-];
-
 export function ProjectCommandBar({
   open,
   project,
+  here,
   onClose,
   onGo,
+  onStage,
+  onOpen,
   onAsk,
   onChanged,
 }: {
   open: boolean;
   project: DdProject;
+  /** The page on screen and the stage it is looked at in: a function opens at that stage where it shows there. */
+  here: ChatPlace;
   onClose: () => void;
   onGo: (pane: ProjectCockpitPane, extra?: CockpitPathExtra) => void;
+  /** Look at another stage, as the stage track does. */
+  onStage: (stage: StageKey) => void;
+  /** Open a record where a link to it in the chat opens it. */
+  onOpen: (id: string) => void;
   onAsk: (text: string) => void;
   onChanged: () => void | Promise<void>;
 }) {
   const toast = useToast();
+  // Review, Outgoing and People are the firm's own people's: somebody working from a grant is not offered them.
+  const me = useMe();
+  const staff = me ? reachesEveryProject(me.role) : false;
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -99,14 +153,10 @@ export function ProjectCommandBar({
     return undefined;
   }, [open]);
 
+  const places = useMemo(() => placesOf(project, here, staff), [project, here, staff]);
+
   const commands: Command[] = useMemo(() => {
-    const out: Command[] = GO.map((g) => ({
-      kind: 'go',
-      id: `go:${g.pane}`,
-      label: g.label,
-      hint: g.hint,
-      pane: g.pane,
-    }));
+    const out: Command[] = [...places.top, ...places.more];
     out.push({
       kind: 'do',
       id: 'do:orchestrate',
@@ -166,7 +216,7 @@ export function ProjectCommandBar({
       });
     }
     return out;
-  }, [project]);
+  }, [project, places]);
 
   const records: Command[] = useMemo(() => {
     const q = query.trim();
@@ -175,22 +225,24 @@ export function ProjectCommandBar({
       kind: 'open' as const,
       id: `open:${hit.id}`,
       label: hit.label,
-      hint: `${SEARCH_KIND_LABEL[hit.kind]} · ${hit.detail}`,
-      pane: paneForHit(hit.kind),
-      extra: hit.extra,
+      // A paper is a document in the menu's words.
+      hint: `${hit.kind === 'evidence' ? 'Document' : SEARCH_KIND_LABEL[hit.kind]} · ${hit.detail}`,
+      recordId: hit.id,
     }));
   }, [project, query]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (q.length === 0) return commands.slice(0, 8);
-    // Records first: somebody who typed a title wants that record, not a pane
-    // whose name happens to share a word with it.
-    const verbs = commands.filter((c) => c.label.toLowerCase().includes(q)).slice(0, 4);
-    const found: Command[] = [...records, ...verbs];
-    found.push({ kind: 'ask', id: 'ask', label: `Ask: “${query.trim()}”`, hint: 'Ask' });
-    return found.slice(0, 10);
-  }, [commands, query, records]);
+    // Nothing typed: where a person can go, as the selector lists it.
+    if (q.length === 0) return places.top;
+    // A page named by what was typed comes first: "Title" is the page, and its papers and checks follow.
+    const named = [...places.top, ...places.more].filter((place) => namedBy(place.name, q)).slice(0, 4);
+    // The other commands whose words hold what was typed. They follow the records: somebody who typed a title wants
+    // that record, not a command that happens to share a word with it.
+    const verbs = commands.filter((c) => !named.some((place) => place.id === c.id) && c.label.toLowerCase().includes(q)).slice(0, 4);
+    // The way to ask is the last row, however many were found.
+    return [...[...named, ...records, ...verbs].slice(0, 9), { kind: 'ask' as const, id: 'ask', label: `Ask: “${query.trim()}”`, hint: 'Ask' }];
+  }, [commands, places, query, records]);
 
   /*
    * A new query is a new list, so the highlight goes back to the top.
@@ -222,15 +274,24 @@ export function ProjectCommandBar({
 
   if (!open) return null;
 
+  // The keyboard's row stays in view: the list can be longer than its box.
+  const move = (to: number): void => {
+    setActive(to);
+    document.getElementById(optionId(to))?.scrollIntoView({ block: 'nearest' });
+  };
+
   async function run(command: Command): Promise<void> {
     if (busy) return;
     setBusy(true);
     try {
       if (command.kind === 'go') {
-        onGo(command.pane);
+        onGo(command.pane, command.extra);
+        onClose();
+      } else if (command.kind === 'stage') {
+        onStage(command.stage);
         onClose();
       } else if (command.kind === 'open') {
-        onGo(command.pane, command.extra);
+        onOpen(command.recordId);
         onClose();
       } else if (command.kind === 'ask') {
         onAsk(query.trim());
@@ -278,19 +339,21 @@ export function ProjectCommandBar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // While an input method is composing, Enter picks a candidate and the arrows move among them: none of it is a command.
+              if (composing(e.nativeEvent)) return;
               if (e.key === 'Escape') onClose();
               else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setActive((a) => Math.min(matches.length - 1, a + 1));
+                move(Math.min(matches.length - 1, active + 1));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                setActive((a) => Math.max(0, a - 1));
+                move(Math.max(0, active - 1));
               } else if (e.key === 'Enter' && matches[active]) {
                 e.preventDefault();
                 void run(matches[active]);
               }
             }}
-            placeholder="Find a check, a document, a finding — or run a command"
+            placeholder="Find a page, a check or a document, or run a command"
             aria-label="Run a command"
             /*
               The combobox pattern, which this was missing.
@@ -338,7 +401,7 @@ export function ProjectCommandBar({
                       c.kind === 'do' ? 'bg-action text-action-ink' : c.kind === 'ask' ? 'bg-ai/12 text-ai-ink' : 'bg-brand-soft text-brand',
                     )}
                   >
-                    {c.kind === 'go' || c.kind === 'open' ? 'Go' : c.kind === 'ask' ? 'Ask' : 'Do'}
+                    {c.kind === 'ask' ? 'Ask' : c.kind === 'do' ? 'Do' : 'Go'}
                   </span>
                   <span className="relative min-w-0 flex-grow">
                     <span className="block truncate text-[13px] text-ink">{c.label}</span>

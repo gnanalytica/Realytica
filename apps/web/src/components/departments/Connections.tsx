@@ -2,8 +2,11 @@ import { useMemo } from 'react';
 import { ArrowDownRight, ArrowUpRight, Network } from 'lucide-react';
 import {
   DEPARTMENT_ROLE_LABEL,
+  FUNCTION_SHORT,
   LINK_TYPE_LABEL,
+  functionKey,
   projectLinks,
+  withDepartment,
   workstreamDefinition,
   type DdProject,
   type ProjectLink,
@@ -15,7 +18,11 @@ import { Badge, Card, CardBody, CardHeader, Skeleton, cn } from '../ui/kit';
 function endLabel(project: DdProject, end: ProjectLink['from']): string {
   switch (end.kind) {
     case 'workstream':
-      return workstreamDefinition(end.id)?.label ?? end.id;
+      // By its one word, as the menu and the graph name it; a design
+      // workstream has no word of its own and keeps its name in full. Its
+      // department comes first, because the word alone is not always a name:
+      // Legal and Commercial each have a Handover.
+      return withDepartment(end.id, FUNCTION_SHORT[end.id] ?? workstreamDefinition(end.id)?.label ?? end.id);
     case 'approval':
       return end.id.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
     case 'document':
@@ -33,13 +40,18 @@ function endLabel(project: DdProject, end: ProjectLink['from']): string {
  * How this workstream reaches the rest of the project, both ways.
  *
  * Upstream is read from the links themselves: what feeds this estimate and
- * what gates this work. Downstream is the graph's own walk — the workstreams
+ * what gates this work. Downstream is the graph's own walk — the functions
  * a change here reaches through gates and feeds, and the engagements,
  * certified reports and people standing on them — answered by Neo4j in
  * production.
+ *
+ * The graph draws a workstream as its function, so the walk starts from the
+ * function this workstream belongs to: itself, or Design for a design
+ * workstream. What comes back is named as the graph names it, by one word,
+ * with its department in front.
  */
 export function Connections({ project, workstream, onOpenWorkstream }: { project: DdProject; workstream: string; onOpenWorkstream: (key: string) => void }) {
-  const node = `${project.id}::ws::${workstream}`;
+  const node = `${project.id}::ws::${functionKey(workstream)}`;
   const impact = useAsync(() => workspaceApi.impact(project.id, node), [project.id, node, project.updatedAt]);
   const upstream = useMemo(
     () =>
@@ -55,7 +67,7 @@ export function Connections({ project, workstream, onOpenWorkstream }: { project
       <CardHeader
         icon={<Network size={15} />}
         title="Connections"
-        subtitle="What this work depends on, and what a change here reaches"
+        subtitle="What this needs, and what a change reaches"
         action={impact.data ? <Badge tone="neutral" title="Where the walk was answered">{impact.data.source === 'neo4j' ? 'Neo4j' : impact.data.source === 'journal' ? 'Local graph' : 'Projection'}</Badge> : null}
       />
       <CardBody className="grid grid-cols-1 gap-4 [@container(min-width:40rem)]:grid-cols-2">
@@ -98,7 +110,7 @@ export function Connections({ project, workstream, onOpenWorkstream }: { project
                   {result.downstream.map((d) => (
                     <li key={d.node.id} className="text-[13px]">
                       <button type="button" className="text-brand hover:underline" onClick={() => d.node.key && onOpenWorkstream(d.node.key)}>
-                        {d.node.label}
+                        {d.node.key ? withDepartment(d.node.key, d.node.label) : d.node.label}
                       </button>{' '}
                       <span className="text-ink-muted">
                         {d.via === 'gates' ? 'gated' : 'fed'}
@@ -108,7 +120,7 @@ export function Connections({ project, workstream, onOpenWorkstream }: { project
                   ))}
                 </ul>
               ) : (
-                <p className="text-[13px] text-ink-secondary">No other workstream depends on this one.</p>
+                <p className="text-[13px] text-ink-secondary">No other function depends on this one.</p>
               )}
               {result.engagements.length ? (
                 <p className="text-[12px] text-ink-secondary">

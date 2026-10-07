@@ -57,7 +57,8 @@ describe('an upload reply does not restate its own cards', () => {
       assert.ok(!text.includes(card.rationale), 'the reply must not reprint a card rationale');
       assert.ok(!text.includes(card.title), 'the reply must not reprint a card title');
     }
-    assert.ok(text.length < 120, `the reply is one line, got ${text.length} chars: ${text}`);
+    // Two lines: what was read, and where it went. Where a paper went is said once for the batch, by function, and never per file.
+    assert.ok(text.split('\n').length <= 2 && text.length < 160, `the reply is two short lines, got ${text.length} chars: ${text}`);
     assert.match(text, /2 files/);
   });
 
@@ -98,7 +99,8 @@ describe('an upload reply does not restate its own cards', () => {
     assert.equal(p.evidence.length, 2, 'both were filed by the upload itself');
     assert.ok(!/ev_/.test(text), `no raw record ids in chat prose: ${text}`);
     assert.ok(!text.includes('RERA_Cert.pdf'), 'the register carries the names');
-    assert.match(text, /Filed on the register/);
+    // Where they went is said in the menu's words: a function, or Documents for a paper no function holds yet.
+    assert.match(text, /Filed under |Kept in Documents/);
   });
 });
 
@@ -209,7 +211,7 @@ describe('the receipt says whether the file actually moved', () => {
         file('Khata.pdf', {
           read: {
             type: 'khata',
-            label: 'Khata certificate',
+            label: 'Khata certificate and extract',
             confidence: 0.9,
             method: 'text',
             summary: 'Khata certificate for the parcel.',

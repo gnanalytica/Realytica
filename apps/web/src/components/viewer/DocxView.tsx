@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { sanitizeHtml } from './sanitize';
 
 /**
@@ -43,6 +43,18 @@ export function DocxView({ blob, highlightTerm }: { blob: Blob; highlightTerm?: 
     return highlightInHtml(html, highlightTerm.trim());
   }, [html, highlightTerm]);
 
+  /* The words asked for, brought to the middle: a converted file is one long page, and they can be anywhere down it. */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const mark = scroller?.querySelector('mark');
+    if (!scroller || !mark) return;
+    const at = mark.getBoundingClientRect();
+    const box = scroller.getBoundingClientRect();
+    const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + at.top - box.top - scroller.clientHeight / 2), behavior: calm ? 'auto' : 'smooth' });
+  }, [marked]);
+
   if (error) return <div className="p-6 text-[13px] text-ink-secondary">This Word file could not be converted: {error}</div>;
   if (!marked) return <div className="p-6 text-[13px] text-ink-muted">Converting the document…</div>;
 
@@ -52,7 +64,7 @@ export function DocxView({ blob, highlightTerm }: { blob: Blob; highlightTerm?: 
         Converted from Word. Page numbers do not exist in a .docx — the layout is produced when it is printed
         {warnings > 0 ? `, and ${warnings} formatting detail${warnings === 1 ? '' : 's'} did not survive the conversion` : ''}.
       </div>
-      <div className="flex-1 overflow-auto bg-sunken px-4 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-auto bg-sunken px-4 py-4">
         <article
           className="docx-render mx-auto max-w-[820px] bg-white px-10 py-10 shadow"
           // Sanitised above: an allowlist of tags and attributes, parsed in an

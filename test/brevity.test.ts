@@ -55,6 +55,21 @@ describe('one question per turn', () => {
     const once = trimTurn('One? Two? Three?');
     assert.equal(trimTurn(once.text).text, once.text);
   });
+
+  it('keeps a list of questions whole', () => {
+    // Was: "1. Who is the letter to?\n2. \n3." with two questions held: the markers stood with nothing after them.
+    const list = 'Before I draft this I need a few things:\n\n1. Who is the letter to?\n2. What date should it carry?\n3. Should it mention the mortgage?';
+    assert.deepEqual(trimTurn(list), { text: list, heldQuestions: [], trimmed: false });
+    const bullets = 'Which of these is it?\n- Is it the sale deed?\n- Is it the khata?';
+    assert.deepEqual(trimTurn(bullets), { text: bullets, heldQuestions: [], trimmed: false });
+  });
+
+  it('still holds a second question in prose beside a list', () => {
+    const out = trimTurn('What is the plan? And who signs?\n- Is it Asha?\n- Is it Vikram?');
+    assert.equal(out.text, 'What is the plan?\n- Is it Asha?\n- Is it Vikram?');
+    assert.deepEqual(out.heldQuestions, ['And who signs?']);
+    assert.equal(trimTurn(out.text).text, out.text, 'and stays as it is when read again');
+  });
 });
 
 describe('the turn stays short', () => {

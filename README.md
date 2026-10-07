@@ -2,7 +2,7 @@
 
 One workspace for a property's whole life — land, design, approvals, construction, sales and handover, then running the finished building — and for every profession that works on it.
 
-A project moves through **four stages** (Pre-development, Design & Tender, Construction, Operations), its work is divided into **departments** (Finance, Legal, Design, Construction, Procurement, Commercial), and each department holds **workstreams** — Title, Approvals, Valuation, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
+A project moves through **four stages** (Land, Pre-construction, Under construction, Completed), its work is divided into **departments** (Legal, Finance, Engineering, Commercial, Procurement, with Design worked inside Engineering), and each department holds **functions** — Title, Approvals, Valuation, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
 
 | | |
 |---|---|
@@ -57,7 +57,7 @@ pnpm build:vercel # the deployable output in .vercel/output
 apps/api            Express API: routes, auth, storage, the graph adapters, document reading
 apps/web            The web app
 mobile/             The site app (Expo); its own package, outside the pnpm workspace
-packages/shared     The domain: projects, stages, departments, workstreams, checks, approvals,
+packages/shared     The domain: projects, stages, departments, functions, checks, approvals,
                     progress, quick assessments, certified reports, alerts, links, the graph
 packages/agents     Model calls: document intelligence, the chat, the project orchestrator
 packages/site-intel Public map layers and place lookups

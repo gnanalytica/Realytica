@@ -183,6 +183,32 @@ export function locateFact(fact: DocumentFact, layout: PageLayout[] | undefined)
   return valueRects.length ? { quote: quoteRects, value: valueRects } : { quote: quoteRects };
 }
 
+/**
+ * The words a fact's value was read from, or none where that cannot be told.
+ *
+ * Found as the marks are: the value as the page might write it, inside the
+ * quote. A number the page groups oddly is not found that way ("17,8300" is
+ * no way to write 178300), so a number is also looked for by its digits, and
+ * a name by its words.
+ */
+export function valueWords(fact: DocumentFact, layout: PageLayout[] | undefined): LayoutWord[] {
+  const words = layout?.find((p) => p.page === fact.page)?.words;
+  if (!words?.length) return [];
+  const page = indexPage(words);
+  const quote = findQuote(page, fact.quote);
+  const inside = (from: number, to: number) => page.words.filter((_, i) => page.spans[i]!.start < to && page.spans[i]!.start + page.spans[i]!.length > from);
+  const value = findValue(page, fact, quote);
+  if (value) return inside(...value);
+  if (!quote) return [];
+  if (typeof fact.value === 'number') {
+    const digits = String(Math.round(fact.value));
+    return digits.length < 3 ? [] : inside(...quote).filter((word) => word.text.replace(/\D/g, '') === digits);
+  }
+  // A name the page breaks or misspells is not found whole: its words are looked for one by one.
+  const parts = fold(String(fact.value)).split(/[^\p{L}\p{M}\p{N}]+/u).filter((part) => part.length >= 3);
+  return inside(...quote).filter((word) => parts.some((part) => fold(word.text).includes(part)));
+}
+
 /** Facts with their marks, where they could be placed. */
 export function locateFacts(facts: DocumentFact[], layout: PageLayout[] | undefined): DocumentFact[] {
   if (!layout?.length) return facts;

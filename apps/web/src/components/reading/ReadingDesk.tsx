@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, Check, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, ArrowRight, Check, ClipboardList, Clock, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
 import { proposedFacts, type DdProject, type DocumentFact, type EvidenceRecord } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { cardStateFor, type ReadingFile, type ReadingSession, type SourceFocus } from '../../lib/reading';
@@ -7,6 +8,7 @@ import { Button, cn, useToast } from '../ui/kit';
 import { FactRow, type FactState } from './FactRow';
 import { FactReviewList, type FactDecision, type FactEdit } from './FactReview';
 import { PagePreview } from './PagePreview';
+import { nothingRead } from './said';
 
 /** The register row a file on the desk was filed as — found by the stored file, which is all the reading knows. */
 export function rowForFile(project: DdProject, key: string): EvidenceRecord | undefined {
@@ -37,32 +39,44 @@ interface Pace {
  * The reading, paced to be watched.
  *
  * A text-layer deed is read in a few milliseconds, so nine of them arrive as
- * one burst and nobody sees a page being read. Each file is shown in the
- * order it was read, for long enough to watch, and its facts come off the
- * page when both it has really been read and its turn has run. Nothing is
- * shown before it was read; things read quickly are only shown a little
- * later.
+ * one burst and nobody sees a page being read. A file read by itself is shown
+ * for long enough to watch, and its facts come off the page when both it has
+ * really been read and its time has run. Nothing is shown before it was read;
+ * things read quickly are only shown a little later.
+ *
+ * Papers dropped together are read three at a time and are all named from
+ * the start, in the order dropped. Each is then paced by itself, from when
+ * its own reading began: one that takes minutes does not hold back the two
+ * read beside it.
  */
 function usePace(session: ReadingSession): { paces: Map<string, Pace>; now: number } {
-  const seen = useRef(new Map<string, { started: number; read?: number }>());
+  const seen = useRef(new Map<string, { started?: number; read?: number }>());
   const [now, setNow] = useState(() => Date.now());
 
   for (const f of session.files) {
-    const entry = seen.current.get(f.key) ?? { started: Date.now() };
-    if (f.phase !== 'reading' && entry.read === undefined) entry.read = f.readAt ?? Date.now();
+    const entry = seen.current.get(f.key) ?? {};
+    if (f.phase !== 'queued' && entry.started === undefined) entry.started = Date.now();
+    if (f.phase !== 'reading' && f.phase !== 'queued' && entry.read === undefined) entry.read = f.readAt ?? Date.now();
     seen.current.set(f.key, entry);
   }
 
   const paces = new Map<string, Pace>();
+  /** Named before any was read: a drop of several, read side by side. */
+  const together = Boolean(session.together);
   let previousEnd = 0;
   for (const f of session.files) {
     const entry = seen.current.get(f.key)!;
+    if (together && session.mode !== 'review') {
+      const showFacts = entry.started === undefined || entry.read === undefined ? Number.POSITIVE_INFINITY : Math.max(entry.read, entry.started + scanMs(f.pages));
+      paces.set(f.key, { showFrom: 0, showFacts });
+      continue;
+    }
     // A desk opened over cards already read has nothing to replay.
     if (session.mode === 'review') {
       paces.set(f.key, { showFrom: 0, showFacts: 0 });
       continue;
     }
-    const showFrom = Math.max(entry.started, previousEnd);
+    const showFrom = Math.max(entry.started ?? Date.now(), previousEnd);
     const showFacts = entry.read === undefined ? Number.POSITIVE_INFINITY : Math.max(entry.read, showFrom + scanMs(f.pages));
     paces.set(f.key, { showFrom, showFacts });
     previousEnd = Number.isFinite(showFacts) ? showFacts + 250 : Number.POSITIVE_INFINITY;
@@ -76,6 +90,16 @@ function usePace(session: ReadingSession): { paces: Map<string, Pace>; now: numb
   }, [waiting]);
 
   return { paces, now };
+}
+
+/** Where a department's questions are answered: the technical due diligence's own step for Engineering, the department's page for the rest. */
+function questionsPath(projectId: string, department: string | undefined): string {
+  return !department || department === 'construction' ? `/projects/${projectId}/w/construction.quality?step=questions` : `/projects/${projectId}/d/${department}?step=questions`;
+}
+
+/** Whether a file on the desk is sound: a voice note, which has no page to show. */
+function isSoundFile(file: ReadingFile): boolean {
+  return file.mimeType.startsWith('audio/') || file.taken?.as === 'voice';
 }
 
 /** "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym. */
@@ -154,6 +178,12 @@ export function ReadingDesk({
     return () => ro.disconnect();
   }, [bodyEl]);
   const revealUntil = useRef(new Map<string, number>());
+  /*
+   * How large the page is drawn: 1 fits it to its half of the desk, which
+   * beside a conversation leaves a deed's print a few pixels high. Kept from
+   * one document to the next, since the print is as small on the next one.
+   */
+  const [zoom, setZoom] = useState(1);
   const [pinned, setPinned] = useState<string | null>(pinKey ?? null);
   useEffect(() => {
     if (pinKey) setPinned(pinKey);
@@ -207,7 +237,9 @@ export function ReadingDesk({
     (filingQueue[0] && session.files.find((f) => f.key === filingQueue[0]))
     ?? (focus && session.files.find((f) => f.key === focus.key))
     ?? (pinned && session.files.find((f) => f.key === pinned))
-    ?? [...visible].reverse().find((f) => !factsShown(f))
+    // Of several read side by side: the first, in the order dropped, that is being read; then the last one read.
+    ?? visible.find((f) => f.phase !== 'queued' && !factsShown(f))
+    ?? [...visible].reverse().find((f) => f.phase !== 'queued')
     ?? visible[visible.length - 1]
     ?? session.files[0];
 
@@ -230,10 +262,10 @@ export function ReadingDesk({
    * stood before the later one.
    */
   const queue = useRef<Promise<unknown>>(Promise.resolve());
-  function decide(row: EvidenceRecord, keys: string[] | 'all', decision: FactDecision, edit?: FactEdit): Promise<boolean> {
+  function decide(row: EvidenceRecord, keys: string[] | 'all', decision: FactDecision, edit?: FactEdit, take?: 'other'): Promise<boolean> {
     const run = queue.current.then(async () => {
       try {
-        const { project: next } = await api.reviewFacts(projectId, row.id, { keys, decision, edit });
+        const { project: next } = await api.reviewFacts(projectId, row.id, { keys, decision, edit, ...(take ? { take } : {}) });
         onDecided(next);
         return true;
       } catch (e) {
@@ -328,6 +360,9 @@ export function ReadingDesk({
               >
                 {f.phase === 'failed' ? (
                   <AlertTriangle size={12} className="text-[var(--status-warning-text)]" aria-hidden />
+                ) : f.phase === 'queued' ? (
+                  // Named, and waiting its turn: three are read at a time.
+                  <Clock size={12} className="text-ink-muted" aria-label="waiting to be read" />
                 ) : done && waitingOn(f) > 0 ? (
                   // Filed, but what it states is still waiting: not done yet.
                   <Sparkles size={12} className="text-provenance-ink" aria-hidden />
@@ -359,9 +394,24 @@ export function ReadingDesk({
         <div className={cn('flex min-h-0 flex-col gap-2', wide ? 'min-w-0 flex-1' : 'h-[40%] min-h-[190px] shrink-0')}>
           <div className="flex items-center gap-2">
             <p className="min-w-0 flex-1 truncate font-mono text-micro uppercase tracking-[0.08em] text-ink-muted">
-              {(current.label ?? shortName(current.fileName)).toUpperCase()} · page {page}
-              {current.pages ? ` of ${current.pages}` : ''}
+              {(current.label ?? shortName(current.fileName)).toUpperCase()}
+              {/* Sound has no pages. */}
+              {isSoundFile(current) ? '' : ` · page ${page}${current.pages ? ` of ${current.pages}` : ''}`}
             </p>
+            {isSoundFile(current) ? null : (
+              // The pop-up's three: smaller, the width it fits, larger.
+              <span className="flex shrink-0 items-center">
+                <button type="button" onClick={() => setZoom((z) => Math.max(1, z - 0.5))} disabled={zoom <= 1} className="rounded px-2 py-0.5 text-mini text-ink-secondary hover:text-ink disabled:text-ink-muted">
+                  −
+                </button>
+                <button type="button" onClick={() => setZoom(1)} className="rounded px-2 py-0.5 text-mini text-ink-secondary hover:text-ink">
+                  Fit
+                </button>
+                <button type="button" onClick={() => setZoom((z) => Math.min(4, z + 0.5))} disabled={zoom >= 4} className="rounded px-2 py-0.5 text-mini text-ink-secondary hover:text-ink disabled:text-ink-muted">
+                  +
+                </button>
+              </span>
+            )}
             {scanning ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-micro font-medium text-brand-ink">
                 <Sparkles size={10} aria-hidden />
@@ -383,6 +433,7 @@ export function ReadingDesk({
             scanMs={scanDuration}
             marks={pointed?.marks ?? null}
             markId={pointed ? `${current.key}:${pointed.key}` : undefined}
+            zoom={zoom}
             className="min-h-0 flex-1"
           />
           {pointed ? (
@@ -401,7 +452,7 @@ export function ReadingDesk({
         <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(46%,440px)] shrink-0 pr-1' : 'flex-1')}>
           {rowFacts.length ? null : (
           <p className="text-[12px] font-semibold text-ink">
-            {scanning ? 'Reading…' : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
+            {scanning ? 'Reading…' : current.taken ? { questionnaire: 'A questionnaire', notes: 'Notes of a meeting', voice: 'A voice note', photo: 'A site photograph' }[current.taken.as] : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
           </p>
           )}
           {scanning ? (
@@ -420,12 +471,14 @@ export function ReadingDesk({
             <FactReviewList
               key={row.id}
               documentName={asNamed(row.documentType ?? current.label ?? 'document')}
+              documentType={row.documentType}
+              offered={Boolean(row.proposedDocumentType)}
               facts={rowFacts}
               busy={false}
               revealing={revealing}
               activeKey={pointed?.key ?? null}
               onPoint={(f) => onFocus(f ? { key: current.key, fact: f } : null)}
-              onDecide={(keys, decision, edit) => decide(row, keys, decision, edit)}
+              onDecide={(keys, decision, edit, take) => decide(row, keys, decision, edit, take)}
             />
           ) : facts.length ? (
             <div className="flex flex-col gap-1.5" onMouseLeave={() => onFocus(null)}>
@@ -457,7 +510,35 @@ export function ReadingDesk({
               <p className="text-[13px] leading-relaxed text-ink-secondary">{current.notes}</p>
             </div>
           ) : null}
-          {shown && !facts.length && !current.notes && current.phase !== 'failed' && current.phase !== 'model' ? (
+          {current.taken ? (
+            // No paper, and on no row: what became of it, and the way to it.
+            <div className="flex flex-col items-start gap-2 rounded-lg bg-surface px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
+              <p className="flex items-center gap-1.5 text-[13px] text-ink">
+                <ClipboardList size={13} aria-hidden />
+                {current.taken.said}.
+              </p>
+              {current.taken.as === 'questionnaire' ? (
+                <Link
+                  to={questionsPath(projectId, current.taken.department)}
+                  className="inline-flex items-center gap-1 rounded-md bg-raised px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:text-brand"
+                >
+                  Open the questions
+                  <ArrowRight size={12} aria-hidden />
+                </Link>
+              ) : current.taken.as === 'photo' ? (
+                <Link
+                  to={`/projects/${projectId}/w/construction.progress`}
+                  className="inline-flex items-center gap-1 rounded-md bg-raised px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:text-brand"
+                >
+                  Open Progress
+                  <ArrowRight size={12} aria-hidden />
+                </Link>
+              ) : (
+                <p className="text-micro text-ink-muted">{current.taken.as === 'voice' ? 'What it proposes waits under “Needs your decision”.' : 'What it proposes is in the chat.'}</p>
+              )}
+            </div>
+          ) : nothingRead({ shown, streamed: facts.length, held: rowFacts.length, notes: current.notes, phase: current.phase }) ? (
+            // Only where nothing was read. A filed paper's values are its row's, listed above, and the stream's own list is empty beside them.
             <p className="flex items-center gap-1.5 text-[13px] text-ink-muted">
               <FileText size={13} aria-hidden />
               {current.summary ?? 'Filed as it is; nothing on it matched what the reader knows how to read.'}

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { FileText } from 'lucide-react';
-import { useOutletContext } from 'react-router-dom';
-import { REPORT_KIND_LABEL, type ReportKind } from '@realytica/shared';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
+import { REPORT_KIND_LABEL, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Button, Card, CardBody, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
 import { ReportEditor } from './ReportEditor';
@@ -15,9 +15,18 @@ export default function Reports() {
   const [kind, setKind] = useState<ReportKind>('executive_dd');
   const [assessmentId, setAssessmentId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [viewId, setViewId] = useState<string | null>(project.reports[0]?.id ?? null);
-
-  const view = project.reports.find((r) => r.id === viewId) ?? project.reports[0];
+  // The report on screen is the one the address names: `?report=<id>`. A link followed while Reports is open switches to it, and picking one from the list writes it there.
+  const [params, setParams] = useSearchParams();
+  const view = project.reports.find((r) => r.id === params.get('report')) ?? project.reports[0];
+  const show = useCallback(
+    (id: string) =>
+      setParams((was) => {
+        const out = new URLSearchParams(was);
+        out.set('report', id);
+        return out;
+      }),
+    [setParams],
+  );
 
   async function generate() {
     setBusy(true);
@@ -29,7 +38,7 @@ export default function Reports() {
       });
       const next = await api.getProject(project.id);
       setProject(next);
-      setViewId(report.id);
+      show(report.id);
       setOpen(false);
       toast('Report generated from live registers', 'good');
     } catch (e) {
@@ -49,7 +58,7 @@ export default function Reports() {
           <EmptyState
             icon={<FileText size={18} />}
             title="No reports yet"
-            description="A report is built from the records on this file — the departments' assessments, the findings and the documents behind them — and exports to Word or PDF."
+            description="Built from the records on this file. Exports to Word or PDF."
             action={
               <Button variant="primary" onClick={() => setOpen(true)}>
                 Generate a report
@@ -73,11 +82,12 @@ export default function Reports() {
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => setViewId(r.id)}
+                  onClick={() => show(r.id)}
                   className={`w-full rounded-lg px-3 py-2 text-left text-[13px] ${view?.id === r.id ? 'bg-brand-soft text-brand' : 'hover:bg-sunken'}`}
                 >
                   <span className="block font-medium">{REPORT_KIND_LABEL[r.kind]}</span>
-                  <span className="text-[11px] text-ink-muted">{formatWhen(r.generatedAt)}</span>
+                  {/* A status report is one of several, told apart by the period it covers. */}
+                  <span className="text-[11px] text-ink-muted">{(r.kind === 'status' ? statusReportPeriodSaid(r) : undefined) ?? formatWhen(r.generatedAt)}</span>
                 </button>
               ))}
             </CardBody>

@@ -88,17 +88,52 @@ export type PdfLoadResult =
   | { ok: false; reason: PdfLoadFailureReason; message: string };
 
 /**
+ * Some pages of a PDF as a PDF of their own: the pages a reader is to be
+ * shown, and no others. `only` is 1-based. Null when it names every page, or
+ * none the file has, or the file cannot be cut; the whole file is then what
+ * there is to send.
+ */
+async function pagesOfPdf(buffer: Buffer, only: readonly number[]): Promise<{ bytes: Buffer; pages: number[]; of: number } | null> {
+  try {
+    const { PDFDocument } = await import('pdf-lib');
+    const source = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });
+    const of = source.getPageCount();
+    const pages = [...new Set(only)].filter((page) => Number.isInteger(page) && page >= 1 && page <= of).sort((a, b) => a - b).map((page) => page - 1);
+    if (!pages.length || pages.length === of) return null;
+    const out = await PDFDocument.create();
+    for (const page of await out.copyPages(source, pages)) out.addPage(page);
+    return { bytes: Buffer.from(await out.save()), pages, of };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Base64-encodes a PDF already held in memory and applies the API's
  * size/page guards. Never throws — every failure mode comes back as
  * `{ ok: false }` so the caller can fail the agent run cleanly instead of
  * crashing it.
+ *
+ * With `only`, the 1-based pages the reader is to be shown, those pages are
+ * cut out and nothing else of the file is sent. The guards then apply to what
+ * was cut, and `window` says which pages of the original went.
  */
-export async function loadPdfForExtraction(buffer: Buffer): Promise<PdfLoadResult> {
+export async function loadPdfForExtraction(buffer: Buffer, only?: readonly number[]): Promise<PdfLoadResult> {
   if (buffer.byteLength === 0) {
     return { ok: false, reason: 'empty', message: 'The PDF file is empty.' };
   }
+  const cut = only?.length ? await pagesOfPdf(buffer, only) : null;
+  if (!cut) return fitForExtraction(buffer);
+  // What was cut is counted here: the scan of its bytes below cannot count pages pdf-lib has packed away.
+  const loaded = await fitForExtraction(cut.bytes, cut.pages.length);
+  if (!loaded.ok) return loaded;
+  // A page of what is sent is a page of the original only through both cuts.
+  const pages = loaded.pdf.window ? loaded.pdf.window.pages.map((i) => cut.pages[i]!) : cut.pages;
+  return { ok: true, pdf: { ...loaded.pdf, pageCount: pages.length, window: { pages, of: cut.of } } };
+}
 
-  const pageCount = countPdfPages(buffer);
+async function fitForExtraction(buffer: Buffer, pages?: number): Promise<PdfLoadResult> {
+  const pageCount = pages ?? countPdfPages(buffer);
   // Too long or too heavy to send whole: send its two ends instead.
   if (pageCount > MAX_PDF_PAGES || (buffer.byteLength * 4) / 3 > MAX_PDF_BYTES) {
     const windowed = await windowPdf(buffer);

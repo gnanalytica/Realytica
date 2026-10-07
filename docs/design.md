@@ -11,10 +11,10 @@ The interface follows the **Copilot Desk** direction chosen on 29 September 2026
 | Sunken | `#EEF0F3` | `#111317` | Tracks, chips, hover |
 | Ink | `#15171A` | `#F3F4F6` | Text, and the **action** colour: a primary button commits something |
 | Teal | `#0B6464` | `rgb(86 190 184)` | Links, citations, the selected thing, focus |
-| Rose | `#B0245A` | `rgb(232 112 160)` | Anything a model wrote that no person has accepted: the AI mark, proposal outlines, values waiting on a page |
+| Blue | `#2B5FA8` | `rgb(86 133 214)` | Anything a model wrote that no person has accepted: the AI mark, proposal outlines, values waiting on a page |
 | Good / Warning / Serious / Critical | `#16794A` · `#E0A100` · `#D8692F` · `#B42318` | lighter equivalents | Verdicts and statuses only. Amber and orange each have a darker text colour (`--status-warning-text`, `--status-serious-text`) |
 
-All of them are CSS custom properties in `apps/web/src/index.css`, exposed through Tailwind as `page`, `surface`, `sunken`, `ink`, `action`, `brand`, `ai`, `good`, `warning`, `serious`, `critical` and `provenance` (which is rose). Never write a hex value in a component; a colour that exists only in one theme is the classic unreadable-in-dark-mode bug.
+All of them are CSS custom properties in `apps/web/src/index.css`, exposed through Tailwind as `page`, `surface`, `sunken`, `ink`, `action`, `brand`, `ai`, `good`, `warning`, `serious`, `critical` and `provenance` (which is the same blue). Never write a hex value in a component; a colour that exists only in one theme is the classic unreadable-in-dark-mode bug.
 
 **Type.** Schibsted Grotesk for everything, DM Mono for figures, codes, counts and citations. Both are bundled (`@fontsource`), so the app makes no font request of its own. Kannada and Telugu come from Google Fonts for the originals a deed is written in. Sizes stay on an integer ladder of 10, 11, 12, 13, 14 and 15 px, with larger sizes for display; `pnpm lint:type` fails the build on half-pixel sizes.
 
@@ -42,7 +42,7 @@ Folds stay `<details>`, so find-in-page and print reach inside them, and they op
 - **Card** and **CardHeader**: icons sit in a small tile.
 - **Button**: primary is ink; presses scale.
 - **Badge**: chips coloured by tone.
-- **AiMark**: the rose "AI" square, on everything a model wrote.
+- **AiMark**: the blue "AI" square, on everything a model wrote.
 - **Tabs**: the underline travels between tabs.
 - **Modal**: a spring dialog on wide screens; below 640 px a bottom sheet, dragged down by its handle or header to close.
 - **Tooltip**: appears after the pointer rests for 140 ms; on focus it appears at once.
@@ -54,8 +54,8 @@ Department marks are in `components/departments/icons.ts`.
 
 ## Layout
 
-- **Inside a project on desktop:** one project bar (back to Portfolio, the stage timeline, the review walk, health, alerts, the command bar, focus), then a single row of tabs, then the conversation on the left and the canvas on the right.
-- **Inside a project on a phone:** the cockpit is the only header, a bottom bar switches between chat and the canvas, and the stage, the alerts and the stage record open as sheets. In the header the page's name keeps a few words and the stage pill, showing only the step below `sm`, truncates first.
+- **Inside a project on desktop:** one bar, the app's own (the project's name, one selector for where you are, the track of the four stages, then alerts, the command palette and focus), then inside a department a single row of its function tabs, then the conversation on the left and the canvas on the right. Pressing a stage on the track switches the selector, the tabs and the pages to that stage. Nothing opens from the bar: the stage's record is a section of Overview.
+- **Inside a project on a phone:** the cockpit is the only header, a bottom bar switches between chat and the canvas, and the stages and the alerts open as sheets. The stage pill names the stage being looked at. Its sheet has the four stages as tabs, which pick the stage as the track does, over that stage's record. In the header the selector for where you are keeps a few words and the stage pill, showing only the stage below `sm`, truncates first.
 - **A phone held sideways:** `short:` (under 30rem tall and over 34rem wide) moves the chat and canvas switch into the header and drops the bottom bar. The width floor keeps it from firing on an upright phone whose keyboard has shrunk the page.
 - **Breakpoints:** panes lay themselves out with container queries (`[@container(min-width:…)]`), because a pane's width is whatever the chat leaves rather than the window's. Anything sized to its card rather than the window (the portfolio's fortnight, the roles table) measures the card the same way.
 - **Grids:** a grid that only gets its columns at a breakpoint starts from `grid-cols-1`. Without it the one implicit column is as wide as the longest line that cannot wrap (a truncated title, a timeline's labels), and the page runs past the edge of a phone.

@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { needs, principalOf } from '../auth/middleware';
 import { fireAndForget } from '../flows/triggers';
 import {
@@ -16,6 +16,7 @@ import {
   stampActor,
   assertMayWrite,
   assertWorkspaceWork,
+  decidesFor,
   liveGrant,
   projectFor,
   viewFor,
@@ -95,16 +96,44 @@ import {
   toDashboard,
   toProjectSummary,
   updateEvidenceStatus,
+  ADMIN_ONLY_PROPOSALS,
   applyProjectChat,
+  can,
+  commitChatProposal,
   acceptWaiting,
+  assertMayDecideCheck,
   decideCheckFields,
+  DecisionRefused,
+  departmentOfCheck,
   pickCheckValue,
   recordAuditEvent,
   reviewFacts,
+  keepReadings,
+  landIngestFile,
   setAsideWaiting,
   assignOwner,
   applyProjectAgentTurn,
+  chatPlaceFrom,
+  CHOICE_SENTENCE,
+  NOTHING_ACCEPTED,
+  NOTHING_SET_ASIDE,
+  MEMORY_ANSWER,
+  MEMORY_LINT,
+  MEETINGS_LISTED,
+  MEETING_NOTES,
+  STATUS_REPORT,
+  PLAN_SAID,
+  PLAN_STEP,
+  UNDO_SAID,
+  asksToUndo,
+  lastUndoable,
+  planChoices,
+  planCountSaid,
+  NOTHING_TO_READ,
+  meetingShown,
+  chatSessions,
   clearProjectConversation,
+  renameChatSession,
   extractReadableExcerpt,
   findingEvidenceBriefing,
   projectRegisterBriefing,
@@ -117,7 +146,20 @@ import {
   setAsideValueOffers,
   wantsDeterministicProjectChat,
   plural,
+  proposedFacts,
   linkRecordIds,
+  memAsksForLint,
+  memAsksMemory,
+  memContextText,
+  memLintLine,
+  memSaidUnder,
+  memTagsPrinted,
+  memUnderAnswer,
+  memoryFacts,
+  PAPER_WORDS,
+  paperWordsAnswer,
+  paperWordsAsked,
+  saidInPassing,
   unansweredReason,
   failureCause,
   noteProjectEdit,
@@ -130,8 +172,12 @@ import {
   withheldAnswer,
   withheldBriefing,
   type ChatIngestFile,
+  type ChatPlace,
   type ReadingStreamEvent,
   type DdProject,
+  type MemAsk,
+  type MemSaid,
+  type MeetingGiven,
   type ProjectChatResult,
   type ProjectChatTurn,
   type ProjectView,
@@ -155,7 +201,7 @@ import {
   textOf,
 } from '@realytica/agents';
 import { readExifCapture } from '../exif';
-import { applyReviewedPayload } from '../proposal-review';
+import { reviewCard } from '../proposal-review';
 
 /**
  * A hard ceiling on one read request.
@@ -166,16 +212,28 @@ import { applyReviewedPayload } from '../proposal-review';
  * decision they take with the first bill in front of them.
  */
 const PHOTO_READ_CAP = 12;
-import { forgetProjects, memoryReadableBy, memoryStore } from '../memory';
+import { memoryReadableBy, memoryStore } from '../memory';
 import { gatherChatSides, pullWebForProject } from '../project-chat-sides';
 import { ensureIdentitySiteContext, projectSiteQuery, refreshSiteContextIfMoved } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
-import { startBackgroundRun } from '../runs/background';
+import { finishAfterReply, startBackgroundRun } from '../runs/background';
 import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
-import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
-import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead } from '../documents/reread';
+import { PAPERS_AT_ONCE, together } from '../documents/together';
+import { droppedUnread, isNotReadYetCard, notReadYetCard } from '../documents/dropped';
+import { droppedAnswer, droppedChoices, takenInSaid, unsureSaid, whatWasDropped, type Dropped } from '../documents/questionnaire-drop';
+import type { ReadQuestionnaire } from '../documents/questionnaire-file';
+import { wordsOfDocx } from '../documents/docx-outline';
+import { capturedFrom, fileSitePhoto, readSitePhoto, takeVoiceNote, type DropCaptured } from '../documents/site-drop';
+import { transcriptionCapability } from '@realytica/agents';
+import { MODEL_READER_VERSION, isVoiceNote, type ChatProposal, type EvidenceRecord } from '@realytica/shared';
+// The questionnaire's own calls, kept beside the reader's: a file dropped in the chat may be one.
+import { DROPPED_WITHOUT_WORDS, addQuestionnaire, departmentDefinition, findQuestionnaire, meetingNotesFor as meetingNotesOf, questionnaireDepartment, suggestFromFile } from '@realytica/shared';
+import { keepPageTexts, paperPassages } from '../documents/page-text';
+import { confirmProposedType, correctProposedType, readOntoRegister, setAsideProposedType, type RegisterUpload } from '../documents/register-read';
+import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead, straightToModel } from '../documents/reread';
+import { PROJECT_KEPT, removeProject } from '../project-removal';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from '../uploads';
@@ -186,6 +244,17 @@ import { projectComparablesRouter } from './comparables';
 import { projectWorkspaceRouter } from './workspace';
 import { unblockerConfigured } from '../comparables/search';
 import { graphAdapter } from '../graph';
+import { PREVIEW_KEEPS_NO_GRAPH, graphAnsweredBy } from '../graph/preview';
+import { MEMORY_LINT_WAIT_MS, inTime, memoryAnswer, memoryContext, memoryUnder } from '../graph/mem/context';
+import { readLint } from '../graph/mem/read';
+import { keepThought } from '../graph/mem/thought';
+import { CHAT_MESSAGE_AT_MOST, heldFile, meetingAsk, meetingTurn, meetingWords, readDroppedNotes } from '../meetings';
+import { wordStatusReport } from '../status-report';
+import { planTurnFor, runPlan, stopPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
+import { runPlanStep, type PlanSetting, type StepDone } from '../runs/plan-steps';
+import { planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
+import { asMessage, forgetTurnChanges, keepTurnChanges, recordBefore, undoTurn } from '../chat-changes';
+import { outgoingAskedWritten } from './outgoing';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
   changeStageBodySchema,
@@ -221,8 +290,11 @@ import {
   patchStatusBodySchema,
   patchValuationBodySchema,
   valueOffersBodySchema,
+  chatPlaceSchema,
   projectChatBodySchema,
+  renameChatBodySchema,
   projectChatProposalBodySchema,
+  correctDocumentTypeBodySchema,
   factReviewBodySchema,
   fieldDecisionBodySchema,
   fieldPickBodySchema,
@@ -256,6 +328,15 @@ export function findProject(id: string): DdProject | undefined {
 }
 
 /**
+ * A chat message's request is carried out with a mark of its own in scope,
+ * so that what it writes to the trail and the cards it raises are told from
+ * other work done on the project while it runs (`chat-changes.ts`). It goes
+ * after the upload is taken in, where there is one: the reading of a
+ * request's body keeps no scope.
+ */
+const asChatMessage: RequestHandler = (req, _res, next) => asMessage(findProject(req.params.projectId ?? ''), next);
+
+/**
  * Who is doing this, for the audit trail.
  *
  * Reads the verified principal, never the request body. The old version took
@@ -270,6 +351,11 @@ function actorOf(req: Request): string {
 function fail(res: { status: (n: number) => { json: (b: unknown) => void } }, err: unknown, fallback = 'Request failed') {
   if (err instanceof WriteRefused) {
     res.status(err.status).json({ error: err.message });
+    return;
+  }
+  // Not a lead or signer where the value belongs. The refusal says which department, and they can see what they asked about, so it is a 403.
+  if (err instanceof DecisionRefused) {
+    res.status(403).json({ error: err.message });
     return;
   }
   const message = err instanceof Error ? err.message : fallback;
@@ -397,6 +483,10 @@ projectsRouter.use('/:projectId/orchestrate', workspaceOnly);
 projectsRouter.use('/:projectId/capabilities', workspaceOnly);
 projectsRouter.use('/:projectId/runs', workspaceOnly);
 projectsRouter.use('/:projectId/graph/stored', workspaceOnly);
+// Meetings are the firm's own: what was said in one is not shown to somebody working from a grant.
+projectsRouter.use('/:projectId/meetings', workspaceOnly);
+// So are plans: a plan works through the whole file.
+projectsRouter.use('/:projectId/plans', workspaceOnly);
 
 // Readable by anybody on the project, changeable only by the workspace: the
 // shape of the file rather than the work inside it.
@@ -537,7 +627,7 @@ projectsRouter.get('/:projectId/graph', (req, res) => {
   // a picture of the whole file is a better disclosure of it than the
   // registers are, because it shows what connects to what.
   const built = buildProjectGraph(projectFor(req, project));
-  res.json({ ...built, adapter: graphAdapter.kind });
+  res.json({ ...built, adapter: graphAnsweredBy(graphAdapter) });
 });
 
 /**
@@ -563,7 +653,7 @@ projectsRouter.get('/:projectId/graph/stored', async (req, res) => {
     return;
   }
   if (!stored) {
-    res.status(200).json({ graph: null, reason: 'not_indexed', adapter: graphAdapter.kind });
+    res.status(200).json({ graph: null, reason: 'not_indexed', adapter: graphAnsweredBy(graphAdapter) });
     return;
   }
   res.json({ graph: stored, adapter: graphAdapter.kind, asOf: asOf ?? null });
@@ -604,6 +694,11 @@ projectsRouter.post('/:projectId/graph/annotations', async (req, res) => {
   const linkedNodeId = typeof body.linkedNodeId === 'string' ? body.linkedNodeId.trim() : '';
   if (!nodeId || !text) {
     res.status(400).json({ error: 'nodeId and text are both required.' });
+    return;
+  }
+  // Said before the lookup, which on a preview would report every node as missing.
+  if (graphAdapter.detached) {
+    res.status(503).json({ error: PREVIEW_KEEPS_NO_GRAPH });
     return;
   }
 
@@ -686,7 +781,7 @@ projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
       nodes: [],
       edges: [],
       source: 'live',
-      adapter: graphAdapter.kind,
+      adapter: graphAnsweredBy(graphAdapter),
       standing: 'this_file',
       error: query.trim() ? `Nothing in this file's graph matches "${query}".` : 'query is required.',
     });
@@ -725,7 +820,7 @@ projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
     nodes: graph.nodes,
     edges: graph.edges,
     source,
-    adapter: graphAdapter.kind,
+    adapter: graphAnsweredBy(graphAdapter),
     standing: 'this_file',
   });
 });
@@ -742,7 +837,7 @@ projectsRouter.get('/:projectId/graph/trace/:nodeId', (req, res) => {
     res.status(404).json({ error: `No node "${req.params.nodeId}" in this file's graph.` });
     return;
   }
-  res.json({ ...cone, standing: 'this_file', adapter: graphAdapter.kind });
+  res.json({ ...cone, standing: 'this_file', adapter: graphAnsweredBy(graphAdapter) });
 });
 
 projectsRouter.post('/:projectId/screen', async (req, res) => {
@@ -831,7 +926,7 @@ projectsRouter.post('/:projectId/value', async (req, res) => {
   }
 });
 
-/** Record the inputs a person accepted, and the valuation they give when asked to. */
+/** Record the inputs a person accepted, and the valuation they give when asked to. Accepting is a lead's or signer's in Finance. */
 projectsRouter.post('/:projectId/value/accept', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -844,7 +939,13 @@ projectsRouter.post('/:projectId/value/accept', async (req, res) => {
     return;
   }
   const actor = actorOf(req);
-  const out = acceptValueOffers(project, parsed.data.ids, actor);
+  let out: ReturnType<typeof acceptValueOffers>;
+  try {
+    out = acceptValueOffers(project, parsed.data.ids, actor, { mayDecide: decidesFor(req, project) });
+  } catch (err) {
+    fail(res, err);
+    return;
+  }
   const run = parsed.data.record && (out.applied.length > 0 || out.refused.length === 0) ? createValuationRun(project, actor) : undefined;
   const said = [
     out.applied.length ? `Recorded ${out.applied.length} value input${out.applied.length === 1 ? '' : 's'} from the file` : '',
@@ -854,7 +955,7 @@ projectsRouter.post('/:projectId/value/accept', async (req, res) => {
   res.json({ project, applied: out.applied.map((o) => o.id), refused: out.refused, ...(run ? { runId: run.id } : {}) });
 });
 
-/** Set offered inputs aside; they stay out until the file says something new. */
+/** Set offered inputs aside; they stay out until the file says something new. A lead's or signer's in Finance, as accepting them is. */
 projectsRouter.post('/:projectId/value/set-aside', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -866,7 +967,13 @@ projectsRouter.post('/:projectId/value/set-aside', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const n = setAsideValueOffers(project, parsed.data.ids, actorOf(req));
+  let n: number;
+  try {
+    n = setAsideValueOffers(project, parsed.data.ids, actorOf(req), { mayDecide: decidesFor(req, project) });
+  } catch (err) {
+    fail(res, err);
+    return;
+  }
   if (n) await persistPaneWrite(req, project, `Set aside ${n} offered value input${n === 1 ? '' : 's'}.`);
   res.json({ project, setAside: n });
 });
@@ -996,12 +1103,23 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
     || names.has('orchestrate')
     || names.has('project_copilot')
     || names.has('critic')
+    || names.has(MEMORY_LINT)
+    || names.has(MEMORY_ANSWER)
+    // What was kept of a meeting's notes, and the meetings on the file: said from the record, with the marks that open the notes.
+    || names.has(MEETING_NOTES)
+    || names.has(MEETINGS_LISTED)
+    // A status report is written by code and said short: a model that reworded the reply could add to it.
+    || names.has(STATUS_REPORT)
     /*
      * Answers already exact: read off the documents with their pages, a
      * question asked back, a pane opened. Rewriting them paid a model to lose
      * the page references the answer was built from.
      */
     || names.has('answer_from_file')
+    // An instruction that took nothing: what waits, where, and the choices to press.
+    || names.has(NOTHING_ACCEPTED)
+    || names.has(NOTHING_SET_ASIDE)
+    || names.has(NOTHING_TO_READ)
     || names.has('clarify')
     || names.has('navigate')
     || names.has('open_sitting')
@@ -1026,6 +1144,23 @@ function beginNdjson(res: import('express').Response): {
       res.write(`${JSON.stringify(payload)}\n`);
     },
   };
+}
+
+/** What a person is told of a message the chat's rules threw on. */
+const TURN_FAILED = 'That message could not be carried out. Say it another way, or do it on the page.';
+
+/**
+ * A turn of the chat that threw, answered: the stream's own error line, and
+ * the reply ends. Nothing more of the turn is done, so nothing of it is saved.
+ * A throw left to escape an async handler ends the whole server, and with it
+ * every other person's request.
+ */
+function turnFailed(res: Response, err: unknown): void {
+  console.error('[chat] the rules threw on a message', err);
+  if (res.writableEnded || res.destroyed) return;
+  if (!res.headersSent) res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.write(`${JSON.stringify({ type: 'error', error: TURN_FAILED })}\n`);
+  res.end();
 }
 
 async function rememberProject(project: DdProject): Promise<void> {
@@ -1071,6 +1206,45 @@ function sayWhatIsMissing(seen: ProjectView, question: string, result: { assista
 }
 
 /**
+ * The replies the chat gives by rule that answer a question about the
+ * record: a value read off the file, a record named and opened, where the
+ * project stands, what comes next. Facts stand under these and no other. A
+ * question asked back, a page opened, papers just filed, a draft made, a
+ * portal named, a paper's own words, what memory says of itself: none is an
+ * answer a fact of the record stands under.
+ */
+const ANSWERS_ABOUT_THE_RECORD = new Set(['answer_from_file', 'open_sitting', 'briefing', 'next_step', 'analyst_copilot']);
+
+/** The replies that are about the project as a whole: where it stands, what comes next. */
+const ABOUT_THE_WHOLE = new Set(['briefing', 'next_step', 'analyst_copilot']);
+
+/**
+ * Under an answer the chat gave by rule, where its facts stand.
+ *
+ * A rule answers from the record and says nothing of what waits: asked the
+ * land area it gives the one on the project, and not the other one waiting
+ * on a card. So the facts memory holds that the question is about are said
+ * under the answer, by code, each with its tag: at most four, what waits
+ * first, and nothing when memory holds nothing about the question. Done
+ * here, once, where every such answer leaves, whichever rule gave it. Not
+ * under a reply that carried out an instruction: that one says what was
+ * done. Not under a greeting, a thank-you, or any reply that is not an
+ * answer about the record: there is nothing there for a fact to bear on.
+ * And not under a reply that says it is no answer to what was asked
+ * (`unanswered`): where the file stands was not the question, so nothing the
+ * question names is what the reply is about.
+ */
+async function sayWhereItStands(seen: ProjectView, ask: MemAsk, result: ProjectChatResult, unanswered?: string): Promise<void> {
+  const names = (result.assistantTurn.toolCalls ?? []).map((call) => call.name);
+  if (unanswered || !ask.question.trim() || saidInPassing(ask.question) || result.commands.length > 0 || !names.some((name) => ANSWERS_ABOUT_THE_RECORD.has(name))) return;
+  const under = await memoryUnder(seen, ask, { whole: names.some((name) => ABOUT_THE_WHOLE.has(name)) }).catch(() => undefined);
+  if (!under) return;
+  const said = memSaidUnder(result.assistantTurn.text, under);
+  result.assistantTurn.text = said.text;
+  result.assistantTurn.restsOn = said.rests;
+}
+
+/**
  * Mark the turns this request wrote as belonging to one sitting.
  *
  * `applyProjectChat` returns the very objects it pushed onto the thread, so
@@ -1079,10 +1253,55 @@ function sayWhatIsMissing(seen: ProjectView, question: string, result: { assista
  * silences between them instead — nothing breaks, the grouping is just
  * coarser.
  */
-function stampSession(result: { userTurn: ProjectChatTurn; assistantTurn: ProjectChatTurn }, sessionId?: string): void {
-  if (!sessionId) return;
-  result.userTurn.sessionId = sessionId;
-  result.assistantTurn.sessionId = sessionId;
+function stampSession(
+  result: { userTurn: ProjectChatTurn; assistantTurn: ProjectChatTurn },
+  sessionId?: string,
+  also: { continues?: string; place?: ChatPlace } = {},
+): void {
+  for (const turn of [result.userTurn, result.assistantTurn]) {
+    if (sessionId) turn.sessionId = sessionId;
+    // A sitting carries on an earlier chat only as a sitting: with no id of its own there is nothing to join to it.
+    if (sessionId && also.continues) turn.continues = also.continues;
+    // Where the question was asked, kept with both halves of the exchange: the thread stays when the page changes.
+    if (also.place) turn.place = also.place;
+  }
+}
+
+/**
+ * The sitting this person's turns are kept under.
+ *
+ * A sitting is one person's. Its id is minted by the page and sent with each
+ * question, so an id that another person's turns already carry is not taken
+ * as sent: this person's turns go under an id of their own, and nothing they
+ * say is read into somebody else's chat. The same id comes back each time, so
+ * their own turns still read as one sitting.
+ */
+function ownSitting(project: DdProject, sessionId: string | undefined, actor: string): string | undefined {
+  if (!sessionId) return undefined;
+  const taken = project.conversation.some((t) => t.sessionId === sessionId && t.actor !== undefined && t.actor !== actor);
+  return taken ? `${sessionId}~${fingerprint(actor).slice(0, 8)}` : sessionId;
+}
+
+/**
+ * The earlier chat a sitting carries on, when it is one this person can see.
+ *
+ * Asked of their own view of the thread, before this request adds to it. A
+ * collaborator's view holds their own turns, so they cannot join a sitting to
+ * the end of somebody else's chat by naming its id.
+ */
+function carriedChat(canvas: DdProject, id: string | undefined): string | undefined {
+  return id && chatSessions(canvas.conversation).some((s) => s.id === id) ? id : undefined;
+}
+
+/** The place a multipart request sent, as the one field a form can carry it in. */
+function placeFromForm(value: unknown): ChatPlace | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const parsed = chatPlaceSchema.safeParse(JSON.parse(value));
+    return parsed.success ? chatPlaceFrom(parsed.data) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sittingFromBody(value: unknown): SittingRef | undefined {
@@ -1097,7 +1316,184 @@ function sittingFromBody(value: unknown): SittingRef | undefined {
   return sitting;
 }
 
-projectsRouter.post('/:projectId/chat', async (req, res) => {
+/**
+ * The notes of a meeting kept on the file: its day, who was there, what was
+ * proposed from the notes and where each of those stands, and the words
+ * themselves, read back from where they are stored.
+ */
+projectsRouter.get('/:projectId/meetings/:meetingId/notes', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  const meeting = project?.meetings?.find((held) => held.id === req.params.meetingId && !held.standing);
+  if (!project || !meeting) {
+    res.status(404).json({ error: 'Meeting not found' });
+    return;
+  }
+  res.json({ meeting: meetingShown(project, meeting), text: (await meetingWords(project.id, meeting.file)) ?? '' });
+});
+
+/** A plan as the page draws it: its steps as they stand, whether its run was cut short, and what may be pressed. */
+function planShown(run: PlanRun): { id: string; plan: PlanRun['plan']; cutShort: boolean; over: boolean; choices: ReturnType<typeof planChoices> } {
+  const cutShort = planCutShort(run);
+  // The mark of the go that is carrying it out is the runner's own, and is not sent to a page.
+  const { runToken: _mark, ...plan } = run.plan;
+  return { id: run.id, plan, cutShort, over: planOver(run), choices: planChoices(run.id, run.plan, cutShort) };
+}
+
+/** The plans on a project that are not over: shown, running or stopped. The newest first. */
+projectsRouter.get('/:projectId/plans', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  res.json({ plans: (await plansOf(project.id)).filter((run) => !planOver(run)).map(planShown) });
+});
+
+projectsRouter.get('/:projectId/plans/:planId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  const run = project ? await readPlan(project.id, req.params.planId) : undefined;
+  if (!project || !run) {
+    res.status(404).json({ error: 'Plan not found' });
+    return;
+  }
+  res.json(planShown(run));
+});
+
+/**
+ * Ask a running plan to stop. A route of its own, and not a message, because
+ * the chat is busy with the very request that is running the plan. The run
+ * reads this between steps and between the batches of a step, from whichever
+ * instance it is on, and ends with what it did kept.
+ */
+projectsRouter.post('/:projectId/plans/:planId/stop', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  const run = project ? await readPlan(project.id, req.params.planId) : undefined;
+  if (!project || !run) {
+    res.status(404).json({ error: 'Plan not found' });
+    return;
+  }
+  // A run that is there hears it at its next look. One that has gone quiet is stopped where it stands, and ends if it is there after all (`stopPlan`).
+  const next = run.plan.status === 'running' ? await stopPlan(project.id, run.id) : run;
+  res.json(planShown(next ?? run));
+});
+
+/**
+ * A turn of the chat that is about a plan: one shown, changed or cancelled;
+ * one run, with each step said as it begins and the plan's last word at the
+ * end; or one small step done at once.
+ */
+async function planTurn(
+  req: Request,
+  res: Response,
+  project: DdProject,
+  planned: PlanTurn,
+  asked: { question: string; setting: PlanSetting; viewContext?: string; place?: ChatPlace; sessionId?: string; continues?: string },
+): Promise<void> {
+  refreshProjectDerived(project);
+  const { line } = beginNdjson(res);
+  const { setting } = asked;
+  // A step of a plan that is running names the plan, so the page knows which one this request is carrying out.
+  const step = (label: string, planId?: string): void =>
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label, ...(planId ? { toolName: PLAN_STEP, detail: planId } : {}) } satisfies AgentStep });
+  const say = (reply: Pick<PlanReply, 'text' | 'choices' | 'summary' | 'planId'>, tool: string, commands: string[] = []): ProjectChatResult => {
+    const result = applyProjectChat(project, asked.question, { actor: setting.actor, mayDecide: setting.mayDecide, viewContext: asked.viewContext, place: asked.place, chat: setting.chat, reply: { text: reply.text, choices: reply.choices, tool, summary: reply.summary, commands } });
+    if (reply.planId) result.assistantTurn.planId = reply.planId;
+    stampSession(result, asked.sessionId, { continues: asked.continues, place: asked.place });
+    return result;
+  };
+  const turnsBefore = project.conversation.length;
+  const saved = async (): Promise<void> => {
+    // The turns this request wrote are this person's.
+    mergeConversation(project, project, setting.actor, turnsBefore);
+    project.updatedAt = new Date().toISOString();
+    await store.save();
+  };
+
+  if ('direct' in planned) {
+    step(planned.direct.label);
+    const before = project.conversation.length;
+    const stood = recordBefore(project);
+    let done: StepDone;
+    try {
+      done = await runPlanStep({ ...setting, step: planned.direct, mustEnd: async () => false, progress: async () => undefined, wrote: () => undefined });
+    } catch (err) {
+      done = { said: err instanceof Error ? err.message : 'That could not be done.', did: 0, complete: false };
+    }
+    // What the step itself left in the thread comes after the question it answers, and before what the chat says of it.
+    const left = project.conversation.splice(before);
+    // What the sentence asked for beside the step is said back, so nothing a person typed goes unanswered without a word.
+    const beside = planned.unread?.length ? `\nNothing was done about: ${planned.unread.map((words) => `“${words}”`).join(', ')}.` : '';
+    const result = say({ text: `${done.said}${beside}`, summary: planned.direct.label }, PLAN_STEP, done.did ? [planned.direct.label] : []);
+    for (const turn of left) {
+      if (!turn.sessionId && asked.sessionId) turn.sessionId = asked.sessionId;
+      if (!turn.place && asked.place) turn.place = asked.place;
+    }
+    project.conversation.splice(project.conversation.length - 1, 0, ...left);
+    // What the step changed is kept with the reply that says what it did.
+    await keepTurnChanges(project, stood, result.assistantTurn);
+    await saved();
+    line({ type: 'result', ...result, project });
+    res.end();
+    return;
+  }
+
+  const result = say(planned.say, PLAN_SAID);
+  await saved();
+  if (!('run' in planned)) {
+    line({ type: 'result', ...result, project });
+    res.end();
+    return;
+  }
+  const ended = await runPlan({ ...setting, planId: planned.run, token: planned.token, onStep: (label) => step(label, planned.run) });
+  // The page is handed the plan's last word, and the project as the run left it.
+  line({ type: 'result', ...result, ...(ended ? { assistantTurn: ended.closing, commands: [`Plan: ${planCountSaid(ended.run.plan)}`] } : {}), project });
+  res.end();
+}
+
+/**
+ * A turn of the chat that undoes a message: the one a pressed Undo names, or
+ * for "undo" typed alone the last reply of this chat that changed something
+ * and has not been undone. The undo is itself a message, in the chat the
+ * person is in, and says what it put back.
+ */
+async function undoAsked(
+  req: Request,
+  res: Response,
+  project: DdProject,
+  asked: { question: string; turnId?: string; viewContext?: string; place?: ChatPlace; sessionId?: string; continues?: string; sessionStartedAt?: string },
+): Promise<void> {
+  refreshProjectDerived(project);
+  const { line } = beginNdjson(res);
+  const who = actorOf(req);
+  const sessionId = ownSitting(project, asked.sessionId, who);
+  const continues = carriedChat(project, asked.continues);
+  const turnsBefore = project.conversation.length;
+  // This chat's turns: this sitting and the chat it carries on, and this person's only. A caller that keeps no sittings means the whole of their thread.
+  const mine = project.conversation.filter((turn) => (!turn.actor || turn.actor === who) && (!sessionId || turn.sessionId === sessionId || (continues !== undefined && turn.sessionId === continues)));
+  const turnId = asked.turnId ?? lastUndoable(mine)?.id;
+  const undone = turnId ? await undoTurn(project, turnId, who) : ({ done: false, text: 'Nothing this chat changed is there to undo.' } as const);
+  const result = applyProjectChat(project, asked.question, {
+    actor: who,
+    mayDecide: decidesFor(req, project),
+    viewContext: asked.viewContext,
+    place: asked.place,
+    chat: { sessionId, continues, startedAt: asked.sessionStartedAt, actor: who },
+    // The reply says all of it in its own words: no line is drawn under it to say it again.
+    reply: { text: undone.text, tool: UNDO_SAID, summary: '', commands: undone.done ? undone.commands : [] },
+  });
+  stampSession(result, sessionId, { continues, place: asked.place });
+  mergeConversation(project, project, who, turnsBefore);
+  // What stands as accepted may have changed: memory's own account of the project is made again.
+  if (undone.done) await rememberProject(project);
+  project.updatedAt = new Date().toISOString();
+  await store.save();
+  // Only once the record is saved without them: the files the message added that nothing points at any more.
+  if (undone.done) await undone.afterSave();
+  line({ type: 'result', ...result, project });
+  res.end();
+}
+
+projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
@@ -1110,33 +1506,105 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   }
   const question = parsed.data.question;
   const sitting = parsed.data.sitting;
+  // Where the person is: the page and its stage, or the pane alone from a client that sends no more.
+  const place = chatPlaceFrom(parsed.data.place, parsed.data.viewContext);
+  /*
+   * Undo. The Undo under a reply names the reply, and "undo" typed alone
+   * means the last thing this chat changed. What that message changed is put
+   * back where it still stands as the message left it, and the chat says
+   * what went back and what did not, with why. For the firm's own people.
+   */
+  if (!sitting?.decision && (sitting?.undo || asksToUndo(question)) && viewFor(req, project).project === project) {
+    try {
+      await undoAsked(req, res, project, {
+        question,
+        turnId: sitting?.undo?.turnId,
+        viewContext: parsed.data.viewContext,
+        place,
+        sessionId: parsed.data.sessionId,
+        continues: parsed.data.continues,
+        sessionStartedAt: parsed.data.sessionStartedAt,
+      });
+    } catch (err) {
+      turnFailed(res, err);
+    }
+    return;
+  }
+  /*
+   * Plans. A job over many records, or of more than one kind of step, is
+   * shown as its steps before any of it starts. And a sentence, or a pressed
+   * choice, may be about a plan already shown, running or stopped. For the
+   * firm's own people, and never for a choice that accepts or sets aside.
+   * Whatever it is, it is answered here and goes no further.
+   */
+  if (!sitting?.decision && viewFor(req, project).project === project) {
+    const who = actorOf(req);
+    const sessionId = ownSitting(project, parsed.data.sessionId, who);
+    const setting: PlanSetting = { project, actor: who, mayDecide: decidesFor(req, project), tenantId: principalOf(req).tenantId, chat: { sessionId, continues: carriedChat(project, parsed.data.continues), startedAt: parsed.data.sessionStartedAt, actor: who }, place };
+    const planned = await planTurnFor({ ...setting, question, pin: sitting?.plan, sessionId, turnPlace: place, modelAvailable: agentCapability().available });
+    if (planned) {
+      // A plan that runs goes on when the page is closed, as a drop of papers does.
+      const work = planTurn(req, res, project, planned, { question, setting, viewContext: parsed.data.viewContext, place, sessionId, continues: setting.chat?.continues });
+      finishAfterReply(work.catch(() => undefined));
+      try {
+        await work;
+      } catch (err) {
+        turnFailed(res, err);
+      }
+      return;
+    }
+  }
+  /*
+   * An answer to "a questionnaire, or a paper to file?" about a file dropped
+   * earlier and not read: the file goes down the upload path from storage, as
+   * what the person said it is.
+   */
+  const told = droppedAnswer(question);
+  const held = told ? droppedUnread(viewFor(req, project).project).find((file) => file.fileName === told.fileName) : undefined;
+  const heldBytes = held ? await storageAdapter.getDocument(project.id, held.storageKey) : null;
+  if (told && held && heldBytes) {
+    await ingestTurn(req, res, project, [{ originalname: held.fileName, mimetype: held.mimeType, size: held.sizeBytes || heldBytes.length, buffer: heldBytes, storageKey: held.storageKey }], {
+      question,
+      dropAs: new Map([[held.storageKey, told.as]]),
+      viewContext: parsed.data.viewContext,
+      place,
+      sessionId: parsed.data.sessionId,
+      continues: parsed.data.continues,
+      sessionStartedAt: parsed.data.sessionStartedAt,
+      ddId: sitting?.ddId,
+      scopeId: sitting?.scopeId,
+      checkId: sitting?.checkId,
+    });
+    return;
+  }
+
   /*
    * "Read the filed documents": what is already on file goes back down the
    * upload path from storage, so a document filed before the reader existed
    * is read exactly as a new upload would be. Only what this person can see.
    */
+  // Asked to read what is filed, with nothing left to read: said in one line by the chat, and not answered as talk.
+  let nothingLeftToRead = false;
   if (READ_FILED_REQUEST.test(question)) {
     const again = asksAgain(question);
-    const filed = await filedDocumentsToRead(viewFor(req, project).project, again);
+    // A paper a model was to read and has not is read again, where there is a model to read it.
+    const withModel = agentCapability().available;
+    const filed = await filedDocumentsToRead(viewFor(req, project).project, again, withModel);
+    nothingLeftToRead = filed.length === 0;
     // Past this turn's ten: said at the end, so the next turn is asked for.
-    const beyond = Math.max(0, rowsToRead(viewFor(req, project).project, again).length - filed.length);
+    const beyond = Math.max(0, rowsToRead(viewFor(req, project).project, again, withModel).length - filed.length);
     if (filed.length) {
-      // Documents the reader already had a turn at, and got little from, go
-      // straight to the model; asking "again" reads everything from the start.
-      const readHere = new Set(
-        again
-          ? []
-          : project.evidence
-              .filter((e) => (e.facts ?? []).length < 3 && e.attachments.length > 0)
-              .flatMap((e) => e.attachments.map((a) => a.storageKey)),
-      );
       await ingestTurn(req, res, project, filed, {
         question,
         readBudgetMs: REREAD_BUDGET_MS,
         unreadBeyond: beyond,
-        modelOnly: readHere,
+        // Which of them go to the model with nothing read here first: never one that carries a reading. See `straightToModel`.
+        modelOnly: straightToModel(project, again),
         viewContext: parsed.data.viewContext,
+        place,
         sessionId: parsed.data.sessionId,
+        continues: parsed.data.continues,
+        sessionStartedAt: parsed.data.sessionStartedAt,
         ddId: sitting?.ddId,
         scopeId: sitting?.scopeId,
         checkId: sitting?.checkId,
@@ -1163,9 +1631,81 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const turnsBefore = project.conversation.length;
   const unseen = withheldBriefing(seen);
   const capability = agentCapability();
-  const deterministic = wantsDeterministicProjectChat(canvas, question, { sitting });
+  const continues = carriedChat(canvas, parsed.data.continues);
+  // Which chat this is and whose, as the page shows it: an instruction to accept answers the last reply of this one.
+  const chat = { sessionId: ownSitting(project, parsed.data.sessionId, actor), continues, startedAt: parsed.data.sessionStartedAt, actor };
+  /*
+   * Notes of a meeting, for the firm's own people: pasted as the message, an
+   * answer to the chat's own question about some words it holds, or a kept
+   * meeting's notes asked to be read through. Told here from the words
+   * alone; what it takes to read and keep them is done once the reply has
+   * begun, so the person sees that it is under way.
+   */
+  const notes = canvas === project && !sitting?.decision ? meetingAsk(project, question) : undefined;
+  // A message is short. Only the notes of a meeting may be longer, and those are kept as a file and not in the thread.
+  if (question.length > CHAT_MESSAGE_AT_MOST && notes?.kind !== 'pasted') {
+    res.status(400).json({ error: `A message can be ${CHAT_MESSAGE_AT_MOST.toLocaleString('en-IN')} characters. Longer text is taken only when it is the notes of a meeting.` });
+    return;
+  }
+  // The held file is a document, a person says: it goes down the path every dropped document takes, read from where it is stored.
+  if (notes?.kind === 'answer' && notes.said === 'paper' && notes.asked.came === 'dropped') {
+    const held = await heldFile(project.id, notes.asked.file);
+    if (held) {
+      notes.asked.standing = 'paper';
+      project.updatedAt = new Date().toISOString();
+      await store.save();
+      await ingestTurn(req, res, project, [held], {
+        question,
+        viewContext: parsed.data.viewContext,
+        place,
+        sessionId: parsed.data.sessionId,
+        continues: parsed.data.continues,
+        sessionStartedAt: parsed.data.sessionStartedAt,
+        ddId: sitting?.ddId,
+        scopeId: sitting?.scopeId,
+        checkId: sitting?.checkId,
+      });
+      return;
+    }
+  }
+  /*
+   * Asked what looks wrong in the project's memory: the chat says it in one
+   * line, from a reading of memory against the record, and no model words
+   * it. For the firm's own people, who are the ones who read memory. The
+   * store is given a few seconds, because the person asked for exactly this.
+   */
+  const memoryLint =
+    !notes && seen.complete && memAsksForLint(question)
+      ? await inTime(readLint(project).then(memLintLine), MEMORY_LINT_WAIT_MS).then((said) => said ?? 'The memory store did not answer in time, so nothing could be checked.')
+      : undefined;
+  /*
+   * A question put to memory itself: what it holds about something, what was
+   * agreed about it, what is still undecided, what changed. Answered by rule
+   * from the facts, and looked for before every other rule, so that one
+   * which reads a single value off the file does not answer in its place.
+   */
+  const askedOfMemory = !notes && memoryLint === undefined && !sitting?.decision ? memAsksMemory(question) : undefined;
+  const memorySaid = askedOfMemory ? await memoryAnswer(seen, askedOfMemory, { question, place, sitting }).catch(() => undefined) : undefined;
+  const deterministic = Boolean(notes) || nothingLeftToRead || memoryLint !== undefined || memorySaid !== undefined || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
+  /*
+   * What the thread keeps of the question, and what the chat's rules are
+   * handed about a meeting's notes. Pasted notes are written to storage and
+   * one line stands in the thread in their place: the paste itself is never
+   * on the project's record.
+   */
+  let asked = question;
+  let meeting: MeetingGiven | undefined;
+  // The record as it stood, so that what this message changes can be listed under its reply and undone on its own.
+  // Taken here for notes of a meeting, which are read and kept before the chat's rules run, and for everything else just before they do.
+  let stood = notes && canvas === project ? recordBefore(project) : null;
+  if (notes) {
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: notes.kind === 'answer' && notes.said !== 'notes' ? 'Letting the held words go' : 'Reading the notes of the meeting' } satisfies AgentStep });
+    const turn = await meetingTurn(project, question, notes);
+    asked = turn.question;
+    meeting = turn.given;
+  }
 
   /*
    * Why the question below went unanswered, when it did.
@@ -1207,17 +1747,36 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       } catch {
         memoryText = '';
       }
+      /*
+       * What the project's memory holds near the question: the page, the
+       * record the sitting is on, what the question names. Read from the
+       * memory store with a short limit, and told from the record where the
+       * store is silent or behind, so the reply never waits on it. Each line
+       * is tagged by code, and the answer cites lines by their marks.
+       */
+      const remembered = await memoryContext(seen, { question, place, sitting }).catch(() => undefined);
       const agent = await runProjectChat({
         project: canvas,
         question,
         actor,
         viewContext: parsed.data.viewContext,
+        place,
         history: canvas.conversation,
-        memory: [unseen, memoryText].filter(Boolean).join('\n\n') || undefined,
+        memory: [unseen, memoryText, remembered ? memContextText(remembered) : ''].filter(Boolean).join('\n\n') || undefined,
         sitting,
         graphRag: {
           kind: graphAdapter.kind,
-          neighbourhood: (projectId, seedIds, hops) => graphAdapter.neighbourhood(projectId, seedIds, hops),
+          /*
+           * The stored graph is written from the whole file. What comes back
+           * is cut to what this caller can reach before a model is handed a
+           * line of it, as `GET /graph/neighbourhood` cuts it: a walk from a
+           * record a collaborator can see is exactly how a model would
+           * otherwise be told of the ones they cannot.
+           */
+          neighbourhood: async (projectId, seedIds, hops) => {
+            const stored = await graphAdapter.neighbourhood(projectId, seedIds, hops);
+            return stored ? withinReach(req, project, stored) : stored;
+          },
         },
         lookupShelf: async (query, extra) => {
           const { lookupShelf } = await import('../reference/shelf-cache');
@@ -1274,9 +1833,38 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         ].filter((t): t is { name: string; summary: string } => Boolean(t));
         const result = applyProjectAgentTurn(canvas, question, agent);
         sayWhatIsMissing(seen, question, result);
-        stampSession(result, parsed.data.sessionId);
+        /*
+         * Tags last, on the words as they are kept. Each mark the answer
+         * cited becomes the tag of the fact it names, printed here from that
+         * fact, and everything the model wrote that reads as a tag is taken
+         * out. The turn keeps the facts and the place of each tag, and a page
+         * draws a tag only at those places, so nothing a model writes can
+         * come out as one. Nothing changes the words after this.
+         */
+        const printed = memTagsPrinted(result.assistantTurn.text, remembered);
+        result.assistantTurn.text = printed.text;
+        if (printed.rests.length) result.assistantTurn.restsOn = printed.rests;
+        // A question the turn held back is kept as words: no mark and no tag is left in it.
+        if (result.assistantTurn.heldQuestions) result.assistantTurn.heldQuestions = result.assistantTurn.heldQuestions.map((held) => memTagsPrinted(held, undefined).text);
+        stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
         mergeConversation(project, canvas, actor, turnsBefore);
+        // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
+        project.updatedAt = new Date().toISOString();
         await store.save();
+        /*
+         * What the assistant concluded, kept as a thought. The answer carried
+         * the note as its own last line, so no model is asked again for it,
+         * and it is kept once the reply is out, with nothing waiting on it.
+         * Not for somebody working from a grant: what is concluded from a
+         * part of the project is not written into the memory of the whole.
+         */
+        if (agent.note && seen.complete) {
+          const tenantId = project.tenantId ?? store.data.tenants?.[0]?.id ?? '';
+          // What the answer had to do with: the records it cited by id, and those its memory lines are about. A note is filed under one of these, the sitting's check, or the project.
+          const aboutOf = new Map((remembered?.lines ?? []).map((held) => [held.id, held.aboutId]));
+          const cited = [...agent.citedEvidenceIds, ...agent.citedNodeIds, ...printed.rests.flatMap((rest) => aboutOf.get(rest.id) ?? [])];
+          finishAfterReply(keepThought(project, tenantId, { ...agent.note, turnId: result.assistantTurn.id, at: result.assistantTurn.at, place, sitting, cited }));
+        }
         journalTail = journalTail.then(() =>
           journal.finish(
             result.assistantTurn.unsupportedClaims?.length
@@ -1310,20 +1898,109 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
 
   let sides: Awaited<ReturnType<typeof gatherChatSides>>;
   try {
-    sides = await gatherChatSides(canvas, question);
+    // Notes of a meeting are not a question about a place or a portal: nothing is looked up for them.
+    sides = notes ? undefined : await gatherChatSides(canvas, question);
   } catch {
     sides = undefined;
   }
-  // The file as it stood, so an instruction that changes it can be undone.
-  const undoBefore = canvas === project ? fileState(project) : null;
-  const result = applyProjectChat(canvas, question, {
-    actor,
-    viewContext: parsed.data.viewContext,
-    sides,
-    sitting,
-  });
+  /*
+   * The papers' own words. A question that asks outright what a paper says
+   * about something no value on the file answers is put to the pages kept
+   * beside each file. Any other question is the rules' first: they may ask
+   * back which record was meant, or open one, and that is their answer.
+   * Where no rule and no model answered, and the rules would say where the
+   * file stands instead, the record is asked before any page: a kind of
+   * value the question names in full ("what is the project type?") is said
+   * from memory, with its tag. Only when memory holds none are the
+   * question's own words looked for on the pages, and there they count
+   * where one passage holds them all. What the rules would say is found out
+   * by running the turn on a copy, which is thrown away. Where a page holds
+   * what is asked for, the reply is the passage, said to be the paper's own
+   * words, with a citation that opens the paper at the page. Where none
+   * does, the chat's rules answer as they did. Only the papers on this
+   * person's copy of the project are searched.
+   */
+  const ownTurn = !notes && !nothingLeftToRead && memoryLint === undefined && memorySaid === undefined && !sitting?.decision;
+  let sought = ownTurn ? paperWordsAsked(question) : undefined;
+  let named: MemSaid | undefined;
+  if (ownTurn && !sought && !deterministic) {
+    const held = memUnderAnswer(canvas, memoryFacts(canvas).held, { question: asked, place, sitting }, { named: true });
+    const byItsWords = held ? undefined : paperWordsAsked(question, { unanswered: true });
+    if (held || byItsWords) {
+      try {
+        const tried = applyProjectChat(structuredClone(canvas), asked, {
+          actor,
+          mayDecide: decidesFor(req, project),
+          viewContext: parsed.data.viewContext,
+          place,
+          outside: canvas !== project,
+          sides,
+          sitting,
+          chat,
+          modelReader: capability.available,
+        });
+        const by = (tried.assistantTurn.toolCalls ?? []).map((call) => call.name);
+        if (by.includes('next_step')) [named, sought] = [held, byItsWords];
+        // What could be added, offered for a word of the question ("assessment", "report"), is no answer of the rules' own either: it carries the wizard's name, or none where every card it would raise is waiting already. The value the question names is said in its place, and no page is asked.
+        else if (by.includes('wizard') || (!by.length && !tried.commands.length)) named = held;
+      } catch {
+        /* the rules answer for themselves below */
+      }
+    }
+  }
+  const found = sought ? await paperPassages(canvas, sought).catch(() => undefined) : undefined;
+  const fromPaper = found ? paperWordsAnswer(found.passages, { notOpened: found.notOpened }) : null;
+  // What memory or the papers answered was answered: it is not said to have gone unanswered.
+  const fromMemory = memorySaid ?? named;
+  if (fromPaper || named) unanswered = undefined;
+  if (canvas === project) stood ??= recordBefore(project);
+  let result: ReturnType<typeof applyProjectChat>;
+  try {
+    result = applyProjectChat(canvas, asked, {
+      actor,
+      mayDecide: decidesFor(req, project),
+      viewContext: parsed.data.viewContext,
+      place,
+      outside: canvas !== project,
+      sides,
+      sitting,
+      chat,
+      nothingLeftToRead,
+      memoryLint,
+      memoryAnswer: fromMemory?.text,
+      modelReader: capability.available,
+      meeting,
+      ...(fromPaper ? { reply: { text: fromPaper.text, tool: PAPER_WORDS, summary: fromPaper.summary } } : {}),
+    });
+  } catch (err) {
+    // A rule that throws is one message failing. Left uncaught in this handler it took the whole server down with it.
+    console.error('[chat] the rules threw on a message', err);
+    line({ type: 'error', error: TURN_FAILED });
+    res.end();
+    return;
+  }
+  // The papers quoted are the ones the reply cites, and are lit where they are listed.
+  if (fromPaper) {
+    result.assistantTurn.citedEvidenceIds = fromPaper.citedEvidenceIds;
+    result.highlightIds.push(...fromPaper.citedEvidenceIds);
+  }
 
-  if (capability.available && !skipLlmForChat(result)) {
+  /*
+   * A status report just written is put in plainer words where a model is
+   * set up. The model is sent the report's lines and nothing else, and its
+   * wording is kept only where it holds to the line it was made for: see
+   * `wordStatusReport`. The reply in the chat is code's own either way.
+   */
+  const wrote = result.commands.includes('Wrote a status report') ? result.navigations.find((go) => go.target === 'reports')?.item : undefined;
+  if (wrote && capability.available && canvas === project) {
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: 'Putting the report in plain words' } satisfies AgentStep });
+    await wordStatusReport(project, wrote);
+  }
+  // A letter, a reply, a request for information or minutes the rules just made: its body is written and the reply says how it stands. See `routes/outgoing.ts`.
+  if (canvas === project) await outgoingAskedWritten(project, result, line);
+
+  // A paper's own words are said as they are: no model puts them in others.
+  if (capability.available && !fromPaper && !skipLlmForChat(result)) {
     try {
       const { provider, route } = resolveRoute('analyst_copilot');
       const guide = renderProjectGuide(canvas);
@@ -1341,13 +2018,14 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
           ...(unseen ? [{ text: unseen }] : []),
         ],
         messages: [
-          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext)}` },
+          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext, place)}` },
           ...(restsOn ? [{ role: 'user' as const, content: `What the material findings rest on:\n${restsOn}` }] : []),
           { role: 'user', content: `Today's next step:\n${guide.text}` },
           { role: 'user', content: question },
         ],
       });
-      const text = linkRecordIds(canvas, textOf(llm).trim());
+      // This answer was given no lines from memory, so it rests on none: anything in it that reads as a tag is a model's word, and is taken out.
+      const text = linkRecordIds(canvas, memTagsPrinted(textOf(llm).trim(), undefined).text);
       if (text) {
         result.assistantTurn.text = text;
         result.assistantTurn.toolCalls = [{ name: 'analyst_copilot', summary: 'Answered from project registers' }];
@@ -1362,12 +2040,22 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     }
   }
 
-  if (clientGone()) {
-    res.end();
-    return;
-  }
+  /*
+   * The page may have gone by now, and the rules above have already changed
+   * the record. So nothing below waits on anybody listening: the turn is
+   * signed, what it changed is kept for undo, and the record is saved, as
+   * for a reply that is heard. A line written to a page that has gone is
+   * dropped where it is written.
+   */
   sayWhatIsMissing(seen, question, result);
-  stampSession(result, parsed.data.sessionId);
+  if (fromMemory) {
+    // The answer came from memory: the turn keeps the facts it lists, each with the place of its tag in the words as they now stand.
+    const at = result.assistantTurn.text.lastIndexOf(fromMemory.text);
+    if (at !== -1 && fromMemory.rests.length) result.assistantTurn.restsOn = fromMemory.rests.map((rest) => ({ ...rest, at: rest.at.map((place) => place + at) }));
+  } else {
+    await sayWhereItStands(seen, { question: asked, place, sitting }, result, unanswered);
+  }
+  stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
   if (unanswered) {
     result.assistantTurn.unanswered = unanswered;
     const last = canvas.conversation[canvas.conversation.length - 1];
@@ -1375,102 +2063,17 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   }
   mergeConversation(project, canvas, actor, turnsBefore);
   if (result.commands.some((c) => /approved|accepted/i.test(c))) await rememberProject(project);
-  const undo = undoBefore ? await keepUndo(project, undoBefore, result.commands[0] ?? 'the last change') : undefined;
+  // What this message changed is kept with its reply: listed under it, and undone on its own, later.
+  await keepTurnChanges(project, stood, result.assistantTurn);
+  // Who asked and where is written after the turn was first saved, and what it changed after memory's own save:
+  // the record has to count as changed for both to reach storage.
+  project.updatedAt = new Date().toISOString();
   await store.save();
-  line({ type: 'result', ...result, project: canvas, ...(undo ? { undo } : {}) });
+  line({ type: 'result', ...result, project: canvas });
   res.end();
 });
 
-/*
- * Undo, for what a person told the chat to do.
- *
- * Their own instruction runs at once — it is their decision — so the canvas
- * offers to take it back instead of asking first. The file as it stood is
- * kept beside the project; undoing puts it back, but only if nothing else
- * has changed the file since, and never the conversation, which records what
- * was said either way. One instruction back, not a history: the snapshot an
- * older instruction kept is dropped when a newer one is kept.
- */
-function fileState(project: DdProject): string {
-  return JSON.stringify(project);
-}
-
-/**
- * The file without what talking about it changes — the conversation, the
- * audit trail, the clock — and, given `known`, only the cards that were
- * already there: a reply that merely proposes something has changed nothing
- * a person would want back.
- */
-function substance(project: DdProject, known?: ReadonlySet<string>): string {
-  const { conversation: _c, updatedAt: _u, audit: _a, lastUndo: _l, chatProposals, ...rest } = project;
-  const cards = (chatProposals ?? []).filter((p) => !known || known.has(p.id)).map((p) => [p.id, p.status, p.payload]);
-  return JSON.stringify({ ...rest, cards });
-}
-
 const fingerprint = (text: string) => createHash('sha256').update(text).digest('hex');
-
-async function keepUndo(project: DdProject, before: string, label: string): Promise<{ token: string; label: string } | undefined> {
-  const was = JSON.parse(before) as DdProject;
-  const known = new Set((was.chatProposals ?? []).map((p) => p.id));
-  if (substance(was, known) === substance(project, known)) return undefined;
-  const token = randomUUID();
-  try {
-    await storageAdapter.putDocument(project.id, `undo-${token}.json`, Buffer.from(before), 'application/json');
-  } catch {
-    return undefined;
-  }
-  const previous = project.lastUndo?.token;
-  project.lastUndo = { token, label, state: fingerprint(substance(project)), at: new Date().toISOString() };
-  if (previous) void storageAdapter.deleteDocument(project.id, `undo-${previous}.json`).catch(() => undefined);
-  return { token, label };
-}
-
-projectsRouter.post('/:projectId/undo/:token', async (req, res) => {
-  const project = findProject(req.params.projectId);
-  if (!project) {
-    res.status(404).json({ error: 'Project not found' });
-    return;
-  }
-  try {
-    assertWorkspaceWork(req, project, 'Undoing an instruction');
-  } catch (err) {
-    fail(res, err);
-    return;
-  }
-  const last = project.lastUndo;
-  if (!last || last.token !== req.params.token) {
-    res.status(404).json({ error: 'There is nothing to undo.' });
-    return;
-  }
-  if (fingerprint(substance(project)) !== last.state) {
-    res.status(409).json({ error: 'The file has changed since, so this can no longer be undone in one step.' });
-    return;
-  }
-  const raw = await storageAdapter.getDocument(project.id, `undo-${last.token}.json`);
-  if (!raw) {
-    res.status(404).json({ error: 'There is nothing to undo.' });
-    return;
-  }
-  const actor = actorOf(req);
-  const before = JSON.parse(raw.toString('utf8')) as DdProject;
-  const conversation = project.conversation;
-  const audit = project.audit;
-  for (const key of Object.keys(project)) delete (project as unknown as Record<string, unknown>)[key];
-  Object.assign(project, before, { conversation, audit, lastUndo: undefined });
-  recordAuditEvent(project, { actor, action: 'undo', entityType: 'project', entityId: project.id, oldValue: last.label });
-  project.conversation.push({
-    id: `cht_${randomUUID()}`,
-    role: 'assistant',
-    text: `Undone: ${last.label.charAt(0).toLowerCase()}${last.label.slice(1)}.`,
-    at: new Date().toISOString(),
-    actor,
-    citedEvidenceIds: [],
-  } as ProjectChatTurn);
-  refreshProjectDerived(project);
-  await store.save();
-  await storageAdapter.deleteDocument(project.id, `undo-${last.token}.json`).catch(() => undefined);
-  res.json({ project });
-});
 
 /* ---------------------------------------------------------------------- */
 /* Deciding on the canvas                                                  */
@@ -1492,10 +2095,77 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/facts/review', async (req,
     const view = viewFor(req, project);
     const { changed } = reviewFacts(project, req.params.evidenceId, parsed.data.keys, parsed.data.decision, actorOf(req), parsed.data.edit, {
       checkWritable: view.complete ? undefined : (checkId) => view.writableCheckIds.has(checkId),
+      mayDecide: decidesFor(req, project),
+      ...(parsed.data.take ? { take: parsed.data.take } : {}),
     });
     refreshProjectDerived(project);
     await store.save();
     res.json({ project, changed: changed.length });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** A person confirms what a model took a paper for: it becomes the row's type, and the row answers what was waiting for that paper. */
+projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/confirm', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    assertMayWrite(req, project, [req.params.evidenceId]);
+    if (!confirmProposedType(project, req.params.evidenceId, actorOf(req), { mayDecide: decidesFor(req, project) })) {
+      res.status(409).json({ error: 'This document has no proposed type to confirm.' });
+      return;
+    }
+    await persistPaneWrite(req, project, 'Confirmed what a document is.', { citedEvidenceIds: [req.params.evidenceId] });
+    res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** A person refuses what a model took a paper for: the offer goes, and is not made again for this paper. */
+projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/set-aside', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    assertMayWrite(req, project, [req.params.evidenceId]);
+    if (!setAsideProposedType(project, req.params.evidenceId, actorOf(req), { mayDecide: decidesFor(req, project) })) {
+      res.status(409).json({ error: 'This document has no proposed type to set aside.' });
+      return;
+    }
+    await persistPaneWrite(req, project, 'Set aside what a model took a document for.', { citedEvidenceIds: [req.params.evidenceId] });
+    res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** A person says what a paper is, in place of what a model took it for. */
+projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/correct', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = correctDocumentTypeBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    assertMayWrite(req, project, [req.params.evidenceId]);
+    if (!correctProposedType(project, req.params.evidenceId, parsed.data.documentType, actorOf(req), { mayDecide: decidesFor(req, project) })) {
+      res.status(409).json({ error: 'This document has no proposed type to correct, or that is not a kind of document the register knows.' });
+      return;
+    }
+    await persistPaneWrite(req, project, 'Said what a document is.', { citedEvidenceIds: [req.params.evidenceId] });
+    res.json({ project });
   } catch (err) {
     fail(res, err);
   }
@@ -1514,7 +2184,7 @@ projectsRouter.post('/:projectId/proposals/:proposalId/fields', async (req, res)
     return;
   }
   try {
-    decideCheckFields(project, req.params.proposalId, parsed.data.keys, parsed.data.decision, actorOf(req), parsed.data.values);
+    decideCheckFields(project, req.params.proposalId, parsed.data.keys, parsed.data.decision, actorOf(req), parsed.data.values, { mayDecide: decidesFor(req, project) });
     refreshProjectDerived(project);
     await store.save();
     res.json({ project });
@@ -1536,7 +2206,7 @@ projectsRouter.post('/:projectId/checks/:checkId/fields/:key/pick', async (req, 
     return;
   }
   try {
-    pickCheckValue(project, req.params.checkId, req.params.key, parsed.data.proposalId, actorOf(req));
+    pickCheckValue(project, req.params.checkId, req.params.key, parsed.data.proposalId, actorOf(req), { mayDecide: decidesFor(req, project) });
     refreshProjectDerived(project);
     await store.save();
     res.json({ project });
@@ -1569,19 +2239,26 @@ projectsRouter.post('/:projectId/proposals/:proposalId/accept', async (req, res)
     res.status(404).json({ error: 'Nothing waiting by that id' });
     return;
   }
+  // The card with the person's corrections on it, for this commit alone: a commit that does not happen leaves the card as it was raised.
+  let reviewed: ReturnType<typeof reviewCard> | undefined;
   try {
-    applyReviewedPayload(item.payload, parsed.data.payload);
+    const mayDecide = decidesFor(req, project);
+    // Refused before the card takes a correction: a value somebody may not decide is not theirs to rewrite either.
+    if (item.kind === 'record_check_fields') assertMayDecideCheck(project, String(item.payload.checkId), mayDecide);
+    reviewed = reviewCard(item, parsed.data.payload);
     refreshProjectDerived(project);
     const now = new Date().toISOString();
     if (item.kind === 'run_screen') await ensureIdentitySiteContext(project, projectToIdentity(project), now);
     const placeBefore = projectSiteQuery(project);
-    const accepted = acceptWaiting(project, item.id, actorOf(req));
+    const accepted = acceptWaiting(project, item.id, actorOf(req), { mayDecide });
+    reviewed.settle();
     await refreshSiteContextIfMoved(project, placeBefore, now);
     refreshProjectDerived(project);
     await rememberProject(project);
     await store.save();
     res.json({ project, recordId: accepted.recordId, offered: accepted.offered.length });
   } catch (err) {
+    reviewed?.settle();
     fail(res, err);
   }
 });
@@ -1594,7 +2271,7 @@ projectsRouter.post('/:projectId/proposals/:proposalId/set-aside', async (req, r
     return;
   }
   try {
-    setAsideWaiting(project, req.params.proposalId, actorOf(req));
+    setAsideWaiting(project, req.params.proposalId, actorOf(req), { mayDecide: decidesFor(req, project) });
     refreshProjectDerived(project);
     await store.save();
     res.json({ project });
@@ -1616,6 +2293,8 @@ interface IngestUpload {
   buffer: Buffer;
   /** Set for a file already in storage: it is read from there, not stored again. */
   storageKey?: string;
+  /** What the page that sent the file knew of it: the day on it, a camera's date, how long a recording runs. */
+  captured?: DropCaptured;
 }
 
 /**
@@ -1623,6 +2302,12 @@ interface IngestUpload {
  * read of a long scan takes one to two minutes, and the turn still has to save.
  */
 const MODEL_READ_BUDGET_MS = 480_000;
+/**
+ * When every model call of a turn has ended, whatever it was doing: a read
+ * started at the last moment is cut here, and its paper is said to be unread
+ * by a model, so the turn still saves inside the function's limit.
+ */
+const MODEL_READ_STOP_MS = MODEL_READ_BUDGET_MS + 150_000;
 
 interface IngestFields {
   question?: string;
@@ -1641,11 +2326,50 @@ interface IngestFields {
   modelOnly?: ReadonlySet<string>;
   /** Filed documents past this turn's share, still to be read after it. */
   unreadBeyond?: number;
+  /**
+   * What a person said a stored file is, by its storage key, where the chat
+   * could not tell a questionnaire from a paper and asked.
+   */
+  dropAs?: ReadonlyMap<string, 'questionnaire' | 'paper' | 'photo'>;
+  /** The same, said in words with the file as it is dropped: "File “x.pdf” as a paper" typed beside the file. */
+  saidOf?: { fileName: string; as: 'questionnaire' | 'paper' | 'photo' };
   viewContext?: string;
+  /** The page the documents were dropped on. */
+  place?: ChatPlace;
   sessionId?: string;
+  /** The earlier chat this sitting carries on. */
+  continues?: string;
+  /** When this sitting began, as the page sent it. */
+  sessionStartedAt?: string;
   ddId?: unknown;
   scopeId?: unknown;
   checkId?: unknown;
+}
+
+/**
+ * The chat's turn for a drop that held no paper: what was said, and a reply
+ * to be written by what became of the files. Nothing else is asked of the
+ * chat, so nothing else answers.
+ */
+function saidOfDrop(canvas: DdProject, actor: string, question: string): ProjectChatResult {
+  const at = new Date().toISOString();
+  const asked = droppedAnswer(question) ? question.trim() : question.trim() || DROPPED_WITHOUT_WORDS;
+  const userTurn: ProjectChatTurn = { id: `cht_${randomUUID()}`, role: 'user', text: asked, at, actor, citedEvidenceIds: [] };
+  const assistantTurn: ProjectChatTurn = { id: `cht_${randomUUID()}`, role: 'assistant', text: '', at, actor, citedEvidenceIds: [], toolCalls: [{ name: 'ingest', summary: 'Sorted what was dropped' }] };
+  canvas.conversation.push(userTurn, assistantTurn);
+  return { userTurn, assistantTurn, commands: [], navigations: [], proposals: [], highlightIds: [] };
+}
+
+/**
+ * A paper saved the moment it is read where it was filed on the register: its
+ * pages beside its file, and its row on the record. Papers filed together are
+ * read a few at a time, and one that is read is on the file whatever becomes
+ * of the rest and of the request.
+ */
+async function savedAsRead(project: DdProject, file: ChatIngestFile): Promise<void> {
+  await keepPageTexts(project.id, [file]);
+  project.updatedAt = new Date().toISOString();
+  await store.save();
 }
 
 /**
@@ -1653,81 +2377,49 @@ interface IngestFields {
  *
  * Shared by the chat's file upload and by re-reading filed documents, so a
  * document goes down one path however it arrived.
+ *
+ * The papers are read a few at a time (`PAPERS_AT_ONCE`), each down its own
+ * lane: stored, read here, read by a model where the router sends it, and put
+ * on the project's file the moment it is read. The turn that reports the
+ * whole drop comes last.
+ *
+ * Whoever dropped them need not stay. The work is this request's to finish
+ * with nobody listening: a closed page stops the lines being sent and nothing
+ * else, and where the platform would freeze a request whose reply has gone it
+ * is told the work is still under way. What the platform does cut is what was
+ * not yet read; each paper already read is on the file, saved.
  */
 async function ingestTurn(req: Request, res: Response, project: DdProject, files: IngestUpload[], fields: IngestFields): Promise<void> {
+  const work = readAndFile(req, res, project, files, fields);
+  finishAfterReply(work.catch(() => undefined));
+  try {
+    await work;
+  } catch (err) {
+    // Whatever a drop meets before a file of it is read, its reply ends: one left open is a page that waits for ever.
+    console.warn(`[reading] a drop could not be taken in: ${(err as Error).message}`);
+    if (!res.writableEnded) {
+      res.write(`${JSON.stringify({ type: 'error', error: 'These files could not be taken in just now. Drop them again.' })}\n`);
+      res.end();
+    }
+  }
+}
+
+async function readAndFile(req: Request, res: Response, project: DdProject, files: IngestUpload[], fields: IngestFields): Promise<void> {
   refreshProjectDerived(project);
   const seen = viewFor(req, project);
   const canvas = seen.project;
   let turnsBefore = project.conversation.length;
   const stream = beginNdjson(res);
-  const { line, clientGone } = stream;
+  const { line } = stream;
   const reading = (event: ReadingStreamEvent) => line(event);
-  const ingest: ChatIngestFile[] = [];
-  /** Each file's text page by page, where this server read it, by its index in `files`. */
-  const pageTexts = new Map<number, string[]>();
+  const actor = actorOf(req);
+  const modelReader = agentCapability().available;
   const started = Date.now();
-  let unread = 0;
-  for (const [index, file] of files.entries()) {
-    if (fields.readBudgetMs && index > 0 && Date.now() - started > fields.readBudgetMs) {
-      unread = files.length - index;
-      break;
-    }
-    const storageKey = file.storageKey ?? documentKey({ id: randomUUID(), fileName: file.originalname });
-    if (!file.storageKey) await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
-    const row: ChatIngestFile = {
-      fileName: file.originalname,
-      mimeType: file.mimetype || 'application/octet-stream',
-      sizeBytes: file.size,
-      storageKey,
-      excerpt: extractReadableExcerpt(file.buffer, file.mimetype || '', file.originalname) || undefined,
-    };
-    // A filed document read again is on a row already; saying which lets the
-    // reading be drawn over the file's own pages.
-    const holder = canvas.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey));
-    reading({
-      type: 'reading',
-      event: 'start',
-      key: storageKey,
-      fileName: row.fileName,
-      mimeType: row.mimeType,
-      sizeBytes: row.sizeBytes,
-      index,
-      total: files.length,
-      ...(holder
-        ? { evidenceId: holder.id, fileId: holder.attachments.find((a) => a.storageKey === storageKey)!.id }
-        : {}),
-    });
-    // Read here first, with no model: text layer or OCR, then what the
-    // document is and states. See `documents/intake`.
-    // The file under way stops sending pages to OCR a minute past the budget,
-    // so the turn ends inside the function's limit with what it has read.
-    const deadline = fields.readBudgetMs ? started + fields.readBudgetMs + 60_000 : undefined;
-    const read = fields.modelOnly?.has(storageKey) && agentCapability().available
-      ? { ...row }
-      : await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), {
-          deadline,
-          onPage: (page, of) => reading({ type: 'reading', event: 'page', key: storageKey, page, of }),
-          onPages: (pages) => pageTexts.set(index, pages),
-        });
-    ingest.push(read);
-    reading({
-      type: 'reading',
-      event: 'read',
-      key: storageKey,
-      label: read.read?.label,
-      method: read.read?.method,
-      pages: read.pages,
-      facts: read.read?.facts ?? [],
-      summary: read.read?.summary,
-      failure: read.readFailure,
-    });
-  }
   const sitting = sittingFromBody({
     ddId: fields.ddId,
     scopeId: fields.scopeId,
     checkId: fields.checkId,
   });
-  let enriched = ingest;
   /*
    * What reading these documents cost, totalled across them.
    *
@@ -1740,66 +2432,381 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   let readCostUsd = 0;
   let readCostExact = true;
   let readAnything = false;
+
+  // Every paper is named at once, in the order dropped: the desk lists them that way however they finish.
+  const dropped = files.map((file, index) => {
+    const storageKey = file.storageKey ?? documentKey({ id: randomUUID(), fileName: file.originalname });
+    const row: ChatIngestFile = {
+      fileName: file.originalname,
+      mimeType: file.mimetype || 'application/octet-stream',
+      sizeBytes: file.size,
+      storageKey,
+      excerpt: extractReadableExcerpt(file.buffer, file.mimetype || '', file.originalname) || undefined,
+    };
+    // A filed document read again is on a row already; saying which lets the
+    // reading be drawn over the file's own pages.
+    const holder = canvas.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey));
+    const named = {
+      key: storageKey,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      index,
+      total: files.length,
+      ...(holder ? { evidenceId: holder.id, fileId: holder.attachments.find((a) => a.storageKey === storageKey)!.id } : {}),
+    };
+    return { file, index, storageKey, row, named };
+  });
+  if (dropped.length > 1) for (const { named } of dropped) reading({ type: 'reading', event: 'queued', ...named });
+
   /*
-   * The model reads afterwards, and only where one is configured — asking an
-   * unconfigured one just streams "Model request failed" under a document
-   * that was already read. Its reading is laid over the local one; its
-   * failure never replaces it.
+   * Stored, and noted on the record, before any is read.
+   *
+   * A paper being read is nowhere a person can see until it is read. Should
+   * the request end first (the platform's limit, a restart), a paper that was
+   * dropped and never read would be in storage and on no record. So each
+   * waits on the record as a file to be filed, unread, from the start: it can
+   * be filed as it is, and "Read the filed documents" reads it
+   * (`filedDocumentsToRead`). The note goes as the paper lands.
    */
-  // Only the documents this server's reader did not understand: see `needsModelReading`.
-  const forModel = ingest.map((f, i) => ({ f, i })).filter(({ f }) => needsModelReading(f));
-  if (agentCapability().available && forModel.length) {
+  const lost = new Set<string>();
+  const fresh = dropped.filter(({ file }) => !file.storageKey);
+  const kept = await together(fresh, PAPERS_AT_ONCE, ({ file, storageKey }) => storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype));
+  fresh.forEach(({ storageKey }, n) => kept[n]!.status === 'rejected' && lost.add(storageKey));
+  /** The baseline for the reply's receipt: the file as it stood before this drop put anything on it. */
+  const asItStood = structuredClone(canvas);
+  const notes = fresh.filter(({ storageKey }) => !lost.has(storageKey)).map(({ row }) => notReadYetCard(row, actor));
+  /** Whether a file is on a row of the project itself. A row an outside collaborator's paper made is on their copy alone, and goes with the request. */
+  const onTheRecord = (storageKey: string): boolean => project.evidence.some((e) => e.attachments.some((a) => a.storageKey === storageKey));
+  /**
+   * A file that has landed is no longer waiting to be filed, unread: its note
+   * goes. Not from the project itself where an outside collaborator's paper
+   * landed on a row of their copy alone. That paper would be on no row and
+   * no card once the request ended, so its note stays where the firm sees it
+   * and can file or read the paper.
+   */
+  const dropNotes = (storageKeys: readonly string[]): void => {
+    for (const held of new Set([project, canvas])) {
+      const gone = held === canvas ? storageKeys : storageKeys.filter(onTheRecord);
+      held.chatProposals = (held.chatProposals ?? []).filter((card) => !(isNotReadYetCard(card) && gone.includes(String(card.payload.storageKey))));
+    }
+  };
+  if (notes.length) {
+    for (const held of new Set([project, canvas])) (held.chatProposals ??= []).push(...notes);
+    project.updatedAt = new Date().toISOString();
+    await store.save();
+  }
+
+  /** Each paper as it was read, by its place in the drop. Empty where the turn's time ran out before the paper was started. */
+  const read: Array<ChatIngestFile | undefined> = new Array(files.length);
+  /** The rows on the register before this drop, and the row each paper of it landed on. */
+  const before = new Set(canvas.evidence.map((e) => e.id));
+  const landedOn: Array<string | undefined> = new Array(files.length);
+  /** One paper is put on the file at a time: each lands on the record as the one before it left it. */
+  let landing: Promise<void> = Promise.resolve();
+  /** The questionnaires this drop held, by their place in it; the files it could not tell; and what could not be taken in. */
+  const taken: Array<{ index: number; id: string }> = [];
+  const unsure: Array<{ index: number; fileName: string; between: 'questionnaire' | 'photo' }> = [];
+  const refused: string[] = [];
+  /** What became of each voice note and each photograph of the site, by its place in the drop, and the cards the notes raised. */
+  const fromSite: Array<{ index: number; said: string }> = [];
+  const siteCards: ChatProposal[] = [];
+  let photosFiled = 0;
+
+  /** One line on the stream and one on the desk for a file that is no paper: what became of it. */
+  /**
+   * One thing put on the file after the one before it. A link that fails is
+   * that file's failure and nobody else's: it is said in the reply, and the
+   * papers behind it still land. Before this one failed save left the chain
+   * broken, so nothing after it landed and the reply never ended.
+   */
+  const link = (fileName: string, work: () => Promise<void>): Promise<void> => {
+    const mine = landing.then(work).catch((err: unknown) => {
+      console.warn(`[reading] ${fileName} could not be put on the file: ${(err as Error).message}`);
+      refused.push(`${fileName}: something went wrong as it was put on the file. Check it is in the documents; if it is not, say “Read the filed documents”.`);
+    });
+    landing = mine;
+    return mine;
+  };
+  /** The photographs of the site this drop filed, read once the reply has gone: what each shows arrives when it arrives. */
+  const toRead: Array<{ fileName: string; on: EvidenceRecord; bytes: Buffer }> = [];
+
+  const tookAs = (row: ChatIngestFile, as: 'voice' | 'photo', said: string): void => {
+    reading({ type: 'reading', event: 'taken', key: row.storageKey, as, said: said.replace(/\.$/, '') });
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_result', label: `${row.fileName}: ${said.charAt(0).toLowerCase()}${said.slice(1).replace(/\.$/, '')}` } });
+  };
+
+  /**
+   * A voice note: put into words by the transcriber, its words kept beside
+   * it, and what it says proposed as a site entry on a card. A note that was
+   * not put into words stays noted as a file not read, to be tried again.
+   */
+  const voice = async (index: number, row: ChatIngestFile, file: IngestUpload): Promise<'taken'> => {
+    reading({ type: 'reading', event: 'start', key: row.storageKey, fileName: row.fileName, mimeType: row.mimeType, sizeBytes: row.sizeBytes, index, total: files.length });
+    const heard = await takeVoiceNote({ project, file: row, bytes: file.buffer, actor, captured: file.captured });
+    await link(row.fileName, async () => {
+      await store.syncProject(project.id, { force: true });
+      if (heard.card) {
+        for (const held of new Set([project, canvas])) (held.chatProposals ??= []).push(heard.card);
+        siteCards.push(heard.card);
+      }
+      if (heard.transcribed) {
+        dropNotes([row.storageKey]);
+        // A note that came in as a large file sits on a row: marked as read, so reading the filed documents does not take it again.
+        const holder = canvas.evidence.find((e) => e.attachments.some((a) => a.storageKey === row.storageKey));
+        if (holder) {
+          holder.modelReadAt = new Date().toISOString();
+          holder.modelReadVersion = MODEL_READER_VERSION;
+        }
+      }
+      project.updatedAt = new Date().toISOString();
+      await store.save();
+      fromSite.push({ index, said: heard.said });
+      tookAs(row, 'voice', heard.said);
+    });
+    return 'taken';
+  };
+
+  /**
+   * A photograph of the site: on the register under Progress with its date,
+   * saved, and then read by the photo reader, whose reading is kept as its
+   * suggestion.
+   */
+  const photo = async (index: number, row: ChatIngestFile, file: IngestUpload): Promise<'taken'> => {
+    let filed: EvidenceRecord | undefined;
+    await link(row.fileName, async () => {
+      await store.syncProject(project.id, { force: true });
+      const { row: on, said } = fileSitePhoto({ project: canvas, file: row, bytes: file.buffer, actor, captured: file.captured });
+      filed = on;
+      landedOn[index] = on.id;
+      photosFiled += 1;
+      dropNotes([row.storageKey]);
+      project.updatedAt = new Date().toISOString();
+      await store.save();
+      fromSite.push({ index, said: `${said}.` });
+      reading({ type: 'reading', event: 'filed', key: row.storageKey, row: on });
+      tookAs(row, 'photo', said);
+    });
+    // What it shows is read after the reply, never before it (the end of `readAndFile`).
+    if (filed) toRead.push({ fileName: row.fileName, on: filed, bytes: file.buffer });
+    return 'taken';
+  };
+
+  /**
+   * A questionnaire taken in, saved: on the project as a questionnaire, and
+   * no longer a file waiting to be filed. Its answers are suggested once
+   * every paper of the drop is on the file.
+   */
+  const takeIn = async (index: number, row: ChatIngestFile, from: ReadQuestionnaire): Promise<void> => {
     try {
-      const modelRead = await enrichIngestWithDocumentIntelligence({
-        project: canvas,
-        files: forModel.map(({ f }) => ({ ...f, read: undefined })),
-        buffers: forModel.map(({ i }) => files[i]!.buffer),
-        // What this server already read, so a quote found in its page's own
-        // words is placed there without another model call.
-        pageTexts: forModel.map(({ i }) => pageTexts.get(i)),
-        // Leave room inside the function's ceiling for the last read and the save.
-        deadline: started + MODEL_READ_BUDGET_MS,
-        // The local reading already announced each file. The model's own
-        // "Reading …" would say it twice, and its failure is not news about a
-        // document that was read — so only its progress passes through.
-        onStep: (step) => {
-          if (/^Reading /.test(step.label) || /fail|error|could not|unavailable/i.test(step.label) || step.kind === 'error') return;
-          line({ type: 'step', step });
-        },
-        onSpend: (spend) => {
-          readAnything = true;
-          readCostUsd += spend.usd;
-          readCostExact = readCostExact && spend.exact;
-        },
-        onFile: (i, phase, file) => {
-          const key = forModel[i]?.f.storageKey;
-          if (!key) return;
-          reading(
-            phase === 'start' || !file
-              ? { type: 'reading', event: 'model', key, phase }
-              : {
-                  type: 'reading',
-                  event: 'model',
-                  key,
-                  phase,
-                  facts: file.modelFacts,
-                  notes: file.extractionNotes,
-                  kind: file.kindHint,
-                  failure: file.readFailure,
-                },
-          );
+      await store.syncProject(project.id, { force: true });
+      // Under the department of the page it was dropped on, where that page shows the Questions step. Any other page's is Engineering's, as a drop on Overview is.
+      const on = fields.place?.department;
+      const department = on && departmentDefinition(on)?.status === 'live' ? on : undefined;
+      const record = addQuestionnaire(project, { title: row.fileName.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '), department, fileName: row.fileName, fileKey: row.storageKey, parsed: from.parsed, leftOut: from.leftOut }, actor);
+      dropNotes([row.storageKey]);
+      project.updatedAt = new Date().toISOString();
+      await store.save();
+      taken.push({ index, id: record.id });
+      const said = `A questionnaire: ${plural(record.questions.length, 'question')}`;
+      reading({ type: 'reading', event: 'taken', key: row.storageKey, as: 'questionnaire', said, questionnaireId: record.id, department: questionnaireDepartment(record) });
+      line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_result', label: `${row.fileName}: ${said.charAt(0).toLowerCase()}${said.slice(1)}` } });
+    } catch (err) {
+      refused.push(`${row.fileName} was not taken in as a questionnaire: ${(err as Error).message}`);
+    }
+  };
+  /** A file settled without being read as a paper: taken in as a questionnaire, or left for the person to say what it is. */
+  const settle = async (index: number, row: ChatIngestFile, sorted: Extract<Dropped, { as: 'questionnaire' | 'unsure' }>): Promise<'taken' | 'asked'> => {
+    if (sorted.as === 'unsure' || !sorted.read) {
+      const between = sorted.as === 'unsure' ? sorted.between : 'questionnaire';
+      unsure.push({ index, fileName: row.fileName, between });
+      reading({ type: 'reading', event: 'read', key: row.storageKey, facts: [], failure: `Not read yet: ${between === 'photo' ? 'a photograph of the site' : 'a questionnaire'}, or a paper to file? Say which in the chat.` });
+      return 'asked';
+    }
+    const from = sorted.read;
+    await link(row.fileName, () => takeIn(index, row, from));
+    return 'taken';
+  };
+
+  /**
+   * A paper on the project's file the moment it is read, saved.
+   *
+   * Reading can take minutes, long enough for the file to move on another
+   * instance, so the paper lands on the file as it stands now. A paper that
+   * could not be put there is left for the turn to file with the rest.
+   */
+  const land = async (paper: ChatIngestFile, index: number): Promise<void> => {
+    try {
+      // Each page's text beside its file, so a later question can be answered from the whole paper.
+      await keepPageTexts(project.id, [paper]);
+      await store.syncProject(project.id, { force: true });
+      const evidenceId = landIngestFile(canvas, paper, actor, sitting);
+      // On its row now: no longer a file waiting to be filed, unread (`dropNotes` says where the note stays).
+      dropNotes([paper.storageKey]);
+      // How much of the file was read goes with the file, onto its row.
+      keepReadings(canvas, [paper]);
+      if (canvas !== project) keepReadings(project, [paper]);
+      project.updatedAt = new Date().toISOString();
+      await store.save();
+      read[index] = { ...paper, landed: true };
+      landedOn[index] = evidenceId;
+      const row = evidenceId ? canvas.evidence.find((e) => e.id === evidenceId) : undefined;
+      reading({ type: 'reading', event: 'filed', key: paper.storageKey, ...(row ? { row } : {}) });
+      const waiting = row ? proposedFacts(row).length : 0;
+      line({
+        type: 'step',
+        step: {
+          id: randomUUID(),
+          at: new Date().toISOString(),
+          kind: 'tool_result',
+          label: `${paper.fileName} is on the file${waiting ? `, ${plural(waiting, 'value')} waiting` : paper.readFailure ? ', unread' : ''}`,
         },
       });
-      const byIndex = new Map(forModel.map(({ i }, n) => [i, modelRead[n]]));
-      enriched = ingest.map((local, i) => mergeModelReading(local, byIndex.get(i)));
-    } catch {
-      enriched = ingest;
+    } catch (err) {
+      console.warn(`[reading] could not file ${paper.fileName} as it was read: ${(err as Error).message}`);
     }
-  }
-  if (clientGone()) {
-    res.end();
-    return;
-  }
+  };
+
+  const lanes = await together(dropped, PAPERS_AT_ONCE, async ({ file, index, storageKey, row, named }): Promise<'read' | 'left' | 'taken' | 'asked'> => {
+    // A turn with a budget stops starting papers when it is spent, and says how many are left.
+    if (fields.readBudgetMs && index > 0 && Date.now() - started > fields.readBudgetMs) return 'left';
+    let paper: ChatIngestFile = { ...row };
+    /** Whether the file is the notes of a meeting, or may be: such a file is the meeting rules' to keep, and is put on no row. */
+    let notes: 'yes' | 'maybe' | 'no' = 'no';
+    try {
+      if (lost.has(storageKey)) throw new Error('it could not be stored');
+      // Sound is not read as a page is. What it is, is still decided in the one place.
+      if (isVoiceNote(row) && (await whatWasDropped({ project, paper: row, file, fresh: true, whole: canvas === project })).as === 'voice') return await voice(index, row, file);
+      reading({ type: 'reading', event: 'start', ...named });
+      // Read here first, with no model: text layer or OCR, then what the
+      // document is and states. See `documents/intake`.
+      // The file under way stops sending pages to OCR a minute past the budget,
+      // so the turn ends inside the function's limit with what it has read.
+      const deadline = fields.readBudgetMs ? started + fields.readBudgetMs + 60_000 : undefined;
+      /** The file's text page by page, where this server read it. */
+      let pageTexts: string[] | undefined;
+      if (!(fields.modelOnly?.has(storageKey) && modelReader)) {
+        paper = await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), {
+          deadline,
+          onPage: (page, of) => reading({ type: 'reading', event: 'page', key: storageKey, page, of }),
+          onPages: (pages) => (pageTexts = pages),
+        });
+      }
+      // The local reader takes no words from a Word file. Its own are enough to tell what it is, and for the meeting rules to read.
+      if (!paper.excerpt && /\.docx$/i.test(row.fileName)) paper = { ...paper, excerpt: wordsOfDocx(file.buffer) };
+      /*
+       * What the file is: a paper, the notes of a meeting, or a questionnaire.
+       * Decided once, in one place (`whatWasDropped`), from the file as it was
+       * just read, and before a model is asked or anything is put on a row.
+       */
+      // What a person said the file is: pressed for a file held earlier, or typed with the file as it is dropped again.
+      const said = fields.dropAs?.get(storageKey) ?? (fields.saidOf?.fileName === row.fileName ? fields.saidOf.as : undefined);
+      const what = await whatWasDropped({
+        project,
+        paper,
+        file,
+        said,
+        fresh: !file.storageKey || said === 'questionnaire',
+        whole: canvas === project,
+        pages: pageTexts,
+        view: file.captured?.view,
+      });
+      if (what.as === 'questionnaire' || what.as === 'unsure') return await settle(index, row, what);
+      if (what.as === 'photo') return await photo(index, row, file);
+      if (what.as === 'notes') notes = what.sure ? 'yes' : 'maybe';
+      // It might have been a questionnaire and could not be opened as one: said, since it is filed as a paper.
+      if (what.as === 'paper' && what.why) refused.push(`${row.fileName}: ${what.why}`);
+      reading({
+        type: 'reading',
+        event: 'read',
+        key: storageKey,
+        label: paper.read?.label,
+        method: paper.read?.method,
+        pages: paper.pages,
+        facts: paper.read?.facts ?? [],
+        summary: paper.read?.summary,
+        failure: paper.readFailure,
+      });
+      /*
+       * The model reads afterwards, and only where one is configured — asking
+       * an unconfigured one just streams "Model request failed" under a
+       * document that was already read. Its reading is laid over the local
+       * one; its failure never replaces it. Only the documents this server's
+       * reader did not understand: see `needsModelReading`.
+       */
+      if (modelReader && notes === 'no' && needsModelReading(paper)) {
+        try {
+          const [answer] = await enrichIngestWithDocumentIntelligence({
+            project: canvas,
+            files: [{ ...paper, read: undefined }],
+            buffers: [file.buffer],
+            // What this server already read, so a quote found in its page's own
+            // words is placed there without another model call.
+            pageTexts: [pageTexts],
+            // Leave room inside the function's ceiling for the last read and the save.
+            deadline: started + MODEL_READ_BUDGET_MS,
+            stopAt: started + MODEL_READ_STOP_MS,
+            // The local reading already announced each file. The model's own
+            // "Reading …" would say it twice, and its failure is not news about a
+            // document that was read — so only its progress passes through.
+            onStep: (step) => {
+              if (/^Reading /.test(step.label) || /fail|error|could not|unavailable/i.test(step.label) || step.kind === 'error') return;
+              line({ type: 'step', step });
+            },
+            onSpend: (spend) => {
+              readAnything = true;
+              readCostUsd += spend.usd;
+              readCostExact = readCostExact && spend.exact;
+            },
+            onFile: (_n, phase, answered) => {
+              reading(
+                phase === 'start' || !answered
+                  ? { type: 'reading', event: 'model', key: storageKey, phase }
+                  : {
+                      type: 'reading',
+                      event: 'model',
+                      key: storageKey,
+                      phase,
+                      facts: answered.modelFacts,
+                      notes: answered.extractionNotes,
+                      kind: answered.kindHint,
+                      failure: answered.readFailure,
+                    },
+              );
+            },
+          });
+          paper = mergeModelReading(paper, answer);
+          // What the two readings come to once laid together, so the desk shows what the cards will carry and not what stood before.
+          if (paper.read) reading({ type: 'reading', event: 'merged', key: storageKey, facts: paper.read.facts });
+        } catch {
+          /* this server's reading stands */
+        }
+      }
+    } catch (err) {
+      // One paper failing is that paper's: it is filed unread, and the rest go on.
+      console.warn(`[reading] ${row.fileName} could not be read: ${(err as Error).message}`);
+      paper = { ...row, readFailure: 'The file could not be read.' };
+      reading({ type: 'reading', event: 'read', key: storageKey, facts: [], failure: paper.readFailure });
+    }
+    read[index] = paper;
+    // Notes of a meeting are no paper: the turn keeps them as a meeting, or asks. Their pages are still kept, with the turn.
+    if (notes !== 'no') return 'read';
+    await link(row.fileName, () => land(paper, index));
+    return 'read';
+  });
+  await landing;
+
+  /*
+   * The reply. Whatever goes wrong in writing it, the stream ends and says
+   * what became of each file: a reply left open is a page that waits for
+   * ever, with papers on the file it never hears of.
+   */
+  try {
+
+  const enriched = read.filter((paper): paper is ChatIngestFile => paper !== undefined);
+  let unread = lanes.filter((lane) => lane.status === 'fulfilled' && lane.value === 'left').length;
+  // A paper that could not be put on the file as it was read still has its pages kept, with the turn.
+  await keepPageTexts(project.id, enriched.filter((paper) => !paper.landed));
   /*
    * Reading can take minutes, long enough for the file to move on another
    * instance: a card approved, a row filed. The result lands on the file as
@@ -1807,15 +2814,126 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
    */
   await store.syncProject(project.id, { force: true });
   turnsBefore = project.conversation.length;
+  // Every paper read is filed by this turn or was filed as it landed: none is left waiting as a file unread. On the project
+  // itself an outside collaborator's paper that made a row of its own is on none, and its note stays (`dropNotes`).
+  dropNotes(enriched.map((paper) => paper.storageKey));
+  const waitsForTheFirm = canvas === project ? [] : enriched.filter((paper) => !onTheRecord(paper.storageKey)).map((paper) => paper.fileName);
+  // The rows this drop added sit on the register in the order dropped, whichever paper was read first.
+  const added = [...new Set(landedOn.filter((id): id is string => id !== undefined && !before.has(id)))];
+  const slots = canvas.evidence.flatMap((e, at) => (added.includes(e.id) ? [at] : []));
+  const rowOf = new Map(canvas.evidence.map((e) => [e.id, e] as const));
+  if (slots.length === added.length) added.forEach((id, n) => (canvas.evidence[slots[n]!] = rowOf.get(id)!));
   const question = fields.question ?? '';
   const viewContext = fields.viewContext;
-  const result = applyProjectChat(canvas, question, {
-    actor: actorOf(req),
-    viewContext,
-    ingest: enriched,
-    sitting,
-    spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
-  });
+  const continues = carriedChat(canvas, fields.continues);
+  // Answers are suggested once every paper of the drop is on the file: what one of them states may answer a question.
+  const questionnaires = taken
+    .sort((a, b) => a.index - b.index)
+    .map(({ id }) => {
+      suggestFromFile(project, id, actor);
+      return findQuestionnaire(project, id);
+    });
+  // Pictures made smaller before they were sent: said, since the smaller copy is the one that is kept.
+  const smaller = dropped.flatMap(({ file }) => (file.captured?.shrunkTo ? [file.captured.shrunkTo] : []));
+  const sorted = [
+    ...questionnaires.map(takenInSaid),
+    ...fromSite.sort((a, b) => a.index - b.index).map(({ said }) => said),
+    ...(smaller.length
+      ? [`${smaller.length === 1 ? 'One picture was' : `${smaller.length} pictures were`} made smaller before ${smaller.length === 1 ? 'it was' : 'they were'} sent, to ${Math.min(...smaller).toLocaleString('en-IN')} pixels on the long side. The smaller ${smaller.length === 1 ? 'copy is' : 'copies are'} what is kept here.`]
+      : []),
+    ...(waitsForTheFirm.length ? [`Kept for the firm to put on the register: ${waitsForTheFirm.join(', ')}.`] : []),
+    ...refused,
+    ...unsure.sort((a, b) => a.index - b.index).map(({ fileName, between }) => unsureSaid(fileName, between)),
+  ];
+  // The notes of a meeting among them are read by the meeting reader, for the turn that keeps them.
+  const meetingReadings = canvas === project ? await readDroppedNotes(project, enriched) : undefined;
+  for (const paper of enriched) {
+    const notes = meetingReadings?.[paper.storageKey];
+    if (paper.landed || (!notes && meetingNotesOf(project, paper) === 'no')) continue;
+    // Not a paper, so it lands on no row: said in a line of its own, so nobody waits for it to.
+    const said = notes ? `Notes of a meeting: ${plural(notes.items.length, 'item')} proposed` : 'These may be the notes of a meeting: the chat asks';
+    reading({ type: 'reading', event: 'taken', key: paper.storageKey, as: 'notes', said });
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_result', label: `${paper.fileName}: ${said.charAt(0).toLowerCase()}${said.slice(1)}` } });
+  }
+  // A drop that held no paper, and no words, is answered by what became of it and nothing else.
+  const result = enriched.length || !sorted.length || droppedAnswer(question) === null && question.trim()
+    ? applyProjectChat(canvas, droppedAnswer(question) ? '' : question, {
+        actor,
+        mayDecide: decidesFor(req, project),
+        viewContext,
+        place: fields.place,
+        outside: canvas !== project,
+        ingest: enriched,
+        meetingReadings,
+        sitting,
+        chat: { sessionId: ownSitting(project, fields.sessionId, actor), continues, startedAt: fields.sessionStartedAt, actor },
+        spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
+        modelReader,
+      })
+    : saidOfDrop(canvas, actor, question);
+  /*
+   * What the drop took in that is no paper read. The reply names each, so
+   * that the chips under it are the ways to them (`turnChips`): a photograph
+   * of the site is a paper this reply filed; a questionnaire, and a voice
+   * note kept and not put into words, are named beside the records it cites,
+   * the note by the card it waits on. Each is lit where it is opened.
+   */
+  const photographs = fromSite.flatMap(({ index }) => landedOn[index] ?? []);
+  const unheard = fromSite.flatMap(({ index }) =>
+    landedOn[index] ? [] : (canvas.chatProposals ?? []).filter((card) => isNotReadYetCard(card) && card.payload.storageKey === dropped[index]!.storageKey).map((card) => card.id),
+  );
+  const takenIn = [...taken.map(({ id }) => id), ...unheard];
+  if (photographs.length || takenIn.length) {
+    result.assistantTurn.citedEvidenceIds = [...new Set([...result.assistantTurn.citedEvidenceIds, ...photographs])];
+    result.assistantTurn.citedNodeIds = [...new Set([...(result.assistantTurn.citedNodeIds ?? []), ...takenIn])];
+    result.highlightIds = [...new Set([...result.highlightIds, ...photographs, ...takenIn])];
+  }
+  if (sorted.length) {
+    result.assistantTurn.text = [result.assistantTurn.text, ...sorted].filter(Boolean).join('\n\n');
+    const choices = unsure.flatMap(({ fileName, between }, n) => droppedChoices(fileName, n, between));
+    if (choices.length) result.assistantTurn.choices = [...(result.assistantTurn.choices ?? []), ...choices];
+    // The entries proposed from voice notes are this reply's cards: listed with it, so they are what "approve all" means.
+    if (siteCards.length) {
+      result.proposals = [...result.proposals, ...siteCards];
+      result.assistantTurn.proposalIds = [...(result.assistantTurn.proposalIds ?? []), ...siteCards.map((card) => card.id)];
+    }
+    const last = canvas.conversation[canvas.conversation.length - 1];
+    if (last?.id === result.assistantTurn.id && last !== result.assistantTurn) {
+      last.text = result.assistantTurn.text;
+      if (choices.length) last.choices = result.assistantTurn.choices;
+      if (siteCards.length) last.proposalIds = result.assistantTurn.proposalIds;
+    }
+  }
+  // How much of each file was read goes with the file: onto its row where it has one, else onto the card that will file it.
+  keepReadings(canvas, enriched);
+  // What this drop changed is kept with its reply, against the file as it stood before the drop: listed under it, and undone on its own.
+  if (canvas === project) await keepTurnChanges(project, asItStood, result.assistantTurn);
+  /*
+   * The reply's receipt says how far the file moved, and the papers were put
+   * on it as they were read, before this turn. So it is counted from the file
+   * as it stood before the drop: the same turn, run on that copy, with every
+   * paper filed by it. The copy is thrown away.
+   */
+  if (enriched.some((paper) => paper.landed)) {
+    try {
+      const receipt = applyProjectChat(asItStood, question, {
+        actor,
+        mayDecide: decidesFor(req, project),
+        viewContext,
+        place: fields.place,
+        outside: canvas !== project,
+        ingest: enriched.map(({ landed: _landed, ...paper }) => paper),
+        meetingReadings,
+        sitting,
+        modelReader,
+      }).assistantTurn.metrics;
+      result.assistantTurn.metrics = receipt;
+      const said = canvas.conversation[canvas.conversation.length - 1];
+      if (said?.id === result.assistantTurn.id) said.metrics = receipt;
+    } catch {
+      /* the reply goes without its receipt */
+    }
+  }
   sayWhatIsMissing(seen, question, result);
   unread += fields.unreadBeyond ?? 0;
   if (unread) {
@@ -1824,14 +2942,49 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     const last = canvas.conversation[canvas.conversation.length - 1];
     if (last?.id === result.assistantTurn.id && last !== result.assistantTurn) last.text = result.assistantTurn.text;
   }
-  stampSession(result, fields.sessionId);
-  mergeConversation(project, canvas, actorOf(req), turnsBefore);
+  stampSession(result, ownSitting(project, fields.sessionId, actor), { continues, place: fields.place });
+  mergeConversation(project, canvas, actor, turnsBefore);
+  // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
+  project.updatedAt = new Date().toISOString();
+  if (canvas !== project) keepReadings(project, enriched);
   await store.save();
   line({ type: 'result', ...result, project: canvas });
   res.end();
+  } catch (err) {
+    console.warn(`[reading] the reply to a drop could not be written: ${(err as Error).message}`);
+    const became = dropped.map(({ index, row }) => {
+      const on = Boolean(read[index]?.landed || landedOn[index] || taken.some((t) => t.index === index) || fromSite.some((f) => f.index === index));
+      return `${row.fileName}: ${on ? 'on the file' : 'kept, and not yet on the file'}`;
+    });
+    line({ type: 'error', error: `The reply could not be written. ${became.join('. ')}. Say “Read the filed documents” for anything not yet on the file.` });
+    if (!res.writableEnded) res.end();
+  }
+  /*
+   * What each photograph shows is read now, after the reply, three at a time
+   * as papers are. A drop of photographs used to have no reply, and no cards,
+   * for as long as a reader took to answer. The reader has a time limit of
+   * its own (`PHOTO_READ_LIMIT_MS`), and what it says is kept on the
+   * photograph as its suggestion when it comes. None is started once the
+   * turn's time is spent: that photograph stays on the file, unread.
+   */
+  await together(toRead, PAPERS_AT_ONCE, async ({ fileName, on, bytes }) => {
+    if (Date.now() > started + MODEL_READ_STOP_MS) return;
+    try {
+      const write = await readSitePhoto({ project: canvas, row: on, bytes, actor });
+      if (!write) return;
+      await link(fileName, async () => {
+        await store.syncProject(project.id, { force: true });
+        write();
+        project.updatedAt = new Date().toISOString();
+        await store.save();
+      });
+    } catch (err) {
+      console.warn(`[reading] the photograph ${fileName} was filed and not read: ${(err as Error).message}`);
+    }
+  });
 }
 
-projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), async (req, res) => {
+projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asChatMessage, async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
@@ -1843,14 +2996,34 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
-  await ingestTurn(req, res, project, files, {
+  // What the page knew of each file and the bytes may not say: the day on it, a camera's date, how long a recording runs.
+  const captured = capturedFrom(body.captured, files.length);
+  await ingestTurn(req, res, project, files.map((file, i) => ({ originalname: file.originalname, mimetype: file.mimetype, size: file.size, buffer: file.buffer, captured: captured[i] })), {
     question: typeof body.question === 'string' ? body.question : '',
+    saidOf: droppedAnswer(typeof body.question === 'string' ? body.question : '') ?? undefined,
     viewContext: typeof body.viewContext === 'string' ? body.viewContext : undefined,
+    place: placeFromForm(body.place) ?? chatPlaceFrom(undefined, typeof body.viewContext === 'string' ? body.viewContext : undefined),
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
+    continues: typeof body.continues === 'string' ? body.continues : undefined,
+    sessionStartedAt: typeof body.sessionStartedAt === 'string' ? body.sessionStartedAt.slice(0, 40) : undefined,
     ddId: body.ddId,
     scopeId: body.scopeId,
     checkId: body.checkId,
   });
+});
+
+/**
+ * Whether a voice note can be put into words here, and where its sound is
+ * sent, for the chat to say before the first one goes.
+ */
+projectsRouter.get('/:projectId/chat/voice', (req, res) => {
+  if (!findProject(req.params.projectId)) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const { available, model, host } = transcriptionCapability();
+  // `reads`: whether a reading model is then given the note's words (`takeVoiceNote`), so the notice can say so and only then.
+  res.json({ available, ...(available ? { model, host, reads: agentCapability().available } : {}), maxBytes: UPLOAD_LIMITS.maxFileBytes, maxRequestBytes: UPLOAD_LIMITS.maxRequestBytes });
 });
 
 /**
@@ -1898,14 +3071,43 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
     res.status(404).json({ error: 'Proposal not found' });
     return;
   }
-  applyReviewedPayload(item.payload, parsed.data.payload);
+  const mayDecide = decidesFor(req, project);
+  // A card of check values takes a correction only from somebody who may decide it. From anybody else nothing is written, and the reply says whose it is.
+  // Whatever the card, the correction is this commit's alone: a commit that is refused, or leaves the card waiting, leaves it as it was raised.
+  const reviewed = item.kind !== 'record_check_fields' || mayDecide(departmentOfCheck(project, String(item.payload.checkId))) ? reviewCard(item, parsed.data.payload) : undefined;
   refreshProjectDerived(project);
+  if (ADMIN_ONLY_PROPOSALS.has(item.kind)) {
+    // The card stands for an admin's control, so approving it is an admin's act.
+    if (!can(principalOf(req).role, 'admin')) {
+      reviewed?.settle();
+      res.status(403).json({ error: `Your role (${principalOf(req).role}) cannot approve that. A workspace admin can.` });
+      return;
+    }
+    try {
+      commitChatProposal(project, item.id, actorOf(req), { admin: true, mayDecide });
+    } catch (err) {
+      reviewed?.settle();
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not apply that.' });
+      return;
+    }
+  }
   if (item.kind === 'run_screen') {
     const now = new Date().toISOString();
     await ensureIdentitySiteContext(project, projectToIdentity(project), now);
   }
   const placeBefore = projectSiteQuery(project);
-  const result = applyProjectChat(project, `Approve "${item.title}"`, { actor: actorOf(req) });
+  // By its id, as a pressed choice names it. The words only say what was done, and are ones no reader takes for an instruction.
+  let result: ReturnType<typeof applyProjectChat>;
+  try {
+    result = applyProjectChat(project, CHOICE_SENTENCE.one, { actor: actorOf(req), mayDecide, sitting: { decision: 'accept', proposalIds: [item.id] } });
+  } catch (err) {
+    // A card the rules cannot carry out is that card failing: said, as the page's own accept says it, and nothing is saved.
+    console.error('[chat] the rules threw on a card', err);
+    fail(res, err, 'That could not be accepted.');
+    return;
+  } finally {
+    reviewed?.settle();
+  }
   // Approving "record the address as ..." is the moment the property moves.
   await refreshSiteContextIfMoved(project, placeBefore, new Date().toISOString());
   await rememberProject(project);
@@ -1930,9 +3132,46 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/reject', async (req,
     return;
   }
   refreshProjectDerived(project);
-  const result = applyProjectChat(project, `Skip "${item.title}"`, { actor: actorOf(req) });
+  let result: ReturnType<typeof applyProjectChat>;
+  try {
+    result = applyProjectChat(project, CHOICE_SENTENCE.aside, { actor: actorOf(req), mayDecide: decidesFor(req, project), sitting: { decision: 'aside', proposalIds: [item.id] } });
+  } catch (err) {
+    console.error('[chat] the rules threw on a card', err);
+    fail(res, err, 'That could not be set aside.');
+    return;
+  }
   await store.save();
   res.json({ ...result, project });
+});
+
+/*
+ * A chat's name.
+ *
+ * It is kept on the chat's own first turn, and the chat is looked for in the
+ * thread as this person sees it. A collaborator's thread is their own turns,
+ * so a chat that is somebody else's is not found, and naming one writes
+ * nowhere a reader of the project would find a name that is not theirs.
+ */
+projectsRouter.patch('/:projectId/chat/sessions/:sessionId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = renameChatBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const renamed = renameChatSession(viewFor(req, project).project.conversation, req.params.sessionId, parsed.data.name);
+  if (!renamed) {
+    res.status(404).json({ error: 'Chat not found' });
+    return;
+  }
+  // The store writes a project only when this has moved, and a name is worth keeping.
+  project.updatedAt = new Date().toISOString();
+  await store.save();
+  res.json({ project });
 });
 
 projectsRouter.delete('/:projectId/chat', async (req, res) => {
@@ -1949,8 +3188,11 @@ projectsRouter.delete('/:projectId/chat', async (req, res) => {
     fail(res, err);
     return;
   }
+  const gone = [...project.conversation];
   clearProjectConversation(project);
   await store.save();
+  // Nothing is left to undo these from.
+  await forgetTurnChanges(project.id, gone);
   res.status(204).end();
 });
 
@@ -2046,30 +3288,16 @@ projectsRouter.post('/:projectId/ai/drafts/:draftId/commit', async (req, res) =>
 });
 
 projectsRouter.delete('/:projectId', needs('admin'), async (req, res) => {
-  const idx = projects().findIndex((p) => p.id === req.params.projectId);
-  if (idx < 0) {
+  // "Deleted" has to mean deleted. The project's documents go first, and what is kept about it only once they have.
+  const outcome = await removeProject(req.params.projectId);
+  if (outcome === 'absent') {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const [removed] = projects().splice(idx, 1);
-  // The project's own documents — its shard, its run journal, its evidence
-  // files — go with it, and so do the grants written against it and what it
-  // taught memory. "Deleted" has to mean deleted: all of these hold owner
-  // names, document titles and uploaded bytes.
-  if (removed) {
-    await forgetProjects([removed.id]);
-    try {
-      await graphAdapter.purgeProject(removed.id);
-    } catch (err) {
-      console.warn(`[projects] could not purge the graph for ${removed.id}: ${(err as Error).message}`);
-    }
-    try {
-      await storageAdapter.deleteCaseDocuments(removed.id);
-    } catch (err) {
-      console.warn(`[projects] could not remove documents for ${removed.id}: ${(err as Error).message}`);
-    }
+  if (outcome === 'kept') {
+    res.status(503).json({ error: PROJECT_KEPT });
+    return;
   }
-  await store.save();
   res.status(204).end();
 });
 
@@ -2432,8 +3660,10 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
         sitePhoto: isImage && Boolean(rawPurpose || visitId),
       });
     }
+    // On the record before anything reads them: a reader that hangs must not leave a filed paper unfiled.
+    await store.save();
     // Read what was filed: facts onto the row, anything it would change as cards in chat.
-    await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0 }));
+    await readOntoRegister(project, reads, actorOf(req), { landed: (file) => savedAsRead(project, file) }).catch(() => undefined);
     await persistPaneWrite(req, project, `Attached ${plural(attached.length, 'file')} to evidence.`, {
       citedEvidenceIds: [req.params.evidenceId],
     });
@@ -2531,7 +3761,9 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
       );
       reads.push({ evidenceId: ids[i] as string, buffer: file.buffer, fileName: file.originalname, mimeType: file.mimetype, sizeBytes: file.size, storageKey });
     }
-    await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0 }));
+    // On the record before anything reads them: a reader that hangs must not leave a filed paper unfiled.
+    await store.save();
+    await readOntoRegister(project, reads, actorOf(req), { landed: (file) => savedAsRead(project, file) }).catch(() => undefined);
     const rows = new Set(ids).size;
     await persistPaneWrite(
       req,
@@ -3134,7 +4366,7 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
   }
   const report = generateReport(
     project,
-    { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req) },
+    { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req), period: parsed.data.period, audience: parsed.data.audience },
     actorOf(req),
   );
   await persistPaneWrite(req, project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });

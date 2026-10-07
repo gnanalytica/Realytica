@@ -22,7 +22,7 @@
  * captured offline and dated, so the portal policy in `portals.ts` holds.
  */
 
-import { acceptedFacts, surveyNoFromParcelId, type DdProject } from '@realytica/shared';
+import { acceptedFacts, applyRevenueMap, revenueReads, splitSurveyNumbers, surveyNoFromParcelId, type DdProject } from '@realytica/shared';
 import type { RevenueMapFactor, RevenueMapFeature, RevenueMapFeatureKind, RevenueMapRead } from '@realytica/shared';
 import { kaVillageByCode } from '@realytica/site-intel/karnataka/village-index';
 import { kaPickerLabel, kaVillageFromAddress } from '@realytica/site-intel/karnataka/place-match';
@@ -44,7 +44,14 @@ export interface RevenueLevelResult {
 
 export type RevenueReadOutcome =
   | { ok: true; read: RevenueMapRead }
-  | { ok: false; status: 400 | 404 | 502; error: string };
+  /** The number resolved to a parcel already kept for the project, by this reference; nothing was read. */
+  | { ok: true; already: string }
+  /**
+   * `near` is set when the number is not in the published map: the numbers
+   * there that start the same way. `alsoAsked` is the other spellings of the
+   * number the map was asked for, and did not hold either.
+   */
+  | { ok: false; status: 400 | 404 | 502; error: string; near?: string[]; alsoAsked?: string[] };
 
 export { isStateKey };
 export type { StateKey };
@@ -78,6 +85,84 @@ export interface RevenueReadInput {
   surveyNo: string;
   /** The land area on the project, so the engine's extent check has something to compare. */
   landAreaSqm?: number | null;
+  /** The parcels already kept for the project, by reference. */
+  kept?: readonly string[];
+  /**
+   * Answer from what is kept when the number resolves to a kept parcel,
+   * instead of reading it afresh. Off unless asked for: a caller that knows
+   * nothing of kept parcels gets a fresh read, as it always did.
+   */
+  unlessKept?: boolean;
+  /** The number is one of several being read for the same site. */
+  several?: boolean;
+  /** How the papers, or the person, spell the number where that is not how it is kept: "77/03" for 77/3. */
+  asWritten?: readonly string[];
+}
+
+/**
+ * The parcel the map answers a survey number with, among what its search
+ * found — or none.
+ *
+ * The number itself, whatever the case of a letter in it. Failing that, a
+ * lone result is taken only when it is the survey number the asked one is a
+ * part of: "41/2" answered by "41", as Karnataka's map does, which holds
+ * whole numbers. A lone result of any other kind is a neighbour the search
+ * happened to find — "412" for "41", where the village has no 41 — and
+ * reading it would put a stranger's parcel on the file under the number
+ * that was asked for.
+ */
+export function parcelAnswering<T extends { parcelNo: string }>(found: readonly T[], surveyNo: string): T | undefined {
+  const asked = surveyNo.toUpperCase();
+  const exact = found.find((p) => p.parcelNo.toUpperCase() === asked);
+  if (exact || found.length !== 1) return exact;
+  const whole = found[0]!.parcelNo.toUpperCase();
+  return asked.startsWith(`${whole}/`) || asked.startsWith(`${whole}-`) ? found[0] : undefined;
+}
+
+/**
+ * The spellings a number is asked of the map under, in turn: as it is kept,
+ * then as the papers write it.
+ *
+ * A number is kept without a zero before a part — 77/03 is 77/3 — and is
+ * asked for that way first. A state's layer may spell the part with its
+ * zero, and it matches the number exactly, so the paper's own spelling is
+ * tried when the first is not found. Only another spelling of the same
+ * number is ever tried, and only where it asks the map for something
+ * different: Karnataka's map is asked for the whole survey number whatever
+ * part is named, so 77/3 and 77/03 are one question there, asked once.
+ */
+export function spellingsToAsk(state: StateKey, surveyNo: string, asWritten: readonly string[] = []): string[] {
+  const numberOf = (spelling: string) => splitSurveyNumbers(spelling)[0]?.toUpperCase();
+  const asked = (spelling: string) => (state === 'KA' ? (spelling.split(/[/-]/)[0] ?? spelling) : spelling).toUpperCase();
+  const out = [surveyNo];
+  for (const spelling of asWritten) {
+    const written = spelling.replace(/\s+/g, '');
+    if (!written || !numberOf(surveyNo) || numberOf(written) !== numberOf(surveyNo)) continue;
+    if (!out.some((held) => asked(held) === asked(written))) out.push(written);
+  }
+  return out.slice(0, 3);
+}
+
+/**
+ * The parcel the map holds for a number, asked for under each spelling in
+ * turn until one answers. `near` is what the first search found beside it,
+ * for a person to pick from; `alsoAsked` the spellings tried after the
+ * first. A search that fails is a failure whichever spelling it was for: an
+ * answer of "not found" is only given when every spelling was truly asked.
+ */
+export async function parcelUnderAnySpelling<T extends { parcelNo: string }, F extends { ok: false }>(
+  spellings: readonly string[],
+  search: (spelling: string) => Promise<{ ok: true; data: T[] } | F>,
+): Promise<{ found: T } | { failed: F } | { near: string[]; alsoAsked: string[] }> {
+  let near: string[] = [];
+  for (const [at, spelling] of spellings.entries()) {
+    const res = await search(spelling);
+    if (!res.ok) return { failed: res };
+    const parcel = parcelAnswering(res.data, spelling);
+    if (parcel) return { found: parcel };
+    if (at === 0) near = res.data.slice(0, 6).map((p) => p.parcelNo);
+  }
+  return { near, alsoAsked: spellings.slice(1) };
 }
 
 /**
@@ -89,36 +174,125 @@ export interface RevenueReadInput {
  * before ten layers are read for the wrong land.
  */
 export async function readRevenueMap(input: RevenueReadInput): Promise<RevenueReadOutcome> {
-  const found = await searchParcels(
-    { district: input.district, mandal: input.mandal, village: input.village, parcelPrefix: input.surveyNo },
-    input.state,
+  const sought = await parcelUnderAnySpelling(spellingsToAsk(input.state, input.surveyNo, input.asWritten), (spelling) =>
+    searchParcels({ district: input.district, mandal: input.mandal, village: input.village, parcelPrefix: spelling }, input.state),
   );
-  if (!found.ok) {
+  if ('failed' in sought) {
+    const found = sought.failed;
     if (found.reason === 'parse') return { ok: false, status: 400, error: found.detail ?? 'That place could not be matched.' };
     return { ok: false, status: 502, error: mapDown(input.state, found.detail) };
   }
-  const exact = found.data.find((p) => p.parcelNo === input.surveyNo) ?? (found.data.length === 1 ? found.data[0] : undefined);
-  if (!exact) {
-    const near = found.data.slice(0, 6).map((p) => p.parcelNo);
+  if ('near' in sought) {
+    const { near, alsoAsked } = sought;
+    const spelt = alsoAsked.length ? `, under that spelling or as ${alsoAsked.join(' or ')}, the way it is written` : '';
     return {
       ok: false,
       status: 404,
-      error: near.length
-        ? `Sy. ${input.surveyNo} is not in the published map for ${input.village}. Numbers that start the same way: ${near.join(', ')}.`
-        : `Sy. ${input.surveyNo} is not in the published map for ${input.village}.`,
+      error: `Sy. ${input.surveyNo} is not in the published map for ${input.village}${spelt}.${near.length ? ` Numbers that start the same way: ${near.join(', ')}.` : ''}`,
+      near,
+      ...(alsoAsked.length ? { alsoAsked } : {}),
     };
   }
+  const exact = sought.found;
+  // Two numbers can be one parcel: Karnataka's map holds whole survey numbers,
+  // so 41/1 and 41/2 both resolve to 41. The second is not read a second time.
+  const kept = input.kept ?? [];
+  if (input.unlessKept && kept.includes(exact.ref)) return { ok: true, already: exact.ref };
 
+  // The engine holds the area quoted for the site against the parcel it reads.
+  // That is asked only of a parcel that stands alone: a site's area is all of
+  // its parcels. Where it was asked and others are read later, the shared
+  // package leaves the check out as it reads them.
+  const alone = !input.several && !kept.some((ref) => ref !== exact.ref);
+  return readParcel(exact.ref, alone ? input.landAreaSqm : null);
+}
+
+/** Everything round one parcel, by the engine's own reference to it. */
+async function readParcel(parcelRef: string, landAreaSqm: number | null | undefined): Promise<RevenueReadOutcome> {
   const outcome = await runSiteIntel({
-    parcelRef: exact.ref,
+    parcelRef,
     kind: 'open_plot',
-    area: input.landAreaSqm && input.landAreaSqm > 0 ? input.landAreaSqm : null,
+    area: landAreaSqm && landAreaSqm > 0 ? landAreaSqm : null,
     areaUnit: 'sqm',
   });
   if (!outcome.ok) {
     return { ok: false, status: outcome.reason === 'not_found' ? 502 : 400, error: outcome.message };
   }
   return { ok: true, read: toRevenueMapRead(outcome.report) };
+}
+
+/**
+ * Read a kept parcel afresh, by its own reference.
+ *
+ * Not by its number in whatever village the picker now shows: a site can
+ * span two villages that each hold a survey number 41, and reading "41"
+ * again in the wrong one adds a stranger's parcel in place of renewing ours.
+ */
+export async function rereadRevenueMap(input: { parcelRef: string; landAreaSqm?: number | null; kept: readonly string[] }): Promise<RevenueReadOutcome> {
+  const alone = !input.kept.some((ref) => ref !== input.parcelRef);
+  return readParcel(input.parcelRef, alone ? input.landAreaSqm : null);
+}
+
+/* ------------------------------------------------------------------ */
+/* Room on the file                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How heavy a project's record may be and still take another parcel's read.
+ *
+ * A project is stored, and sent to the page, as one piece. The host will not
+ * send a piece much over four megabytes, so a record that grows past that
+ * stops loading — here and in production, which read the same store — and
+ * nothing on the page can then take a read off again. A read is refused well
+ * short of it: everything else on the file goes on growing too.
+ */
+export const PROJECT_RECORD_CEILING_BYTES = 2_500_000;
+
+/** The project's record as it is stored and sent, in bytes. */
+export function recordBytes(project: DdProject): number {
+  return Buffer.byteLength(JSON.stringify(project), 'utf8');
+}
+
+/**
+ * What a read adds to a record besides itself: its line on the audit trail.
+ * A read that makes the record heavier by no more than this has not made it
+ * heavier.
+ */
+const BESIDES_THE_READ_BYTES = 1_000;
+
+/**
+ * Whether the file has room to keep this read, worked out by keeping it on a
+ * copy and weighing the copy.
+ *
+ * Every read is weighed, a parcel read again among them: a fresh read can
+ * come back carrying the outlines of half a district that the read it
+ * replaces never held. It is refused only where it leaves the record over
+ * the ceiling and heavier than it was — a parcel read again at the weight it
+ * had is kept, however full the file: it is not what filled it.
+ */
+export function roomForRead(project: DdProject, read: RevenueMapRead, askedAs?: string): { fits: true } | { fits: false; error: string } {
+  const now = JSON.stringify(project);
+  const copy = JSON.parse(now) as DdProject;
+  applyRevenueMap(copy, read, 'weighing', askedAs);
+  const after = recordBytes(copy);
+  if (after <= PROJECT_RECORD_CEILING_BYTES || after <= Buffer.byteLength(now, 'utf8') + BESIDES_THE_READ_BYTES) return { fits: true };
+  const kept = revenueReads(project);
+  const tooHeavy = `with it the project’s record would weigh over ${(PROJECT_RECORD_CEILING_BYTES / 1_000_000).toFixed(1)} MB, and a record much heavier than that stops opening`;
+  if (!kept.length) {
+    // Nothing from the map is on this file, so there is no read to take off: it is the rest of the file that fills it.
+    return {
+      fits: false,
+      error: `No parcel is kept on this project, and its record is already too heavy to take one. Sy. ${read.surveyNo} was read from the map and is not kept: ${tooHeavy}. It is what else the file holds that fills it.`,
+    };
+  }
+  const count = kept.length === 1 ? '1 parcel is' : `${kept.length} parcels are`;
+  if (kept.some((r) => r.parcelRef === read.parcelRef)) {
+    return {
+      fits: false,
+      error: `${count} kept on this project. Sy. ${read.surveyNo} was read again and the fresh read is not kept: it is heavier than the read it would replace, and ${tooHeavy}. The read already kept stays as it was.`,
+    };
+  }
+  return { fits: false, error: `${count} kept on this project. Sy. ${read.surveyNo} was read from the map and is not kept: ${tooHeavy}. Remove a read that is not needed to make room.` };
 }
 
 /* ------------------------------------------------------------------ */
@@ -269,8 +443,8 @@ export interface RevenuePlaceSuggestion {
 function surveyNoFromDocuments(project: DdProject): string {
   for (const e of project.evidence) {
     const fact = acceptedFacts(e).find((f) => f.key === 'survey_numbers');
-    const first = fact ? String(fact.value).split(/\s*(?:,|&|\band\b)\s*/i)[0] : '';
-    if (first?.trim()) return first.trim().replace(/\s+/g, '');
+    const first = fact ? splitSurveyNumbers(String(fact.value))[0] : undefined;
+    if (first) return first;
   }
   return '';
 }
@@ -280,10 +454,13 @@ function surveyNoFromDocuments(project: DdProject): string {
  * reference names the exact village — otherwise the village the site address
  * names, matched against the Karnataka index. The survey number comes from
  * the project's parcel, else from a document accepted as stating one.
+ *
+ * With several parcels kept, the last read is the most recent of them: a
+ * person working down a list of numbers is still in that village.
  */
 export function suggestRevenuePlace(project: DdProject): RevenuePlaceSuggestion {
   const surveyNo = surveyNoFromParcelId(project.parcelId) || surveyNoFromDocuments(project) || undefined;
-  const last = project.revenueMap;
+  const last = revenueReads(project).reduce<RevenueMapRead | undefined>((latest, r) => (latest && latest.readAt >= r.readAt ? latest : r), undefined);
   if (last) {
     const code = last.state === 'KA' ? /^kgis:(\d+):/.exec(last.parcelRef)?.[1] : undefined;
     const v = code ? kaVillageByCode(code) : null;

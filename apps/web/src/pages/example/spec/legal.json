@@ -1,0 +1,3415 @@
+{
+ "department": "Legal",
+ "functions": [
+  {
+   "name": "Title",
+   "stages": [
+    "land",
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "certified",
+    "by": "P. Nair",
+    "role": "Advocate",
+    "on": "12 Sep 2026",
+    "moved": true
+   },
+   "sections": [
+    {
+     "id": "chain",
+     "name": "Deeds and chain",
+     "icon": "timeline",
+     "blocks": [
+      {
+       "type": "timeline",
+       "title": "Chain of title",
+       "items": [
+        {
+         "year": "1994",
+         "t": "Partition deed",
+         "sub": "Landowner family, survey 41/2 and 41/3",
+         "state": "in"
+        },
+        {
+         "year": "2003",
+         "t": "Sale deed",
+         "sub": "Family to first buyer",
+         "state": "in"
+        },
+        {
+         "year": "2012",
+         "t": "Sale deed",
+         "sub": "First buyer to second buyer, not on file",
+         "state": "gap"
+        },
+        {
+         "year": "2019",
+         "t": "Sale deed, 12 sqm short on survey",
+         "sub": "Second buyer to Lakeview Developers LLP",
+         "state": "in"
+        },
+        {
+         "year": "2019",
+         "t": "Mutation",
+         "sub": "RTC entry read from extract, to be accepted",
+         "state": "sug"
+        },
+        {
+         "year": "2024",
+         "t": "Mortgage deed",
+         "sub": "Lakeview Developers LLP to Hosakere Bank",
+         "state": "in"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Title papers",
+       "groups": [
+        {
+         "name": "Registered deeds",
+         "lines": [
+          {
+           "t": "Partition deed 1994",
+           "state": "in",
+           "pages": 8
+          },
+          {
+           "t": "Sale deed 2003",
+           "state": "in",
+           "pages": 11
+          },
+          {
+           "t": "Sale deed 2012",
+           "state": "asked",
+           "who": "Sub-Registrar",
+           "due": "17 Oct 2026"
+          },
+          {
+           "t": "Sale deed 2019",
+           "state": "in",
+           "pages": 22
+          },
+          {
+           "t": "Mortgage deed 2024",
+           "state": "in",
+           "pages": 31
+          }
+         ]
+        },
+        {
+         "name": "Heirs and powers",
+         "lines": [
+          {
+           "t": "Heir papers, first buyer",
+           "state": "asked",
+           "who": "Claimant",
+           "due": "14 Nov 2026"
+          },
+          {
+           "t": "Power of attorney, if any",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Property",
+       "items": [
+        {
+         "l": "Land area",
+         "v": "4,210 sqm",
+         "state": "set",
+         "from": "Sale deed 2019",
+         "page": 3
+        },
+        {
+         "l": "Survey numbers",
+         "v": "41/2 and 41/3",
+         "state": "set",
+         "from": "Sale deed 2019",
+         "page": 3
+        },
+        {
+         "l": "Village",
+         "v": "Hosakere",
+         "state": "set",
+         "from": "Sale deed 2019",
+         "page": 1
+        },
+        {
+         "l": "Present owner",
+         "v": "Lakeview Developers LLP",
+         "state": "set",
+         "from": "Sale deed 2019",
+         "page": 1
+        },
+        {
+         "l": "Tenure",
+         "v": "Freehold",
+         "state": "sug",
+         "from": "Sale deed 2019",
+         "page": 2
+        },
+        {
+         "l": "Depth of search",
+         "v": "32 years",
+         "state": "calc"
+        },
+        {
+         "l": "Surveyed extent",
+         "v": "4,198 sqm",
+         "state": "set"
+        },
+        {
+         "l": "Shortfall against deed",
+         "v": "12 sqm",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "records",
+     "name": "Revenue records",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Land records",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "RTC, survey 41/2",
+           "state": "in",
+           "pages": 4
+          },
+          {
+           "t": "RTC, survey 41/3",
+           "state": "asked",
+           "who": "Tahsildar",
+           "due": "10 Oct 2026"
+          },
+          {
+           "t": "Mutation extract",
+           "state": "in",
+           "pages": 3
+          },
+          {
+           "t": "e-Khata",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Survey sketch",
+           "state": "in",
+           "pages": 1
+          },
+          {
+           "t": "Encumbrance certificate, 1994 to 2026",
+           "state": "in",
+           "pages": 14
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "map",
+       "title": "Plot and survey numbers",
+       "view": "site",
+       "layers": [
+        "plot",
+        "survey"
+       ],
+       "pins": [
+        {
+         "t": "Boundary stone, north-west",
+         "kind": "photo",
+         "x": 39,
+         "y": 31
+        },
+        {
+         "t": "Boundary stone, south-east",
+         "kind": "photo",
+         "x": 61,
+         "y": 69
+        },
+        {
+         "t": "Surveyor's visit, 24 Sep 2026",
+         "kind": "visit",
+         "x": 50,
+         "y": 50
+        }
+       ],
+       "measures": [
+        {
+         "t": "North boundary",
+         "v": "64.2 m",
+         "tone": "ok"
+        },
+        {
+         "t": "East boundary, 12 m road",
+         "v": "64.4 m",
+         "tone": "ok"
+        },
+        {
+         "t": "South boundary, 24 m road",
+         "v": "66.0 m",
+         "tone": "ok"
+        },
+        {
+         "t": "West boundary",
+         "v": "64.6 m",
+         "tone": "ok"
+        },
+        {
+         "t": "Surveyed extent against deed",
+         "v": "4,198 of 4,210 sqm",
+         "tone": "warn"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Extent across the records",
+       "cols": [
+        "Survey number",
+        "Deed",
+        "RTC",
+        "e-Khata",
+        "Surveyed",
+        "Gap",
+        "Check"
+       ],
+       "rows": [
+        [
+         "41/2",
+         "2,380 sqm",
+         "2,380 sqm",
+         "2,380 sqm",
+         "2,380 sqm",
+         "None",
+         "Passed"
+        ],
+        [
+         "41/3",
+         "1,830 sqm",
+         "1,830 sqm",
+         "1,830 sqm",
+         "1,818 sqm",
+         "12 sqm short",
+         "Open"
+        ],
+        [
+         "Total",
+         "4,210 sqm",
+         "4,210 sqm",
+         "4,210 sqm",
+         "4,198 sqm",
+         "12 sqm short",
+         "Open"
+        ]
+       ],
+       "status": 6,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Engineering",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "searches",
+     "name": "Searches",
+     "icon": "search",
+     "blocks": [
+      {
+       "type": "search",
+       "title": "Encumbrance certificate",
+       "source": "Kaveri, encumbrance certificate",
+       "query": "Survey nos. 41/2 and 41/3, 1994 to 2026",
+       "results": [
+        {
+         "t": "Mortgage to Hosakere Bank",
+         "sub": "Registered 18 Dec 2024",
+         "picked": true
+        },
+        {
+         "t": "No other entry in 32 years",
+         "sub": "1994 to 2026",
+         "picked": true
+        }
+       ]
+      },
+      {
+       "type": "search",
+       "title": "Charges on asset and owner",
+       "source": "CERSAI and MCA charge registers",
+       "query": "Lakeview Developers LLP; survey nos. 41/2 and 41/3",
+       "results": [
+        {
+         "t": "Security interest, Hosakere Bank",
+         "sub": "CERSAI, registered 2024",
+         "picked": true
+        },
+        {
+         "t": "Charge, Hosakere Bank",
+         "sub": "MCA, matches the mortgage",
+         "picked": true
+        },
+        {
+         "t": "No other charge",
+         "sub": "Both registers",
+         "picked": false
+        }
+       ]
+      },
+      {
+       "type": "search",
+       "title": "Cases and tribunals",
+       "source": "eCourts, NCLT and K-RERA",
+       "query": "Lakeview Developers LLP; Hosakere village",
+       "results": [
+        {
+         "t": "No civil case on the land",
+         "sub": "eCourts, Bengaluru",
+         "picked": true
+        },
+        {
+         "t": "No insolvency petition",
+         "sub": "NCLT",
+         "picked": false
+        },
+        {
+         "t": "K-RERA complaint, parking allotment",
+         "sub": "Not about title, hearing 12 Nov 2026",
+         "picked": false
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "claims",
+     "name": "Restrictions and claims",
+     "icon": "flags",
+     "blocks": [
+      {
+       "type": "search",
+       "title": "Grant, waqf, inam, acquisition",
+       "source": "Grant orders, Waqf and Muzrai lists, gazette",
+       "query": "Hosakere village, survey nos. 41/2 and 41/3",
+       "results": [
+        {
+         "t": "No grant order, not PTCL land",
+         "sub": "Grant records, checked 20 Sep 2026",
+         "picked": true
+        },
+        {
+         "t": "Not on Waqf or Muzrai lists",
+         "sub": "Checked 20 Sep 2026",
+         "picked": true
+        },
+        {
+         "t": "No inam land entry",
+         "sub": "RTC history",
+         "picked": true
+        },
+        {
+         "t": "No acquisition notice",
+         "sub": "BDA and KIADB gazette",
+         "picked": true
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Replies to public notice",
+       "cols": [
+        "Reply",
+        "From",
+        "Claim",
+        "Received",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Reply 1",
+         "Neighbouring owner",
+         "Right of way on west side",
+         "3 Sep 2026",
+         "Open"
+        ],
+        [
+         "Reply 2",
+         "Hosakere Bank",
+         "Confirms its mortgage, no claim",
+         "9 Sep 2026",
+         "Closed"
+        ],
+        [
+         "Reply 3",
+         "Heir of first buyer",
+         "Share in land sold in 2012",
+         "17 Sep 2026",
+         "Open"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "Claimants, notice of 28 Aug 2026",
+       "add": "Log a reply"
+      }
+     ]
+    },
+    {
+     "id": "cure",
+     "name": "Defects and cure",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Defects and cure list",
+       "cols": [
+        "Defect",
+        "Where",
+        "Risk",
+        "Cure",
+        "Owner",
+        "Due"
+       ],
+       "rows": [
+        [
+         "Sale deed 2012 not on file",
+         "Chain, 2012 link",
+         "High",
+         "Certified copy from Sub-Registrar",
+         "P. Nair",
+         "17 Oct 2026"
+        ],
+        [
+         "Heir claims share in 2012 sale",
+         "Notice reply 3",
+         "High",
+         "Release deed from the heir",
+         "P. Nair",
+         "14 Nov 2026"
+        ],
+        [
+         "Right of way claimed, west side",
+         "Notice reply 1",
+         "Medium",
+         "Site visit, written reply",
+         "P. Nair",
+         "24 Oct 2026"
+        ],
+        [
+         "Surveyed extent 12 sqm short",
+         "Survey 41/3",
+         "Medium",
+         "Surveyor's note, correct the record",
+         "R. Iyer",
+         "31 Oct 2026"
+        ],
+        [
+         "Mutation entry not verified",
+         "RTC, 2019",
+         "Low",
+         "Confirm with the Tahsildar",
+         "S. Rao",
+         "30 Oct 2026"
+        ]
+       ],
+       "status": 2,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add defect"
+      }
+     ]
+    },
+    {
+     "id": "opinion",
+     "name": "Legal opinion",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "qa",
+       "title": "Questions on title",
+       "items": [
+        {
+         "q": "Is the chain unbroken for 30 years?",
+         "a": "No, the 2012 deed is missing",
+         "source": "Advocate's view",
+         "proof": "Chain of title, 2012 link",
+         "state": "answered"
+        },
+        {
+         "q": "Is anything registered against the land?",
+         "a": "One mortgage, Hosakere Bank",
+         "source": "From a document",
+         "proof": "Encumbrance certificate, 1994 to 2026, p. 12",
+         "state": "answered"
+        },
+        {
+         "q": "Is any of it grant, inam or acquired land?",
+         "a": "No grant, inam or acquisition found",
+         "source": "From a document",
+         "proof": "Grant and gazette search, 20 Sep 2026",
+         "state": "answered"
+        },
+        {
+         "q": "Does the surveyed extent match the deed?",
+         "a": "Short by 12 sqm on survey 41/3",
+         "source": "Engineer's view",
+         "proof": "Survey sketch",
+         "state": "suggested"
+        },
+        {
+         "q": "Can a claim on the 2012 sale be ruled out?",
+         "a": "",
+         "source": "",
+         "proof": "",
+         "state": "open"
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "A claim on the 2012 sale arrived after the certificate was signed",
+     "rests": []
+    },
+    {
+     "t": "Surveyed extent is 12 sqm short of the deed on survey 41/3",
+     "rests": [
+      "Surveyed extent"
+     ]
+    },
+    {
+     "t": "The mortgage in the encumbrance matches the CERSAI and MCA entries",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Chain broken: 2012 sale deed not on file",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Heir claims a share in the 2012 sale",
+     "by": "person",
+     "level": "high"
+    },
+    {
+     "t": "Surveyed extent short of the deed by 12 sqm",
+     "by": "rule",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Chain-of-title timeline with missing links flagged",
+     "Extent and survey-number match across deed, RTC, khata",
+     "Red flags: grant land, inam, tank bed, acquisition, name gaps",
+     "Summary of encumbrances and cases found"
+    ],
+    "certified": [
+     "Legal title report: advocate, for K-RERA registration (RERA s.4(2)(l)) and bank title report.",
+     "Surveyed extent and sketch: licensed surveyor or Survey, Settlement and Land Records, under Land Revenue Act.",
+     "Registered deeds and mutation: Sub-Registrar (Registration Act s.17); Tahsildar (Land Revenue Act s.128-129)."
+    ],
+    "reports": [
+     "30-year title search report",
+     "Legal title report for K-RERA and banks",
+     "Chain-of-title register",
+     "Defects and cure list"
+    ],
+    "sent": [
+     "Cure requests to sellers: release, rectification, mutation",
+     "Public notice for English and Kannada newspapers",
+     "Title status and documents to RERA, Approvals, Finance"
+    ]
+   },
+   "mustHave": [
+    "Search 30 years of title and encumbrance; EC misses deposit-of-deeds mortgages, so add CERSAI.",
+    "Granted (PTCL) land: since 2023 amendment, restoration claims have no time limit.",
+    "Check seller's power of attorney: Karnataka Act 2025 requires registration of POAs authorising transfer.",
+    "e-Khata is mandatory for plan approval from 1 July 2025 and checked at registration.",
+    "Mutation: report each acquisition to the Tahsildar within 3 months (Land Revenue Act s.128)."
+   ],
+   "standards": [
+    {
+     "name": "Registration Act 1908 ss.17, 49; Registration (Karnataka Amendment) Act 2025",
+     "why": "Sale needs registered deed (TPA s.54); powers of attorney now covered",
+     "url": "https://www.indialaw.in/blog/real-estate/the-registration-karnataka-amendment-act-2025/"
+    },
+    {
+     "name": "Karnataka Land Revenue Act 1964 ss.128-129, record of rights and mutation",
+     "why": "Source of RTC and mutation extracts; entries carry weight, not title",
+     "url": "https://landrecords.karnataka.gov.in/"
+    },
+    {
+     "name": "Karnataka SC/ST (Prohibition of Transfer of Certain Lands) Act 1978, amended 2023",
+     "why": "Granted land: restoration claims no longer time-barred",
+     "url": "https://www.scconline.com/blog/post/2024/09/13/karnataka-sc-st-prohibition-transfer-certain-lands-amendment-act/"
+    },
+    {
+     "name": "e-Khata through e-Aasthi, enforced under the Registration (Karnataka Amendment) Bill passed February 2024",
+     "why": "Kaveri 2.0 and plan approval need verified e-Khata",
+     "url": "https://starofmysore.com/e-aasthi-now-a-must-for-property-registration/amp/"
+    }
+   ]
+  },
+  {
+   "name": "Approvals",
+   "stages": [
+    "land",
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "9 approvals read, 2 dates assumed"
+   },
+   "sections": [
+    {
+     "id": "landuse",
+     "name": "Land use and conversion",
+     "icon": "map",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Land-use papers",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "Conversion order, section 95",
+           "state": "in",
+           "pages": 6
+          },
+          {
+           "t": "Planning-authority certificate",
+           "state": "in",
+           "pages": 2
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Land use on record",
+       "items": [
+        {
+         "l": "Land-use class",
+         "v": "Residential",
+         "state": "sug",
+         "from": "Planning-authority certificate",
+         "page": 1
+        },
+        {
+         "l": "Issued by",
+         "v": "Planning authority",
+         "state": "set",
+         "from": "Conversion order, section 95",
+         "page": 1
+        },
+        {
+         "l": "Order date",
+         "v": "9 Mar 2020",
+         "state": "set",
+         "from": "Conversion order, section 95",
+         "page": 1
+        },
+        {
+         "l": "Survey numbers covered",
+         "v": "41/2 and 41/3",
+         "state": "set",
+         "from": "Conversion order, section 95",
+         "page": 2
+        },
+        {
+         "l": "Conditions on the order",
+         "v": "3, all met",
+         "state": "set",
+         "from": "Conversion order, section 95",
+         "page": 4
+        }
+       ]
+      },
+      {
+       "type": "search",
+       "title": "Zoning and setbacks",
+       "source": "RMP 2015 zonal regulations",
+       "query": "Hosakere village, survey nos. 41/2 and 41/3",
+       "results": [
+        {
+         "t": "Residential zone",
+         "sub": "Land use for both survey numbers",
+         "picked": true
+        },
+        {
+         "t": "24 m road south, 12 m road east",
+         "sub": "Master plan roads layer",
+         "picked": true
+        },
+        {
+         "t": "Setbacks and parking rules",
+         "sub": "Zonal regulations amended 5 Jan 2026",
+         "picked": true
+        },
+        {
+         "t": "Density and FAR",
+         "sub": "Applied at plan sanction",
+         "picked": false
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sanction",
+     "name": "Plan sanction and commencement",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Sanction papers",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "Sanctioned plan",
+           "state": "in",
+           "pages": 18
+          },
+          {
+           "t": "Building licence",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Commencement certificate",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Plinth certificate",
+           "state": "in",
+           "pages": 2
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Sanction details",
+       "items": [
+        {
+         "l": "Sanction number",
+         "v": "LP/2024/0731",
+         "state": "set",
+         "from": "Sanctioned plan",
+         "page": 1
+        },
+        {
+         "l": "Sanction date",
+         "v": "22 Jul 2024",
+         "state": "set",
+         "from": "Sanctioned plan",
+         "page": 1
+        },
+        {
+         "l": "Sanctioned height",
+         "v": "49.6 m",
+         "state": "sug",
+         "from": "Sanctioned plan",
+         "page": 4
+        },
+        {
+         "l": "Built-up area",
+         "v": "22,140 sqm",
+         "state": "set",
+         "from": "Sanctioned plan",
+         "page": 4
+        },
+        {
+         "l": "Commencement date",
+         "v": "3 Feb 2025",
+         "state": "set",
+         "from": "Commencement certificate",
+         "page": 1
+        },
+        {
+         "l": "Plinth certificate date",
+         "v": "11 Jun 2026",
+         "state": "set",
+         "from": "Plinth certificate",
+         "page": 1
+        }
+       ]
+      },
+      {
+       "type": "timeline",
+       "title": "Approval path",
+       "items": [
+        {
+         "year": "2020",
+         "t": "Conversion order",
+         "sub": "Planning authority, 9 Mar 2020",
+         "state": "in"
+        },
+        {
+         "year": "2024",
+         "t": "Plan sanction",
+         "sub": "City corporation, 22 Jul 2024",
+         "state": "in"
+        },
+        {
+         "year": "2024",
+         "t": "Environmental clearance",
+         "sub": "SEIAA Karnataka, 18 Nov 2024",
+         "state": "in"
+        },
+        {
+         "year": "2025",
+         "t": "Consent to establish",
+         "sub": "KSPCB, 20 Jan 2025",
+         "state": "in"
+        },
+        {
+         "year": "2025",
+         "t": "Commencement certificate",
+         "sub": "City corporation, 3 Feb 2025",
+         "state": "in"
+        },
+        {
+         "year": "2026",
+         "t": "Plinth certificate",
+         "sub": "City corporation, 11 Jun 2026",
+         "state": "in"
+        },
+        {
+         "year": "2028",
+         "t": "Occupancy certificate",
+         "sub": "Expected Aug 2028",
+         "state": "sug"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "clearances",
+     "name": "Clearances and NOCs",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Clearance letters",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "Environmental clearance",
+           "state": "in",
+           "pages": 14
+          },
+          {
+           "t": "KSPCB consent to establish",
+           "state": "in",
+           "pages": 6
+          },
+          {
+           "t": "Fire NOC",
+           "state": "in",
+           "pages": 5
+          },
+          {
+           "t": "AAI height NOC",
+           "state": "in",
+           "pages": 4
+          },
+          {
+           "t": "BWSSB sanction",
+           "state": "in",
+           "pages": 7
+          },
+          {
+           "t": "BESCOM power sanction",
+           "state": "asked",
+           "who": "BESCOM",
+           "due": "30 Oct 2026"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "map",
+       "title": "Site against zones and buffers",
+       "view": "site",
+       "layers": [
+        "plot",
+        "water",
+        "planning",
+        "roads",
+        "power",
+        "airport"
+       ],
+       "pins": [
+        {
+         "t": "Lake edge, visited 22 Sep 2026",
+         "kind": "visit",
+         "x": 16,
+         "y": 16
+        },
+        {
+         "t": "Storm-water drain, west side",
+         "kind": "photo",
+         "x": 28,
+         "y": 52
+        }
+       ],
+       "measures": [
+        {
+         "t": "Lake, buffer check",
+         "v": "180 m",
+         "tone": "ok"
+        },
+        {
+         "t": "Storm-water drain, buffer check",
+         "v": "38 m",
+         "tone": "warn"
+        },
+        {
+         "t": "110 kV line, BESCOM clearance",
+         "v": "95 m",
+         "tone": "ok"
+        },
+        {
+         "t": "Airport, AAI height NOC",
+         "v": "14 km",
+         "tone": "warn"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Which approvals apply",
+       "cols": [
+        "Measure",
+        "Project",
+        "Test",
+        "Triggers",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Built-up area",
+         "22,140 sqm",
+         "20,000 sqm or more",
+         "Environmental clearance",
+         "Received"
+        ],
+        [
+         "Building height",
+         "49.6 m",
+         "21 m or more",
+         "Fire NOC",
+         "Received"
+        ],
+        [
+         "Airport height zone",
+         "14 km from airport",
+         "Near an airport",
+         "AAI height NOC",
+         "Received"
+        ],
+        [
+         "Sewage treatment plant",
+         "1 plant, 112 units",
+         "Before occupation",
+         "KSPCB consent to operate",
+         "Pending"
+        ],
+        [
+         "Water and power",
+         "112 units",
+         "Before possession",
+         "Permanent connections",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Engineering",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "conditions",
+     "name": "Conditions and renewals",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Approvals register",
+       "cols": [
+        "Approval",
+        "Authority",
+        "Number",
+        "Valid to",
+        "Days left",
+        "Conditions",
+        "Status"
+       ],
+       "rows": [
+        [
+         "KSPCB consent to establish",
+         "KSPCB",
+         "CFE-0388",
+         "20 Dec 2026",
+         "78",
+         "4 of 6 met",
+         "Expiring"
+        ],
+        [
+         "Fire NOC",
+         "Fire and Emergency Services",
+         "FES-0207",
+         "5 Mar 2027",
+         "153",
+         "2 of 3 met",
+         "In force"
+        ],
+        [
+         "BWSSB sanction",
+         "BWSSB",
+         "WS-0415",
+         "30 Apr 2028",
+         "575",
+         "1 of 2 met",
+         "In force"
+        ],
+        [
+         "Plan sanction",
+         "City corporation",
+         "LP/2024/0731",
+         "21 Jul 2029",
+         "1,022",
+         "5 of 8 met",
+         "In force"
+        ],
+        [
+         "AAI height NOC",
+         "AAI",
+         "AAI-0129",
+         "11 Feb 2031",
+         "1,592",
+         "1 of 1 met",
+         "In force"
+        ],
+        [
+         "Environmental clearance",
+         "SEIAA Karnataka",
+         "EC-1142",
+         "17 Nov 2031",
+         "1,871",
+         "3 of 7 met",
+         "In force"
+        ]
+       ],
+       "status": 6,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add approval"
+      },
+      {
+       "type": "table",
+       "title": "Conditions and renewals due",
+       "cols": [
+        "Condition or renewal",
+        "Approval",
+        "Due",
+        "Owner",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Renew consent to establish",
+         "KSPCB consent",
+         "20 Dec 2026",
+         "S. Rao",
+         "Due"
+        ],
+        [
+         "Hydrants and ring main laid",
+         "Fire NOC",
+         "10 Apr 2028",
+         "A. Fernandes",
+         "Open"
+        ],
+        [
+         "Sewage plant commissioned",
+         "KSPCB consent",
+         "2 May 2028",
+         "A. Fernandes",
+         "Pending"
+        ],
+        [
+         "Rainwater harvesting built",
+         "Plan sanction",
+         "30 Jun 2028",
+         "R. Iyer",
+         "Open"
+        ],
+        [
+         "Keep clear of the drain buffer",
+         "Plan sanction",
+         "Ongoing",
+         "R. Iyer",
+         "Met"
+        ],
+        [
+         "Dust screens on site",
+         "Environmental clearance",
+         "Ongoing",
+         "A. Fernandes",
+         "Met"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add condition"
+      }
+     ]
+    },
+    {
+     "id": "occupancy",
+     "name": "Occupancy",
+     "icon": "key",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Steps before occupancy",
+       "items": [
+        {
+         "t": "Lift licence",
+         "due": "10 Apr 2028",
+         "who": "N. Rao",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Final fire NOC",
+         "due": "24 Apr 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "KSPCB consent to operate",
+         "due": "20 May 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Occupancy certificate application",
+         "due": "30 Jun 2028",
+         "who": "S. Kulkarni",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Occupancy certificate",
+         "due": "31 Aug 2028",
+         "who": "City corporation",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Permanent power and water",
+         "due": "30 Sep 2028",
+         "who": "S. Rao",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Occupancy pack",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "As-built structural drawings",
+           "state": "asked",
+           "who": "Northline Constructions",
+           "due": "14 Oct 2026",
+           "ref": {
+            "dept": "engineering",
+            "fn": "Technical",
+            "t": "As-built structural drawings"
+           }
+          },
+          {
+           "t": "Structural stability certificate",
+           "state": "none",
+           "ref": {
+            "dept": "engineering",
+            "fn": "Technical",
+            "t": "Structural stability certificate"
+           }
+          },
+          {
+           "t": "Architect's completion certificate",
+           "state": "none"
+          },
+          {
+           "t": "Final fire NOC letter",
+           "state": "none"
+          },
+          {
+           "t": "Lift licence copy",
+           "state": "none"
+          },
+          {
+           "t": "KSPCB consent to operate letter",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "KSPCB consent to establish ends 18 months before planned completion",
+     "rests": []
+    },
+    {
+     "t": "BWSSB sanction ends four months before the occupancy certificate is due",
+     "rests": []
+    },
+    {
+     "t": "Lift licence, final fire NOC and consent to operate fall within six weeks",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "KSPCB consent to establish ends 20 Dec 2026",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "BESCOM power sanction not yet in hand",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Which approvals apply, from height, area and location",
+     "Expiry and renewal calendar",
+     "Condition-by-condition compliance checklist",
+     "Likely approval path and time"
+    ],
+    "certified": [
+     "Sanction, commencement, plinth, occupancy: city corporation or planning authority, under KMC Act and bye-laws.",
+     "Environmental clearance: SEIAA Karnataka, EIA Notification 2006, at 20,000 sq m built-up or more.",
+     "Fire NOC: Karnataka Fire and Emergency Services, Fire Force Act s.13, at 21 m or more."
+    ],
+    "reports": [
+     "Approvals register with validity and conditions",
+     "Condition compliance statement",
+     "Renewal calendar",
+     "Occupancy application pack"
+    ],
+    "sent": [
+     "Renewal reminders 90 days before expiry",
+     "Condition breaches to Engineering and site team",
+     "Approval numbers and validity to RERA and Handover"
+    ]
+   },
+   "mustHave": [
+    "Environmental clearance is needed before work at 20,000 sq m built-up area or more.",
+    "Fire NOC at 21 m or more; 1% fire cess (Act 2025) awaits commencement.",
+    "Height NOC from AAI near airports and air force stations; never build above it.",
+    "KSPCB consent to establish before construction; consent to operate before occupation.",
+    "Occupancy certificate, final fire NOC and lift licence precede permanent power, water and possession."
+   ],
+   "standards": [
+    {
+     "name": "Karnataka Land Revenue Act 1964 s.95; Land Revenue (Amendment) Rules 2025",
+     "why": "Conversion: planning authority inside master plan, Deputy Commissioner outside",
+     "url": "https://corporate.cyrilamarchandblogs.com/2025/11/karnataka-land-revenue-rules-amendment-2025-redefining-land-governance/"
+    },
+    {
+     "name": "Karnataka Town and Country Planning Act 1961 s.13-E; RMP 2015 Zonal Regulations, amended 5 January 2026",
+     "why": "Zoning, setbacks, parking and density applied at sanction",
+     "url": "https://corporate.cyrilamarchandblogs.com/2026/02/amendment-to-zonal-regulations-under-revised-master-plan-2015-streamlining-setback-requirements-and-parking-provisions-in-bengaluru/"
+    },
+    {
+     "name": "Karnataka Fire Force Act 1964 s.13 (2023 amendment); Fire Force (Amendment) Act 2025",
+     "why": "Fire NOC at 21 m or more; 1% cess awaits commencement",
+     "url": "https://lexplosion.in/karnataka-government-issues-karnataka-fire-force-amendment-ordinance-2023-to-insert-noc-provision-for-high-rise-buildings/"
+    },
+    {
+     "name": "EIA Notification 2006 (item 8, building and township projects)",
+     "why": "Environmental clearance thresholds; portal for applications",
+     "url": "https://parivesh.nic.in/"
+    }
+   ]
+  },
+  {
+   "name": "RERA",
+   "stages": [
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "certified",
+    "by": "K. Shetty",
+    "role": "Chartered accountant",
+    "on": "28 Sep 2026",
+    "moved": true
+   },
+   "sections": [
+    {
+     "id": "pack",
+     "name": "Registration pack",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Drawn from other functions",
+       "cols": [
+        "Item",
+        "From",
+        "As of",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Legal title report",
+         "Title",
+         "12 Sep 2026",
+         "Received"
+        ],
+        [
+         "Sanction and commencement",
+         "Approvals",
+         "3 Feb 2025",
+         "Received"
+        ],
+        [
+         "Agreement for sale form",
+         "Contracts",
+         "10 Dec 2024",
+         "Received"
+        ],
+        [
+         "Audited accounts",
+         "Finance",
+         "25 Sep 2026",
+         "Received"
+        ],
+        [
+         "Project cost",
+         "Finance",
+         "30 Sep 2026",
+         "Received"
+        ],
+        [
+         "Percent complete",
+         "Progress",
+         "30 Sep 2026",
+         "Received"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Title, Approvals, Contracts, Finance, Progress",
+       "add": ""
+      },
+      {
+       "type": "slots",
+       "title": "Signed forms and certificates",
+       "groups": [
+        {
+         "name": "At registration",
+         "lines": [
+          {
+           "t": "Registration application, Forms A and B",
+           "state": "in",
+           "pages": 24
+          },
+          {
+           "t": "Certificates, Forms 1 to 3",
+           "state": "in",
+           "pages": 17
+          },
+          {
+           "t": "K-RERA registration certificate",
+           "state": "in",
+           "pages": 3
+          }
+         ]
+        },
+        {
+         "name": "Quarterly",
+         "lines": [
+          {
+           "t": "Certificates, Forms 4 to 6, April to June",
+           "state": "in",
+           "pages": 12
+          },
+          {
+           "t": "Certificates, Forms 4 to 6, July to September",
+           "state": "asked",
+           "who": "S. Kulkarni, N. Rao, K. Shetty",
+           "due": "12 Oct 2026"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "People and numbers",
+       "items": [
+        {
+         "l": "Membership numbers",
+         "v": "3 of 4 entered",
+         "state": "calc"
+        },
+        {
+         "l": "Registration number",
+         "v": "KRERA/LT/2024/118",
+         "state": "sug",
+         "from": "K-RERA registration certificate",
+         "page": 1
+        },
+        {
+         "l": "Registered end date",
+         "v": "31 Dec 2028",
+         "state": "set",
+         "from": "K-RERA registration certificate",
+         "page": 2
+        },
+        {
+         "l": "Architect",
+         "v": "S. Kulkarni",
+         "state": "set",
+         "from": "Certificates, Forms 1 to 3",
+         "page": 2
+        },
+        {
+         "l": "Engineer",
+         "v": "N. Rao",
+         "state": "set",
+         "from": "Certificates, Forms 1 to 3",
+         "page": 6
+        },
+        {
+         "l": "Chartered accountant",
+         "v": "K. Shetty",
+         "state": "set",
+         "from": "Certificates, Forms 1 to 3",
+         "page": 10
+        },
+        {
+         "l": "Statutory auditor",
+         "v": "Appointed 2025",
+         "state": "set"
+        },
+        {
+         "l": "Auditor differs from CA",
+         "v": "Yes",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "account",
+     "name": "Project account",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "figure",
+       "title": "Account against progress",
+       "label": "Withdrawal headroom",
+       "value": "₹ 2.0 Cr",
+       "chips": [
+        "35% complete, certified"
+       ],
+       "stats": [
+        {
+         "l": "Deposited, 70% of receipts",
+         "v": "₹ 21.7 Cr",
+         "n": "of ₹ 31.0 Cr received"
+        },
+        {
+         "l": "Withdrawn to date",
+         "v": "₹ 14.0 Cr"
+        },
+        {
+         "l": "Balance in account",
+         "v": "₹ 7.7 Cr"
+        },
+        {
+         "l": "Allowed at 35% complete",
+         "v": "₹ 16.0 Cr"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Account statement by month",
+       "cols": [
+        "Month",
+        "Received",
+        "To 70% account",
+        "Withdrawn",
+        "Certified complete",
+        "Match"
+       ],
+       "rows": [
+        [
+         "May 2026",
+         "₹ 260 L",
+         "₹ 182 L",
+         "₹ 90 L",
+         "27%",
+         "Passed"
+        ],
+        [
+         "Jun 2026",
+         "₹ 340 L",
+         "₹ 238 L",
+         "₹ 95 L",
+         "29%",
+         "Passed"
+        ],
+        [
+         "Jul 2026",
+         "₹ 290 L",
+         "₹ 203 L",
+         "₹ 88 L",
+         "31%",
+         "Partly"
+        ],
+        [
+         "Aug 2026",
+         "₹ 310 L",
+         "₹ 217 L",
+         "₹ 92 L",
+         "33%",
+         "Passed"
+        ],
+        [
+         "Sep 2026",
+         "₹ 340 L",
+         "₹ 238 L",
+         "₹ 95 L",
+         "35%",
+         "Passed"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        1,
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "agreements",
+     "name": "Agreements and advances",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Unit register",
+       "cols": [
+        "Unit",
+        "Carpet area",
+        "Price",
+        "Advance",
+        "Agreement date",
+        "Agreement"
+       ],
+       "rows": [
+        [
+         "Unit 304",
+         "960 sqft",
+         "₹ 1.15 Cr",
+         "10%",
+         "14 Aug 2026",
+         "Done"
+        ],
+        [
+         "Unit 502",
+         "1,040 sqft",
+         "₹ 1.27 Cr",
+         "10%",
+         "29 Aug 2026",
+         "Done"
+        ],
+        [
+         "Unit 807",
+         "880 sqft",
+         "₹ 1.08 Cr",
+         "8%",
+         "—",
+         "Pending"
+        ],
+        [
+         "Unit 1107",
+         "1,120 sqft",
+         "₹ 1.38 Cr",
+         "12%",
+         "—",
+         "Missing"
+        ],
+        [
+         "Unit 1403",
+         "1,120 sqft",
+         "₹ 1.42 Cr",
+         "10%",
+         "3 Sep 2026",
+         "Done"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        2
+       ],
+       "bar": 3,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add unit"
+      },
+      {
+       "type": "fields",
+       "title": "Advance check",
+       "items": [
+        {
+         "l": "Advance cap before agreement",
+         "v": "10%",
+         "state": "set"
+        },
+        {
+         "l": "Units booked",
+         "v": "62 of 112",
+         "state": "set"
+        },
+        {
+         "l": "Agreements registered",
+         "v": "58 of 62",
+         "state": "calc"
+        },
+        {
+         "l": "Units above the cap",
+         "v": "1",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "quarterly",
+     "name": "Quarterly update",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Compliance calendar",
+       "items": [
+        {
+         "t": "Quarterly update, April to June",
+         "due": "15 Jul 2026",
+         "who": "S. Kulkarni",
+         "state": "Filed"
+        },
+        {
+         "t": "Form 7, annual audit 2025 to 2026",
+         "due": "30 Sep 2026",
+         "who": "Statutory auditor",
+         "state": "Filed"
+        },
+        {
+         "t": "Quarterly update, July to September",
+         "due": "15 Oct 2026",
+         "who": "S. Kulkarni",
+         "state": "Due"
+        },
+        {
+         "t": "Withdrawal certificates, October",
+         "due": "28 Oct 2026",
+         "who": "K. Shetty",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Quarterly update, October to December",
+         "due": "15 Jan 2027",
+         "who": "S. Kulkarni",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Form 7, annual audit 2026 to 2027",
+         "due": "30 Sep 2027",
+         "who": "Statutory auditor",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Registered end date",
+         "due": "31 Dec 2028",
+         "who": "S. Rao",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "figure",
+       "title": "Penalty for a late report",
+       "label": "Per late quarterly update",
+       "value": "₹ 25,000",
+       "chips": [
+        "Next update in 12 days"
+       ],
+       "stats": [
+        {
+         "l": "Late reports to date",
+         "v": "0"
+        },
+        {
+         "l": "Exposure to date",
+         "v": "₹ 0"
+        },
+        {
+         "l": "Next update due",
+         "v": "15 Oct 2026"
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Draft for July to September",
+       "items": [
+        {
+         "l": "Percent complete",
+         "v": "35%",
+         "state": "calc"
+        },
+        {
+         "l": "Receipts in the quarter",
+         "v": "₹ 9.4 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Withdrawn in the quarter",
+         "v": "₹ 2.75 Cr",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "audit",
+     "name": "Annual audit",
+     "icon": "report",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Audit papers",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "Form 7, annual audit",
+           "state": "in",
+           "pages": 20
+          },
+          {
+           "t": "Audited accounts 2025 to 2026",
+           "state": "in",
+           "pages": 38
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Form 7, 2025 to 2026",
+       "items": [
+        {
+         "l": "Financial year",
+         "v": "1 Apr 2025 to 31 Mar 2026",
+         "state": "set"
+        },
+        {
+         "l": "Form 7 filed on",
+         "v": "25 Sep 2026",
+         "state": "set",
+         "from": "Form 7, annual audit",
+         "page": 1
+        },
+        {
+         "l": "Audit opinion",
+         "v": "Unmodified",
+         "state": "sug",
+         "from": "Form 7, annual audit",
+         "page": 4
+        },
+        {
+         "l": "Withdrawn in the year",
+         "v": "₹ 7.9 Cr",
+         "state": "set",
+         "from": "Audited accounts 2025 to 2026",
+         "page": 12
+        },
+        {
+         "l": "Withdrawals certified",
+         "v": "12 of 12",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "changes",
+     "name": "Changes and extension",
+     "icon": "chat",
+     "blocks": [
+      {
+       "type": "figure",
+       "title": "Form M consent, clubhouse change",
+       "label": "Allottees who consented",
+       "value": "38 of 62",
+       "chips": [
+        "Two-thirds needed"
+       ],
+       "stats": [
+        {
+         "l": "Consents needed",
+         "v": "42",
+         "n": "two-thirds of 62"
+        },
+        {
+         "l": "Still short by",
+         "v": "4"
+        },
+        {
+         "l": "Declined",
+         "v": "9"
+        },
+        {
+         "l": "Not yet replied",
+         "v": "15"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Notices from K-RERA",
+       "cols": [
+        "Notice",
+        "Received",
+        "Deadline",
+        "Owner",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Hearing notice, parking complaint",
+         "26 Sep 2026",
+         "12 Nov 2026",
+         "P. Nair",
+         "Open"
+        ],
+        [
+         "Query on April to June update",
+         "9 Sep 2026",
+         "16 Sep 2026",
+         "S. Kulkarni",
+         "Closed"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "K-RERA",
+       "add": "Log a notice"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Two July receipts are not matched to an allottee",
+     "rests": []
+    },
+    {
+     "t": "Completion plan leaves six months before the registered end date",
+     "rests": [
+      "Registered end date"
+     ]
+    },
+    {
+     "t": "Unit 1107 paid 12% with no registered agreement",
+     "rests": [
+      "Units above the cap"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Advance above 10% before agreement, unit 1107",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "July to September update due in 12 days",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Form M consent four short of two-thirds",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Withdrawal headroom: 70% account against percent complete",
+     "Quarterly update drafted from live project data",
+     "Interest exposure on delay at SBI MCLR plus 2%",
+     "Advance cap check: 10% before registered agreement"
+    ],
+    "certified": [
+     "Forms 1-3 at registration, 4-6 quarterly: chartered accountant, architect, engineer, K-RERA General Regulations 2022 reg 3.",
+     "Form 7 annual audit: statutory auditor chartered accountant, within six months of year end, s.4(2)(l)(D).",
+     "Each withdrawal from the 70% account: engineer, architect, chartered accountant certify proportion to completion, s.4(2)(l)(D)."
+    ],
+    "reports": [
+     "K-RERA registration application, Forms A and B",
+     "Quarterly update on K-RERA portal",
+     "Form 7 annual audit with audited accounts",
+     "Extension, modification and bank-account change applications"
+    ],
+    "sent": [
+     "Certificate requests to architect, engineer, CA before due date",
+     "Consent requests to allottees for plan changes (Form M)",
+     "Withdrawal eligibility and RERA number to Finance and Sales"
+    ]
+   },
+   "mustHave": [
+    "Quarterly update within 15 days of quarter end; Rs 25,000 penalty per late report.",
+    "Form 7 audit due six months after year end; 15 November 2025 for 2024-25.",
+    "Deposit 70% of allottee money in the RERA account; borrowed funds too (2023 order).",
+    "No advance above 10% before a registered agreement for sale (s.13; Karnataka Rule 8A).",
+    "Plan changes need two-thirds allottee consent (Form M); extensions need K-RERA approval (s.6)."
+   ],
+   "standards": [
+    {
+     "name": "Real Estate (Regulation and Development) Act 2016 ss.3, 4(2), 6, 11, 13, 14, 17",
+     "why": "Registration, 70% account, advances, plan changes, defects",
+     "url": "https://www.up-rera.in/pdf/reraact.pdf"
+    },
+    {
+     "name": "Karnataka Real Estate (Regulation and Development) Rules 2017, with Rule 8A of June 2020",
+     "why": "Account for ongoing projects, interest rate, 10% advance cap",
+     "url": "https://naredco.in/notification/pdfs/Karnataka%20Real%20Estate%20(Regulation%20and%20Development)%20Rules,%202017.pdf"
+    },
+    {
+     "name": "Karnataka RERA (General) Regulations 2022, amended August 2024",
+     "why": "Forms 1 to 7, designated account, plan-change consent, professionals",
+     "url": "https://taxguru.in/corporate-law/details-karnataka-rera-general-regulations-2022.html"
+    },
+    {
+     "name": "K-RERA order of 20 January 2026 on quarterly updates; circular of 12 September 2025 on Form 7",
+     "why": "Current penalty and filing dates",
+     "url": "https://complinity.com/legal-update/mandatory-quarterly-project-updates-and-levy-of-penalty-for-non-compliance-under-k-rera-22567/"
+    }
+   ]
+  },
+  {
+   "name": "Contracts",
+   "stages": [
+    "land",
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "6 agreements read, 3 terms assumed"
+   },
+   "sections": [
+    {
+     "id": "register",
+     "name": "Agreement register",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Agreement register",
+       "cols": [
+        "Agreement",
+        "Parties",
+        "Value",
+        "Key date",
+        "Registration",
+        "Due next",
+        "Case"
+       ],
+       "rows": [
+        [
+         "Construction agreement",
+         "Lakeview Developers LLP, Northline Constructions",
+         "₹ 61.8 Cr",
+         "Completion 30 Jun 2028",
+         "—",
+         "Bill 14, 10 Oct 2026",
+         "None"
+        ],
+        [
+         "Loan and mortgage",
+         "Lakeview Developers LLP, Hosakere Bank",
+         "₹ 45.0 Cr",
+         "Signed 18 Dec 2024",
+         "Done",
+         "Interest, 5 Nov 2026",
+         "None"
+        ],
+        [
+         "Architect's appointment",
+         "Lakeview Developers LLP, S. Kulkarni",
+         "₹ 2.4 Cr",
+         "Signed 6 Jun 2023",
+         "—",
+         "Stage 4 fee, 31 Oct 2026",
+         "None"
+        ],
+        [
+         "Agreements for sale",
+         "Lakeview Developers LLP, 62 allottees",
+         "₹ 78.1 Cr",
+         "Possession by 31 Dec 2028",
+         "Partly",
+         "Register four agreements",
+         "1 at K-RERA"
+        ],
+        [
+         "Storage yard lease",
+         "Lakeview Developers LLP, landowner",
+         "₹ 4.2 L /month",
+         "From 1 Mar 2025, 4 years",
+         "Missing",
+         "Register the lease",
+         "None"
+        ],
+        [
+         "Power of attorney",
+         "Lakeview Developers LLP, S. Rao",
+         "—",
+         "Signed 9 Jan 2025",
+         "Done",
+         "Review, 9 Jan 2027",
+         "None"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        2
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add agreement"
+      },
+      {
+       "type": "slots",
+       "title": "Signed agreements",
+       "groups": [
+        {
+         "name": "Works and design",
+         "lines": [
+          {
+           "t": "Construction agreement, Northline Constructions",
+           "state": "in",
+           "pages": 96
+          },
+          {
+           "t": "Construction agreement, amendment 2",
+           "state": "asked",
+           "who": "Northline Constructions",
+           "due": "20 Oct 2026"
+          },
+          {
+           "t": "Architect's appointment",
+           "state": "in",
+           "pages": 12
+          }
+         ]
+        },
+        {
+         "name": "Funding, sales and site",
+         "lines": [
+          {
+           "t": "Loan agreement, Hosakere Bank",
+           "state": "in",
+           "pages": 74
+          },
+          {
+           "t": "Agreement for sale, standard form",
+           "state": "in",
+           "pages": 38
+          },
+          {
+           "t": "Storage yard lease",
+           "state": "in",
+           "pages": 9
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "terms",
+     "name": "Key terms and dates",
+     "icon": "details",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Read from the construction agreement",
+       "items": [
+        {
+         "l": "Contract price",
+         "v": "₹ 61.8 Cr",
+         "state": "set",
+         "from": "Construction agreement, Northline Constructions",
+         "page": 4
+        },
+        {
+         "l": "Completion date",
+         "v": "30 Jun 2028",
+         "state": "set",
+         "from": "Construction agreement, Northline Constructions",
+         "page": 12
+        },
+        {
+         "l": "Defect liability",
+         "v": "5 years",
+         "state": "sug",
+         "from": "Construction agreement, Northline Constructions",
+         "page": 31
+        },
+        {
+         "l": "Delay damages clause",
+         "v": "Clause 27",
+         "state": "sug",
+         "from": "Construction agreement, Northline Constructions",
+         "page": 29
+        },
+        {
+         "l": "Payments made",
+         "v": "₹ 21.6 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Retention held",
+         "v": "₹ 1.1 Cr",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Key terms by contract",
+       "cols": [
+        "Contract",
+        "Completion or possession",
+        "Next payment",
+        "Retention",
+        "Defect period",
+        "Notice",
+        "Check"
+       ],
+       "rows": [
+        [
+         "Construction agreement",
+         "30 Jun 2028",
+         "₹ 3.4 Cr, 10 Oct 2026",
+         "₹ 1.1 Cr held",
+         "5 years",
+         "30 days",
+         "Passed"
+        ],
+        [
+         "Architect's appointment",
+         "Until occupancy",
+         "₹ 18 L, 31 Oct 2026",
+         "—",
+         "2 years",
+         "30 days",
+         "Failed"
+        ],
+        [
+         "Agreements for sale",
+         "31 Dec 2028",
+         "Stage demands",
+         "—",
+         "5 years",
+         "—",
+         "Passed"
+        ],
+        [
+         "Storage yard lease",
+         "Ends 1 Mar 2029",
+         "₹ 4.2 L, 1 Nov 2026",
+         "Deposit ₹ 25 L",
+         "—",
+         "—",
+         "—"
+        ]
+       ],
+       "status": 6,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add contract"
+      }
+     ]
+    },
+    {
+     "id": "stamping",
+     "name": "Registration and stamping",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Registered papers",
+       "groups": [
+        {
+         "name": "Registration",
+         "lines": [
+          {
+           "t": "Power of attorney, S. Rao",
+           "state": "in",
+           "pages": 4
+          },
+          {
+           "t": "Registration receipt, mortgage deed",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Registration receipts, agreements for sale",
+           "state": "in",
+           "pages": 58
+          }
+         ]
+        },
+        {
+         "name": "Stamping",
+         "lines": [
+          {
+           "t": "Stamp proof, agreements for sale",
+           "state": "in",
+           "pages": 62
+          },
+          {
+           "t": "Stamp proof, storage yard lease",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Registration check",
+       "cols": [
+        "Document",
+        "Registered on",
+        "Receipt",
+        "Stamp proof",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Mortgage deed, Hosakere Bank",
+         "18 Dec 2024",
+         "In hand",
+         "In hand",
+         "Done"
+        ],
+        [
+         "Power of attorney, S. Rao",
+         "9 Jan 2025",
+         "In hand",
+         "In hand",
+         "Done"
+        ],
+        [
+         "Agreements for sale, 58 of 62",
+         "Jan 2025 to Sep 2026",
+         "58 in hand",
+         "62 in hand",
+         "Partly"
+        ],
+        [
+         "Storage yard lease, 4 years",
+         "Not registered",
+         "—",
+         "None on file",
+         "Missing"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add document"
+      }
+     ]
+    },
+    {
+     "id": "notices",
+     "name": "Notices and obligations",
+     "icon": "chat",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Obligations and notice dates",
+       "items": [
+        {
+         "t": "Running bill 14 to Northline",
+         "due": "10 Oct 2026",
+         "who": "A. Menon",
+         "state": "Due"
+        },
+        {
+         "t": "Register four agreements for sale",
+         "due": "17 Oct 2026",
+         "who": "P. Nair",
+         "state": "Due"
+        },
+        {
+         "t": "Register the storage yard lease",
+         "due": "24 Oct 2026",
+         "who": "P. Nair",
+         "state": "Due"
+        },
+        {
+         "t": "Architect's stage 4 fee",
+         "due": "31 Oct 2026",
+         "who": "A. Menon",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Interest to Hosakere Bank",
+         "due": "5 Nov 2026",
+         "who": "A. Menon",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Hearing, K-RERA complaint",
+         "due": "12 Nov 2026",
+         "who": "P. Nair",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Review power of attorney",
+         "due": "9 Jan 2027",
+         "who": "P. Nair",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Payments and schedule delay",
+       "cols": [
+        "Contract",
+        "Payment due",
+        "Amount",
+        "Schedule",
+        "Trigger test"
+       ],
+       "rows": [
+        [
+         "Construction agreement",
+         "10 Oct 2026",
+         "₹ 3.4 Cr",
+         "6 days behind",
+         "Passed"
+        ],
+        [
+         "Architect's appointment",
+         "31 Oct 2026",
+         "₹ 18 L",
+         "—",
+         "Passed"
+        ],
+        [
+         "Storage yard lease",
+         "1 Nov 2026",
+         "₹ 4.2 L",
+         "—",
+         "Passed"
+        ],
+        [
+         "Loan and mortgage",
+         "5 Nov 2026",
+         "₹ 26 L",
+         "—",
+         "Passed"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        2
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Finance and Engineering",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "disputes",
+     "name": "Disputes and cases",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "search",
+       "title": "Case look-ups by party",
+       "source": "eCourts, High Court, NCLT, consumer commission, K-RERA",
+       "query": "Lakeview Developers LLP; Lakeview Tower",
+       "results": [
+        {
+         "t": "K-RERA complaint, parking allotment",
+         "sub": "Allottee, unit 502, hearing 12 Nov 2026",
+         "picked": true
+        },
+        {
+         "t": "No pending civil suit",
+         "sub": "eCourts, Bengaluru",
+         "picked": false
+        },
+        {
+         "t": "No insolvency petition",
+         "sub": "NCLT",
+         "picked": false
+        },
+        {
+         "t": "No consumer complaint",
+         "sub": "Consumer commission",
+         "picked": false
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Orders and notices received",
+       "cols": [
+        "Received",
+        "From",
+        "What",
+        "Next date",
+        "Owner",
+        "Status"
+       ],
+       "rows": [
+        [
+         "26 Sep 2026",
+         "K-RERA",
+         "Hearing notice, parking complaint",
+         "12 Nov 2026",
+         "P. Nair",
+         "Open"
+        ],
+        [
+         "30 Sep 2026",
+         "Northline Constructions",
+         "Reminder for running bill 14",
+         "10 Oct 2026",
+         "A. Menon",
+         "Open"
+        ],
+        [
+         "9 Sep 2026",
+         "K-RERA",
+         "Query on April to June update",
+         "—",
+         "S. Kulkarni",
+         "Closed"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "K-RERA and Northline Constructions",
+       "add": "Log a notice"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Northline is six days behind while a ₹ 3.4 Cr bill falls due",
+     "rests": []
+    },
+    {
+     "t": "Four allottees have paid advances without a registered agreement",
+     "rests": []
+    },
+    {
+     "t": "Architect's defect period of two years is below the promoter's five",
+     "rests": [
+      "Defect liability"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Storage yard lease over one year not registered",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Architect's defect period shorter than five years",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Four agreements for sale await registration",
+     "by": "rule",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Clause extract with missing-registration and one-sided term flags",
+     "Delay damages and interest exposure per contract",
+     "Limitation and next-hearing countdowns",
+     "Dispute exposure total by forum"
+    ],
+    "certified": [
+     "Registration of JDA, agreement for sale, conveyance, lease over one year: Sub-Registrar, Registration Act s.17.",
+     "Agreement for sale signed before 10% advance is exceeded: promoter and allottee, RERA s.13, Rule 8A.",
+     "Past-project and pending-case disclosure: promoter's affidavit, RERA s.4(2)(b), checked by advocate."
+    ],
+    "reports": [
+     "Agreement register",
+     "Case register and hearing diary",
+     "Obligations and notices tracker",
+     "Litigation disclosure for K-RERA registration"
+    ],
+    "sent": [
+     "Draft notices: payment, cure, delay, termination, legal notice",
+     "Expiry, renewal and limitation reminders to owners",
+     "Payment milestones to Finance; registered agreements to RERA"
+    ]
+   },
+   "mustHave": [
+    "JDA and power of attorney must be registered; limit the power to developer's share.",
+    "Lease over one year, and any agreement to sell with possession, must be registered.",
+    "Delay interest to allottees: SBI highest MCLR plus 2% (Karnataka Rule 16, s.18).",
+    "Contractor and consultant contracts should carry five-year defect liability to match the promoter's (s.14(3)).",
+    "Disputes: consumer complaint within two years; homebuyers' insolvency petition needs 100 allottees or 10%."
+   ],
+   "standards": [
+    {
+     "name": "Registration Act 1908 ss.17, 49; Registration (Karnataka Amendment) Act 2025",
+     "why": "JDAs, leases, powers of attorney need registering; s.49 bars unregistered proof",
+     "url": "https://www.indialaw.in/blog/real-estate/the-registration-karnataka-amendment-act-2025/"
+    },
+    {
+     "name": "RERA ss.4(2)(b), 13, 18; Karnataka Rule 8A of 12 June 2020",
+     "why": "Agreement for sale, 10% cap, case disclosure, delay remedies",
+     "url": "https://www.teamleaseregtech.com/updates/article/10400/karnataka-real-estate-regulation-and-development-first-amendment-rules/"
+    },
+    {
+     "name": "Karnataka Stamp Act 1957, joint development agreement duty (reported 2%)",
+     "why": "Stamp JDA and power of attorney correctly; confirm current rate",
+     "url": "https://www.onecityproperty.com/news/joint-development-agreement-bangalore-landowners-guide"
+    },
+    {
+     "name": "Arbitration and Conciliation Act 1996 ss.8, 9, 11",
+     "why": "Arbitration clauses and interim relief in JDA and construction contracts",
+     "url": "https://en.wikipedia.org/wiki/Arbitration_and_Conciliation_Act,_1996"
+    }
+   ]
+  },
+  {
+   "name": "Handover",
+   "stages": [
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "6 steps tracked, 4 dates assumed"
+   },
+   "sections": [
+    {
+     "id": "readiness",
+     "name": "Occupancy readiness",
+     "icon": "checks",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Handover tracker",
+       "cols": [
+        "Step",
+        "Signer",
+        "Planned",
+        "Days left",
+        "Done",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Occupancy certificate",
+         "City corporation",
+         "31 Aug 2028",
+         "698",
+         "0 of 1",
+         "Pending"
+        ],
+        [
+         "Documents and plans handed over",
+         "S. Rao",
+         "30 Sep 2028",
+         "728",
+         "1 of 6",
+         "Partly"
+        ],
+        [
+         "Sale deeds registered",
+         "Sub-Registrar",
+         "30 Nov 2028",
+         "789",
+         "0 of 112",
+         "Pending"
+        ],
+        [
+         "e-Khata for each unit",
+         "City corporation",
+         "15 Dec 2028",
+         "804",
+         "0 of 112",
+         "Pending"
+        ],
+        [
+         "Deposits and corpus fund statement",
+         "K. Shetty",
+         "15 Jan 2029",
+         "835",
+         "0 of 1",
+         "Pending"
+        ],
+        [
+         "Owners' association formed",
+         "Apartment owners",
+         "31 Jan 2029",
+         "851",
+         "0 of 1",
+         "Pending"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add step"
+      },
+      {
+       "type": "table",
+       "title": "Occupancy certificate and NOCs",
+       "cols": [
+        "Approval",
+        "Expected",
+        "Days left",
+        "Blocks",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Lift licence",
+         "10 Apr 2028",
+         "555",
+         "Occupancy certificate",
+         "Pending"
+        ],
+        [
+         "Final fire NOC",
+         "24 Apr 2028",
+         "569",
+         "Occupancy certificate",
+         "Pending"
+        ],
+        [
+         "KSPCB consent to operate",
+         "20 May 2028",
+         "595",
+         "Occupancy",
+         "Pending"
+        ],
+        [
+         "Occupancy certificate",
+         "31 Aug 2028",
+         "698",
+         "Possession and deeds",
+         "Pending"
+        ],
+        [
+         "Permanent power, BESCOM",
+         "30 Sep 2028",
+         "728",
+         "Possession",
+         "Pending"
+        ],
+        [
+         "Permanent water, BWSSB",
+         "30 Sep 2028",
+         "728",
+         "Possession",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Approvals",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "possession",
+     "name": "Possession",
+     "icon": "key",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Unit register",
+       "cols": [
+        "Unit",
+        "Agreement",
+        "Dues to date",
+        "Possession",
+        "Deed number"
+       ],
+       "rows": [
+        [
+         "Unit 304",
+         "14 Aug 2026",
+         "Paid",
+         "Oct 2028",
+         "Awaited"
+        ],
+        [
+         "Unit 502",
+         "29 Aug 2026",
+         "Paid",
+         "Oct 2028",
+         "Awaited"
+        ],
+        [
+         "Unit 807",
+         "Pending",
+         "Due",
+         "Oct 2028",
+         "Awaited"
+        ],
+        [
+         "Unit 1107",
+         "Not signed",
+         "Paid",
+         "Oct 2028",
+         "Awaited"
+        ],
+        [
+         "Unit 1403",
+         "3 Sep 2026",
+         "Due",
+         "Oct 2028",
+         "Awaited"
+        ]
+       ],
+       "status": 2,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add unit"
+      },
+      {
+       "type": "fields",
+       "title": "Clock inputs",
+       "items": [
+        {
+         "l": "Planned completion",
+         "v": "June 2028",
+         "state": "set"
+        },
+        {
+         "l": "Occupancy certificate date",
+         "v": "31 Aug 2028",
+         "state": "assume"
+        }
+       ]
+      },
+      {
+       "type": "calendar",
+       "title": "Clocks from the certificate",
+       "items": [
+        {
+         "t": "Documents and plans handed over",
+         "due": "30 Sep 2028",
+         "who": "S. Rao",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Buyers take possession",
+         "due": "31 Oct 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Sale deeds registered",
+         "due": "30 Nov 2028",
+         "who": "P. Nair",
+         "state": "Upcoming"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "conveyance",
+     "name": "Conveyance and khata",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "slots",
+       "title": "Deed papers",
+       "groups": [
+        {
+         "name": "Drafts",
+         "lines": [
+          {
+           "t": "Draft declaration of apartments",
+           "state": "in",
+           "pages": 16
+          },
+          {
+           "t": "Draft deed of apartment",
+           "state": "in",
+           "pages": 9
+          },
+          {
+           "t": "Undivided share schedule",
+           "state": "in",
+           "pages": 3
+          },
+          {
+           "t": "Common-area description",
+           "state": "in",
+           "pages": 2
+          }
+         ]
+        },
+        {
+         "name": "After the certificate",
+         "lines": [
+          {
+           "t": "Registered sale deeds",
+           "state": "none"
+          },
+          {
+           "t": "e-Khata for each unit",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Deed checks",
+       "items": [
+        {
+         "l": "Units in the declaration",
+         "v": "112",
+         "state": "set",
+         "from": "Draft declaration of apartments",
+         "page": 3
+        },
+        {
+         "l": "Undivided shares add up",
+         "v": "100%",
+         "state": "calc"
+        },
+        {
+         "l": "Common areas match plan",
+         "v": "Yes",
+         "state": "sug",
+         "from": "Common-area description",
+         "page": 1
+        },
+        {
+         "l": "Deeds registered",
+         "v": "0 of 112",
+         "state": "calc"
+        },
+        {
+         "l": "e-Khata split",
+         "v": "0 of 112",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "association",
+     "name": "Owners' association",
+     "icon": "people",
+     "blocks": [
+      {
+       "type": "qa",
+       "title": "Questions on the association",
+       "items": [
+        {
+         "q": "Which law governs the owners' association?",
+         "a": "Karnataka Apartment Ownership Act 1972",
+         "source": "Advocate's view",
+         "proof": "",
+         "state": "answered"
+        },
+        {
+         "q": "When does the association form?",
+         "a": "After the sale deeds are registered",
+         "source": "Advocate's view",
+         "proof": "High Court ruling, March 2026",
+         "state": "answered"
+        },
+        {
+         "q": "Can a cooperative society form alongside?",
+         "a": "No, per the High Court ruling",
+         "source": "Advocate's view",
+         "proof": "",
+         "state": "suggested"
+        },
+        {
+         "q": "Does the 2026 Bill apply?",
+         "a": "Not law yet, the 1972 Act applies",
+         "source": "Advocate's view",
+         "proof": "",
+         "state": "answered"
+        },
+        {
+         "q": "Who pays outgoings until handover?",
+         "a": "The promoter",
+         "source": "Advocate's view",
+         "proof": "RERA section 11(4)(g)",
+         "state": "answered"
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Association",
+       "items": [
+        {
+         "l": "Association name",
+         "v": "Lakeview Tower Owners' Association",
+         "state": "sug",
+         "from": "Draft declaration of apartments",
+         "page": 2
+        },
+        {
+         "l": "Members",
+         "v": "112 apartments",
+         "state": "calc"
+        },
+        {
+         "l": "Draft bye-laws",
+         "v": "With the advocate",
+         "state": "set"
+        },
+        {
+         "l": "Association registered",
+         "v": "",
+         "state": "empty"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "documents",
+     "name": "Documents and deposits",
+     "icon": "box",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Handover documents",
+       "cols": [
+        "Document",
+        "From",
+        "Due",
+        "Status"
+       ],
+       "rows": [
+        [
+         "As-built drawings",
+         "Northline Constructions",
+         "30 Jun 2028",
+         "Pending"
+        ],
+        [
+         "Warranties and manuals",
+         "Northline Constructions",
+         "30 Jun 2028",
+         "Pending"
+        ],
+        [
+         "Maintenance contracts",
+         "A. Fernandes",
+         "31 Aug 2028",
+         "Pending"
+        ],
+        [
+         "Sanctioned plan and approvals",
+         "P. Nair",
+         "30 Sep 2028",
+         "Received"
+        ],
+        [
+         "Property tax receipts",
+         "A. Menon",
+         "30 Sep 2028",
+         "Pending"
+        ],
+        [
+         "Lift and fire licences",
+         "N. Rao",
+         "30 Sep 2028",
+         "Pending"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add document"
+      },
+      {
+       "type": "table",
+       "title": "Deposits and corpus fund",
+       "cols": [
+        "Item",
+        "Held now",
+        "Due at possession",
+        "CA audit",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Corpus fund",
+         "₹ 0",
+         "₹ 224 L",
+         "Before handover",
+         "Pending"
+        ],
+        [
+         "Maintenance deposit",
+         "₹ 0",
+         "₹ 168 L",
+         "Before handover",
+         "Pending"
+        ],
+        [
+         "Interest on deposits",
+         "₹ 0",
+         "—",
+         "Before handover",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        1,
+        2
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Finance",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "defects",
+     "name": "Defect period",
+     "icon": "photos",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Defect clock",
+       "items": [
+        {
+         "l": "Defect period",
+         "v": "5 years",
+         "state": "set"
+        },
+        {
+         "l": "Rectification time",
+         "v": "30 days",
+         "state": "set"
+        },
+        {
+         "l": "Clock starts",
+         "v": "At possession",
+         "state": "set"
+        },
+        {
+         "l": "Defects reported",
+         "v": "0",
+         "state": "calc"
+        },
+        {
+         "l": "Snags logged, sample apartment",
+         "v": "3",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "photos",
+       "title": "Snag walk, sample apartment",
+       "items": [
+        {
+         "where": "Sample apartment, bathroom ceiling",
+         "says": "Damp patch about 400 mm wide",
+         "art": "damp",
+         "state": "sug"
+        },
+        {
+         "where": "Sample apartment, balcony door",
+         "says": "Hollow-sounding tiles near the threshold",
+         "art": "stone",
+         "state": "sug"
+        },
+        {
+         "where": "Level 2, corridor wall",
+         "says": "Hairline crack along the joint",
+         "art": "column",
+         "state": "ok"
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Sale deeds are planned one month before the registered end date",
+     "rests": []
+    },
+    {
+     "t": "Only one of six handover documents is in hand",
+     "rests": []
+    },
+    {
+     "t": "Corpus fund and deposits fall due at possession, none held yet",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Handover blocked until the occupancy certificate issues",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Draft association papers not yet reviewed",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Unit readiness: dues cleared, deed registered, khata bifurcated",
+     "Clocks: 3 months deed, 30 days documents, 2 months takeover",
+     "Draft statement of deposits and corpus fund due",
+     "Defect-period clock and open defects per unit"
+    ],
+    "certified": [
+     "Occupancy certificate: city corporation or planning authority, under building bye-laws; needed before possession and deeds.",
+     "Registered conveyance of each unit and undivided common-area share: Sub-Registrar, Registration Act, RERA s.17.",
+     "Audited statement of deposits and corpus fund: chartered accountant; good practice, required by pending 2026 Bill."
+    ],
+    "reports": [
+     "Handover pack index and signed receipt",
+     "Possession letters and signed snag lists",
+     "Association file: declaration, bye-laws, registration",
+     "Defect liability register, five years"
+    ],
+    "sent": [
+     "Possession offer and dues letters to allottees",
+     "Document handover notice to the association",
+     "Defect rectification notices to contractors, 30-day clock"
+    ]
+   },
+   "mustHave": [
+    "Deeds within 3 months of OC (RERA s.17); bifurcate e-Khata per unit on e-Aasthi.",
+    "Documents and plans to the association within 30 days of completion certificate (RERA s.17(2)).",
+    "High Court, March 2026: KAOA association forms after sale deeds; no parallel cooperative society.",
+    "Structural defects reported within 5 years: rectify in 30 days, free (s.14(3)).",
+    "Promoter pays all outgoings until handover (s.11(4)(g)); buyers take possession within 2 months (s.19(10))."
+   ],
+   "standards": [
+    {
+     "name": "RERA ss.11(4), 14(3), 17, 19(10)",
+     "why": "Conveyance, documents, association, defect liability, possession",
+     "url": "https://www.up-rera.in/pdf/reraact.pdf"
+    },
+    {
+     "name": "Karnataka Apartment Ownership Act 1972",
+     "why": "Declaration and deed of apartment registered; owners' association formed after conveyance",
+     "url": "https://www.indiacode.nic.in/bitstream/123456789/7623/1/17_of_1973_(e).pdf"
+    },
+    {
+     "name": "Karnataka High Court, WP 5934/2024, 9 March 2026",
+     "why": "KAOA governs after ownership transfers; RERA governs before",
+     "url": "https://www.livelawbiz.com/rera/no-repugnancy-between-rera-and-karnataka-apartment-ownership-act-karnataka-high-court-525735"
+    },
+    {
+     "name": "Karnataka Apartment (Ownership and Management) Bill 2026, not yet law",
+     "why": "Would replace KAOA and KOFA; sets 60-day handover duties",
+     "url": "https://nemmadi.in/karnataka-apartment-ownership-management-bill-2026-explained/"
+    }
+   ]
+  }
+ ]
+}

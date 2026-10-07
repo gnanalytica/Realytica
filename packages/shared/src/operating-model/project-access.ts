@@ -60,7 +60,7 @@ export const GRANT_AREA_HINT: Record<GrantArea, string> = {
   valuation: 'What the site is worth, the approaches behind it, and any property screen.',
   decisions: 'Proceed, hold, conditions — the commercial calls and their reasoning.',
   reports: 'Issued and draft reports on this project.',
-  commercials: 'The budget on the project record, and figures derived from it.',
+  commercials: 'The budget, engagement fees, and the cost register: contracts, bills and payments.',
   site_record: 'Site visits, their photographs, and placed master-plan sheets.',
 };
 

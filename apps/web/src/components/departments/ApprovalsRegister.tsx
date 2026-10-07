@@ -10,6 +10,7 @@ import {
 } from '@realytica/shared';
 import { Badge, InfoTip, TONE_FILL, cn, toneChip, type Tone } from '../ui/kit';
 import { EASE_ENTER, Stagger, StaggerItem, motion } from '../../lib/motion';
+import { MARKED_ROW, useMarkedRow } from '../workspace/marked';
 
 /** 2397 days → "6 years": a lapse reads in the unit it is felt in. */
 function since(days: number): string {
@@ -178,8 +179,18 @@ function Composition({ lines }: { lines: ApprovalLine[] }) {
  * rows: the columns are a grid that collapses rather than a table that
  * scrolls sideways under a thumb.
  */
-export function ApprovalsRegister({ project, onOpenDocument }: { project: DdProject; onOpenDocument: (evidenceId: string) => void }) {
+export function ApprovalsRegister({
+  project,
+  onOpenDocument,
+  marked,
+}: {
+  project: DdProject;
+  onOpenDocument: (evidenceId: string) => void;
+  /** An approval a link named, by its key: its line is lit and brought into view. */
+  marked?: string | null;
+}) {
   const lines = useMemo(() => approvalsRegister(project), [project]);
+  const register = useMarkedRow<HTMLElement>(marked);
   const held = lines.filter((l) => l.held.length).length;
   const attention = lines.filter((l) => l.status === 'missing' || l.status === 'expired' || l.status === 'expiring').length;
   const row = '[@container(min-width:46rem)]:grid [@container(min-width:46rem)]:grid-cols-[minmax(0,1.3fr)_8.5rem_minmax(0,1.5fr)_9rem_6.5rem] [@container(min-width:46rem)]:items-start [@container(min-width:46rem)]:gap-3';
@@ -187,7 +198,7 @@ export function ApprovalsRegister({ project, onOpenDocument }: { project: DdProj
   return (
     <div className="space-y-4">
       <ConstructionGate lines={lines} />
-      <section className="overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-[var(--ring)]">
+      <section ref={register} className="overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-[var(--ring)]">
         <header className="flex flex-wrap items-start justify-between gap-2 border-b border-hairline px-4 py-3">
           <div className="flex min-w-0 items-start gap-2.5">
             <ShieldCheck size={15} className="mt-0.5 shrink-0 text-ink-muted" aria-hidden />
@@ -216,8 +227,9 @@ export function ApprovalsRegister({ project, onOpenDocument }: { project: DdProj
             const Icon = STATUS_ICON[line.status];
             const quiet = line.status === 'if_applicable' && !line.held.length;
             return (
-              <StaggerItem as="li" key={line.kind.key} className={cn('px-4 py-3 transition-colors duration-quick hover:bg-sunken/40', row, quiet && 'opacity-70')}>
-                <div className="flex min-w-0 items-start gap-2.5">
+              <StaggerItem as="li" key={line.kind.key} className={cn('px-4 py-3 transition-colors duration-quick hover:bg-sunken/40', row, quiet && 'opacity-70', line.kind.key === marked && MARKED_ROW)}>
+                {/* The mark the page scrolls to sits on the line's first cell: the row itself is drawn by the list's own animation. */}
+                <div data-marked={line.kind.key === marked ? '' : undefined} className="flex min-w-0 items-start gap-2.5">
                   <span className={cn('mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg', toneChip(tone))} aria-hidden>
                     <Icon size={13} />
                   </span>

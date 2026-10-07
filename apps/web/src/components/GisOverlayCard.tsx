@@ -4,8 +4,9 @@ import { Check, Layers, MapPinned, RefreshCw, Upload } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
+  isHttpsUrl,
+  revenueReads,
   sheetIsPlaceable,
-  type AmenityKind,
   type DdProject,
   type GisContextFeature,
   type GisOverlayHit,
@@ -15,7 +16,11 @@ import {
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Disclosure, cn } from './ui/kit';
 import { api } from '../lib/api';
 import { useAuthedUrl } from '../lib/useAuthedUrl';
-import { googleMapsKey, loadGoogleMaps } from '../lib/google-maps';
+import { googleMapsKey, googleMapsRefused, loadGoogleMaps, streetViewUrl } from '../lib/google-maps';
+import { addSiteControls, type NoteFrom, type SiteControls } from './map/controls';
+import { openOnSite, siteOf, type SiteView } from './map/frame';
+import { parcelLabel, placeMarker, showLabelsThatFit, siteMarker, words, type ParcelLabel } from './map/markers';
+import { StreetViewPane, findStreetScene, noStreetView, type StreetScene } from './map/StreetView';
 import { RevenueMapPicker } from './RevenueMapPicker';
 import { RevenueMapBrief } from './RevenueMapBrief';
 
@@ -28,29 +33,23 @@ import { RevenueMapBrief } from './RevenueMapBrief';
  */
 
 type Basemap = 'satellite' | 'streets';
+type Tiles = Record<Basemap, L.GridLayer>;
 
-/* Nearby places, drawn from what the site reading already fetched — no new calls. */
-const PLACE_LABEL: Record<AmenityKind, string> = {
-  transit: 'Transit',
-  school: 'School',
-  hospital: 'Hospital',
-  market: 'Market',
-  employment: 'Employment',
-  airport: 'Airport',
-};
-const PLACE_COLOUR: Record<AmenityKind, string> = {
-  transit: '#7c3aed',
-  school: '#0e9f6e',
-  hospital: '#dc2626',
-  market: '#d97706',
-  employment: '#2563eb',
-  airport: '#475569',
-};
+/** The line under the map, and which of the map's controls wrote it. */
+interface Note {
+  from: NoteFrom;
+  text: string;
+}
 
-function placeDistance(metres: number, driving?: number): string {
-  const m = driving ?? metres;
-  const text = m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
-  return driving ? `${text} by road` : `${text} away`;
+/**
+ * One line, three writers: where I am, street view, full screen. The latest
+ * to speak has the line. One with nothing more to say takes down its own and
+ * leaves another's alone — a location arriving used to wipe a "no street
+ * view" that had been written in the meantime.
+ */
+function noted(now: Note | null, from: NoteFrom, text: string | null): Note | null {
+  if (text) return { from, text };
+  return now?.from === from ? null : now;
 }
 
 const WATER_STYLE: L.PathOptions = { color: '#1d4ed8', weight: 2, fillColor: '#3b82c4', fillOpacity: 0.38 };
@@ -58,6 +57,12 @@ const WATER_FLAG_STYLE: L.PathOptions = { color: '#b91c1c', weight: 3, fillColor
 const WATERWAY_STYLE: L.PathOptions = { color: '#1d4ed8', weight: 2.5, opacity: 0.9 };
 const LANDUSE_STYLE: L.PathOptions = { color: '#a16207', weight: 1, dashArray: '4 3', fillColor: '#fbbf24', fillOpacity: 0.18 };
 const SURVEY_STYLE: L.PathOptions = { color: '#c2410c', weight: 2.5, fillColor: '#fb923c', fillOpacity: 0.12 };
+/*
+ * A parcel off the state's map is drawn as the outline always was. Beside an
+ * outline a person supplied it is broken instead, so the two can be told
+ * apart where they lie on the same land: the solid line is the surveyor's.
+ */
+const PARCEL_BESIDE_OUTLINE_STYLE: L.PathOptions = { ...SURVEY_STYLE, weight: 2, dashArray: '6 4', fillOpacity: 0.06 };
 
 function latlngs(points: { lat: number; lng: number }[]): L.LatLngExpression[] {
   const closed =
@@ -95,6 +100,7 @@ const REVENUE_KINDS = new Set(Object.keys(REVENUE_STYLE));
 /** Hit codes the brief under the map already says, as points. */
 const BRIEF_COVERS = new Set<GisOverlayHit['code']>([
   'revenue_parcel',
+  'revenue_documents_extent',
   'revenue_prohibited',
   'revenue_register_unjoined',
   'revenue_factor',
@@ -107,15 +113,28 @@ function isRevenue(feature: GisContextFeature): boolean {
   return REVENUE_KINDS.has(feature.kind);
 }
 
+/**
+ * The outline on file that is drawn as itself: a person's, or — from an
+ * overlay that lists no parcels — the one the revenue map supplied. Where the
+ * parcels are listed, an outline the revenue map supplied is one of them.
+ */
+function ownOutline(read: GisOverlayRead): GisOverlayRead['survey'] {
+  if (!read.survey?.ring.length) return null;
+  return read.survey.source === 'revenue_map' && read.parcels?.length ? null : read.survey;
+}
+
 function addFeature(group: L.LayerGroup, feature: GisContextFeature, flagged: boolean): void {
+  // A feature's name is whatever a mapper or a state layer holds, and Leaflet
+  // reads a string as HTML: every tooltip here is set as text.
   if (isRevenue(feature)) {
     const style = REVENUE_STYLE[feature.kind];
+    // With several parcels read, the distance is from the nearest of them, and says which.
     const label = `${feature.name ?? feature.kind.replace('state_', '').replace(/_/g, ' ')} — ${feature.layerKey ?? 'state layer'}${
-      feature.distanceM !== undefined ? `, ${Math.round(feature.distanceM)} m` : ''
+      feature.distanceM !== undefined ? `, ${Math.round(feature.distanceM)} m${feature.nearestSurveyNo ? ` from Sy. ${feature.nearestSurveyNo}` : ''}` : ''
     } (revenue map, not evidence)`;
-    if (feature.ring) L.polygon(latlngs(feature.ring), style).bindTooltip(label).addTo(group);
-    else if (feature.line) L.polyline(feature.line.map((p) => [p.lat, p.lng] as L.LatLngExpression), style).bindTooltip(label).addTo(group);
-    else if (feature.point) L.circleMarker([feature.point.lat, feature.point.lng], { ...style, radius: 6 }).bindTooltip(label).addTo(group);
+    if (feature.ring) L.polygon(latlngs(feature.ring), style).bindTooltip(words(label)).addTo(group);
+    else if (feature.line) L.polyline(feature.line.map((p) => [p.lat, p.lng] as L.LatLngExpression), style).bindTooltip(words(label)).addTo(group);
+    else if (feature.point) L.circleMarker([feature.point.lat, feature.point.lng], { ...style, radius: 6 }).bindTooltip(words(label)).addTo(group);
     return;
   }
   const water = feature.kind === 'osm_water' || feature.kind === 'osm_waterway';
@@ -146,10 +165,10 @@ function addFeature(group: L.LayerGroup, feature: GisContextFeature, flagged: bo
     .filter(Boolean)
     .join(' — ');
   if (feature.ring) {
-    L.polygon(latlngs(feature.ring), style).bindTooltip(tooltip).addTo(group);
+    L.polygon(latlngs(feature.ring), style).bindTooltip(words(tooltip)).addTo(group);
   } else if (feature.line) {
     L.polyline(latlngs(feature.line), water ? WATERWAY_STYLE : LANDUSE_STYLE)
-      .bindTooltip(tooltip)
+      .bindTooltip(words(tooltip))
       .addTo(group);
   }
 }
@@ -162,26 +181,49 @@ export function GisOverlayCard({
   onChanged: () => Promise<void>;
 }) {
   const mapEl = useRef<HTMLDivElement>(null);
+  /* The box round the map: what goes full screen, with the line that reports on the map's controls inside it. */
+  const boxRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const controlsRef = useRef<SiteControls | null>(null);
+  const siteView = useRef<SiteView>({ frame: null, point: null, opened: null });
   const layersRef = useRef<{
     water?: L.LayerGroup;
     landuse?: L.LayerGroup;
     survey?: L.LayerGroup;
+    parcels?: L.LayerGroup;
     pin?: L.Layer;
     lakes?: L.LayerGroup;
     wards?: L.LayerGroup;
     revenue?: L.LayerGroup;
     places?: L.LayerGroup;
   }>({});
-  /* The basemaps in use, and — once Google's are drawn — the imagery they replaced, to go back to. */
-  const tilesRef = useRef<{ satellite?: L.GridLayer; streets?: L.GridLayer; fallback?: { satellite?: L.GridLayer; streets?: L.GridLayer } }>({});
+  /* The survey number on each parcel, kept so that each can be shown or put away as the zoom changes. */
+  const labelsRef = useRef<ParcelLabel[]>([]);
+  /* The map's own imagery, Google's once its script has loaded, and which of Google's layers have drawn at least once. */
+  const tilesRef = useRef<{ own?: Tiles; google?: Tiles; drawn?: Set<L.GridLayer> }>({});
   const [googleTiles, setGoogleTiles] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  /* One line under the map, for what its controls have to report: looking, not found, refused. */
+  const [note, setNote] = useState<Note | null>(null);
+  const [scene, setScene] = useState<StreetScene | null>(null);
+  /* Street-view lookups, counted, so that an answer to one that has been overtaken is dropped. */
+  const lookups = useRef(0);
+  /* Set by "Back to map", and by nothing else that closes the street view. */
+  const handBack = useRef(false);
   const wmsRef = useRef<L.TileLayer.WMS | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [read, setRead] = useState<GisOverlayRead | null>(null);
-  /** Whether there is anything to draw. Declared here because the map effect reads it. */
-  const canMap = Boolean(read?.pin || read?.survey);
+  /* The site in this read: the box the map opens on, and the point that stands for it. */
+  const site = useMemo(() => (read ? siteOf(read) : null), [read]);
+  /**
+   * Whether there is a site to draw a map of. It is the rule that frames the
+   * map, asked again, so the two cannot disagree: an outline on file with an
+   * empty ring and no pin used to count as something to draw, and gave a map
+   * of the world with a street-view button that did nothing. Declared here
+   * because the map effect reads it.
+   */
+  const canMap = site !== null;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -189,6 +231,7 @@ export function GisOverlayCard({
   const [showWater, setShowWater] = useState(true);
   const [showLanduse, setShowLanduse] = useState(true);
   const [showSurvey, setShowSurvey] = useState(true);
+  const [showParcels, setShowParcels] = useState(true);
   const [showBbmp, setShowBbmp] = useState(true);
   const [showLakes, setShowLakes] = useState(true);
   const [showWards, setShowWards] = useState(true);
@@ -217,56 +260,113 @@ export function GisOverlayCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load on project identity, not every parent render
   }, [project.id, project.surveyBoundary?.suppliedAt, project.siteContext?.builtAt]);
 
+  /*
+   * Another project in the same card: Back and Forward move between two
+   * projects without the page being made again. What the map was showing for
+   * the one before goes with it — its street view, the line under the map,
+   * and the answer to a lookup that is still on its way.
+   */
+  useEffect(() => {
+    lookups.current += 1;
+    setScene(null);
+    setNote(null);
+  }, [project.id]);
+
   useEffect(() => {
     const el = mapEl.current;
-    if (!el) return undefined;
+    const box = boxRef.current;
+    if (!el || !box) return undefined;
     const map = L.map(el, { scrollWheelZoom: true, attributionControl: true, zoomControl: true });
     mapRef.current = map;
-    tilesRef.current.satellite = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { attribution: 'Tiles © Esri', maxZoom: 19 },
-    );
-    tilesRef.current.streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-    });
-    tilesRef.current.satellite.addTo(map);
+    const view = siteView.current;
+    // Made here, put on the map by the basemap effect below. Their tiles stop
+    // at 19 and are stretched from there to 21, which is as far as Google's
+    // go: see that effect for why the two must allow the same zoom.
+    tilesRef.current = {
+      own: {
+        satellite: L.tileLayer(
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          { attribution: 'Tiles © Esri', maxNativeZoom: 19, maxZoom: 21 },
+        ),
+        streets: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors',
+          maxNativeZoom: 19,
+          maxZoom: 21,
+        }),
+      },
+    };
     map.setView([20, 0], 2);
 
     /*
      * The map measures its box when it is made, and the box changes after:
      * the conversation is dragged wider, a phone's work tab is shown. An
      * unmeasured map paints grey or blank until somebody zooms. It measures
-     * again whenever the box does.
+     * again whenever the box does — and frames the site then, if it was made
+     * before it had a size to frame it in.
      */
-    const ro = new ResizeObserver(() => map.invalidateSize());
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize();
+      openOnSite(map, view);
+    });
     ro.observe(el);
+    // A parcel's number is shown only while its outline is big enough on screen to carry it.
+    map.on('zoomend', () => showLabelsThatFit(map, labelsRef.current));
+
+    /*
+     * The buttons on the map. The street view is looked for when it is asked
+     * for and not before; a second press, another project, or the map going
+     * away drops the answer to the first.
+     */
+    const say = (from: NoteFrom, text: string | null) => setNote((now) => noted(now, from, text));
+    const controls = addSiteControls(map, box, {
+      site: () => openOnSite(map, view, true),
+      note: say,
+      fullscreen: setFullscreen,
+      streetView: () => {
+        const at = view.point;
+        if (!at) return;
+        lookups.current += 1;
+        const mine = lookups.current;
+        say('street', 'Looking for street view…');
+        void findStreetScene(at)
+          .then((found) => {
+            if (mine !== lookups.current) return;
+            setScene(found);
+            say('street', found ? null : noStreetView(at));
+          })
+          .catch(() => {
+            if (mine === lookups.current) say('street', 'Street view did not load.');
+          });
+      },
+    });
+    controlsRef.current = controls;
 
     /*
      * Google's map, when a browser key is set: satellite with its road and
      * place labels, and its street map with the places it marks. Only the
      * imagery underneath changes — every layer above is drawn the same. If
-     * Google turns the key away, the imagery goes back to what it was.
+     * Google turns the key away, the imagery goes back to what it was, and a
+     * street view that was open closes with it.
      */
     let cancelled = false;
     const backToOwn = () => {
-      const own = tilesRef.current.fallback;
-      if (!own || mapRef.current !== map) return;
-      for (const layer of [tilesRef.current.satellite, tilesRef.current.streets]) if (layer && map.hasLayer(layer)) map.removeLayer(layer);
-      tilesRef.current = { satellite: own.satellite, streets: own.streets };
+      if (mapRef.current !== map) return;
+      const { own, google } = tilesRef.current;
+      // The refusal can come before Google's layers are made. There is then
+      // nothing to take off the map, and below they are never made.
+      for (const layer of google ? Object.values(google) : []) if (map.hasLayer(layer)) map.removeLayer(layer);
+      tilesRef.current = { own };
       setGoogleTiles(false);
+      setScene(null);
     };
     if (googleMapsKey()) {
       void loadGoogleMaps(backToOwn)
         .then(() => import('leaflet.gridlayer.googlemutant'))
         .then(({ default: GoogleMutant }) => {
-          if (cancelled || mapRef.current !== map) return;
-          const own = { satellite: tilesRef.current.satellite, streets: tilesRef.current.streets };
-          for (const layer of [own.satellite, own.streets]) if (layer && map.hasLayer(layer)) map.removeLayer(layer);
-          tilesRef.current = {
+          if (cancelled || mapRef.current !== map || googleMapsRefused()) return;
+          tilesRef.current.google = {
             satellite: new GoogleMutant({ type: 'hybrid', maxZoom: 21 }),
             streets: new GoogleMutant({ type: 'roadmap', maxZoom: 21 }),
-            fallback: own,
           };
           setGoogleTiles(true);
         })
@@ -276,33 +376,111 @@ export function GisOverlayCard({
     }
     return () => {
       cancelled = true;
+      lookups.current += 1;
       ro.disconnect();
+      controls.detach();
       map.remove();
       mapRef.current = null;
+      controlsRef.current = null;
       layersRef.current = {};
+      labelsRef.current = [];
       tilesRef.current = {};
+      view.opened = null;
       setGoogleTiles(false);
+      setFullscreen(false);
+      setNote(null);
+      setScene(null);
     };
     // Re-runs when the canvas appears, because a project with no pin and no
     // survey does not render one — see the map block below.
   }, [canMap]);
 
+  /*
+   * One basemap at a time, with the map's own imagery left under Google's
+   * until Google's has drawn.
+   *
+   * Google's layer exists the moment it is made and draws some time after:
+   * it starts a hidden map of its own and copies that map's tiles across as
+   * they arrive, which on the deployed app took seconds. Taking the map's
+   * imagery away when the layer was made left a black box with the overlay
+   * shapes floating on it, which read as a broken map. So the two overlap.
+   * Google's goes on top, and what is under it is removed once every tile in
+   * view has arrived. If Google never draws, the map's own imagery is simply
+   * still there. A Google layer that has drawn once has its tiles to hand, so
+   * the map's own is not fetched under it a second time.
+   *
+   * What comes on is added before what goes off is taken away, and Google's
+   * before the map's own. Leaflet lowers the zoom the moment the layers left
+   * on the map allow less than the view shows, and taking the old pair off
+   * first dropped a view at zoom 20 to 19 on every switch of basemap. For the
+   * same reason the map's own layers allow as much zoom as Google's do.
+   */
   useEffect(() => {
     const map = mapRef.current;
-    const sat = tilesRef.current.satellite;
-    const streets = tilesRef.current.streets;
-    if (!map || !sat || !streets) return;
-    if (basemap === 'satellite') {
-      if (!map.hasLayer(sat)) sat.addTo(map);
-      if (map.hasLayer(streets)) map.removeLayer(streets);
-    } else {
-      if (!map.hasLayer(streets)) streets.addTo(map);
-      if (map.hasLayer(sat)) map.removeLayer(sat);
+    const tiles = tilesRef.current;
+    const { own, google } = tiles;
+    if (!map || !own) return undefined;
+    const other: Basemap = basemap === 'satellite' ? 'streets' : 'satellite';
+    const mine = own[basemap];
+    const theirs = google?.[basemap];
+    const drewBefore = Boolean(theirs && tiles.drawn?.has(theirs));
+    if (theirs && !map.hasLayer(theirs)) theirs.addTo(map);
+    if (!drewBefore && !map.hasLayer(mine)) mine.addTo(map);
+    for (const layer of [own[other], google?.[other], drewBefore ? mine : undefined]) {
+      if (layer && map.hasLayer(layer)) map.removeLayer(layer);
     }
-    // The imagery sits under everything drawn on it.
-    if ('bringToBack' in sat) sat.bringToBack();
-    if ('bringToBack' in streets) streets.bringToBack();
-  }, [basemap, googleTiles]);
+    // The imagery sits under everything drawn on it, and the map's own under Google's.
+    theirs?.bringToBack();
+    if (map.hasLayer(mine)) mine.bringToBack();
+    if (!theirs || drewBefore) return undefined;
+    let faded: number | undefined;
+    const drawn = () => {
+      (tiles.drawn ??= new Set()).add(theirs);
+      // A tile fades in over a fifth of a second; what is under it goes once the last has.
+      faded = window.setTimeout(() => map.removeLayer(mine), 250);
+    };
+    theirs.once('load', drawn);
+    return () => {
+      theirs.off('load', drawn);
+      window.clearTimeout(faded);
+    };
+    // `canMap` because the map, and with it these layers, is made anew when the canvas appears.
+  }, [basemap, googleTiles, canMap]);
+
+  /* Going full screen and coming back changes the box; the map is told, so that it fills the new one. */
+  useEffect(() => {
+    mapRef.current?.invalidateSize();
+  }, [fullscreen]);
+
+  /*
+   * The site, as the map holds it: the frame it opens on and the point its
+   * street view looks from, which are the same place by construction — see
+   * `siteFrame` in the shared package. Nothing drawn on the map widens the
+   * frame, and the map moves to it only when it has changed.
+   *
+   * The street view is drawn here while Google's map is in use. Without a
+   * key, or with one Google has turned away, the control is a link that opens
+   * Google Maps' own street view at the same point instead.
+   */
+  useEffect(() => {
+    const view = siteView.current;
+    view.frame = site?.bounds ?? null;
+    view.point = site?.point ?? null;
+    controlsRef.current?.linkStreetView(googleTiles || !site ? null : streetViewUrl(site.point));
+    if (mapRef.current) openOnSite(mapRef.current, view);
+  }, [site, googleTiles]);
+
+  /*
+   * "Back to map" hands the keyboard back to the control that opened the
+   * street view, once the map is on screen again to take it. A street view
+   * closed by anything else — another project, Google turning the key away —
+   * moves no focus: nobody asked to be taken to the map.
+   */
+  useEffect(() => {
+    if (scene || !handBack.current) return;
+    handBack.current = false;
+    controlsRef.current?.focusStreetView();
+  }, [scene]);
 
   /* Nearby places from the site reading, each with what it is and how far. */
   useEffect(() => {
@@ -314,17 +492,7 @@ export function GisOverlayCard({
     const amenities = (project.siteContext?.amenities ?? []).filter((a) => a.point);
     if (!amenities.length) return;
     const group = L.layerGroup();
-    for (const a of amenities) {
-      L.circleMarker([a.point.lat, a.point.lng], {
-        radius: 6,
-        color: '#ffffff',
-        weight: 2,
-        fillColor: PLACE_COLOUR[a.kind] ?? '#64748b',
-        fillOpacity: 1,
-      })
-        .bindTooltip(`${PLACE_LABEL[a.kind] ?? a.kind}: ${a.name} · ${placeDistance(a.straightLineMetres, a.drivingMetres)}`)
-        .addTo(group);
-    }
+    for (const a of amenities) placeMarker(a).addTo(group);
     layersRef.current.places = group;
     if (showPlaces) group.addTo(map);
     // Rebuilt when the reading changes or the canvas is made; shown or hidden below.
@@ -335,7 +503,7 @@ export function GisOverlayCard({
     const map = mapRef.current;
     if (!map || !read) return;
 
-    for (const key of ['water', 'landuse', 'survey', 'pin', 'lakes', 'wards', 'revenue'] as const) {
+    for (const key of ['water', 'landuse', 'survey', 'parcels', 'pin', 'lakes', 'wards', 'revenue'] as const) {
       const layer = layersRef.current[key];
       if (layer) {
         map.removeLayer(layer);
@@ -349,8 +517,8 @@ export function GisOverlayCard({
     const lakes = L.layerGroup();
     const wards = L.layerGroup();
     const survey = L.layerGroup();
+    const parcels = L.layerGroup();
     const revenue = L.layerGroup();
-    const bounds: L.LatLngExpression[] = [];
 
     for (const feature of read.features) {
       const group = isRevenue(feature)
@@ -363,36 +531,38 @@ export function GisOverlayCard({
               ? wards
               : water;
       addFeature(group, feature, flagged.has(feature.id));
-      // Revenue-map features reach 3 km out; the frame follows the parcel,
-      // the pin and the context, not the far end of a rajakaluve.
-      if (!isRevenue(feature)) for (const p of feature.ring ?? feature.line ?? []) bounds.push([p.lat, p.lng]);
     }
 
-    if (read.survey?.ring.length) {
-      L.polygon(latlngs(read.survey.ring), SURVEY_STYLE)
+    /*
+     * Every parcel read from the state's map, each with its survey number on
+     * it. The outline on file is drawn too when it is a person's; when the
+     * revenue map supplied it, it is the first of the parcels and is not
+     * drawn a second time under them.
+     */
+    const own = ownOutline(read);
+    if (own) {
+      L.polygon(latlngs(own.ring), SURVEY_STYLE)
         .bindTooltip('Supplied survey outline — not product-drawn, not RMP')
         .addTo(survey);
-      for (const p of read.survey.ring) bounds.push([p.lat, p.lng]);
     }
+    const labels: ParcelLabel[] = [];
+    for (const parcel of read.parcels ?? []) {
+      // An overlay built before parcels were told apart by village carries the number alone.
+      const named = { ...parcel, label: parcel.label ?? parcel.surveyNo };
+      L.polygon(latlngs(parcel.ring), own ? PARCEL_BESIDE_OUTLINE_STYLE : SURVEY_STYLE)
+        .bindTooltip(words(`Sy. ${named.label} — ${Math.round(parcel.areaSqm).toLocaleString()} sqm on the state’s map (a record, not a survey)`))
+        .addTo(parcels);
+      const label = parcelLabel(named);
+      label.marker.addTo(parcels);
+      labels.push(label);
+    }
+    labelsRef.current = labels;
+    showLabelsThatFit(map, labels);
 
-    let pinLayer: L.Layer | undefined;
-    if (read.pin) {
-      pinLayer = L.circleMarker([read.pin.lat, read.pin.lng], {
-        radius: 8,
-        color: '#1c5cab',
-        weight: 2,
-        fillColor: '#2a78d6',
-        fillOpacity: 1,
-      }).bindTooltip(read.pin.resolvedAddress ? `Pin — ${read.pin.resolvedAddress}` : 'Geocoded pin — not a parcel');
-      pinLayer.addTo(map);
-      bounds.push([read.pin.lat, read.pin.lng]);
-    }
+    const pinLayer = read.pin ? siteMarker(read.pin).addTo(map) : undefined;
 
     // Nearby places are drawn from the project, not the overlay; they stay as they are.
-    layersRef.current = { places: layersRef.current.places, water, landuse, lakes, wards, survey, revenue, pin: pinLayer };
-    if (bounds.length) {
-      map.fitBounds(L.latLngBounds(bounds), { padding: [28, 28], maxZoom: 16 });
-    }
+    layersRef.current = { places: layersRef.current.places, water, landuse, lakes, wards, survey, parcels, revenue, pin: pinLayer };
   }, [read]);
 
   useEffect(() => {
@@ -408,9 +578,10 @@ export function GisOverlayCard({
     sync(layersRef.current.lakes, showLakes);
     sync(layersRef.current.wards, showWards);
     sync(layersRef.current.survey, showSurvey);
+    sync(layersRef.current.parcels, showParcels);
     sync(layersRef.current.revenue, showRevenue);
     sync(layersRef.current.places, showPlaces);
-  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey, showRevenue, showPlaces]);
+  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey, showParcels, showRevenue, showPlaces]);
 
   useEffect(() => {
     let live = true;
@@ -541,6 +712,8 @@ export function GisOverlayCard({
   const lakeCount = read?.features.filter((f) => f.kind === 'civic_lake').length ?? 0;
   const wardCount = read?.features.filter((f) => f.kind === 'civic_ward').length ?? 0;
   const revenueCount = read?.features.filter(isRevenue).length ?? 0;
+  const parcelCount = read?.parcels?.length ?? 0;
+  const supplied = read ? ownOutline(read) : null;
   const placeCount = (project.siteContext?.amenities ?? []).filter((a) => a.point).length;
   // The reference shelf — where to get the real sheet, and what must never be
   // filed as one. It belongs on the file, but it is reading for the land-use
@@ -613,14 +786,22 @@ export function GisOverlayCard({
             <LayerToggle on={showWards} onClick={() => setShowWards((v) => !v)}>GBA wards {wardCount}
             </LayerToggle>
           ) : null}
-          <LayerToggle
-            on={showSurvey}
-            onClick={() => setShowSurvey((v) => !v)}
-            disabled={!read?.survey}
-            disabledReason="No survey sketch on file — upload a GeoJSON or KML and it draws here."
-          >
-            {read?.survey?.source === 'revenue_map' ? 'Revenue-map parcel' : 'Survey sketch'}
-          </LayerToggle>
+          {/* One switch for each outline there is to draw. With neither, the sketch's own, off, saying what would put one there. */}
+          {supplied || !parcelCount ? (
+            <LayerToggle
+              on={showSurvey}
+              onClick={() => setShowSurvey((v) => !v)}
+              disabled={!supplied}
+              disabledReason="No survey sketch on file — upload a GeoJSON or KML and it draws here."
+            >
+              {supplied?.source === 'revenue_map' ? 'Revenue-map parcel' : 'Survey sketch'}
+            </LayerToggle>
+          ) : null}
+          {parcelCount > 0 ? (
+            <LayerToggle on={showParcels} onClick={() => setShowParcels((v) => !v)}>
+              {parcelCount === 1 ? 'Revenue-map parcel' : `Revenue-map parcels ${parcelCount}`}
+            </LayerToggle>
+          ) : null}
           {revenueCount > 0 ? (
             <LayerToggle on={showRevenue} onClick={() => setShowRevenue((v) => !v)}>State layers {revenueCount}
             </LayerToggle>
@@ -675,9 +856,10 @@ export function GisOverlayCard({
           </p>
         ) : null}
 
+        {/* A picker of its own for each project: the place, the ticks and a run under way belong to one file. */}
         <RevenueMapPicker
+          key={project.id}
           project={project}
-          read={read?.revenue}
           onRead={async () => {
             await onChanged();
             await load();
@@ -705,8 +887,47 @@ export function GisOverlayCard({
           The canvas only exists once there is a pin or a survey to put on it.
         */}
         {canMap ? (
-          <div className="overflow-hidden rounded-lg ring-1 ring-inset ring-[var(--ring)]">
-            <div ref={mapEl} className="gis-map z-0 h-[min(420px,55vh)] w-full" />
+          /*
+            The box is what goes full screen, and the line under the map is
+            inside it for that reason: "no street view here" or a refused
+            location has to be readable from the screen the button was pressed
+            on. The line is always there, empty, so that a screen reader is
+            already listening when something is written into it.
+          */
+          <div ref={boxRef} className={cn(fullscreen && 'flex flex-col bg-surface p-2')}>
+            <div
+              className={cn(
+                'relative overflow-hidden rounded-lg ring-1 ring-inset ring-[var(--ring)]',
+                fullscreen ? 'min-h-0 flex-1' : 'h-[min(420px,55vh)]',
+              )}
+            >
+              {/*
+                Everything that changes is on the elements round the map, never
+                on the map's own. Leaflet writes its classes onto that node by
+                hand, and React, handed a different class string for it, writes
+                the whole attribute again: the map loses its container styles
+                and its tiles collapse. So its class string is one fixed
+                literal, the height comes from the element above, and the one
+                round it is what hides it under the street view — hidden, not
+                removed, so the map keeps its place and its buttons leave the
+                tab order.
+              */}
+              <div className={cn('h-full', scene && 'invisible')}>
+                <div ref={mapEl} className="gis-map z-0 h-full w-full" />
+              </div>
+              {scene ? (
+                <StreetViewPane
+                  scene={scene}
+                  onBack={() => {
+                    handBack.current = true;
+                    setScene(null);
+                  }}
+                />
+              ) : null}
+            </div>
+            <p role="status" className={cn('text-[12px] text-ink-muted', note && 'mt-2')}>
+              {note?.text}
+            </p>
           </div>
         ) : loading ? (
           <div className="min-h-[120px] rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]" />
@@ -718,7 +939,7 @@ export function GisOverlayCard({
 
         {loading && !read ? <p className="text-[13px] text-ink-muted">Building the overlay…</p> : null}
 
-        {project.revenueMap ? <RevenueMapBrief read={project.revenueMap} /> : null}
+        {revenueReads(project).length ? <RevenueMapBrief project={project} /> : null}
 
         {flags.length ? (
           <ul className="space-y-1.5">
@@ -794,9 +1015,14 @@ export function GisOverlayCard({
             <ul className="space-y-1">
               {read.withdrawnSheets.map((s) => (
                 <li key={s.url} className="text-[13px] leading-relaxed text-ink-secondary">
-                  <a href={s.url} target="_blank" rel="noreferrer" className="text-ink hover:underline">
-                    {s.name}
-                  </a>
+                  {/* The address is out of OpenCity's catalogue. It is a link only when it is https; anything else is named and not linked. */}
+                  {isHttpsUrl(s.url) ? (
+                    <a href={s.url} target="_blank" rel="noreferrer" className="text-ink hover:underline">
+                      {s.name}
+                    </a>
+                  ) : (
+                    <span className="text-ink">{s.name}</span>
+                  )}
                   <span className="text-ink-muted"> — withdrawn, do not file as the extract</span>
                 </li>
               ))}

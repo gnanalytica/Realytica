@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight,
   Building2,
   ChevronDown,
   ClipboardList,
@@ -10,39 +9,62 @@ import {
   LayoutDashboard,
   Scale,
   Search,
+  Send,
   Sparkles,
+  Table2,
   Users,
   Waypoints,
   Workflow,
 } from 'lucide-react';
 import {
-  DEPARTMENTS,
+  DEPARTMENT_KEYS,
+  DEPARTMENT_SHORT,
+  MENU_DEPARTMENTS,
   SCOPE_LABEL,
   departmentDefinition,
+  menuAt,
+  menuDepartment,
+  menuDepartmentsOf,
+  menuFunctions,
   projectDepartments,
   reachesEveryProject,
   scopeCompleteness,
   workstreamDefinition,
   type DdProject,
   type DepartmentKey,
+  type MenuPlace,
+  type MenuStage,
   type ProjectCockpitPane,
+  type StageKey,
 } from '@realytica/shared';
 import { cn } from '../../../components/ui/kit';
-import { AnimatePresence, EASE_ENTER, SPRING, motion } from '../../../lib/motion';
+import { DepartmentPicker, FunctionTabs, type FunctionTab, type PickerItem } from '../../../components/workspace/WorkspaceBar';
+import { SPRING, motion } from '../../../lib/motion';
+import { useEdges } from '../../../lib/useEdges';
 import { useMe } from '../../../lib/useMe';
 
 /**
- * How a person moves around a project: Overview, then the departments the
- * project uses, then the shared places — the document vault, the registers,
- * reports, people and the graph.
+ * How a person moves around a project.
  *
- * Inside a department the second row is its workstreams. A workstream that is
- * not built yet is still listed, marked as coming, because knowing it will be
- * there is part of knowing what the department is for. Every pane keeps its
- * route, so the chat can still take a person anywhere by name.
+ * One selector says where you are: Overview, one of the five departments, or
+ * a place the whole project shares — the document vault, the registers,
+ * reports, people and the graph. Inside a department the row under it is its
+ * functions, one tab each, with a Summary first for what belongs to the
+ * department as a whole.
+ *
+ * Both follow the stage being looked at: a department is listed while one of
+ * its functions shows at that stage, and a function has a tab while it does.
+ * The two lists come from `menuDepartmentsOf` and `menuFunctions`, the same
+ * two the graph is drawn from, so the menu and the graph cannot disagree
+ * about what a department holds.
+ *
+ * A function that is not built yet is still listed, in a quieter ink, because
+ * knowing it will be there is part of knowing what the department is for.
+ * Every pane keeps its route, so the chat can still take a person anywhere by
+ * name.
  */
 
-export type CockpitSectionKey = 'overview' | DepartmentKey | 'documents' | 'registers' | 'reports' | 'people' | 'graph';
+export type CockpitSectionKey = 'overview' | DepartmentKey | 'documents' | 'review' | 'registers' | 'reports' | 'people' | 'graph';
 
 export interface CockpitTab {
   pane: ProjectCockpitPane;
@@ -63,10 +85,17 @@ export interface CockpitSection {
   staffOnly?: boolean;
 }
 
-/** The shared places, after the departments. */
+/**
+ * Overview, and the places the whole project shares.
+ *
+ * A department's own documents, records and reports sit on its pages; these
+ * are the same things across every department. They are listed under the
+ * departments in the selector, and Overview links to them too.
+ */
 export const SECTIONS: CockpitSection[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard, home: 'overview', tabs: [{ pane: 'overview', label: 'Overview', icon: LayoutDashboard }] },
   { key: 'documents', label: 'Documents', icon: FileStack, home: 'evidence', tabs: [{ pane: 'evidence', label: 'Documents', icon: FileStack }] },
+  { key: 'review', label: 'Review', icon: Table2, home: 'review', staffOnly: true, tabs: [{ pane: 'review', label: 'Review', icon: Table2 }] },
   {
     key: 'registers',
     label: 'Registers',
@@ -87,6 +116,7 @@ export const SECTIONS: CockpitSection[] = [
     home: 'reports',
     tabs: [
       { pane: 'reports', label: 'Reports', icon: FileText },
+      { pane: 'outgoing', label: 'Outgoing', icon: Send },
       { pane: 'drafts', label: 'AI drafts', icon: Sparkles },
       { pane: 'orchestrate', label: 'Auto-run', icon: Workflow },
     ],
@@ -95,15 +125,12 @@ export const SECTIONS: CockpitSection[] = [
   { key: 'graph', label: 'Graph', icon: Waypoints, home: 'graph', tabs: [{ pane: 'graph', label: 'Graph', icon: Waypoints }] },
 ];
 
-/** A department's name in the tab row: one word. */
-export const DEPARTMENT_SHORT: Record<DepartmentKey, string> = {
-  finance: 'Finance',
-  legal: 'Legal',
-  design: 'Design',
-  construction: 'Construction',
-  procurement: 'Procurement',
-  commercial: 'Commercial',
-};
+/*
+ * The menu's own words (the five departments, a department's one word, a
+ * function's one word, and which menu department a department sits under)
+ * are in `@realytica/shared`, beside the departments themselves, because the
+ * graph draws the same five departments and the same functions.
+ */
 
 /** The two workstreams whose page is an existing pane rather than the workstream page. */
 export const WORKSTREAM_PANE: Record<string, ProjectCockpitPane> = {
@@ -119,9 +146,21 @@ export function workstreamOfPane(pane: ProjectCockpitPane, workstream?: string):
 
 /** Which department a pane belongs to, when it belongs to one. */
 export function departmentOfPane(pane: ProjectCockpitPane, at: { department?: string; workstream?: string }): DepartmentKey | undefined {
-  if (pane === 'department') return at.department as DepartmentKey | undefined;
+  // An address can name anything. One that names no department is none: its page sends the reader to Overview, and the bar must not fall over first.
+  if (pane === 'department') return DEPARTMENT_KEYS.find((key) => key === at.department);
   const ws = workstreamOfPane(pane, at.workstream);
   return ws ? workstreamDefinition(ws)?.department : undefined;
+}
+
+/**
+ * Where a pane is in the menu: its department there, and its function when
+ * the page is one function's. Design's own pages are the function Design,
+ * under Engineering. Overview and the shared places are neither.
+ */
+export function menuPlaceOf(pane: ProjectCockpitPane, at: { department?: string; workstream?: string }): MenuPlace {
+  const department = departmentOfPane(pane, at);
+  if (!department) return {};
+  return { department: menuDepartment(department), fn: department === 'design' ? 'design' : workstreamOfPane(pane, at.workstream) };
 }
 
 /** Tabs a section shows in its second row: Auto-run is reachable, not listed. */
@@ -144,8 +183,8 @@ export function paneLabel(pane: ProjectCockpitPane, at: { department?: string; w
   if (pane === 'dd') return 'Checks';
   if (pane === 'valuation') return 'Valuation';
   if (pane === 'visits') return 'Site record';
-  if (pane === 'department') return at.department ? departmentDefinition(at.department as DepartmentKey)?.label ?? 'Department' : 'Department';
-  if (pane === 'workstream') return (at.workstream && workstreamDefinition(at.workstream)?.label) || 'Workstream';
+  if (pane === 'department') return (at.department && DEPARTMENT_SHORT[at.department as DepartmentKey]) || 'Department';
+  if (pane === 'workstream') return (at.workstream && workstreamDefinition(at.workstream)?.label) || 'Function';
   return tabHolding(pane).tab.label;
 }
 
@@ -166,56 +205,12 @@ function badgeFor(pane: ProjectCockpitPane, badges: RailBadges): number | null {
   return null;
 }
 
-function sectionBadge(section: CockpitSection, badges: RailBadges): number | null {
-  const total = section.tabs.reduce((sum, t) => sum + (badgeFor(t.pane, badges) ?? 0), 0);
-  return total > 0 ? total : null;
-}
-
 const CHIP_SCROLL =
   'flex gap-1.5 overflow-x-auto overscroll-x-contain touch-pan-x pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
 /** Wide enough to wrap; narrow enough that a row has to scroll. */
 function chipRow(wrap: boolean): string {
   return wrap ? 'flex flex-wrap gap-1.5' : CHIP_SCROLL;
-}
-
-/**
- * Whether a scroller has more to show, on each side.
- *
- * The chip row hides its scrollbar on purpose — a visible one across a
- * five-item tab strip is uglier than the problem it solves — but hiding it
- * removed the only thing saying the row scrolled at all. On a phone that put
- * Report off the right edge of Overview / Assess / Records / Value with
- * nothing to suggest it was there, so the last tab in the product's own
- * workflow order was invisible unless you happened to swipe.
- *
- * Measured rather than assumed: a fade painted unconditionally would sit at
- * the edge of a row that fits, implying content that does not exist.
- */
-function useEdges(): [React.RefObject<HTMLDivElement>, { start: boolean; end: boolean }] {
-  const ref = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ start: false, end: false });
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => {
-      // A couple of pixels of slack: sub-pixel widths otherwise leave a fade
-      // showing at a scroll position that is visually the end.
-      const maxScroll = el.scrollWidth - el.clientWidth;
-      setEdges({ start: el.scrollLeft > 2, end: el.scrollLeft < maxScroll - 2 });
-    };
-    measure();
-    el.addEventListener('scroll', measure, { passive: true });
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => {
-      el.removeEventListener('scroll', measure);
-      observer.disconnect();
-    };
-  }, []);
-
-  return [ref, edges];
 }
 
 /** The chip row, with a fade wherever it continues past the edge. */
@@ -266,35 +261,12 @@ function Count({ n }: { n: number }) {
   return <span className="tabular min-w-[1.25rem] rounded-full bg-warning/20 px-1.5 text-center font-mono text-[10px] font-medium leading-4 text-[var(--status-warning-text)]">{n}</span>;
 }
 
-/** Things waiting for a person's decision — the reader's rose, not the warning amber of what is overdue. */
+/** Things waiting for a person's decision — the reader's blue, not the warning amber of what is overdue. */
 function WaitingCount({ n, label }: { n: number; label: string }) {
   return (
     <span className="tabular min-w-[1.25rem] rounded-full bg-ai/12 px-1.5 text-center font-mono text-[10px] font-medium leading-4 text-ai-ink" aria-label={`${n} ${label}`}>
       {n}
     </span>
-  );
-}
-
-/** The walk through everything waiting for a decision: rose, because each of them is a reader's proposal. */
-export function ReviewPill({ n, onClick, compact = false }: { n: number; onClick: () => void; compact?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'group relative inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ai/10 font-medium text-ai-ink ring-1 ring-inset ring-ai/30',
-        'transition-[background-color,transform] duration-quick ease-state hover:bg-ai/15 active:scale-[0.97]',
-        compact ? 'h-7 px-2 text-[12px] before:absolute before:-inset-2' : 'h-8 px-3 text-[13px]',
-      )}
-    >
-      <span className="relative flex size-2" aria-hidden>
-        <span className="absolute inset-0 animate-ping-once rounded-full bg-ai/60" />
-        <span className="relative size-2 rounded-full bg-ai" />
-      </span>
-      <span className="tabular-nums">{n}</span>
-      {compact ? null : <span>to review</span>}
-      <ArrowRight size={12} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
-    </button>
   );
 }
 
@@ -306,92 +278,18 @@ function waitingOnTab(tab: CockpitTab, byPane: WaitingByPane): number {
 
 type Go = (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string; department?: string; workstream?: string }) => void;
 
-function SoonTag() {
-  return <span className="rounded px-1 font-mono text-[9px] font-medium uppercase tracking-wide text-ink-muted ring-1 ring-inset ring-[var(--ring)]">Soon</span>;
-}
-
 /**
- * The departments still to come, behind one control.
+ * A shared place's own tabs (Checks, Findings, Risks and actions…): a
+ * segmented control whose selection slides.
  *
- * Listing all three as tabs spent a third of the strip on places with nothing
- * in them yet. They are still one press away — knowing they will be there is
- * part of knowing what the product is for — but the row now holds the work.
- */
-function MoreDepartments({ items, onGo }: { items: Array<{ key: DepartmentKey; label: string }>; onGo: (key: DepartmentKey) => void }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
-    };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('pointerdown', away);
-    window.addEventListener('keydown', esc);
-    return () => {
-      window.removeEventListener('pointerdown', away);
-      window.removeEventListener('keydown', esc);
-    };
-  }, [open]);
-  if (items.length === 0) return null;
-  return (
-    <div ref={box} className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        className="inline-flex items-center gap-1 px-2 py-2.5 text-[13px] text-ink-muted transition-colors duration-quick hover:text-ink coarse:min-h-11"
-      >
-        More
-        <ChevronDown size={13} className={cn('transition-transform duration-base ease-enter', open && 'rotate-180')} />
-      </button>
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            role="menu"
-            initial={{ opacity: 0, y: -4, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -2, transition: { duration: 0.12 } }}
-            transition={{ duration: 0.18, ease: EASE_ENTER }}
-            className="fixed z-50 mt-1 w-52 origin-top-left rounded-xl bg-surface p-1 shadow-pop ring-1 ring-[var(--ring)]"
-            style={{ top: box.current ? box.current.getBoundingClientRect().bottom : undefined, left: box.current ? box.current.getBoundingClientRect().left : undefined }}
-          >
-            <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-ink-muted">Coming soon</p>
-            {items.map((d) => (
-              <button
-                key={d.key}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  onGo(d.key);
-                }}
-                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11"
-              >
-                {d.label}
-                <SoonTag />
-              </button>
-            ))}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/**
- * The second row: a segmented control whose selection slides.
- *
- * Workstreams, and a section's own tabs, are siblings of one thing — the pill
- * travelling between them says that, where a row of separately-highlighted
- * words did not.
+ * They are siblings of one thing — the pill travelling between them says
+ * that, where a row of separately-highlighted words did not.
  */
 function Segments({
   items,
   wrap,
 }: {
-  items: Array<{ key: string; label: ReactNode; on: boolean; muted?: boolean; go: () => void; extra?: ReactNode }>;
+  items: Array<{ key: string; label: ReactNode; on: boolean; go: () => void; extra?: ReactNode }>;
   wrap: boolean;
 }) {
   const group = useId();
@@ -407,7 +305,7 @@ function Segments({
             className={cn(
               'relative inline-flex shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 py-1 text-[12px] coarse:min-h-11',
               'transition-colors duration-quick ease-state',
-              item.on ? 'font-semibold text-ink' : item.muted ? 'text-ink-muted hover:text-ink-secondary' : 'text-ink-secondary hover:text-ink',
+              item.on ? 'font-semibold text-ink' : 'text-ink-secondary hover:text-ink',
             )}
           >
             {item.on ? (
@@ -429,9 +327,109 @@ function Segments({
   );
 }
 
+/** Which entry of the selector a pane is under: Overview, a department of the menu, or a shared place. */
+function placeOf(pane: ProjectCockpitPane, at: { department?: string; workstream?: string }): string {
+  const department = departmentOfPane(pane, at);
+  return department ? menuDepartment(department) : tabHolding(pane).section.key;
+}
+
+/**
+ * The selector that says where in the project you are, and takes you
+ * anywhere else in it.
+ *
+ * It lives in the app's top bar on a wide screen, after the project's name,
+ * and under the project's name in the header on a phone.
+ */
+export function ProjectPicker({
+  pane,
+  project,
+  stage,
+  department,
+  workstream,
+  onGo,
+  waiting,
+  dense = false,
+}: {
+  pane: ProjectCockpitPane;
+  project: DdProject;
+  /** The stage being looked at. */
+  stage: StageKey;
+  department?: string;
+  workstream?: string;
+  onGo: Go;
+  waiting?: { byPane: WaitingByPane };
+  /** In a phone's header, under the project's name. */
+  dense?: boolean;
+}) {
+  const me = useMe();
+  // Who else is on a file is the workspace's business. A collaborator asking
+  // for it gets a 404, so listing People would only be an invitation to find
+  // that out.
+  const staff = me ? reachesEveryProject(me.role) : false;
+  const listed = useMemo(() => menuDepartmentsOf(projectDepartments(project), menuAt(project, stage)), [project, stage]);
+  const current = placeOf(pane, { department, workstream });
+  const overview = SECTIONS[0]!;
+  // The department you are standing in is listed too, switched off or with nothing at this stage, so the selector
+  // never names somewhere else.
+  const departments: PickerItem[] = MENU_DEPARTMENTS.filter((key) => listed.includes(key) || key === current).map((key) => {
+    const soon = departmentDefinition(key).status === 'coming_soon';
+    // A department is marked for what waits on a page of its own: Valuation's, or the Site record's.
+    const holds = waiting ? departmentDefinition(key).workstreams.some((w) => WORKSTREAM_PANE[w.key] && waiting.byPane[WORKSTREAM_PANE[w.key]!]) : false;
+    return { key, label: DEPARTMENT_SHORT[key], note: soon ? 'Coming soon' : undefined, muted: soon, waiting: holds };
+  });
+  const shared: PickerItem[] = SECTIONS.filter((section) => section.key !== 'overview' && (!section.staffOnly || staff)).map((section) => ({
+    key: section.key,
+    label: section.label,
+    icon: section.icon,
+    waiting: waiting ? section.tabs.some((t) => waitingOnTab(t, waiting.byPane) > 0) : false,
+  }));
+  const label = departments.find((d) => d.key === current)?.label ?? shared.find((p) => p.key === current)?.label ?? overview.label;
+
+  return (
+    <DepartmentPicker
+      label={label}
+      current={current}
+      waiting={waiting ? Object.values(waiting.byPane).some((n) => (n ?? 0) > 0) : false}
+      dense={dense}
+      groups={[[{ key: overview.key, label: overview.label, icon: overview.icon }], departments, shared]}
+      onPick={(key) => {
+        const section = SECTIONS.find((x) => x.key === key);
+        if (section) onGo(section.home);
+        else onGo('department', { department: key });
+      }}
+    />
+  );
+}
+
+/**
+ * A department's functions as tabs: Summary, then each function that shows
+ * at the stage being looked at, with Design leading Engineering's.
+ *
+ * A function has a tab while its own department is switched on: Design's
+ * while Design is, Engineering's own while Engineering is. The one you are
+ * standing on keeps its tab whatever the stage, so the row never leaves out
+ * the page on screen. The dot marks the functions whose page is a pane of
+ * its own (Valuation, Site), the only ones the waiting list is kept by today.
+ */
+function functionTabs(menu: DepartmentKey, enabled: readonly DepartmentKey[], at: MenuStage, standing: string | undefined, byPane: WaitingByPane): FunctionTab[] {
+  const shown = new Set(menuFunctions(menu, at).filter((fn) => enabled.includes(fn.department)).map((fn) => fn.key));
+  return [
+    { key: 'summary', label: 'Summary' },
+    ...menuFunctions(menu)
+      .filter((fn) => shown.has(fn.key) || fn.key === standing)
+      .map((fn) => ({
+        key: fn.key,
+        label: fn.label,
+        muted: !fn.built,
+        waiting: Boolean(WORKSTREAM_PANE[fn.key] && byPane[WORKSTREAM_PANE[fn.key]!]),
+      })),
+  ];
+}
+
 export function CockpitPaneStrip({
   pane,
   project,
+  stage,
   ddId,
   scopeId,
   department,
@@ -440,11 +438,12 @@ export function CockpitPaneStrip({
   pendingDrafts,
   onGo,
   waiting,
-  onReview,
   wrap = false,
 }: {
   pane: ProjectCockpitPane;
   project: DdProject;
+  /** The stage being looked at. */
+  stage: StageKey;
   ddId?: string;
   scopeId?: string;
   /** From the route, on a department or workstream page. */
@@ -453,136 +452,62 @@ export function CockpitPaneStrip({
   overdue: number;
   pendingDrafts: number;
   onGo: Go;
-  /** What waits for a decision, by pane: counted on its tab, and summed on the pill that walks them. */
+  /** What waits for a decision, by pane: marked on its tab. */
   waiting?: { total: number; byPane: WaitingByPane };
-  /** Go to the next thing waiting. */
-  onReview?: () => void;
   wrap?: boolean;
 }) {
   const badges = { overdue, pendingDrafts };
   const me = useMe();
-  // Who else is on a file is the workspace's business. A collaborator asking
-  // for it gets a 404, so showing them the tab would only be an invitation to
-  // find that out.
-  const staff = me ? reachesEveryProject(me.role) : false;
-  const enabled = projectDepartments(project);
-  const departments = DEPARTMENTS.filter((d) => enabled.includes(d.key));
-  const activeDepartment = departmentOfPane(pane, { department, workstream });
-  const activeWorkstream = workstreamOfPane(pane, workstream);
-  const shared = SECTIONS.filter((section) => section.key !== 'overview' && (!section.staffOnly || staff));
-  const here = activeDepartment ? null : tabHolding(pane).section;
-  const tabs = here ? here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane) : [];
+  const at = useMemo(() => menuAt(project, stage), [project, stage]);
+  const { department: menu, fn } = menuPlaceOf(pane, { department, workstream });
+  const here = menu ? null : tabHolding(pane).section;
+  // What goes out is the workspace's own people's: somebody working from a grant is not shown the tab.
+  const tabs = here ? here.tabs.filter((t) => (!HIDDEN_TABS.has(t.pane) || t.pane === pane) && (t.pane !== 'outgoing' || !me || reachesEveryProject(me.role))) : [];
+  const assess = here?.key === 'registers' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0;
 
-  const group = useId();
-  const live = departments.filter((d) => d.status !== 'coming_soon' || activeDepartment === d.key);
-  const later = departments.filter((d) => d.status === 'coming_soon' && activeDepartment !== d.key);
+  const second = menu ? (
+    <FunctionTabs
+      className="min-w-0 flex-1"
+      tabs={functionTabs(menu, projectDepartments(project), at, fn, waiting?.byPane ?? {})}
+      current={fn ?? 'summary'}
+      onPick={(key) => {
+        if (key === 'summary') onGo('department', { department: menu });
+        else if (key === 'design') onGo('department', { department: 'design' });
+        else onGo(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key });
+      }}
+    />
+  ) : tabs.length > 1 ? (
+    <div className="min-w-0 flex-1 py-2">
+      <Segments
+        wrap={false}
+        items={tabs.map((t) => {
+          const count = badgeFor(t.pane, badges);
+          const toDecide = waiting ? waitingOnTab(t, waiting.byPane) : 0;
+          return {
+            key: t.pane,
+            label: t.label,
+            on: paneActive(pane, t.pane),
+            go: () => onGo(t.pane),
+            extra: (
+              <>
+                {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
+                {count != null ? <Count n={count} /> : null}
+              </>
+            ),
+          };
+        })}
+      />
+    </div>
+  ) : null;
 
-  const tab = (key: string, label: ReactNode, on: boolean, go: () => void, extra?: ReactNode, muted = false) => (
-    <button
-      key={key}
-      type="button"
-      onClick={go}
-      aria-current={on ? 'true' : undefined}
-      className={cn(
-        'relative inline-flex shrink-0 items-center gap-1.5 px-2 py-2.5 text-[13px] coarse:min-h-11',
-        'transition-colors duration-quick ease-state',
-        on ? 'font-semibold text-ink' : muted ? 'text-ink-muted hover:text-ink-secondary' : 'text-ink-secondary hover:text-ink',
-      )}
-    >
-      {label}
-      {extra}
-      {/* One underline for the whole row, travelling to whichever tab is current. */}
-      {on ? (
-        <motion.span layoutId={`strip-${group}`} aria-hidden className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-ink" transition={SPRING.snappy} />
-      ) : null}
-    </button>
-  );
+  // Overview has nothing to put here: where you are is said in the bar above.
+  if (!second && !assess) return null;
 
   return (
     <div className={cn('shrink-0 border-b border-hairline bg-surface', wrap ? 'px-4' : 'px-3')}>
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <ChipScroller wrap={false}>
-            {tab('overview', 'Overview', pane === 'overview', () => onGo('overview'))}
-            {live.map((d) =>
-              tab(
-                d.key,
-                DEPARTMENT_SHORT[d.key],
-                activeDepartment === d.key,
-                () => onGo('department', { department: d.key }),
-                d.status === 'coming_soon' ? <SoonTag /> : null,
-                d.status === 'coming_soon',
-              ),
-            )}
-            <MoreDepartments items={later.map((d) => ({ key: d.key, label: DEPARTMENT_SHORT[d.key] }))} onGo={(key) => onGo('department', { department: key })} />
-            <span aria-hidden className="mx-1 my-2.5 w-px shrink-0 self-stretch bg-hairline" />
-            {shared.map((section) => {
-              const on = here?.key === section.key;
-              const count = sectionBadge(section, badges);
-              const toDecide = waiting ? section.tabs.reduce((n, t) => n + waitingOnTab(t, waiting.byPane), 0) : 0;
-              return tab(
-                section.key,
-                section.label,
-                on,
-                () => onGo(section.home),
-                <>
-                  {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
-                  {count != null ? <Count n={count} /> : null}
-                </>,
-              );
-            })}
-          </ChipScroller>
-        </div>
-        {/*
-          The way through what is waiting: documents first, then the checks
-          they answer, then the rest — one press at a time, wherever it is.
-          On a wide screen it lives in the project bar instead.
-        */}
-        {waiting && waiting.total > 0 && onReview ? <ReviewPill n={waiting.total} onClick={onReview} compact /> : null}
-      </div>
-
-      {activeDepartment ? (
-        <div className="pb-2 pt-0.5">
-          <Segments
-            wrap={false}
-            items={[
-              { key: 'all', label: 'All work', on: pane === 'department', go: () => onGo('department', { department: activeDepartment }) },
-              ...departmentDefinition(activeDepartment).workstreams.map((w) => ({
-                key: w.key,
-                label: w.label,
-                on: activeWorkstream === w.key,
-                muted: w.status !== 'live',
-                go: () => onGo(WORKSTREAM_PANE[w.key] ?? 'workstream', { workstream: w.key }),
-                extra: w.status === 'coming_soon' ? <SoonTag /> : null,
-              })),
-            ]}
-          />
-        </div>
-      ) : tabs.length > 1 ? (
-        <div className="pb-2 pt-0.5">
-          <Segments
-            wrap={false}
-            items={tabs.map((t) => {
-              const count = badgeFor(t.pane, badges);
-              const toDecide = waiting ? waitingOnTab(t, waiting.byPane) : 0;
-              return {
-                key: t.pane,
-                label: t.label,
-                on: paneActive(pane, t.pane),
-                go: () => onGo(t.pane),
-                extra: (
-                  <>
-                    {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
-                    {count != null ? <Count n={count} /> : null}
-                  </>
-                ),
-              };
-            })}
-          />
-        </div>
-      ) : null}
+      {second ? <div className="flex items-center gap-2">{second}</div> : null}
       {/* Inside Checks, which assessment and which scope. */}
-      {here?.key === 'registers' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0 ? (
+      {assess ? (
         <div className="border-t border-hairline py-1.5">
           <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
         </div>

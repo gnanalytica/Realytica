@@ -1,19 +1,24 @@
 import { useMemo } from 'react';
-import { Navigate, useOutletContext, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import {
   DEPARTMENT_ROLE_LABEL,
   QUICK_VERDICT_LABEL,
-  STAGES,
   cockpitPath,
   currentCertified,
   departmentDefinition,
   departmentRole,
+  menuAt,
+  menuFunctions,
+  projectDepartments,
   projectLinks,
   quickAssessment,
+  stageDefinition,
+  stageOf,
   workstreamDefinition,
   type DdProject,
   type DepartmentKey,
+  type StageKey,
   type WorkstreamDefinition,
 } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, TONE_FILL, cn } from '../../../components/ui/kit';
@@ -22,14 +27,28 @@ import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Reveal, Stagger, StaggerItem } from '../../../lib/motion';
 import { useMe } from '../../../lib/useMe';
 import { useWorkstreamNav } from './WorkstreamPage';
+import { SupportingDocumentsCard } from '../../../components/departments/EngineeringDesk';
+import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
+import { exampleOfDepartment } from '../../example/paths';
 import type { ProjectOutlet } from '../ProjectLayout';
 
-function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: WorkstreamDefinition; onOpen: () => void }) {
+/** `ws` is only what the card reads of a workstream. Design's card stands for four of them and has no more than this to give. */
+function WorkstreamCard({
+  project,
+  ws,
+  stage,
+  onOpen,
+}: {
+  project: DdProject;
+  ws: Pick<WorkstreamDefinition, 'key' | 'label' | 'purpose' | 'status' | 'deliverables'>;
+  stage: StageKey;
+  onOpen: () => void;
+}) {
   const live = ws.status === 'live';
   const qa = useMemo(() => (live ? quickAssessment(project, ws.key) : null), [project, ws.key, live]);
   const certified = live ? currentCertified(project, ws.key) : undefined;
-  const stageNow = STAGES.find((s) => s.subStages.includes(project.currentStage))?.key;
-  const due = ws.deliverables.find((d) => d.stage === stageNow) ?? ws.deliverables[0];
+  // What it delivers at the stage being looked at. A function has work at more stages than it hands something over, and at those it says nothing.
+  const due = ws.deliverables.find((d) => d.stage === stage);
   return (
     <button
       type="button"
@@ -48,7 +67,11 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
       </div>
       {live && qa ? <p className="mt-1.5 line-clamp-2 text-[13px] text-ink">{qa.headline}</p> : <p className="mt-1.5 text-[13px] text-ink-secondary">{ws.purpose}</p>}
       <div className="mt-auto space-y-0.5 pt-3 text-micro text-ink-muted">
-        {due ? <p>Delivers now: {due.title}</p> : null}
+        {due ? (
+          <p>
+            {stage === stageOf(project.currentStage) ? 'Delivers now' : `Delivers at ${stageDefinition(stage).label}`}: {due.title}
+          </p>
+        ) : null}
         {live ? <p>{certified ? `Certified by ${certified.signer.name}${certified.revisit && !certified.revisit.acknowledgedAt ? ' · to revisit' : ''}` : 'No certified report yet'}</p> : null}
       </div>
       <span className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-brand opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover:translate-x-0.5 group-hover:opacity-100">
@@ -63,11 +86,13 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
  * what this department exchanges with the others, and who works in it.
  */
 export default function DepartmentPage() {
-  const { project } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, refresh, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
   const { department = '' } = useParams<{ department: string }>();
   const me = useMe();
+  const navigate = useNavigate();
   const nav = useWorkstreamNav(project);
   const dept = departmentDefinition(department as DepartmentKey);
+  const at = useMemo(() => menuAt(project, stage), [project, stage]);
   const links = useMemo(
     () =>
       projectLinks(project).filter(
@@ -84,6 +109,22 @@ export default function DepartmentPage() {
   const myRole = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, dept.key) : undefined;
   const team = (project.team ?? []).filter((t) => t.departments[dept.key]);
   const DeptIcon = DEPARTMENT_ICON[dept.key];
+  // The example project has this department drawn with made-up data.
+  const example = exampleOfDepartment(dept.key);
+  /*
+   * A Summary lists the functions its tabs list: those that show at the stage
+   * being looked at and whose own department is switched on.
+   *
+   * Design is a function of Engineering in the menu, and a department of its
+   * own on the record. So Engineering's summary lists it beside its own
+   * functions, and its page says whose function it is. Design's own page
+   * lists its four workstreams whatever the stage: they are one function,
+   * shown or not as a whole.
+   */
+  const enabled = projectDepartments(project);
+  const shown = new Set(menuFunctions(dept.key, at).filter((fn) => enabled.includes(fn.department)).map((fn) => fn.key));
+  const design = dept.key === 'construction' && shown.has('design') ? departmentDefinition('design') : null;
+  const workstreams = dept.key === 'design' ? dept.workstreams : dept.workstreams.filter((ws) => shown.has(ws.key));
 
   return (
     <div className="space-y-4">
@@ -94,7 +135,7 @@ export default function DepartmentPage() {
               <DeptIcon size={18} />
             </span>
             <div className="min-w-0">
-              <p className="text-[12px] font-medium text-ink-muted">Department</p>
+              <p className="text-[12px] font-medium text-ink-muted">{dept.key === 'design' ? 'Engineering' : 'Department'}</p>
               <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{dept.label}</h2>
               <p className="mt-0.5 max-w-[60ch] text-[13px] text-ink-secondary">{dept.purpose}</p>
             </div>
@@ -105,23 +146,46 @@ export default function DepartmentPage() {
 
       {dept.status === 'coming_soon' ? (
         <Card>
-          <CardBody className="text-[13px] text-ink-secondary">
-            {dept.label} is coming. Its workstreams are listed below with what each will produce, and anything already on the file that belongs to them waits where it is.
+          <CardBody className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-ink-secondary">
+            <span>{dept.label} is coming soon.</span>
+            {example ? (
+              <Link to={example} className="group inline-flex items-center gap-1 font-medium text-brand hover:underline coarse:min-h-11">
+                See it in the example project
+                <ArrowRight size={13} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+              </Link>
+            ) : null}
           </CardBody>
         </Card>
       ) : null}
 
       <Stagger className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
-        {dept.workstreams.map((ws) => (
+        {design ? (
+          <StaggerItem key="design" className="h-full">
+            <WorkstreamCard
+              project={project}
+              ws={{ key: 'design', label: 'Design', purpose: design.purpose, deliverables: [], status: design.status }}
+              stage={stage}
+              onOpen={() => navigate(cockpitPath(project.id, 'department', { department: 'design' }))}
+            />
+          </StaggerItem>
+        ) : null}
+        {workstreams.map((ws) => (
           <StaggerItem key={ws.key} className="h-full">
-            <WorkstreamCard project={project} ws={ws} onOpen={() => nav.openWorkstream(ws.key)} />
+            <WorkstreamCard project={project} ws={ws} stage={stage} onOpen={() => nav.openWorkstream(ws.key)} />
           </StaggerItem>
         ))}
       </Stagger>
 
+      {/* Engineering runs these steps inside its technical due diligence; every other live department runs them here. */}
+      {dept.status !== 'live' ? null : dept.key === 'construction' ? (
+        <SupportingDocumentsCard project={project} department={dept.key} onChanged={setProject} onOpenDocument={nav.openDocument} />
+      ) : (
+        <DepartmentDesk project={project} department={dept.key} setProject={setProject} refresh={refresh} nav={nav} />
+      )}
+
       <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <Card>
-          <CardHeader title="Between departments" subtitle="What this department's work feeds, gates or depends on elsewhere" />
+          <CardHeader title="Between departments" subtitle="What it feeds, gates or needs" />
           <CardBody>
             {links.length ? (
               <ul className="space-y-2">
@@ -161,7 +225,7 @@ export default function DepartmentPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-[13px] text-ink-secondary">The firm's own people work here by their firm role. Add a lead, a signer or an outside contributor in People.</p>
+              <p className="text-[13px] text-ink-secondary">The firm's people work here by their firm role. Add others in People.</p>
             )}
           </CardBody>
         </Card>

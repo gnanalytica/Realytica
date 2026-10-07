@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, ChevronRight, FileText, Undo2, X } from 'lucide-react';
+import { SiteEntryLines } from '../../../components/chat/SiteEntryLines';
+import { ArrowRight, ChevronRight, FileText } from 'lucide-react';
 import {
   proposalChanges,
+  turnChips,
+  type ChatPlace,
   type ChatProposal,
   type CopilotTurn,
   type DdProject,
   type ProjectCockpitPane,
+  type TurnChip,
   type WaitingEntry,
   type waitingOnCanvas,
 } from '@realytica/shared';
@@ -14,58 +18,57 @@ import { AnimatePresence, EASE_ENTER, Stagger, StaggerItem, motion } from '../..
 import { CreateWizard } from '../../../components/create/CreateWizard';
 import { specForProposal } from '../../../components/create/specs';
 import { DecideButtons } from '../../../components/review/Decide';
-import { paneLabel, tabHolding } from './rail';
+import { useLiveHighlight } from '../LiveRow';
+import { tabHolding } from './rail';
 
 export type Waiting = ReturnType<typeof waitingOnCanvas>;
 
-/** Where a group of waiting things is, in a few words. */
-function placeOf(pane: ProjectCockpitPane): string {
-  if (pane === 'evidence') return 'on the documents';
-  if (pane === 'scope') return 'on the checks';
-  return `under ${paneLabel(pane)}`;
-}
-
 /**
- * What a chat turn left waiting, as a way to it.
+ * The ways on from a chat turn, as chips under it.
  *
  * The chat holds no buttons that decide anything: a reply that read a deed or
- * proposed a finding says so in words, and this is the pointer to where it
- * waits — one chip per place, with how many. Gone once they are decided.
+ * proposed a finding says so in words, and these point to where it happened.
+ * What it left waiting comes first, a function at a time, with how many: a
+ * function's documents open their review, its checks open its page at the
+ * checks. After a drop, the functions its other papers went to, and the paper
+ * in the graph. A waiting chip is gone once what it counts is decided.
  */
 export function TurnWaiting({
+  project,
   turn,
   waiting,
+  here,
   onGo,
 }: {
+  project: DdProject;
   turn: CopilotTurn;
   waiting: Waiting;
-  onGo: (entry: WaitingEntry) => void;
+  /** The page on screen: a function's page opens at the stage being looked at when it shows there. */
+  here: ChatPlace;
+  onGo: (chip: TurnChip) => void;
 }) {
-  const groups = useMemo(() => {
-    const ids = new Set(turn.proposalIds ?? []);
-    const cited = new Set(turn.citedEvidenceIds ?? []);
-    const mine = waiting.entries.filter((e) => (e.proposalId && ids.has(e.proposalId)) || (e.kind === 'facts' && e.evidenceId && cited.has(e.evidenceId)));
-    const byPane = new Map<ProjectCockpitPane, { count: number; first: WaitingEntry }>();
-    for (const e of mine) {
-      const g = byPane.get(e.pane);
-      if (g) g.count += e.count;
-      else byPane.set(e.pane, { count: e.count, first: e });
-    }
-    return [...byPane.entries()];
-  }, [turn, waiting]);
-  if (!groups.length) return null;
+  const chips = useMemo(() => turnChips(project, turn, waiting, here), [project, turn, waiting, here]);
+  if (!chips.length) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {groups.map(([pane, g]) => (
+      {chips.map((chip) => (
         <button
-          key={pane}
+          key={chip.key}
           type="button"
-          onClick={() => onGo(g.first)}
-          className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink ring-1 ring-inset ring-provenance/40 hover:bg-provenance/10 coarse:min-h-11"
+          onClick={() => onGo(chip)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink ring-1 ring-inset coarse:min-h-11',
+            // Blue is for what waits on a person. A chip that only goes somewhere is plain.
+            chip.kind === 'waiting' ? 'ring-provenance/40 hover:bg-provenance/10' : 'ring-[var(--ring)] hover:bg-sunken',
+          )}
         >
-          <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
-          <span className="tabular-nums font-medium">{g.count}</span>
-          <span className="text-ink-secondary">waiting {placeOf(pane)}</span>
+          {chip.kind === 'waiting' ? (
+            <>
+              <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
+              <span className="tabular-nums font-medium">{chip.count}</span>
+            </>
+          ) : null}
+          <span className="text-ink-secondary">{chip.words}</span>
           <ArrowRight size={12} className="text-ink-muted" aria-hidden />
         </button>
       ))}
@@ -78,12 +81,14 @@ function WaitingCard({
   project,
   item,
   busy,
+  highlightIds,
   onAccept,
   onSetAside,
 }: {
   project: DdProject;
   item: ChatProposal;
   busy: boolean;
+  highlightIds?: string[];
   onAccept: (id: string, payload?: Record<string, unknown>) => void;
   onSetAside: (id: string) => void;
 }) {
@@ -91,8 +96,10 @@ function WaitingCard({
   const [editing, setEditing] = useState(false);
   const changes = useMemo(() => proposalChanges(project, item), [project, item]);
   const form = useMemo(() => specForProposal(item.kind), [item.kind]);
+  // Lit as a row of a register is, when a chip in the chat names this card.
+  const { ref, on } = useLiveHighlight<HTMLLIElement>(item.id, highlightIds);
   return (
-    <li className="flex flex-col gap-1 px-3 py-2">
+    <li ref={ref} data-live={on ? 'true' : undefined} className={cn('flex flex-col gap-1 px-3 py-2', on && 'bg-brand-soft ring-2 ring-inset ring-brand/35')}>
       <div className="flex items-start gap-2.5">
         <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-provenance" aria-hidden />
         <button
@@ -128,7 +135,9 @@ function WaitingCard({
           ))}
         </dl>
       ) : null}
-      {open ? (
+      {open && item.kind === 'log_site_entry' ? (
+        <SiteEntryLines projectId={project.id} proposalId={item.id} payload={item.payload} />
+      ) : open ? (
         <div className="ml-4 space-y-1">
           <p className="text-[12px] leading-relaxed text-ink-secondary">{item.rationale}</p>
           <p className="text-[11px] text-ink-muted">{item.impact}</p>
@@ -168,6 +177,7 @@ export function WaitingHere({
   waiting,
   sittingCheckId,
   busy,
+  highlightIds,
   onAccept,
   onSetAside,
   onGo,
@@ -178,6 +188,8 @@ export function WaitingHere({
   /** The check already open on the scope — its values are decided there, not listed here. */
   sittingCheckId?: string | null;
   busy: boolean;
+  /** The records a chip in the chat lit. A card among them is lit here. */
+  highlightIds?: string[];
   onAccept: (id: string, payload?: Record<string, unknown>) => void;
   onSetAside: (id: string) => void;
   onGo: (entry: WaitingEntry) => void;
@@ -195,6 +207,11 @@ export function WaitingHere({
   useEffect(() => {
     if (total <= 4) setFolded(false);
   }, [total]);
+  // A lit card inside a folded list would be lit out of sight: the list opens. It opens again each time the card is lit, so a chip pressed after the list was folded by hand shows it.
+  const litCard = cards.find((item) => highlightIds?.includes(item.id))?.id;
+  useEffect(() => {
+    if (litCard) setFolded(false);
+  }, [litCard, highlightIds]);
   if (!total) return null;
 
   // Checks are grouped: three values on one check are one place to go.
@@ -270,7 +287,7 @@ export function WaitingHere({
             </StaggerItem>
           ))}
           {cards.map((item) => (
-            <WaitingCard key={item.id} project={project} item={item} busy={busy} onAccept={onAccept} onSetAside={onSetAside} />
+            <WaitingCard key={item.id} project={project} item={item} busy={busy} highlightIds={highlightIds} onAccept={onAccept} onSetAside={onSetAside} />
           ))}
         </Stagger>
         </motion.div>
@@ -280,35 +297,3 @@ export function WaitingHere({
   );
 }
 
-/**
- * The way back from an instruction.
- *
- * Something the person told the chat to do runs at once — it is their
- * decision — so instead of asking first, the canvas offers to take it back
- * for a few seconds after.
- */
-export function UndoBar({ label, busy, onUndo, onDismiss }: { label: string; busy: boolean; onUndo: () => void; onDismiss: () => void }) {
-  // Centred by a full-width row rather than a translate: the rise-in animation owns `transform`.
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
-    <div
-      role="status"
-      className="pointer-events-auto flex min-w-0 max-w-full animate-rise-in items-center gap-2 rounded-full bg-ink py-1.5 pl-4 pr-1.5 text-[13px] text-ink-inverse shadow-pop"
-    >
-      <span className="min-w-0 truncate">{label}</span>
-      <button
-        type="button"
-        onClick={onUndo}
-        disabled={busy}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-semibold hover:bg-white/15 disabled:opacity-60 coarse:min-h-11"
-      >
-        <Undo2 size={13} aria-hidden />
-        Undo
-      </button>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss" className="rounded-full p-1 opacity-70 hover:opacity-100 coarse:min-h-11 coarse:min-w-11">
-        <X size={13} aria-hidden />
-      </button>
-    </div>
-    </div>
-  );
-}

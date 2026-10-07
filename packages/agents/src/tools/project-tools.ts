@@ -23,7 +23,23 @@ import {
   REPORT_SOURCE_LABEL,
   rankTalkSittings,
   DD_CONNECTORS,
+  DEPARTMENT_KEYS,
+  MENU_DEPARTMENTS,
   PROJECT_COCKPIT_PANES,
+  chatPlaceLabel,
+  papersAsked,
+  placeOfRecord,
+  placeOfWords,
+  ANSWER_SOURCES,
+  engineeringSummary,
+  questionStatus,
+  questionnaireSummary,
+  suggestAnswers,
+  departmentDefinition,
+  projectDepartments,
+  requirementSheet,
+  supportingDocuments,
+  workstreamDefinition,
   SCOPE_KEYS,
   SCOPE_LABEL,
   clampGraphHops,
@@ -62,6 +78,7 @@ import {
   snapshotCapabilities,
   traceProjectNode,
   type ChatChoice,
+  type ChatPlace,
   type ChatProposal,
   type ChatProposalKind,
   type CockpitPathExtra,
@@ -93,6 +110,9 @@ const PROPOSE_KINDS = [
   'change_stage',
   'commit_draft',
   'snapshot_capabilities',
+  'set_departments',
+  'request_documents',
+  'assign_document',
 ] as const satisfies readonly ChatProposalKind[];
 
 export interface ProjectGraphRagPort {
@@ -102,6 +122,36 @@ export interface ProjectGraphRagPort {
     seedIds: string[],
     hops: number,
   ): Promise<{ nodes: { id: string }[]; edges: unknown[] } | null>;
+}
+
+/** One page of a paper that holds the words looked for. */
+export interface PaperTextHit {
+  evidenceId: string;
+  /** The paper's title on the register, and the file the words were found in. */
+  title: string;
+  fileName: string;
+  /** 1-based. */
+  page: number;
+  /** Whose words they are: the file's text, OCR's reading of it, or what a model quoted from it. */
+  reader: 'text' | 'ocr' | 'model';
+  /** The page's own words around what was looked for. */
+  snippet: string;
+}
+
+/** A search of the pages kept beside a project's papers: only the papers on the project it is handed. */
+export type PaperSearch = (project: Pick<DdProject, 'id' | 'evidence'>, words: string) => Promise<{ hits: PaperTextHit[]; opened: number; notOpened: number }>;
+
+/**
+ * How the pages of a project's papers are searched.
+ *
+ * Installed by the app and not imported, as the telemetry sink is: the pages
+ * are kept in the app's storage, and this package does not know it exists.
+ * Where none is installed the tool says the pages are not kept.
+ */
+let paperSearch: PaperSearch | null = null;
+
+export function setPaperSearch(next: PaperSearch | null): void {
+  paperSearch = next;
 }
 
 export interface ProjectAgentCollectors {
@@ -247,6 +297,24 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
     return 'actions need title, kind, owner, priority.';
   }
   if (kind === 'add_risk' && (!str('title') || !str('category') || !str('cause'))) return 'add_risk needs title, category, cause.';
+  if (kind === 'set_departments') {
+    const list = payload.departments;
+    if (!Array.isArray(list) || !list.length || list.some((d) => !(DEPARTMENT_KEYS as readonly string[]).includes(String(d)))) {
+      return `set_departments needs departments — one or more of ${DEPARTMENT_KEYS.join(', ')}.`;
+    }
+  }
+  if (kind === 'request_documents') {
+    if (!Array.isArray(payload.evidenceIds) || !payload.evidenceIds.length) return 'request_documents needs evidenceIds — call get_requirement_sheet for the ids of what is still missing.';
+    if (!str('recipient')) return 'request_documents needs recipient — the person or firm being asked.';
+  }
+  if (kind === 'assign_document') {
+    if (!str('evidenceId')) return 'assign_document needs evidenceId.';
+    // The graph shows Design as one function under the key `design`, which is
+    // no workstream. A model that read it there is told the keys that are.
+    if (payload.workstream !== null && !workstreamDefinition(str('workstream'))) {
+      return `assign_document needs workstream — a workstream key such as construction.quality, or null to hand it back. Design is not one key: give one of ${departmentDefinition('design').workstreams.map((w) => w.key).join(', ')}.`;
+    }
+  }
   if (kind === 'record_check_fields') {
     if (!str('checkId')) return 'record_check_fields needs checkId.';
     const values = payload.values;
@@ -289,6 +357,8 @@ export function createProjectTools(
   bag: ProjectAgentCollectors,
   extra?: {
     sitting?: SittingRef;
+    /** The page the person asked from: a place opened by name opens from here. */
+    place?: ChatPlace;
     graphRag?: ProjectGraphRagPort;
     lookupShelf?: (query: string, extra?: { scopeKey?: ScopeKey; checkTitle?: string }) => Promise<string>;
     /**
@@ -725,6 +795,156 @@ export function createProjectTools(
     run: async () => JSON.stringify(projectAgentSnapshot(project)),
   });
 
+  const getRequirementSheet = betaTool({
+    name: 'get_requirement_sheet',
+    description:
+      'The requirement sheet: every document the checks on the file expect, by discipline, each one pending, asked for or in hand, with the evidence id to ask for it by. Also lists supporting documents — filed papers that belong to a department this project does not run. Call it when asked what is missing, what to ask the client for, or how complete the documents are. To ask for documents, propose_update kind request_documents {evidenceIds, recipient, dueAt?, detail?}. To give a document to a workstream, propose_update kind assign_document {evidenceId, workstream}.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        department: { type: 'string', enum: [...DEPARTMENT_KEYS], description: 'Narrow to one department’s checks. Omit for the whole project.' },
+        status: { type: 'string', enum: ['pending', 'requested', 'received'], description: 'Only documents in this state.' },
+      },
+    } as const,
+    run: async ({ department, status }) => {
+      const sheet = requirementSheet(project, department ? { department: department as (typeof DEPARTMENT_KEYS)[number] } : {});
+      const groups = sheet.groups
+        .map((g) => ({
+          discipline: g.label,
+          received: g.received,
+          total: g.items.length,
+          documents: clipList(
+            g.items.filter((i) => !status || i.status === status).map((i) => ({ evidenceId: i.evidenceId, title: i.title, status: i.status, askedOf: i.askedOf, dueAt: i.dueAt, overdue: i.overdue, neededFor: i.checks.map((c) => c.title) })),
+            40,
+          ),
+        }))
+        .filter((g) => g.documents.length);
+      const supporting = clipList(supportingDocuments(project), 30).map((s) => ({ evidenceId: s.evidence.id, title: s.evidence.title, type: s.evidence.documentType, belongsTo: s.homeLabel }));
+      bag.toolCalls.push({ name: 'get_requirement_sheet', summary: `${sheet.received} of ${sheet.total} in hand${sheet.overdue ? ` · ${sheet.overdue} overdue` : ''}` });
+      return JSON.stringify({
+        departmentsOnThisProject: projectDepartments(project),
+        total: sheet.total,
+        received: sheet.received,
+        requested: sheet.requested,
+        pending: sheet.pending,
+        overdue: sheet.overdue,
+        percent: sheet.percent,
+        groups,
+        supportingDocuments: supporting,
+        note: sheet.total ? undefined : 'No checks on the file yet, so nothing is expected. Start the checks for a workstream or a due diligence first.',
+      });
+    },
+  });
+
+  const getEngineeringSummary = betaTool({
+    name: 'get_engineering_summary',
+    description:
+      'The technical picture of the project by discipline: checks answered and with an issue, open findings by severity, documents in hand, and what the remedies cost. The same figures the Engineering & Construction dashboard draws. Call it for "where does the technical due diligence stand", "which discipline has the most findings", or "what will it cost to fix". To change which departments the project runs, propose_update kind set_departments {departments:[...]}.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        department: { type: 'string', enum: [...DEPARTMENT_KEYS], description: 'Defaults to construction (Engineering & Construction).' },
+      },
+    } as const,
+    run: async ({ department }) => {
+      const summary = engineeringSummary(project, (department as (typeof DEPARTMENT_KEYS)[number] | undefined) ?? 'construction');
+      bag.toolCalls.push({ name: 'get_engineering_summary', summary: `${summary.checks.answered}/${summary.checks.total} checks · ${summary.findings.open} open finding(s)` });
+      return JSON.stringify(summary);
+    },
+  });
+
+  const getQuestionnaire = betaTool({
+    name: 'get_questionnaire',
+    description:
+      'The questionnaires on this project: the client’s own questions about the building, each with its answer, where the answer came from (seller, document, site, engineer), what proves it, and whether it is still unanswered or only suggested. Call it when asked about the questionnaire, what is unanswered, or before answering questions from the documents. Then use suggest_answers.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        questionnaireId: { type: 'string', description: 'Omit for the latest questionnaire.' },
+        status: { type: 'string', enum: ['unanswered', 'suggested', 'answered'], description: 'Only questions in this state.' },
+      },
+    } as const,
+    run: async ({ questionnaireId, status }) => {
+      const all = project.questionnaires ?? [];
+      const sheet = questionnaireId ? all.find((q) => q.id === questionnaireId) : all[all.length - 1];
+      if (!sheet) {
+        bag.toolCalls.push({ name: 'get_questionnaire', summary: 'No questionnaire on the file' });
+        return JSON.stringify({ questionnaires: [], note: 'No questionnaire has been imported. A person imports one from the Questions step of a department.' });
+      }
+      const summary = questionnaireSummary(sheet);
+      const questions = sheet.questions
+        .slice()
+        .sort((x, y) => x.order - y.order)
+        .filter((q) => !status || questionStatus(q) === status)
+        .map((q, i) => ({ questionId: q.id, no: i + 1, section: q.section, question: q.text, answer: q.answer, status: questionStatus(q), source: q.source, proof: q.proof }));
+      bag.toolCalls.push({ name: 'get_questionnaire', summary: `${sheet.title}: ${summary.answered}/${summary.total} answered` });
+      return JSON.stringify({
+        questionnaireId: sheet.id,
+        title: sheet.title,
+        header: sheet.header,
+        summary,
+        questions: clipList(questions, 120),
+        others: all.filter((q) => q.id !== sheet.id).map((q) => ({ questionnaireId: q.id, title: q.title })),
+      });
+    },
+  });
+
+  const suggestAnswersTool = betaTool({
+    name: 'suggest_answers',
+    description:
+      'Lay answers beside questionnaire questions as SUGGESTIONS for a person to confirm. Use only what a filed document states or a site record shows: give the evidenceId, and the page and a short quote when it is a document. Never guess, and never answer from general knowledge — leave a question unanswered instead. A question a person already answered is left alone. Call get_questionnaire first for the question ids, and read the documents with the other tools before answering.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['questionnaireId', 'answers'],
+      properties: {
+        questionnaireId: { type: 'string' },
+        answers: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['questionId', 'answer', 'evidenceId'],
+            properties: {
+              questionId: { type: 'string' },
+              answer: { type: 'string', description: 'Short and factual, in the units the question asks for.' },
+              source: { type: 'string', enum: [...ANSWER_SOURCES], description: 'document for a filed paper, site for a photograph or site entry.' },
+              evidenceId: { type: 'string', description: 'The filed document or photograph the answer rests on.' },
+              page: { type: 'number' },
+              quote: { type: 'string', description: 'The words on the page, under 300 characters.' },
+            },
+          },
+        },
+      },
+    } as const,
+    run: async ({ questionnaireId, answers }) => {
+      const known = new Set(project.evidence.map((e) => e.id));
+      const usable = (answers ?? []).filter((x) => x.answer?.trim() && known.has(x.evidenceId));
+      const dropped = (answers ?? []).length - usable.length;
+      try {
+        const landed = suggestAnswers(
+          project,
+          questionnaireId,
+          usable.map((x) => ({
+            questionId: x.questionId,
+            answer: x.answer,
+            source: (ANSWER_SOURCES as readonly string[]).includes(String(x.source)) ? (x.source as (typeof ANSWER_SOURCES)[number]) : 'document',
+            proof: [{ evidenceId: x.evidenceId, page: typeof x.page === 'number' ? x.page : undefined, quote: x.quote }],
+          })),
+          `${actor} (suggested by the copilot)`,
+        );
+        bag.toolCalls.push({ name: 'suggest_answers', summary: `${landed} answer(s) suggested` });
+        if (!bag.navigations.some((n) => n.target === 'workstream')) bag.navigations.push({ target: 'workstream', workstream: 'construction.quality' });
+        return JSON.stringify({ suggested: landed, droppedForNoProof: dropped, note: 'They show as suggestions on the questionnaire. A person confirms each, or all at once.' });
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : 'Could not suggest those answers.' });
+      }
+    },
+  });
+
   const searchRegisters = betaTool({
     name: 'search_registers',
     description: 'Search one shared register by title/description substring. Use before proposing a duplicate finding, action or evidence request.',
@@ -780,7 +1000,7 @@ export function createProjectTools(
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,
@@ -926,13 +1146,17 @@ export function createProjectTools(
 
   const navigatePane = betaTool({
     name: 'navigate_pane',
-    description: 'Open a cockpit pane on the right so the person can see the DD, scope, check (field), or register you are talking about. Pass ddId/scopeId/checkId when you name a sitting.',
+    description:
+      'Open a page on the right so the person can see what you are talking about. Name a page the way the menu does: a `department` for its Summary, a `function` for its own page (Title, Approvals, Progress), or a `pane` for a place the whole project shares (evidence for Documents, findings, risks, reports, graph). `stage` looks at the project in another of its four stages and never moves the project there. Pass ddId/scopeId/checkId when you name a sitting, and evidenceId or findingId to open one record.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['pane'],
       properties: {
         pane: { type: 'string', enum: [...PROJECT_COCKPIT_PANES] },
+        department: { type: 'string', enum: [...MENU_DEPARTMENTS], description: 'legal, finance, construction (Engineering in the menu), commercial or procurement.' },
+        function: { type: 'string', description: 'A function by its key (legal.title) or its word in the menu (Title). Give the department too when two share a word, as Handover does.' },
+        stage: { type: 'string', enum: ['land', 'pre', 'build', 'done', 'live'], description: 'land, pre (Pre-construction), build (Under construction), done (Completed), or live for the stage the project is at.' },
+        section: { type: 'string', description: 'A part of a function’s page: standing, checks, documents, connections, or its own (chain, approvals, progress).' },
         ddId: { type: 'string' },
         scopeId: { type: 'string' },
         checkId: { type: 'string' },
@@ -940,20 +1164,44 @@ export function createProjectTools(
         findingId: { type: 'string' },
       },
     } as const,
-    run: async ({ pane, ddId, scopeId, checkId, evidenceId, findingId }) => {
-      const target = pane as ProjectCockpitPane;
+    run: async ({ pane, department, function: fn, stage, section, ddId, scopeId, checkId, evidenceId, findingId }) => {
+      let target = pane as ProjectCockpitPane | undefined;
+      let place: CockpitPathExtra = {};
+      let summary: string | undefined;
+      if (department || fn || stage) {
+        const reading = placeOfWords(project, { pane: target, department, fn, stage, section }, extra?.place);
+        if (reading.kind !== 'go') {
+          // Two pages with one name, a page with no work at the stage, a department switched off: said back, and nothing opens.
+          return JSON.stringify({
+            error: reading.text,
+            ...(reading.kind === 'ask' ? { options: reading.choices.map((c) => c.label), note: 'Nothing was opened. Ask the person which one they meant.' } : {}),
+          });
+        }
+        target = reading.open.pane;
+        place = reading.open.extra;
+        summary = chatPlaceLabel(reading.place);
+      } else if (evidenceId && (!target || target === 'evidence')) {
+        // A document opens on the page of the function that holds it, as a link to it does.
+        const at = placeOfRecord(project, evidenceId, extra?.place);
+        if (at) {
+          target = at.open.pane;
+          place = at.open.extra;
+        }
+      }
+      if (!target) return JSON.stringify({ error: 'Name a pane, a department, a function or a stage.' });
       const opened = {
         target,
+        ...place,
         ...(ddId ? { ddId } : {}),
         ...(scopeId ? { scopeId } : {}),
         ...(checkId ? { checkId } : {}),
         ...(evidenceId ? { evidenceId } : {}),
         ...(findingId ? { findingId } : {}),
       };
-      if (!bag.navigations.some((n) => n.target === target && n.checkId === checkId && n.scopeId === scopeId && n.evidenceId === evidenceId && n.findingId === findingId)) {
-        bag.navigations.push(opened);
-      }
-      bag.toolCalls.push({ name: 'navigate', summary: checkId ? `${target} · check` : target });
+      const same = (n: (typeof bag.navigations)[number]) =>
+        n.target === target && n.checkId === checkId && n.scopeId === scopeId && n.evidenceId === evidenceId && n.findingId === findingId && n.department === place.department && n.workstream === place.workstream && n.stage === place.stage;
+      if (!bag.navigations.some(same)) bag.navigations.push(opened);
+      bag.toolCalls.push({ name: 'navigate', summary: summary ?? (checkId ? `${target} · check` : target) });
       return JSON.stringify({ opened });
     },
   });
@@ -961,7 +1209,7 @@ export function createProjectTools(
   const getSubgraph = betaTool({
     name: 'get_subgraph',
     description:
-      "Query THIS FILE's register graph: assets, DDs, scopes, checks, evidence, findings, risks, actions. Pass a term or an id and hops (1-3). The result is the neighbourhood as [id] lines. Prefer this when asked how things connect. Graph hits are this project's registers — never treat them as a statute. For IBBI/NBC/acts use lookup_reference, which is catalogue-only and is not evidence.",
+      "Query THIS FILE's register graph: assets, DDs, scopes, checks, evidence, findings, risks, actions, each placed in one of the four stages and in a department's function. A `workstream` node is what the person calls a function (Title, Approvals, Design): say function. Pass a term or an id and hops (1-3). The result is the neighbourhood as [id] lines: one for each record, then one for each link between two, said in plain words (rests on, still needs, is needed before) that you can repeat as they are. Prefer this when asked how things connect. Graph hits are this project's registers — never treat them as a statute. For IBBI/NBC/acts use lookup_reference, which is catalogue-only and is not evidence.",
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -973,7 +1221,9 @@ export function createProjectTools(
     } as const,
     run: async ({ query, hops }) => {
       const live = projectGraphOf(project);
-      const seeds = findProjectNodes(live, String(query ?? '')).slice(0, 5);
+      // The first five records the term finds are the seeds. How many it found in all goes out with the answer.
+      const found = findProjectNodes(live, String(query ?? ''));
+      const seeds = found.slice(0, 5);
       if (seeds.length === 0) {
         return JSON.stringify({ error: `Nothing in this file's graph matches "${query}". Try a check title, a finding, or an id.` });
       }
@@ -995,7 +1245,7 @@ export function createProjectTools(
       const seed = seeds[0];
       if (seed) openTalk(bag, sittingFromCitedId(project, seed.id));
       bag.toolCalls.push({ name: 'get_subgraph', summary: `${seed?.label ?? query} · ${source}` });
-      return serializeProjectSubgraph(sub, source);
+      return serializeProjectSubgraph(sub, source, { seeds: seeds.length, matches: found.length });
     },
   });
 
@@ -1125,6 +1375,48 @@ export function createProjectTools(
         queuedAsCards: cards.length,
         hits: pull.hits.slice(0, 6).map((hit) => ({ title: hit.title, claim: hit.claim, url: hit.url })),
         note: 'Queued as cards for approval. These are commercial signals, not records on this file — do not state their figures as facts about the property.',
+      });
+    },
+  });
+
+  /**
+   * The words of the papers themselves.
+   *
+   * A reading keeps the values it understood, and every other tool here
+   * reads those. What the rules had no pattern for is still on the page: a
+   * right of way, a covenant, who witnessed a deed. Each page's words are
+   * kept beside its file, and this searches them. It reads and changes
+   * nothing. It searches the papers of the project it was handed and no
+   * other, which for an outside collaborator is their copy of it.
+   */
+  const searchPapers = betaTool({
+    name: 'search_papers',
+    description:
+      'Search the words of this project\'s filed papers, page by page, for what no register holds: a clause, a right of way, a name, who witnessed a deed. Give the few words to find; a page is a hit when it holds all of them, in whatever form it writes them. Returns each passage with its paper and page. Quote the passage as the paper\'s own words and cite it as [ev:<evidenceId>:p<page>]. A passage is what the page says and not a value on the file: do not state it as one, and say so when nothing is found.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['words'],
+      properties: {
+        words: { type: 'string', description: 'The words to find together on one page, as few as will do: "right of way", "witnesses".' },
+        paper: { type: 'string', description: 'Optional. The paper to search, by its title or kind: "sale deed", "EC". Leave out to search every paper.' },
+      },
+    } as const,
+    run: async ({ words, paper }) => {
+      if (!paperSearch) return JSON.stringify({ searched: false, note: 'The pages of the papers are not kept on this deployment.' });
+      const papers = papersAsked(project, { words: String(words ?? ''), ...(paper ? { paper: String(paper) } : {}) });
+      const found = papers.length ? await paperSearch({ id: project.id, evidence: papers }, String(words ?? '')) : { hits: [], opened: 0, notOpened: 0 };
+      bag.toolCalls.push({ name: 'search_papers', summary: found.hits.length ? `Searched the papers: ${found.hits.length === 1 ? '1 page' : `${found.hits.length} pages`}` : 'Searched the papers: nothing found' });
+      return JSON.stringify({
+        searched: true,
+        hits: found.hits.map((hit) => ({ evidenceId: hit.evidenceId, paper: hit.title, fileName: hit.fileName, page: hit.page, readBy: hit.reader, passage: hit.snippet, cite: `[ev:${hit.evidenceId}:p${hit.page}]` })),
+        papersSearched: found.opened,
+        papersNotSearched: found.notOpened,
+        note: found.hits.length
+          ? 'These are the papers\' own words. Quote them as that, each with its cite, and state none as a value on the file.'
+          : papers.length
+            ? 'No page of the papers searched holds all of those words. Try fewer words, or say that the papers do not mention it.'
+            : 'No paper on this project goes by that name.',
       });
     },
   });
@@ -1260,10 +1552,15 @@ export function createProjectTools(
     getSiteRecord,
     getReport,
     searchRegisters,
+    getRequirementSheet,
+    getEngineeringSummary,
+    getQuestionnaire,
+    suggestAnswersTool,
     getSubgraph,
     traceConclusion,
     lookupReference,
     getSiteContext,
+    searchPapers,
     searchWeb,
     getPortalRoute,
     comparePlanning,

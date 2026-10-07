@@ -5,7 +5,8 @@
  * item, one material finding — then the registers already hold the rest.
  */
 
-import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
+import { SCOPE_LABEL } from './catalogs';
+import { stageAndStep } from './departments';
 import type { ProjectCockpitPane } from './cockpit';
 import {
   assessmentProgress,
@@ -191,6 +192,29 @@ function requestOne(
   );
 }
 
+/**
+ * Whether the project already has this request open as an action. Offered
+ * again it is accepted again, and the register then holds two actions for
+ * one thing: the next step after an approval is the same step until the
+ * paper comes in.
+ *
+ * A request is known by what it is for. The card that opened the action
+ * names the paper or the finding and keeps the action's id, so an action a
+ * person has since renamed is still the request for that paper. An action
+ * written by hand under the request's own title is taken for it too.
+ */
+function alreadyRequested(project: DdProject, title: string, about: { evidenceId?: string; findingId?: string }): boolean {
+  const open = project.actions.filter((a) => a.status !== 'closed');
+  if (open.some((a) => a.title === title.trim())) return true;
+  return project.chatProposals.some(
+    (card) =>
+      card.kind === 'request_evidence'
+      && card.status === 'committed'
+      && open.some((a) => a.id === card.committedRecordId)
+      && Boolean((about.evidenceId && card.citedEvidenceIds?.includes(about.evidenceId)) || (about.findingId && card.citedNodeIds?.includes(about.findingId))),
+  );
+}
+
 /** One pending AI draft as a chat card — not a bulk commit of the library. */
 export function oneDraftReviewCard(project: DdProject, actor = 'operator'): ChatProposal | undefined {
   const pending = project.aiDrafts.filter((d) => d.status === 'draft' || d.status === 'in_review' || d.status === 'accepted');
@@ -337,11 +361,11 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       return {
         kind: 'start_dd',
         title: `Start ${rec.label}`,
-        why: `You’re at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} with nothing running.`,
+        why: `You’re at ${stageAndStep(project.currentStage)} with nothing running.`,
         text: spoken(
                     `Start the ${rec.label}.`,
-          `You’re at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} with nothing running.`,
-          'They are waiting on the right. One at a time — the rest can wait.',
+          `You’re at ${stageAndStep(project.currentStage)} with nothing running.`,
+          'It is waiting on the right.',
         ),
         proposals: [card],
         pane: 'dd',
@@ -368,7 +392,8 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
         : `${assessmentProgress(pending.assessment).checkDone} of ${assessmentProgress(pending.assessment).checkTotal} done.`;
     const cards: ChatProposal[] = [];
     const owner = pending.assessment.owner || project.owner || actor;
-    if (gap) {
+    // A request the project already has open is not offered a second time.
+    if (gap && !alreadyRequested(project, `Request ${gap.title}`, { evidenceId: gap.id })) {
       cards.push(
         requestOne(project, actor, `Request ${gap.title}`, `${gap.title} is ${gap.status}. Needed for “${pending.check.title}”.`, {
           evidenceId: gap.id,
@@ -378,7 +403,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
           owner,
         }),
       );
-    } else if (finding) {
+    } else if (!gap && finding && !alreadyRequested(project, `Attach proof to “${finding.title}”`, { findingId: finding.id })) {
       cards.push(
         requestOne(project, actor, `Attach proof to “${finding.title}”`, 'Material finding with no evidence id — record the check or file a document against it.', {
           findingId: finding.id,
@@ -411,9 +436,12 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
 
   if (unproven[0]) {
     const f = unproven[0];
-    const card = requestOne(project, actor, `Attach proof to “${f.title}”`, `${f.severity} finding, no evidence linked.`, {
-      findingId: f.id,
-    });
+    const asked = alreadyRequested(project, `Attach proof to “${f.title}”`, { findingId: f.id });
+    const card = asked
+      ? undefined
+      : requestOne(project, actor, `Attach proof to “${f.title}”`, `${f.severity} finding, no evidence linked.`, {
+          findingId: f.id,
+        });
     return {
       kind: 'prove_finding',
       title: `Prove “${f.title}”`,
@@ -421,9 +449,9 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       text: spoken(
                 `“${f.title}” is ${f.severity} and has nothing behind it.`,
         '',
-        'Accept it on the right, or drop the document in here.',
+        asked ? 'Its proof has been asked for. Drop the document in here when it comes.' : 'Accept it on the right, or drop the document in here.',
       ),
-      proposals: [card],
+      proposals: card ? [card] : [],
       pane: 'findings',
       extra: { node: f.id },
       citedEvidenceIds: [],

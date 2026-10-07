@@ -7,7 +7,7 @@
  * on these same records; nothing here requires a model to function.
  */
 
-import type { RevenueMapRead } from './revenue-map';
+import type { RevenueMapRead, RevenueShape } from './revenue-map';
 import type {
   ChatChoice,
   ChatMetric,
@@ -21,7 +21,7 @@ import type {
   Tenure,
 } from '../types';
 
-export type { ChatChoice, ChatMetric, TurnSpend } from '../types';
+export type { ChatChoice, ChatMetric, ChoicePin, TurnSpend } from '../types';
 
 import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
 
@@ -220,7 +220,15 @@ export type ReportKind =
   | 'open_risk_action'
   | 'changes_since_previous'
   | 'indicative_valuation'
-  | 'handover_readiness';
+  | 'handover_readiness'
+  /** The engineer's report: building information, observations and mitigations, documents. */
+  | 'technical_dd'
+  /** The lawyer's report: title, requisitions answered, findings, documents. */
+  | 'legal_dd'
+  /** The financial report: valuation, questions answered, findings, documents. */
+  | 'financial_dd'
+  /** What changed over a period, what is waiting and on whom, and what comes next. See `status-report.ts`. */
+  | 'status';
 
 export type ReportStatus = 'draft' | 'generated' | 'reviewed' | 'issued' | 'superseded' | 'archived';
 
@@ -636,6 +644,18 @@ export interface EvidenceRecord {
   /** What the document was read as — "Sale deed", "Encumbrance certificate". */
   documentType?: string;
   /**
+   * What a model took the paper for, where the rules could not say and no
+   * person has. An offer: it names nothing on the register, answers no
+   * waiting row and types no fact until a person makes it the type.
+   */
+  proposedDocumentType?: string;
+  /**
+   * An offer a person refused for this paper: set aside, or corrected to
+   * something else. The same offer is not made again when the paper is read
+   * again.
+   */
+  refusedDocumentType?: string;
+  /**
    * The workstream that owns it, when a person said so. Otherwise it is read
    * from what the document is; see `documentWorkstream`.
    */
@@ -655,6 +675,8 @@ export interface EvidenceRecord {
    * documents are read: the newer reader may place what the older could not.
    */
   modelReadVersion?: number;
+  /** A photograph chosen to print in the report on its own, beside the ones the observations cite. */
+  inReport?: boolean;
   createdAt: string;
   updatedAt: string;
   /**
@@ -679,6 +701,11 @@ export interface EvidenceAttachment {
   storageKey: string;
   uploadedAt: string;
   /**
+   * How much of this file was read when it was last read, by which reader,
+   * and what was sent to a model. Absent on a file read before this was kept.
+   */
+  reading?: ReadingCoverage;
+  /**
    * Where and when this file claims it was captured, and who claims it.
    *
    * On a photograph this is most of what makes it evidence rather than a
@@ -696,6 +723,14 @@ export interface EvidenceAttachment {
    * cannot carry.
    */
   observation?: PhotoObservation;
+  /**
+   * What the photograph shows, in words a person stands behind.
+   *
+   * A model's reading sits in `observation` as a suggestion. It becomes this
+   * only when a person accepts it or writes their own, the same way a value
+   * read off a document waits to be accepted before anything relies on it.
+   */
+  shows?: { text: string; by: string; at: string; fromModel: boolean };
 }
 
 export interface FindingRecord {
@@ -739,6 +774,12 @@ export interface FindingRecord {
    * restrictions left" and nothing more.
    */
   environmentalCondition?: EnvironmentalCondition;
+  /** Where in the building it was seen: pump room, basement. */
+  area?: string;
+  /** What to do about it, as the engineer's table states it. */
+  mitigation?: string;
+  /** The code or standard it is judged against. */
+  standardRef?: string;
   createdAt: string;
   updatedAt: string;
   /**
@@ -932,7 +973,16 @@ export type ReportBoundSourceKind =
   | 'valuation'
   | 'remedial_cost'
   | 'site_visits'
-  | 'changes_since_previous';
+  | 'changes_since_previous'
+  | 'observations'
+  | 'questionnaire'
+  | 'requirement_sheet'
+  | 'risk_summary'
+  | 'site_photographs'
+  /** The three sections of a status report: what changed in a period, what is waiting, what comes next. */
+  | 'status_changed'
+  | 'status_waiting'
+  | 'status_next';
 
 /**
  * What a bound block asks the registers for.
@@ -952,6 +1002,13 @@ export interface ReportBoundSource {
   openOnly?: boolean;
   /** Narrow findings to one discipline. */
   discipline?: ScopeKey;
+  /** Whose observations, questionnaire or requirement sheet: Engineering's when absent. */
+  department?: import('./departments').DepartmentKey;
+  /** For a section of a status report: the period it covers, from this moment up to, and not including, this one. */
+  from?: string;
+  to?: string;
+  /** For a section of a status report: its lines as code wrote them, with no model's wording laid over them. */
+  plain?: boolean;
 }
 
 export type ReportBlockOrigin = 'derived' | 'authored';
@@ -984,6 +1041,8 @@ export interface ReportBlock {
    */
   frozen?: string[];
   frozenRecordIds?: string[];
+  /** The table as it stood when the report was issued. */
+  frozenTable?: ReportTable;
   /**
    * Set when a bound block was turned into prose, with the source it came
    * from. Recorded rather than erased: a reader is entitled to know that a
@@ -1002,11 +1061,39 @@ export interface ReportBlock {
   state?: ReportSectionState;
   stateBy?: string;
   stateAt?: string;
+  /**
+   * On a section of a status report: a model's wording for some of its lines.
+   * `said` is the line as code wrote it and `as` the words shown in its place.
+   * It is shown only while the section still gives that very line, and it
+   * replaces the line's words and nothing else: never the date, the person or
+   * what is behind the line. See `statusWordingHeld`.
+   */
+  wording?: Array<{ said: string; as: string }>;
+}
+
+/**
+ * A section that is a table rather than a list: the observations and their
+ * mitigations, the answered questionnaire, the document sheet. `lines` still
+ * carries the same content as text, for anything that cannot draw a table.
+ */
+export interface ReportTable {
+  columns: string[];
+  /** The last column is a count: draw it as a bar as well as a figure. */
+  bars?: boolean;
+  rows: Array<{
+    cells: string[];
+    recordId?: string;
+    /** Photographs and documents that stand behind the row, printed after the table. */
+    evidenceIds?: string[];
+    /** The row's words are a model's wording of the line code wrote. */
+    worded?: boolean;
+  }>;
 }
 
 export interface ResolvedReportBlock {
   lines: string[];
   recordIds: string[];
+  table?: ReportTable;
   /** Said instead of inventing a line, when the registers have nothing to show. */
   note?: string;
 }
@@ -1039,6 +1126,19 @@ export interface AuditEvent {
   reason?: string;
   oldValue?: string;
   newValue?: string;
+  /** On a decision about one value read off a paper: the value's key. */
+  factKey?: string;
+  /** On a change to the project's own fields: the fields it set. On an undo: the fields it put back. */
+  fields?: string[];
+  /** On an undo: the records it put something back on, by their ids. */
+  about?: string[];
+  /**
+   * On a line a chat message wrote: a mark of the one request that carried
+   * the message out, the same on every line that request wrote. A line
+   * written from a page carries none. It is how a message is kept apart from
+   * other work done while it ran (`chat-changes.ts` in the API).
+   */
+  req?: string;
 }
 
 export interface ValuationApproachResult {
@@ -1168,15 +1268,20 @@ export interface ProjectGraphNode {
   detail?: string;
   /**
    * A stable key the product names this by, on the structural nodes: the
-   * lifecycle stage (`construction`), the department (`legal`), the
-   * workstream (`legal.title`), the approval (`plan_sanction`). Cypher finds
-   * "the Legal department of this project" by it rather than by an id.
+   * stage (`construction`, one of the four), the department (`legal`), the
+   * function (`legal.title`, or `design` for Design's workstreams together),
+   * the approval (`plan_sanction`). Cypher finds "the Legal department of this
+   * project" by it rather than by an id. A bill carries its own number here.
    */
   key?: string;
   /**
    * Where it stands, in the node's own vocabulary: a stage's `done`,
-   * `current` or `ahead`; a workstream's `live` or `coming_soon`; an
-   * approval's `in_force` or `expired`; a quick assessment's verdict.
+   * `current` or `ahead`; a function's `live` or `coming_soon`; an
+   * approval's `in_force`, `expired` or `missing`; a document's `expected`,
+   * `received` or `rejected`; a quick assessment's verdict; a bill's
+   * `claimed`, `in_review`, `certified` or `paid`. It is what says
+   * whether a paper an edge reaches is in hand, still awaited or set aside
+   * (`projectNodeAwaited`, `projectNodeSetAside`).
    */
   status?: string;
 }
@@ -1251,6 +1356,19 @@ export interface ProjectDashboard {
   capabilities: CapabilityRun[];
 }
 
+/**
+ * A page of a project, as a chat turn keeps it: the pane on screen, the
+ * department and function when the page is one of theirs, and the stage being
+ * looked at. Plain words, so a stored turn outlives a pane or a function that
+ * is later renamed: a word nothing knows is read as no place.
+ */
+export interface ChatTurnPlace {
+  pane?: string;
+  department?: string;
+  fn?: string;
+  stage?: string;
+}
+
 /** Structurally the copilot turn the cockpit chat panel already renders. */
 export interface ProjectChatTurn {
   id: string;
@@ -1281,6 +1399,17 @@ export interface ProjectChatTurn {
    * the exact failure this product exists to prevent.
    */
   unsupportedClaims?: string[];
+  /**
+   * The facts of the project's memory this answer rests on, each with the
+   * tag it had when the answer was given, and where in `text` that tag is
+   * printed: the place of each opening bracket.
+   *
+   * Set by code from the facts themselves, never by a model. A page draws a
+   * tag as a tag at these places and nowhere else: bracketed words anywhere
+   * else in the text are words, whoever wrote them. A turn kept before the
+   * places were has none, and is drawn with no tag.
+   */
+  restsOn?: Array<{ id: string; tag: 'approved' | 'proposed' | 'thought'; stands?: boolean; at?: number[] }>;
   /**
    * Questions the model asked beyond the first, held rather than shown.
    *
@@ -1335,6 +1464,29 @@ export interface ProjectChatTurn {
    */
   sessionId?: string;
   /**
+   * The chat this sitting carries on, by that chat's id.
+   *
+   * An earlier chat is picked up again in a sitting of its own, so `sessionId`
+   * stays what it has always been: one opening of the project. This says the
+   * sitting belongs to the end of an older chat, and `chatSessions` reads the
+   * two as one. A reader that does not know the field sees a new sitting.
+   */
+  continues?: string;
+  /**
+   * The name a person gave this chat. Kept on the chat's first turn, so it is
+   * seen by whoever can see the chat and nobody else. A chat without one is
+   * named by its first question.
+   */
+  sessionName?: string;
+  /**
+   * Where the person was when this was asked: the page, and the stage it was
+   * looked at in. The thread stays as a person moves through the project, so
+   * an answer given on Title is still on screen on Approvals, and this is how
+   * the thread says which page it was about. Absent on a turn written before
+   * the chat knew, and on one the file wrote itself.
+   */
+  place?: ChatTurnPlace;
+  /**
    * What this turn cost to produce, when a model produced it.
    *
    * Absent on the deterministic paths, which is the honest answer — they cost
@@ -1347,6 +1499,20 @@ export interface ProjectChatTurn {
   toolCalls?: { name: string; summary: string }[];
   refusedForLackOfEvidence?: boolean;
   proposalIds?: string[];
+  /**
+   * The plan this turn shows, started or reports on: its id in the run
+   * ledger, which is where the plan and how far it has got are kept
+   * (`plans.ts`). The page draws the plan under the turn from there, so a
+   * turn written an hour ago shows the plan as it stands now.
+   */
+  planId?: string;
+  /**
+   * What this reply changed on the record, as the lines a person reads, and
+   * whether it has been undone. What it takes to put the changes back is
+   * kept beside the project and not here (`turn-changes.ts`). Absent on a
+   * reply that changed nothing.
+   */
+  changed?: import('./turn-changes').TurnChanged;
 }
 
 export type ChatProposalKind =
@@ -1384,7 +1550,15 @@ export type ChatProposalKind =
   | 'change_stage'
   | 'open_connector'
   | 'commit_draft'
-  | 'snapshot_capabilities';
+  | 'snapshot_capabilities'
+  /** Which departments the project runs. Admin's to approve, like the control it mirrors. */
+  | 'set_departments'
+  /** Ask a named person for documents the requirement sheet still lacks. */
+  | 'request_documents'
+  /** Give a filed document to a workstream, or hand it back to what it is. */
+  | 'assign_document'
+  /** A site entry read from a voice note: the day, the work done and the issues, each with the note's words. Filed on the site log when a person accepts. */
+  | 'log_site_entry';
 
 export type ChatSideIntentKind = 'places' | 'web_search' | 'connectors' | 'locality' | 'planning' | 'capabilities' | 'commit_drafts';
 
@@ -1476,6 +1650,39 @@ export type ReadingStreamEvent =
       evidenceId?: string;
       fileId?: string;
     }
+  | {
+      type: 'reading';
+      /** Sent for every file at once, in the order dropped, before any is read: the desk lists them that way however they finish. */
+      event: 'queued';
+      key: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      index: number;
+      total: number;
+      evidenceId?: string;
+      fileId?: string;
+    }
+  | {
+      type: 'reading';
+      /** The paper's reading is on the project's file, saved: sent as each paper finishes, in the order they finish. */
+      event: 'filed';
+      key: string;
+      /** The row it is on, as saved, so the values can be decided while the rest are still being read. */
+      row?: EvidenceRecord;
+    }
+  | {
+      type: 'reading';
+      /** The file was no paper and was not filed as one: a questionnaire, the notes of a meeting, a voice note, or a photograph of the site. */
+      event: 'taken';
+      key: string;
+      as: 'questionnaire' | 'notes' | 'voice' | 'photo';
+      /** What became of it, in a line: "A questionnaire: 24 questions", "Notes of a meeting: 4 items proposed". */
+      said: string;
+      /** For a questionnaire: which, and the department whose Questions page holds it. */
+      questionnaireId?: string;
+      department?: string;
+    }
   | { type: 'reading'; event: 'page'; key: string; page: number; of: number }
   | {
       type: 'reading';
@@ -1488,6 +1695,13 @@ export type ReadingStreamEvent =
       facts: import('./document-parse').DocumentFact[];
       summary?: string;
       failure?: string;
+    }
+  | {
+      type: 'reading';
+      event: 'merged';
+      key: string;
+      /** The file's facts once the model's reading is laid over this server's: what the turn's cards will carry. */
+      facts: import('./document-parse').DocumentFact[];
     }
   | {
       type: 'reading';
@@ -1538,6 +1752,13 @@ export interface ChatIngestFile {
    */
   modelRead?: boolean;
   /**
+   * What a model read and nothing could check against its page: looked for
+   * there and not found, or never looked for. No fact, and never filed as
+   * one: each carries `proof: 'unverified'` and, as its page, only the page
+   * the model named. Laid onto `reading.unverified` by the merge.
+   */
+  modelUnverified?: import('./document-parse').DocumentFact[];
+  /**
    * What reading the document on this server found — see `document-parse`.
    *
    * Present whenever the file had readable text (a text layer or OCR), with
@@ -1545,6 +1766,79 @@ export interface ChatIngestFile {
    * from; nothing here is written to a register until a card is approved.
    */
   read?: IngestRead;
+  /** How much of the file was read, by which reader, and why a model was asked. */
+  reading?: ReadingCoverage;
+  /**
+   * This reading is on the file's row already: it was put there the moment
+   * the paper was read, ahead of the turn that reports the whole drop
+   * (`landIngestFile`). The turn's card for the file then records the filing
+   * and writes no value a second time, so a value a person decided on the row
+   * meanwhile is not put back to waiting.
+   */
+  landed?: true;
+}
+
+/**
+ * How much of a paper was read.
+ *
+ * A reading used to say what it found and nothing about what it never looked
+ * at: a forty-page scan read for its first eight pages looked the same as one
+ * read whole. `pagesRead` under `pagesInFile` is a paper read in part, and the
+ * two numbers are what to say ("8 of 40 pages read").
+ */
+export interface ReadingCoverage {
+  /** Pages in the file. */
+  pagesInFile: number;
+  /** Pages some reader got words from: the file's text layer, OCR, or the model reader. */
+  pagesRead: number;
+  /**
+   * Pages each reader read. A page the model reader read after OCR is counted
+   * under both, so these can add up to more than `pagesRead`.
+   */
+  readers: { text: number; ocr: number; model: number };
+  /**
+   * The 1-based pages whose words on this server are OCR's reading of a
+   * picture, not the file's own text. A value that has to be exact is not
+   * proved by a quote found among those words. Absent where none were.
+   */
+  ocrPages?: number[];
+  /**
+   * Why the paper goes to the model reader, each reason a plain sentence that
+   * can be shown as it is. Empty when this server's own reading was enough.
+   */
+  modelReasons: string[];
+  /** The 1-based pages those reasons are about: the ones the model reader is asked to read. */
+  modelPages: number[];
+  /**
+   * The pages that left this server for the model reader. Usually
+   * `modelPages`. Fewer where the file was too heavy to send and only its
+   * two ends went; more where the file could not be cut and went whole.
+   * Absent until any were sent.
+   */
+  modelPagesSent?: number[];
+  /**
+   * Of the pages sent, those a value came back for that was found on the
+   * page. Set, even when empty, once the model reader has answered; absent
+   * while it has not, which is when the paper is worth reading again.
+   */
+  modelPagesRead?: number[];
+  /** Why the model reader, when asked, returned nothing, in plain words. Absent when it answered or was not asked. */
+  modelFailure?: string;
+  /**
+   * The model reader answered, and the time allowed ran out before a second
+   * model had read every value's page: values that might have been confirmed
+   * are unverified for want of time. Such a paper is worth reading again.
+   * Absent when every page that needed a second reading got one.
+   */
+  modelChecksCut?: boolean;
+  /** Why pages went unread on this server, in plain words: "only the first 8 scanned pages of a file are read here". */
+  unreadWhy?: string;
+  /**
+   * What the model reader read and nothing could check against its page.
+   * Not facts: nothing here answers a check or is compared with anything. A
+   * person can see them, each marked unverified, and look at the page.
+   */
+  unverified?: import('./document-parse').DocumentFact[];
 }
 
 export interface IngestRead {
@@ -1590,6 +1884,14 @@ export interface ProjectChatResult {
     actionId?: string;
     assetId?: string;
     page?: string;
+    /** The department or function whose page opens, for the `department` and `workstream` panes. */
+    department?: string;
+    workstream?: string;
+    /** The stage the page is looked at in, by its key. */
+    stage?: string;
+    /** The section of a function's page to land on, and the record to mark there. */
+    section?: string;
+    item?: string;
   }[];
   proposals: ChatProposal[];
   highlightIds: string[];
@@ -1680,6 +1982,8 @@ export interface DdProject {
   engagements?: import('./engagements').Engagement[];
   /** What the file is waiting on, and from whom. */
   requests?: ProjectRequest[];
+  /** The lists of questions a due diligence put to the building, with their answers. */
+  questionnaires?: import('./questionnaire').Questionnaire[];
   /** One-off data migrations already applied to this stored project. */
   migrations?: string[];
   subtype?: string;
@@ -1726,10 +2030,10 @@ export interface DdProject {
   orchestratorRuns: OrchestratorRun[];
   audit: AuditEvent[];
   /**
-   * The last instruction given in the chat that changed the file, and how to
-   * take it back. The file as it stood is kept beside the project under
-   * `token`; `state` fingerprints the file just after, so an undo is refused
-   * once anything else has changed it.
+   * Written by an earlier build, which kept one whole copy of the file for
+   * the last instruction. Nothing reads it now: what each message changed is
+   * kept with the message (`ProjectChatTurn.changed`, `turn-changes.ts`). It
+   * stays on the type because records written then still carry it.
    */
   lastUndo?: { token: string; label: string; state: string; at: string };
   /**
@@ -1822,6 +2126,23 @@ export interface DdProject {
    */
   revenueMap?: RevenueMapRead;
   /**
+   * Every read kept for a site that stands on more than one survey number,
+   * one per parcel, in the order read. `revenueMap` above is always the first
+   * of them, so code that knows of one read keeps working, and that field is
+   * the one trusted when the two disagree. Absent while there is one read or
+   * none. Read it through `revenueReads` in `revenue-map.ts`, never directly:
+   * the first place only stands for the read `revenueMap` holds, and the
+   * reads after it keep their shapes in `revenueShapes` below.
+   */
+  revenueMaps?: RevenueMapRead[];
+  /**
+   * The shapes of the state's layers that the reads in `revenueMaps` share
+   * and the first read does not hold, each kept once. A tank beside seventy
+   * parcels is one outline here, not seventy. Absent while there is one read,
+   * or while the first read holds every shape the others need.
+   */
+  revenueShapes?: Record<string, RevenueShape>;
+  /**
    * Value inputs the file offered that a person set aside, by offer id. An
    * offer's id carries its value and source, so a new document or a corrected
    * reading is a new offer and comes back. See `value-inputs.ts`.
@@ -1853,10 +2174,18 @@ export interface DdProject {
   milestones?: import('./progress').Milestone[];
   /** Construction › Progress: the daily site log, mostly from the phone. */
   siteLog?: import('./progress').SiteLogEntry[];
+  /** Finance › Budget: the cost register. The budget's work packages, the contracts that cover them, each contractor's bills line by line, and what was certified and paid against them. See `cost.ts`. */
+  cost?: import('./cost').CostRegister;
   /** What the team should hear about; raised and resolved from the project's state. */
   alerts?: import('./alerts').ProjectAlert[];
+  /** Meetings whose notes were kept: the day, who was there, where the words are stored and what was proposed from them. Never the words. See `meetings.ts`. */
+  meetings?: import('./meetings').MeetingRecord[];
   /** Links between departments a person drew; the system's own are read on demand. */
   links?: import('./links').ProjectLink[];
+  /** The review table: the questions put to the papers, what a model answered (never a value of a paper), and the rows a person marked reviewed. See `review-table.ts`. */
+  reviewTable?: import('./review-table').ReviewTable;
+  /** What goes out: letters, replies, requests for information and minutes, each a draft until a person approves it by name. See `outgoing.ts`. */
+  outgoing?: import('./outgoing').OutgoingDraft[];
   createdAt: string;
   updatedAt: string;
 }
@@ -2090,4 +2419,7 @@ export interface GenerateReportInput {
   kind: ReportKind;
   assessmentIds?: string[];
   generatedBy: string;
+  /** For a status report: the period it covers, and who it is written for. The week so far when left out. */
+  period?: { from: string; to: string };
+  audience?: string;
 }

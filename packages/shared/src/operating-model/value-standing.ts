@@ -35,7 +35,24 @@ import type { DocumentFact } from './document-parse';
 import type { ValuationWorking } from './valuation-run';
 import { approachIsUsable, VALUATION_METHOD_LABEL, type ValuationMethodKey, type ValuationOutcome } from './valuation-model';
 import { formatValueInput, guidancePerSqm, valueHasBuilding } from './value-inputs';
-import { liveFacts } from './fact-review';
+import { standingFacts, waitingReadingSaid, waitingReadings } from './fact-review';
+import {
+  extentAgainstDocuments,
+  extentsApart,
+  landReadingsWaiting,
+  landReadingsWaitingSaid,
+  offeredSurveyNumbers,
+  parcelLabels,
+  revenueExtent,
+  revenueGuidance,
+  revenueReadFor,
+  revenueReads,
+  revenueSiteBrief,
+  statedLand,
+  surveyNumbersLabel,
+  type RevenueMapFactor,
+  type StatedExtent,
+} from './revenue-map';
 import { MIN_SCHEDULE, comparableSchedule } from './comparables';
 import {
   FACING_ADJUSTMENT_PCT,
@@ -87,6 +104,8 @@ export interface ValueSummary {
   ratePerSqm: number | null;
   /** The guidance rate on the plot, where the revenue map publishes one. */
   guideline: ValueGuideline | null;
+  /** Why there is no guideline value although the map publishes rates: said on the check, never left as silence. */
+  guidelineNote?: string;
   /** Fair market value against the guideline value: +0.45 is 45% above it. */
   vsGuideline: number | null;
   /**
@@ -106,21 +125,58 @@ function plotArea(project: DdProject, working: ValuationWorking): number | null 
   return n && n > 0 ? n : null;
 }
 
+/**
+ * The guideline value of the plot: what the state's published rate makes it.
+ *
+ * One parcel, or several that carry the same rate, is that rate on the plot.
+ * Where the parcels carry different rates, one of them on the whole plot is
+ * a figure no register holds — a thousand square metres at ₹10,000 beside
+ * nine thousand at ₹30,000 is not ten thousand at ₹10,000. Each parcel then
+ * counts at its own rate, in the share of the land its outline is, on the
+ * plot the valuation uses.
+ *
+ * And where one parcel of several carries no published rate at all, no
+ * guideline value is given for the site, whether the others agree or not:
+ * lending it a neighbour's rate is a figure the state did not publish for
+ * that land. Which parcel it is, is said.
+ */
+function guidelineOn(project: DdProject, plot: number | null): { guideline: ValueGuideline | null; guidelineNote?: string } {
+  const reads = revenueReads(project);
+  const guidance = revenueGuidance(reads);
+  if (!guidance || !plot) return { guideline: null };
+  const published = (a: NonNullable<typeof guidance>['anchor']) => `₹${Math.round(a.guidancePerUnit).toLocaleString('en-IN')} per ${a.unit === 'sqft' ? 'sq ft' : 'sq yd'}`;
+  const labels = parcelLabels(reads);
+  const label = (parcelRef: string, surveyNo: string) => labels.get(parcelRef) ?? surveyNo;
+  const measured = reads.filter((r) => r.areaSqm > 0);
+  if (reads.length > 1 && guidance.unpriced.length) {
+    const numbers = surveyNumbersLabel(guidance.unpriced.map((r) => label(r.parcelRef, r.surveyNo)));
+    return {
+      guideline: null,
+      guidelineNote: `The map published no guidance value for ${numbers}, so the guideline value of the whole site cannot be worked out from the map. The value it published for Sy. ${label(guidance.read.parcelRef, guidance.read.surveyNo)} is offered as a land rate, and is that parcel's alone.`,
+    };
+  }
+  if (!guidance.differing.length) {
+    const { anchor } = guidance;
+    return { guideline: { perSqm: guidancePerSqm(anchor), areaSqm: plot, value: guidancePerSqm(anchor) * plot, published: `${published(anchor)}${anchor.locality ? `, ${anchor.locality}` : ''}` } };
+  }
+  const land = measured.reduce((sum, r) => sum + r.areaSqm, 0);
+  const perSqm = measured.reduce((sum, r) => sum + r.areaSqm * (r.anchor ? guidancePerSqm(r.anchor) : 0), 0) / land;
+  return {
+    guideline: {
+      perSqm,
+      areaSqm: plot,
+      value: perSqm * plot,
+      published: `each parcel at its own rate (${measured.map((r) => `Sy. ${label(r.parcelRef, r.surveyNo)} ${r.anchor ? published(r.anchor) : ''}`).join(', ')})`,
+    },
+  };
+}
+
 export function valueSummary(project: DdProject, working: ValuationWorking): ValueSummary {
   const r = working.reconciliation;
   const fair = r.outcome === 'indicated' && r.indicated !== null && r.indicated > 0 ? r.indicated : null;
   const area = working.area.value && working.area.value > 0 ? { sqm: working.area.value, label: working.area.label } : null;
-  const anchor = project.revenueMap?.anchor;
   const plot = plotArea(project, working);
-  const guideline: ValueGuideline | null =
-    anchor && anchor.guidancePerUnit > 0 && plot
-      ? {
-          perSqm: guidancePerSqm(anchor),
-          areaSqm: plot,
-          value: guidancePerSqm(anchor) * plot,
-          published: `₹${Math.round(anchor.guidancePerUnit).toLocaleString('en-IN')} per ${anchor.unit === 'sqft' ? 'sq ft' : 'sq yd'}${anchor.locality ? `, ${anchor.locality}` : ''}`,
-        }
-      : null;
+  const { guideline, guidelineNote } = guidelineOn(project, plot);
   const usable = working.runs.filter(approachIsUsable);
   const weights = usable.reduce((n, run) => n + run.weight, 0) || 1;
   const landRate = usable.length === 1 && usable[0]!.method === 'depreciated_replacement_cost' ? usable[0]!.inputs.find((i) => i.key === 'land_rate')?.value : undefined;
@@ -137,6 +193,7 @@ export function valueSummary(project: DdProject, working: ValuationWorking): Val
     area,
     ratePerSqm: fair !== null && area ? fair / area.sqm : null,
     guideline,
+    ...(guidelineNote ? { guidelineNote } : {}),
     vsGuideline: fair !== null && guideline && guideline.value > 0 ? fair / guideline.value - 1 : null,
     restsOnGuidance,
     approaches: working.runs.map((run) => ({
@@ -177,10 +234,17 @@ interface Said {
   fact: DocumentFact;
 }
 
+/**
+ * What the papers on file state under a key, for a lender's check to rest on:
+ * what a person accepted, and what the rules read off the page. Not a model's
+ * reading that nobody has accepted. That one waits, and the check it would
+ * have answered says so (`readingWaits`): "nil encumbrance" is never a
+ * model's word for a paper nobody looked at.
+ */
 function said(project: DdProject, key: string): Said[] {
   const out: Said[] = [];
   for (const row of (project.evidence ?? []).filter(onFile)) {
-    for (const fact of liveFacts(row)) if (fact.key === key) out.push({ row, fact });
+    for (const fact of standingFacts(row)) if (fact.key === key) out.push({ row, fact });
   }
   return out;
 }
@@ -196,31 +260,109 @@ function docName(row: EvidenceRecord): string {
 
 const pctText = (share: number): string => `${Math.round(Math.abs(share) * 100)}%`;
 
-/** Do the papers agree on how much land there is? */
+/**
+ * Do the papers agree on how much land there is?
+ *
+ * A statement is set against another only where both are of the same land.
+ * Deeds for different survey numbers state different land, and are added up,
+ * not compared: three deeds for three parcels do not disagree by being three
+ * sizes. What they add up to is then set against whatever else states all of
+ * that land — a khata for the same numbers, the state's map once every one
+ * of them is read — and each deed against any other paper for its own
+ * numbers. The land each document states is `statedLand`'s to say, so this
+ * check and the map's own comparison cannot give two answers on one screen.
+ */
 function extentsAgree(project: DdProject): ValueCheck {
-  const statements: Array<{ value: number; from: string }> = [];
-  for (const key of ['extent_title', 'extent_survey', 'extent_khata', 'sanctioned_extent']) {
-    for (const { row, fact } of said(project, key)) {
-      const n = num(fact);
-      if (n && n > 0) statements.push({ value: n, from: `${docName(row)} p. ${fact.page}` });
+  type Statement = { value: number; from: string };
+  const of = (s: StatedExtent): Statement => ({ value: s.sqm, from: `${s.document} p. ${s.page}` });
+  const one = (n: string) => n.replace(/\s+/g, '').toUpperCase();
+  const sameNumbers = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((n) => b.some((m) => one(m) === one(n)));
+  const mapFrom = (parcels: number) => (parcels === 1 ? 'the state revenue map' : `the state revenue map, ${parcels} parcels added up`);
+
+  const land = statedLand(project, 'standing');
+  const onMap = revenueExtent(project, revenueReads(project), 'standing');
+  const mapRead = Boolean(onMap && onMap.totalSqm > 0);
+  /** Each group is the statements of one piece of land. */
+  const groups: Statement[][] = [];
+  /** Documents that state an extent for land overlapping this without being the same. */
+  let otherLand = 0;
+  /** Why the map, though read, is not one of the statements. */
+  let mapLeftOut: string | null = null;
+
+  if (land && land.sqm === null) {
+    // Several documents that name no survey number and do not agree. Nothing says they are different land, so they are set
+    // against each other as papers always were; nothing says they are the site either, so the map is not set beside them.
+    groups.push(land.sources.map(of));
+    if (mapRead) mapLeftOut = land.unset ?? null;
+  } else if (land) {
+    const all: Statement[] = [
+      land.sources.length === 1 ? of(land.sources[0]!) : { value: land.sqm ?? 0, from: `${land.sources.length} documents for different survey numbers, added up` },
+    ];
+    const each: Statement[][] = land.sources.length > 1 ? land.sources.map((s) => [of(s)]) : [];
+    for (const other of land.others) {
+      const at = land.sources.findIndex((s) => sameNumbers(s.numbers, other.numbers));
+      // Its land is named only in a reading that waits: it is compared with nothing, and the line below says a reading waits.
+      if (other.numbersWaiting) continue;
+      if (other.unreadable.length) otherLand += 1;
+      // A paper that names no number is taken, as it always was, to state the land the others do: all of it.
+      else if (!other.numbers.length || sameNumbers(other.numbers, land.numbers)) all.push(of(other));
+      else if (each.length && at >= 0) each[at]!.push(of(other));
+      else otherLand += 1;
     }
+    const stated = onMap?.documents;
+    if (stated?.compared && !stated.compared.wholeNumbers.length) all.push({ value: stated.compared.mapSqm, from: mapFrom(stated.compared.parcels.length) });
+    else if (onMap && stated?.compared) mapLeftOut = `the map holds the whole of ${surveyNumbersLabel(stated.compared.wholeNumbers)}, where a part of it is named`;
+    else if (onMap && mapRead) mapLeftOut = extentAgainstDocuments(onMap)?.verdict ?? null;
+    groups.push(all, ...each);
+  } else if (onMap && mapRead) {
+    groups.push([{ value: onMap.totalSqm, from: mapFrom(onMap.parcels.filter((p) => p.areaSqm > 0).length) }]);
   }
-  if (project.revenueMap && project.revenueMap.areaSqm > 0) statements.push({ value: project.revenueMap.areaSqm, from: 'the state revenue map' });
+
+  const statements = groups.flat();
   const base = { key: 'extents_agree', label: 'Extent across the documents', group: 'lender' as const, source: statements.map((s) => s.from).join(', ') || 'No extent on file' };
-  if (statements.length < 2) {
-    return { ...base, verdict: 'unknown', headline: statements.length ? 'Stated once' : 'No extent on file', detail: 'A lender compares the extent on the title, the khata, the survey sketch and the map. Only one of them is on file, so there is nothing to compare it with.' };
+  // A model's reading nobody has accepted, and one two readers differ on, are counted for nothing above. They are said.
+  const waiting = landReadingsWaiting(project);
+  const waits = landReadingsWaitingSaid(waiting);
+  const aside = [
+    ...(waits ? [`${waits.charAt(0).toUpperCase()}${waits.slice(1)}.`] : []),
+    ...(mapLeftOut ? [`The map is read and is not set beside ${statements.length === 1 ? 'it' : 'them'}: ${mapLeftOut}.`] : []),
+    ...(otherLand ? [`${otherLand === 1 ? 'One other document states' : `${otherLand} other documents state`} an extent for land that is not the same, and ${otherLand === 1 ? 'is' : 'are'} not compared.`] : []),
+  ];
+  const compared = groups
+    .filter((g) => g.length >= 2)
+    .map((g) => {
+      const lo = Math.min(...g.map((s) => s.value));
+      const hi = Math.max(...g.map((s) => s.value));
+      return { lo, hi, gap: (hi - lo) / hi, count: g.length, list: g.map((s) => `${formatValueInput(s.value, 'sqm')} (${s.from})`).join('; ') };
+    });
+  if (!compared.length) {
+    const once = !statements.length
+      ? 'None of them is on file.'
+      : land && land.sqm !== null && land.sources.length > 1
+        ? `The ${land.sources.length} documents on file state the extents of different survey numbers, ${formatValueInput(land.sqm, 'sqm')} in all, and nothing else states the same land, so there is nothing to compare them with.`
+        : aside.length > (waits ? 1 : 0)
+          ? 'Only one of them states this land, so there is nothing to compare it with.'
+          : 'Only one of them is on file, so there is nothing to compare it with.';
+    return {
+      ...base,
+      verdict: 'unknown',
+      headline: statements.length ? 'Stated once' : waits ? 'A reading is waiting' : 'No extent on file',
+      detail: ['A lender compares the extent on the title, the khata, the survey sketch and the map.', once, ...aside].join(' '),
+    };
   }
-  const values = statements.map((s) => s.value);
-  const lo = Math.min(...values);
-  const hi = Math.max(...values);
-  const gap = (hi - lo) / hi;
-  const list = statements.map((s) => `${formatValueInput(s.value, 'sqm')} (${s.from})`).join('; ');
-  if (gap <= 0.05) return { ...base, verdict: 'clear', headline: `Agree within ${pctText(gap)}`, detail: `${statements.length} statements of the extent agree: ${list}.` };
+  const worst = compared.reduce((a, b) => (b.gap > a.gap ? b : a));
+  if (!extentsApart(worst.lo, worst.hi)) {
+    const agree = compared.length === 1 ? `${worst.count} statements of the extent agree: ${worst.list}.` : `The statements of each piece of land agree: ${compared.map((c) => c.list).join('. ')}.`;
+    return { ...base, verdict: 'clear', headline: `Agree within ${pctText(worst.gap)}`, detail: [agree, ...aside].join(' ') };
+  }
   return {
     ...base,
-    verdict: gap > 0.15 ? 'blocker' : 'attention',
-    headline: `${pctText(gap)} apart`,
-    detail: `The papers disagree on the extent: ${list}. A lender values the smaller figure until a survey settles it; the valuation uses whichever is recorded as the plot area.`,
+    verdict: worst.gap > 0.15 ? 'blocker' : 'attention',
+    headline: `${pctText(worst.gap)} apart`,
+    detail: [
+      `The papers disagree on the extent: ${worst.list}. A lender values the smaller figure until a survey settles it; the valuation uses whichever is recorded as the plot area.`,
+      ...aside,
+    ].join(' '),
   };
 }
 
@@ -282,17 +424,57 @@ function chargesOnTitle(project: DdProject): ValueCheck | null {
 
 /** Is the parcel on the state's prohibited register? */
 function prohibited(project: DdProject): ValueCheck | null {
-  const read = project.revenueMap;
-  if (!read) return null;
-  const base = { key: 'prohibited', label: 'Prohibited register', group: 'lender' as const, source: `State revenue map, Sy. ${read.surveyNo}` };
-  if (read.prohibitedCategory) return { ...base, verdict: 'blocker', headline: read.prohibitedCategory, detail: `The parcel is on the state's prohibited register as ${read.prohibitedCategory}. It cannot be registered for sale until it is removed, and no lender will take it as security.` };
-  if (read.prohibitedRegisterUnjoined) return { ...base, verdict: 'unknown', headline: 'Register not joined', detail: 'The layer this parcel came from is not joined to the prohibited register, so its silence says nothing. Search the register at the sub-registrar.' };
-  return { ...base, verdict: 'clear', headline: 'Not on the register', detail: 'The revenue map read found the parcel on no prohibited register.' };
+  const reads = revenueReads(project);
+  if (!reads.length) return null;
+  const labels = parcelLabels(reads);
+  const label = (r: (typeof reads)[number]) => labels.get(r.parcelRef) ?? r.surveyNo;
+  const base = { key: 'prohibited', label: 'Prohibited register', group: 'lender' as const, source: `State revenue map, ${surveyNumbersLabel(reads.map(label))}` };
+  // One listed parcel blocks the site, whatever else is read or not.
+  const listed = reads.filter((r) => r.prohibitedCategory);
+  if (listed.length && reads.length === 1) {
+    const read = listed[0]!;
+    return { ...base, verdict: 'blocker', headline: read.prohibitedCategory ?? '', detail: `The parcel is on the state's prohibited register as ${read.prohibitedCategory}. It cannot be registered for sale until it is removed, and no lender will take it as security.` };
+  }
+  if (listed.length) {
+    return {
+      ...base,
+      verdict: 'blocker',
+      headline: `${surveyNumbersLabel(listed.map(label))} listed`,
+      detail: `${listed.map((r) => `Sy. ${label(r)} is on the state's prohibited register as ${r.prohibitedCategory}`).join('; ')}. A listed parcel cannot be registered for sale until it is removed, and no lender will take it as security.`,
+    };
+  }
+  const unjoined = reads.filter((r) => r.prohibitedRegisterUnjoined);
+  const silence = unjoined.length
+    ? reads.length === 1
+      ? 'The layer this parcel came from is not joined to the prohibited register, so its silence says nothing.'
+      : `The layer ${surveyNumbersLabel(unjoined.map(label))} came from is not joined to the prohibited register, so its silence says nothing.`
+    : null;
+  // A number the file states, accepted by a person, with no parcel read for it: the register has not been asked about that
+  // land, and the parcels that were read cannot answer for it.
+  const unread = offeredSurveyNumbers(project)
+    .filter((o) => o.accepted && !o.unreadable && !revenueReadFor(reads, o.surveyNo))
+    .map((o) => o.surveyNo);
+  if (unread.length) {
+    const found = silence ?? (reads.length === 1 ? 'The revenue map read found the parcel on no prohibited register.' : `The revenue map read found none of the ${reads.length} parcels on a prohibited register.`);
+    return {
+      ...base,
+      verdict: 'unknown',
+      headline: `${surveyNumbersLabel(unread)} not read`,
+      detail: `${found} But ${surveyNumbersLabel(unread)} ${unread.length === 1 ? 'is' : 'are'} stated on this file and not read from the map, and one listed parcel blocks a site. Read ${unread.length === 1 ? 'it' : 'them'}, or search the register at the sub-registrar.`,
+    };
+  }
+  if (silence) return { ...base, verdict: 'unknown', headline: 'Register not joined', detail: `${silence} Search the register at the sub-registrar.` };
+  if (reads.length === 1) return { ...base, verdict: 'clear', headline: 'Not on the register', detail: 'The revenue map read found the parcel on no prohibited register.' };
+  return { ...base, verdict: 'clear', headline: 'Not on the register', detail: `The revenue map read found none of the ${reads.length} parcels on a prohibited register.` };
 }
 
 /** Does the figure sit below the value the duty is charged on? */
 function againstGuideline(summary: ValueSummary): ValueCheck | null {
-  if (!summary.guideline) return null;
+  if (!summary.guideline) {
+    return summary.guidelineNote
+      ? { key: 'vs_guideline', label: 'Value against the guideline value', group: 'lender', source: 'State revenue map', verdict: 'unknown', headline: 'No guideline value for the site', detail: summary.guidelineNote }
+      : null;
+  }
   const base = { key: 'vs_guideline', label: 'Value against the guideline value', group: 'lender' as const, source: `Guidance value, ${summary.guideline.published}` };
   if (summary.vsGuideline === null) return { ...base, verdict: 'unknown', headline: `Guideline ${formatValueInput(summary.guideline.value, 'INR')}`, detail: 'There is no figure yet to compare with the guideline value of the land.' };
   if (summary.restsOnGuidance) {
@@ -351,6 +533,28 @@ function comparablesStand(project: DdProject): ValueCheck | null {
 const VERDICT_ORDER: ComplianceVerdict[] = ['blocker', 'attention', 'unknown', 'clear'];
 
 /**
+ * A check with nothing to stand on yet, where what would answer it has been
+ * read and waits: a model's reading nobody has accepted, or a value two
+ * readers differ on.
+ */
+function readingWaits(project: DdProject, key: string, label: string, facts: readonly string[]): ValueCheck | null {
+  for (const row of (project.evidence ?? []).filter(onFile)) {
+    const fact = waitingReadings(row).find((f) => facts.includes(f.key));
+    if (!fact) continue;
+    return {
+      key,
+      label,
+      group: 'lender',
+      verdict: 'unknown',
+      headline: 'A reading is waiting',
+      detail: `${waitingReadingSaid(fact, docName(row))} ${fact.otherReading ? 'Keep one' : 'Accept it or set it aside'} on the document; until then it answers nothing here.`,
+      source: `${docName(row)} p. ${fact.page}`,
+    };
+  }
+  return null;
+}
+
+/**
  * Every check on the figure: the state's title checks from the last screen,
  * then the lender's own. Worst first.
  */
@@ -364,9 +568,19 @@ export function valueChecks(project: DdProject, working: ValuationWorking, summa
     source: c.statute,
     group: 'state',
   }));
-  const lender = [extentsAgree(project), planDeviation(project), farWithin(project), chargesOnTitle(project), prohibited(project), comparablesStand(project), againstGuideline(summary), approachesAgree(working)].filter(
-    (c): c is ValueCheck => c !== null,
-  );
+  // A check with nothing to stand on, where a model has read what would answer it, says that the reading is waiting.
+  const orWaiting = (check: ValueCheck | null, key: string, label: string, facts: readonly string[]): ValueCheck | null =>
+    check && check.verdict !== 'unknown' ? check : (readingWaits(project, key, label, facts) ?? check);
+  const lender = [
+    extentsAgree(project),
+    orWaiting(planDeviation(project), 'plan_deviation', 'Built against the sanctioned plan', ['sanctioned_area']),
+    orWaiting(farWithin(project), 'far_within', 'FAR against the permitted', ['sanctioned_far', 'permissible_far']),
+    orWaiting(chargesOnTitle(project), 'charges', 'Charges on the title', ['ec_nil', 'subsisting_charges']),
+    prohibited(project),
+    comparablesStand(project),
+    againstGuideline(summary),
+    approachesAgree(working),
+  ].filter((c): c is ValueCheck => c !== null);
   return [...state, ...lender].sort((a, b) => VERDICT_ORDER.indexOf(a.verdict) - VERDICT_ORDER.indexOf(b.verdict));
 }
 
@@ -422,12 +636,31 @@ export function valueDrivers(project: DdProject, working: ValuationWorking, scre
     });
   }
 
-  for (const f of project.revenueMap?.factors ?? []) {
+  // What the state's maps found. One parcel's factors are told as they
+  // always were. A site on several is every parcel's, each finding once and
+  // told for the parcel it bears on hardest — the lines the brief under the
+  // map shows — and saying which parcel that is. Only a line the engine put
+  // a verdict on moves a value; a tank that is merely nearby does not.
+  const reads = revenueReads(project);
+  const onMap: Array<{ f: RevenueMapFactor; key: string; where: string | null }> = [];
+  if (reads.length > 1) {
+    const brief = revenueSiteBrief(project, reads);
+    const keyed = new Set<string>();
+    for (const item of brief ? [...brief.warnings, ...brief.planned, ...brief.zoning, ...brief.positives] : []) {
+      const f = reads.find((r) => r.parcelRef === item.told)?.factors.find((x) => x.code === item.code);
+      if (!f) continue;
+      onMap.push({ f, key: keyed.has(f.code) ? `map:${f.code}:${item.told}` : `map:${f.code}`, where: item.where });
+      keyed.add(f.code);
+    }
+  } else {
+    for (const f of reads[0]?.factors ?? []) onMap.push({ f, key: `map:${f.code}`, where: null });
+  }
+  for (const { f, key, where } of onMap) {
     const low = Math.min(f.impactLowPct, f.impactHighPct);
     const high = Math.max(f.impactLowPct, f.impactHighPct);
     out.push({
-      key: `map:${f.code}`,
-      label: f.label,
+      key,
+      label: where ? `${f.label} · ${where}` : f.label,
       direction: f.direction === 'up' ? 'up' : f.direction === 'down' ? 'down' : 'neutral',
       impact: low === 0 && high === 0 ? null : { low, high },
       applied: false,

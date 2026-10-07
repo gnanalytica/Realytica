@@ -7,8 +7,8 @@
  * issued a deterministic command (handled by applyProjectChat, not here).
  */
 
-import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
-import { sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
+import type { AgentStep, ChatChoice, ChatPlace, ChatProposal, CockpitPathExtra, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
+import { MEM_ANSWER_RULES, chatPlaceLine, memNoteOfReply, sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import { agentCapability, describeError } from '../client';
 import { basicChatModel } from '../config';
@@ -37,6 +37,8 @@ Hard rules:
 3d. The report is half alive. Call get_report before touching it. A section marked live reads the registers — its words are not yours to write, and propose_update will refuse them. To change what a live section says, either propose a source change on that block, or propose a paragraph beside it. To rewrite prose somebody wrote, propose blockId+text and say what you changed. A person saying "add a note: ..." or "detach the findings section" is handled outside this agent and executes as their own instruction.
 4. Indicative valuation is not a certified IBBI certificate. Say so whenever value is discussed.
 5. When you name a DD, scope, or check, call navigate_pane with those ids so the right-hand field opens. When you cite evidence, include the evidence id.
+5a. The question comes with the page the person is on: a department, one of its functions (Title, Approvals, Progress), or a place the whole project shares, and the stage it is being looked at in. "What is missing", "summarise" and "which findings are critical" are about that page unless they name the project or the file; open your answer by saying which you answered ("On Title: ..."). Asked to open a page or look at a stage, call navigate_pane with department, function and stage. Looking at a stage never moves the project to it: moving the project is a change_stage proposal, and only when they ask for the move.
+5b. For what a paper says that no register holds (a clause, a right of way, who witnessed a deed), call search_papers and quote the passage as the paper's own words, with the cite it returns.
 6. BE SHORT AND ASK ONE THING. Three sentences is a normal answer; the payload goes on cards, not into prose. Ask exactly ONE question per turn — the single most decisive unknown — and never stack two. If you need four facts, ask for the first and say what you will ask next. Every turn ends with one named next action, not a list of options. A turn with more than one question is trimmed before the person sees it, so the ones you stack are the ones you lose. Cite register titles in prose (Fire NOC, Approval conditions) — not truncated ids. You may put an id in parentheses after the title.
 7. If you cannot help from the registers, say what evidence would unblock you.
 8. Name one next move. Follow the Next line from get_project / get_sitting. Pack completeness (title, survey, sanction, fire NOC) is the health figure — do not list the evidence library.
@@ -46,13 +48,16 @@ Hard rules:
 9. Call get_sitting when the person is on a check. Call review_findings only when they ask to criticise unevidenced findings — never record a check.
 10. Connections on this file: get_subgraph and trace_conclusion. Those hits are this project's registers, not the law. For IBBI, NBC, PTCL, Registration Act and similar, call lookup_reference — cite title and asOf, never file the URL as evidence.
 11. Gated portals (Kaveri, Bhoomi, e-Khata, BBMP tax, Fire NOC): call get_portal_route or read get_sitting.portal. Tell the person to download after login/OTP and attach the file on this check. Never claim you fetched the extract.
-12. Master plan / zoning overlay: call compare_planning. The locality pack and a geocoded pin are not the RMP sheet. Do not claim a geometric intersection with the master plan. OSM, BBMP GIS WMS lakes/parks, and OpenCity GBA wards / BBMP lakes are CONTEXT. BMRDA maps are the sitting for Harohalli. Do not overlay DPPlans, GISMaps.in, or withdrawn RMP-2031 PDFs as the plan in force. Propose obtaining the sheet or zoning certificate; never file those URLs as this project's extract.`;
+12. Master plan / zoning overlay: call compare_planning. The locality pack and a geocoded pin are not the RMP sheet. Do not claim a geometric intersection with the master plan. OSM, BBMP GIS WMS lakes/parks, and OpenCity GBA wards / BBMP lakes are CONTEXT. BMRDA maps are the sitting for Harohalli. Do not overlay DPPlans, GISMaps.in, or withdrawn RMP-2031 PDFs as the plan in force. Propose obtaining the sheet or zoning certificate; never file those URLs as this project's extract.
+13. ${MEM_ANSWER_RULES}`;
 
 export interface RunProjectCopilotParams {
   project: DdProject;
   question: string;
   actor?: string;
   viewContext?: string;
+  /** The page the person asked from, and the stage it is looked at in. Said to the model in words, and given to the tools that open a page. */
+  place?: ChatPlace;
   history?: CopilotTurn[];
   memory?: string;
   sitting?: SittingRef;
@@ -72,10 +77,16 @@ export interface RunProjectCopilotResult {
   proposals: ChatProposal[];
   /** Options offered instead of guessing which record was meant. */
   choices: ChatChoice[];
-    navigations: { target: string; ddId?: string; scopeId?: string; checkId?: string; node?: string; evidenceId?: string; findingId?: string }[];
+  navigations: Array<{ target: string } & CockpitPathExtra>;
   toolCalls: { name: string; summary: string }[];
   citedEvidenceIds: string[];
   citedNodeIds: string[];
+  /**
+   * What the answer asked to be kept in the project's memory: the sentence,
+   * and the id it named as what the sentence is about. Taken off the answer's
+   * last line, so `text` does not carry it. Nothing has checked the id.
+   */
+  note?: { note: string; about?: string };
   /** What the call cost, when one was made. Absent on every failure path. */
   spend?: TurnSpend;
   /** Why the model handed the question over, when it did — the answer is then not its own. */
@@ -151,6 +162,7 @@ function citeIds(text: string, project: DdProject): { citedEvidenceIds: string[]
 
 export async function runProjectCopilot(params: RunProjectCopilotParams): Promise<RunProjectCopilotResult> {
   const { project, question, viewContext } = params;
+  const looking = chatPlaceLine(project, params.place) ?? viewContext;
   const actor = params.actor ?? 'operator';
   const empty: RunProjectCopilotResult = {
     text: '',
@@ -177,6 +189,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
   const tools: LlmClientTool[] = [
     ...createProjectTools(project, actor, bag, {
       sitting: params.sitting,
+      place: params.place,
       graphRag: params.graphRag,
       lookupShelf: params.lookupShelf,
       searchWeb: params.searchWeb,
@@ -223,7 +236,8 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
         type: 'text',
         text: [
           `Question: ${question}`,
-          viewContext ? `(The person is looking at: ${viewContext}.)` : '',
+          // The page by its name and stage where the request said them; the bare pane from a client that says only that.
+          looking ? `(The person is looking at: ${looking}.)` : '',
           params.sitting?.checkId ? `(Sitting check id: ${params.sitting.checkId}.)` : '',
           params.memory ? params.memory : '',
         ]
@@ -254,7 +268,9 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
         }
       },
     });
-    const text = answerOfLoop(written) || textOf(result).trim() || 'I looked at the project. Anything I proposed is waiting on the right.';
+    // The note the answer leaves for memory is its last line. It comes off before anything reads the answer: it is not said to the person.
+    const said = memNoteOfReply(answerOfLoop(written) || textOf(result).trim());
+    const text = said.text || 'I looked at the project. Anything I proposed is waiting on the right.';
     const cites = citeIds(text, project);
     /*
      * What the turn cost, carried out with the answer.
@@ -278,6 +294,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       toolCalls: bag.toolCalls.length ? bag.toolCalls : [{ name: 'project_copilot', summary: 'Thought with project tools' }],
       citedEvidenceIds: cites.citedEvidenceIds,
       citedNodeIds: cites.citedNodeIds,
+      ...(said.note ? { note: { note: said.note, ...(said.about ? { about: said.about } : {}) } } : {}),
       spend: { usd: price.costUsd, exact: price.confidence === 'exact' },
       ...(handOver.reason ? { handedOver: handOver.reason } : {}),
     };

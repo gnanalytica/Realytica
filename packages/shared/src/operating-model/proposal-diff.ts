@@ -22,8 +22,9 @@
  */
 
 import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { stageAndStep } from './departments';
 import { checkFieldReading, checkSchema } from './operations';
-import type { ChatProposal, CheckFieldValue, DdProject } from './types';
+import type { ChatProposal, CheckFieldValue, DdProject, LifecycleStage } from './types';
 
 /** One field a card would change. `from` absent means the file holds nothing yet. */
 export interface ProposalChange {
@@ -135,8 +136,9 @@ export function proposalChanges(project: DdProject, proposal: ChatProposal): Pro
   if (proposal.kind === 'change_stage') {
     const stage = typeof payload.stage === 'string' ? payload.stage : undefined;
     if (!stage) return out;
-    const to = LIFECYCLE_STAGE_LABEL[stage as keyof typeof LIFECYCLE_STAGE_LABEL] ?? stage;
-    const from = LIFECYCLE_STAGE_LABEL[project.currentStage];
+    // Stage and step together: a step's name alone ("Design") does not say which of the four stages it is in.
+    const to = stage in LIFECYCLE_STAGE_LABEL ? stageAndStep(stage as LifecycleStage) : stage;
+    const from = stageAndStep(project.currentStage);
     if (from !== to) out.push({ label: 'Stage', from, to });
     return out;
   }

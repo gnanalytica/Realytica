@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Bell, CalendarDays, CircleAlert, FolderTree, Inbox, Plus, Search, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Bell, CalendarDays, CircleAlert, Columns3, FolderTree, Inbox, LayoutTemplate, List, Plus, Search, TriangleAlert } from 'lucide-react';
 import {
   ENGAGEMENT_STAGE_LABEL,
   STAGES,
@@ -16,11 +16,25 @@ import { useAsync } from '../lib/useAsync';
 import { readPref, writePref } from '../lib/prefs';
 import { AnimatedNumber, Reveal, SPRING, Stagger, StaggerItem, motion } from '../lib/motion';
 import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton, Tooltip, cn } from '../components/ui/kit';
+import { EXAMPLE_HOME } from './example/paths';
+import { ProjectRows } from './projects/ProjectList';
 import { Avatar, dayMonth } from '../components/project/ProjectPanels';
 
 const LAST_SEEN_KEY = 'portfolioLastSeen';
+const VIEW_KEY = 'portfolioView';
 
 type Filter = 'all' | 'active' | 'issued';
+
+/**
+ * The same projects, two ways: a board with a column for each stage, or a
+ * list with the counts a card has no room for. One page, because they are one
+ * set of projects; the choice is remembered.
+ */
+type View = 'board' | 'list';
+const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
+  { key: 'board', label: 'Board', icon: Columns3 },
+  { key: 'list', label: 'List', icon: List },
+];
 
 function projectHref(projectId: string): string {
   return `/projects/${projectId}`;
@@ -209,6 +223,7 @@ export default function Portfolio() {
   const { data, error, loading } = useAsync(() => api.portfolio(), []);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [view, setView] = useState<View>(() => (readPref(VIEW_KEY) === 'list' ? 'list' : 'board'));
   const [lastSeen] = useState<string | null>(() => readPref(LAST_SEEN_KEY));
 
   // The visit is recorded on the way out, so this visit's digest still reads
@@ -269,6 +284,10 @@ export default function Portfolio() {
               className="w-full min-w-0 bg-transparent text-[13px] text-ink placeholder:text-ink-muted focus:outline-none coarse:text-base sm:w-56"
             />
           </label>
+          {/* Every function of every department, drawn with made-up data: what a full project looks like before one of your own is. */}
+          <Button variant="secondary" icon={<LayoutTemplate size={15} />} onClick={() => navigate(EXAMPLE_HOME)}>
+            Example project
+          </Button>
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => navigate('/projects/new')}>
             New project
           </Button>
@@ -332,6 +351,27 @@ export default function Portfolio() {
             </button>
           ))}
         </div>
+        <div role="group" aria-label="Show the projects as" className="ml-auto inline-flex rounded-xl bg-sunken p-0.5 ring-1 ring-inset ring-[var(--ring)]">
+          {VIEWS.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => {
+                setView(v.key);
+                writePref(VIEW_KEY, v.key);
+              }}
+              aria-pressed={view === v.key}
+              className={cn(
+                'relative inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1 text-[12px] transition-colors duration-quick coarse:min-h-11',
+                view === v.key ? 'font-semibold text-ink' : 'text-ink-secondary hover:text-ink',
+              )}
+            >
+              {view === v.key ? <motion.span layoutId="portfolio-view" aria-hidden className="absolute inset-0 rounded-[10px] bg-surface shadow-card ring-1 ring-[var(--ring)]" transition={SPRING.snappy} /> : null}
+              <v.icon size={13} aria-hidden className="relative" />
+              <span className="relative">{v.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading && !data ? (
@@ -352,6 +392,8 @@ export default function Portfolio() {
             }
           />
         </Card>
+      ) : view === 'list' ? (
+        <ProjectRows projects={projects} />
       ) : (
         <div className="-mx-4 overflow-x-auto px-4 pb-1 no-scrollbar [scroll-padding-inline:1rem] snap-x snap-mandatory sm:mx-0 sm:px-0 lg:overflow-visible">
           <div className="grid auto-cols-[82%] grid-flow-col items-start gap-3 sm:auto-cols-[minmax(15rem,1fr)] lg:grid-flow-row lg:grid-cols-4">

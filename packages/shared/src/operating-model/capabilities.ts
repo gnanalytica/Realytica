@@ -6,6 +6,7 @@
 import { REFERENCE_DATA } from '../reference';
 import type { LocalityReference } from '../types';
 import { LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { stageAndStep } from './departments';
 import {
   addAction,
   addDecision,
@@ -40,6 +41,7 @@ import type {
   ValuationRun,
 } from './types';
 import { plural } from './text';
+import { readingWaitingFor } from './reading-coverage';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -85,6 +87,7 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
     entityType: 'project',
     entityId: project.id,
     newValue: input.portfolio ?? input.name,
+    fields: Object.keys(input).filter((field) => input[field as keyof PatchProjectInput] !== undefined),
   });
   return project;
 }
@@ -110,6 +113,8 @@ export function attachEvidenceFile(
     // scanned deed would make "no capture facts" and "capture facts we never
     // filled in" indistinguishable, and the register renders those differently.
     ...(file.capture && Object.keys(file.capture).length ? { capture: file.capture } : {}),
+    // How much of it was read when it was dropped waits on its card, and goes onto the row with the file.
+    ...(readingWaitingFor(project, file.storageKey) ? { reading: readingWaitingFor(project, file.storageKey) } : {}),
   };
   record.attachments.push(attachment);
   record.fileName = file.fileName;
@@ -420,7 +425,7 @@ export function computeCapabilityRuns(project: DdProject): CapabilityRun[] {
     {
       kind: 'schedule',
       status: 'computed',
-      summary: `Stage ${LIFECYCLE_STAGE_LABEL[project.currentStage]}. ${overdue} overdue actions, ${scheduleFindings.length} open schedule findings.`,
+      summary: `Stage ${stageAndStep(project.currentStage)}. ${overdue} overdue actions, ${scheduleFindings.length} open schedule findings.`,
       metrics: {
         overdue,
         openFindings: scheduleFindings.length,
@@ -700,9 +705,9 @@ export function proposeAiDrafts(project: DdProject, actor = 'operator', source: 
   created.push(
     pushDraft(project, {
       kind: 'orchestrator_plan',
-      title: `DD plan at ${LIFECYCLE_STAGE_LABEL[project.currentStage]}`,
+      title: `DD plan at ${stageAndStep(project.currentStage)}`,
       body: [
-        `Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
+        `Stage: ${stageAndStep(project.currentStage)}.`,
         `Active DDs: ${project.assessments.filter((a) => a.status === 'active' || a.status === 'in_review').length}.`,
         recommended.length ? `Recommended templates not yet running: ${recommended.map((d) => d.label).join(', ')}.` : 'All recommended templates for this stage have been instantiated.',
         `${gaps.length} evidence gaps, ${material.length} high/critical open findings, ${pending.length} unfinished checks.`,

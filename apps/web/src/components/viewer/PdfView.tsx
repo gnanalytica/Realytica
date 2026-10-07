@@ -90,6 +90,8 @@ export function PdfView({
   const [scale, setScale] = useState(1);
   const [fitWidth, setFitWidth] = useState(true);
   const [matches, setMatches] = useState<Match[]>([]);
+  /** Counts each time the view is sent to the words a search found. The page they are on brings them to the middle. */
+  const [seek, setSeek] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
@@ -155,18 +157,29 @@ export function PdfView({
     if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }, []);
 
-  /* Open on the cited page. */
+  /*
+   * Open on the cited page: at its top, unless a fact's words are marked on
+   * it. Then the page brings those words to the middle by itself, and a
+   * second scroll to the top of the page, started a moment later, would take
+   * the view off them whenever they sit lower than the viewer is tall.
+   */
   const openedAt = useRef<number | null>(null);
+  const markedPage = marks?.page;
   useEffect(() => {
     if (!doc || !citedPage) return;
     if (openedAt.current === citedPage) return;
+    if (markedPage === citedPage) {
+      setCurrent(citedPage);
+      openedAt.current = citedPage;
+      return;
+    }
     const t = window.setTimeout(() => {
       scrollToPage(citedPage);
       setCurrent(citedPage);
       openedAt.current = citedPage;
     }, 60);
     return () => window.clearTimeout(t);
-  }, [doc, citedPage, scrollToPage]);
+  }, [doc, citedPage, markedPage, scrollToPage]);
 
   /*
    * Where the words actually are beats where the record says they are.
@@ -176,6 +189,10 @@ export function PdfView({
    * on a page, that is the page to show. The recorded page is a claim; a
    * match is evidence. The chip keeps naming the page it went to, so the jump
    * is never silent.
+   *
+   * It goes to the words, not to the top of their page: a page is often
+   * taller than the viewer, and its top would leave them below the fold. The
+   * wait puts this after the move to the cited page, which it replaces.
    */
   const jumpedTo = useRef<string | null>(null);
   useEffect(() => {
@@ -184,11 +201,11 @@ export function PdfView({
     if (jumpedTo.current === token) return;
     jumpedTo.current = token;
     const t = window.setTimeout(() => {
-      scrollToPage(matches[0].page);
       setCurrent(matches[0].page);
+      setSeek((n) => n + 1);
     }, 60);
     return () => window.clearTimeout(t);
-  }, [matches, highlight?.term, scrollToPage]);
+  }, [matches, highlight?.term]);
 
   const pages = useMemo(() => Array.from({ length: pageCount }, (_, i) => i + 1), [pageCount]);
   const matchByPage = useMemo(() => new Map(matches.map((m) => [m.page, m.rects])), [matches]);
@@ -230,7 +247,7 @@ export function PdfView({
         {matches.length > 0 ? (
           <button
             type="button"
-            onClick={() => { setCurrent(matches[0].page); scrollToPage(matches[0].page); }}
+            onClick={() => { setCurrent(matches[0].page); setSeek((n) => n + 1); }}
             className="rounded-full bg-warning/25 px-2 py-0.5 text-mini text-ink"
           >
             Found on page {matches[0].page}
@@ -271,6 +288,7 @@ export function PdfView({
               container={scrollRef}
               cited={citedPage === n}
               highlights={matchByPage.get(n) ?? []}
+              seek={matches[0]?.page === n ? seek : 0}
               marks={marks && marks.page === n ? marks : undefined}
               onVisible={() => setCurrent(n)}
               register={(el) => {
@@ -293,6 +311,7 @@ function PdfPage({
   container,
   cited,
   highlights,
+  seek,
   marks,
   onVisible,
   register,
@@ -304,6 +323,8 @@ function PdfPage({
   container: React.RefObject<HTMLDivElement | null>;
   cited: boolean;
   highlights: Match['rects'];
+  /** Not zero on the page whose found words the view is sent to; a new number sends it again. */
+  seek: number;
   marks?: { page: number; id: string } & FactMarks;
   onVisible: () => void;
   register: (el: HTMLDivElement | null) => void;
@@ -351,29 +372,68 @@ function PdfPage({
     };
   }, [doc, pageNumber, scale, fitWidth, container]);
 
-  /* The marked words, brought to the middle of the viewer once the page has its size. */
-  useEffect(() => {
-    const first = marks?.quote[0];
-    const host = hostRef.current;
-    const scroller = container.current;
-    if (!first || !host || !scroller || !size) return;
-    const top = host.offsetTop + first.y * size.h - scroller.clientHeight / 2;
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    scroller.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' });
-  }, [marks?.id, size, container, marks?.quote]);
+  /*
+   * A point of the page, in its own pixels as drawn, brought to the middle of
+   * the viewer: across as well as down, since an enlarged page is wider than
+   * the viewer. Measured from where the page is drawn, not from its offset,
+   * which is counted from whatever positioned box holds the viewer.
+   */
+  const centre = useCallback(
+    (x: number, y: number) => {
+      const host = hostRef.current;
+      const scroller = container.current;
+      if (!host || !scroller) return;
+      const at = host.getBoundingClientRect();
+      const box = scroller.getBoundingClientRect();
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      scroller.scrollTo({
+        top: Math.max(0, scroller.scrollTop + at.top - box.top + y - scroller.clientHeight / 2),
+        left: Math.max(0, scroller.scrollLeft + at.left - box.left + x - scroller.clientWidth / 2),
+        behavior: reduced ? 'auto' : 'smooth',
+      });
+    },
+    [container],
+  );
 
+  /*
+   * The marked words come to the middle once the page has its size. By where
+   * the words are, not by the fact's object: the project is a new object
+   * after any change to it, and that must not scroll the page again.
+   */
+  const first = marks?.quote[0];
+  const markX = first ? first.x + first.w / 2 : undefined;
+  const markY = first ? first.y + first.h / 2 : undefined;
+  useEffect(() => {
+    if (markX === undefined || markY === undefined || !size) return;
+    centre(markX * size.w, markY * size.h);
+  }, [marks?.id, markX, markY, size, centre]);
+
+  /* Words a search found come to the middle the same way, each time the viewer sends the view to them. */
+  const found = highlights[0];
+  const foundX = found ? found.x + found.w / 2 : undefined;
+  const foundY = found ? found.y + found.h / 2 : undefined;
+  useEffect(() => {
+    if (!seek || foundX === undefined || foundY === undefined || !size) return;
+    centre(foundX * size.applied, foundY * size.applied);
+  }, [seek, foundX, foundY, size, centre]);
+
+  /*
+   * The page in view is the one across the middle of the viewer. Counting a
+   * page once half of it shows never counted one taller than twice the
+   * viewer: any page once enlarged, and every page in a short viewer.
+   */
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
     const io = new IntersectionObserver(
       (entries) => {
-        for (const e of entries) if (e.isIntersecting && e.intersectionRatio > 0.5) onVisible();
+        for (const e of entries) if (e.isIntersecting) onVisible();
       },
-      { threshold: [0.5] },
+      { root: container.current, rootMargin: '-50% 0px -50% 0px' },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [onVisible]);
+  }, [onVisible, container]);
 
   return (
     <div

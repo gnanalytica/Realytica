@@ -4,7 +4,7 @@
  */
 
 import type { DdProject, MemoryFact, MemoryRecall } from '@realytica/shared';
-import { LIFECYCLE_STAGE_LABEL, PROJECT_HEALTH_LABEL, packCompleteness, projectNextStep } from '@realytica/shared';
+import { LIFECYCLE_STAGE_LABEL, PROJECT_HEALTH_LABEL, packCompleteness, projectNextStep, stageAndStep } from '@realytica/shared';
 import { DEFAULT_HALF_LIFE_DAYS, DEFAULT_RECALL_LIMIT, memoryFactId } from './store';
 import type { MemoryStore } from './types';
 import type { RecallOptions } from './recall';
@@ -74,7 +74,7 @@ export function extractFactsFromProject(project: DdProject, opts: { now: string 
   const assertedAt = opts.now;
   const drafts: Array<Omit<MemoryFact, 'id'>> = [];
   const locality = localitySubject(`${project.location}, ${project.city}`);
-  const stageLabel = LIFECYCLE_STAGE_LABEL[project.currentStage] ?? project.currentStage;
+  const stageLabel = project.currentStage in LIFECYCLE_STAGE_LABEL ? stageAndStep(project.currentStage) : project.currentStage;
   const pack = packCompleteness(project);
   const next = projectNextStep(project);
   if (locality) {

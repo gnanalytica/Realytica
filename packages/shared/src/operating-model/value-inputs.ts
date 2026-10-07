@@ -37,12 +37,23 @@ import type { CheckInstance, DdAssessment, DdProject, EvidenceRecord } from './t
 import type { DocumentFact } from './document-parse';
 import { CHECK_FIELDS } from './check-schemas';
 import { isBlank } from './check-fields';
-import { factReview, liveFacts } from './fact-review';
+import { factReview, standingFacts, waitingReadings } from './fact-review';
 import { createAssessment, recordAuditEvent, recordCheckFields } from './operations';
 import { patchProject } from './capabilities';
-import { fileRevenueMapAsEvidence, type RevenueMapAnchor } from './revenue-map';
+import {
+  fileRevenueMapAsEvidence,
+  parcelLabels,
+  revenueExtent,
+  revenueGuidance,
+  revenueReads,
+  surveyNumbersLabel,
+  unacceptedWords,
+  wholeNumberWords,
+  type RevenueMapAnchor,
+} from './revenue-map';
 import { COMPARABLE_SOURCE_LABEL, MIN_SCHEDULE, comparableSchedule, fileComparableSchedule } from './comparables';
-import { reviewFacts } from './review';
+import { decisionRefused, mayDecidePaper, reviewFacts } from './review';
+import type { MayDecide } from './team';
 import { REFERENCE_DATA, resolveStatePack } from '../reference';
 
 /* ==================================================================== */
@@ -194,14 +205,42 @@ interface Stated {
   fact: DocumentFact;
 }
 
-/** Every number a document on file states under `key`, newest document first. */
+/**
+ * Every number a document on file states under `key`, newest document first.
+ * What stands only (`standingFacts`): a model's reading nobody has accepted,
+ * and a value two readers differ on, are offered to no input. They wait
+ * (`valueReadingsWaiting`), and the page says so.
+ */
 function stated(project: DdProject, key: string): Stated[] {
   const out: Stated[] = [];
   for (const row of project.evidence ?? []) {
     if (!onFile(row)) continue;
-    for (const fact of liveFacts(row)) if (fact.key === key) out.push({ row, fact });
+    for (const fact of standingFacts(row)) if (fact.key === key) out.push({ row, fact });
   }
   return out.sort((a, b) => b.row.createdAt.localeCompare(a.row.createdAt));
+}
+
+/** The keys an input here is read from, or whether there is a building is told by. */
+const VALUE_FACT_KEYS = new Set([
+  'extent_title',
+  'extent_survey',
+  'extent_khata',
+  'sanctioned_extent',
+  'sanctioned_area',
+  'cleared_built_up_area',
+  'consideration',
+  'registration_date',
+  'monthly_rent',
+  'leased_area',
+  'oc_date',
+  'oc_issued',
+]);
+
+/** The readings an input would have been offered from, that wait on their papers and are offered to nothing. */
+export function valueReadingsWaiting(project: DdProject): Array<{ evidence: EvidenceRecord; fact: DocumentFact }> {
+  return (project.evidence ?? [])
+    .filter(onFile)
+    .flatMap((evidence) => waitingReadings(evidence).filter((fact) => VALUE_FACT_KEYS.has(fact.key)).map((fact) => ({ evidence, fact })));
 }
 
 function numberOf(fact: DocumentFact): number | null {
@@ -272,7 +311,7 @@ export interface OwnSale {
 export function ownSales(project: DdProject, now = new Date()): OwnSale[] {
   const out: OwnSale[] = [];
   for (const row of (project.evidence ?? []).filter(onFile)) {
-    const facts = liveFacts(row);
+    const facts = standingFacts(row);
     const consideration = facts.find((f) => f.key === 'consideration');
     const extent = facts.find((f) => f.key === 'extent_title');
     const registered = facts.find((f) => f.key === 'registration_date');
@@ -367,13 +406,30 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
       2,
     );
   }
-  const read = project.revenueMap;
-  if (read && read.areaSqm > 0) {
+  // A site on several survey numbers is all of its parcels: the outlines the
+  // state publishes are added up, and the offer names the numbers it adds.
+  const kept = revenueReads(project);
+  const labels = parcelLabels(kept);
+  const reads = kept.filter((r) => r.areaSqm > 0);
+  if (reads.length) {
+    const village = reads[0].village && reads.every((r) => r.village === reads[0].village) ? `, ${reads[0].village}` : '';
+    // What the figure is not: a parcel that is the whole of a number asked for
+    // by a part may hold more land than the site, and a number off a reading
+    // nobody has accepted is a machine's word that the parcel is the site's.
+    const counted = (revenueExtent(project, kept)?.parcels ?? []).filter((p) => p.areaSqm > 0);
+    const parcels = counted.flatMap((p) => [
+      ...(p.askedAs.length ? [` Sy. ${p.label} is the ${wholeNumberWords(p.askedAs)}: its outline may hold more land than the site.`] : []),
+      ...(p.unaccepted ? [` Sy. ${p.label} is ${unacceptedWords(p.unaccepted)}.`] : []),
+    ]);
     add(
       'land_area',
-      read.areaSqm,
-      { kind: 'revenue_map', label: 'State revenue map', detail: `Sy. ${read.surveyNo}${read.village ? `, ${read.village}` : ''}` },
-      'The parcel outline the state publishes for this survey number. Machine-read, and the register carries its own survey error.',
+      reads.reduce((sum, r) => sum + r.areaSqm, 0),
+      { kind: 'revenue_map', label: 'State revenue map', detail: `${surveyNumbersLabel(reads.map((r) => labels.get(r.parcelRef) ?? r.surveyNo), 12)}${village}` },
+      `${
+        reads.length === 1
+          ? 'The parcel outline the state publishes for this survey number.'
+          : `The ${reads.length} parcel outlines the state publishes for these survey numbers, added up.`
+      } Machine-read, and the register carries its own survey error.${parcels.join('')}`,
       5,
     );
   }
@@ -415,7 +471,7 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
   if (!building) {
     for (const sale of ownSales(project, now).filter((x) => x.recent)) {
       const row = project.evidence.find((e) => e.id === sale.evidenceId)!;
-      const consideration = liveFacts(row).find((f) => f.key === 'consideration')!;
+      const consideration = standingFacts(row).find((f) => f.key === 'consideration')!;
       add(
         'rate_per_sqm',
         sale.ratePerSqm,
@@ -463,14 +519,28 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
 
   /* ---- cost: the guidance rate, and the building's age ----------------- */
 
-  if (read?.anchor && read.anchor.guidancePerUnit > 0) {
-    const perSqm = guidancePerSqm(read.anchor);
-    const unit = read.anchor.unit === 'sqft' ? 'sq ft' : 'sq yd';
+  // One value, from one parcel, and the offer says which. Where the parcels
+  // carry different published values the others are named and none is
+  // averaged: an average is a rate the state never published.
+  const guidance = revenueGuidance(kept);
+  if (guidance) {
+    const { read, anchor, differing } = guidance;
+    const several = kept.length > 1;
+    const from = labels.get(read.parcelRef) ?? read.surveyNo;
+    const perUnit = (a: RevenueMapAnchor) => `₹${grouped(a.guidancePerUnit)} per ${a.unit === 'sqft' ? 'sq ft' : 'sq yd'}`;
+    const others = differing.length
+      ? ` ${differing.map((r) => `Sy. ${labels.get(r.parcelRef) ?? r.surveyNo} carries ${r.anchor ? perUnit(r.anchor) : ''}`).join('; ')}: the published values differ by parcel, and this is the one for Sy. ${from}, not an average.`
+      : '';
+    const none = several && guidance.unpriced.length ? ` The map published no value for ${surveyNumbersLabel(guidance.unpriced.map((r) => labels.get(r.parcelRef) ?? r.surveyNo), 12)}.` : '';
     add(
       'land_rate_per_sqm',
-      perSqm,
-      { kind: 'revenue_map', label: 'State revenue map', detail: `Guidance value${read.anchor.locality ? `, ${read.anchor.locality}` : `, Sy. ${read.surveyNo}`}` },
-      `The guidance value the state publishes here: ₹${grouped(read.anchor.guidancePerUnit)} per ${unit}. The statutory floor, not a market rate — most sites transact above it, so replace it with land comparables where you hold them.`,
+      guidancePerSqm(anchor),
+      {
+        kind: 'revenue_map',
+        label: 'State revenue map',
+        detail: `Guidance value${anchor.locality ? `, ${anchor.locality}` : ''}${several || !anchor.locality ? `, Sy. ${from}` : ''}`,
+      },
+      `The guidance value the state publishes here: ${perUnit(anchor)}.${several ? ` Read for Sy. ${from}.` : ''}${others}${none} The statutory floor, not a market rate — most sites transact above it, so replace it with land comparables where you hold them.`,
       1,
     );
   }
@@ -499,7 +569,7 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
   /* ---- income: the lease on file --------------------------------------- */
 
   for (const row of (project.evidence ?? []).filter(onFile)) {
-    const facts = liveFacts(row);
+    const facts = standingFacts(row);
     const rent = facts.find((f) => f.key === 'monthly_rent');
     const let_ = facts.find((f) => f.key === 'leased_area');
     const area = let_ ? numberOf(let_) : null;
@@ -722,6 +792,15 @@ export interface AcceptedOffers {
 }
 
 /**
+ * The valuation's inputs are Finance's. With `mayDecide`, accepting an offered
+ * value or setting one aside is a lead's or signer's there, and anybody else
+ * is refused before anything changes. With nobody asking, nothing is refused.
+ */
+function assertMayDecideValue(mayDecide: MayDecide | undefined): void {
+  if (mayDecide && !mayDecide('finance')) throw decisionRefused('Deciding a value for the valuation', 'finance', mayDecide);
+}
+
+/**
  * Record the offers a person accepted, by id.
  *
  * Each is looked up afresh on the file as it is now, so an id the page held
@@ -730,8 +809,14 @@ export interface AcceptedOffers {
  * revenue-map read, filed on the register for the purpose; and a document's
  * own value still waiting on its row is accepted there too, so it is not asked
  * about twice.
+ *
+ * That last step is a decision on the document, so with `mayDecide` it is
+ * taken only where the person may decide that paper as well. A Finance lead
+ * who does not lead the deed's department records the extent for the
+ * valuation, and the deed's own value waits for whoever decides it.
  */
-export function acceptValueOffers(project: DdProject, ids: readonly string[], actor: string): AcceptedOffers {
+export function acceptValueOffers(project: DdProject, ids: readonly string[], actor: string, options: { mayDecide?: MayDecide } = {}): AcceptedOffers {
+  assertMayDecideValue(options.mayDecide);
   const offers = new Map(valueOffers(project).map((o) => [o.id, o]));
   const wanted = ids.map((id) => ({ id, offer: offers.get(id) }));
   const started = wanted.some((w) => w.offer && SPEC_BY_KEY.get(w.offer.input)?.target.kind === 'check') ? ensureValueChecks(project, actor) : undefined;
@@ -771,7 +856,8 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
           offer.source.kind === 'document'
             ? offer.source.evidenceId
             : offer.source.kind === 'revenue_map'
-              ? fileRevenueMapAsEvidence(project, actor).id
+              ? // The one rate the map offers is the guidance value, cited to the read of the parcel it came from.
+                fileRevenueMapAsEvidence(project, actor, revenueGuidance(revenueReads(project))?.read).id
               : offer.source.kind === 'comparables'
                 ? fileComparableSchedule(project, actor).id
                 : undefined;
@@ -784,8 +870,11 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
       // The document is accepted as stating what was just recorded from it.
       for (const read of offer.facts ?? []) {
         const row = project.evidence.find((e) => e.id === read.evidenceId);
-        const fact = row?.facts?.find((f) => f.key === read.key);
-        if (row && fact && factReview(fact) === 'proposed') reviewFacts(project, row.id, [fact.key], 'accept', actor);
+        // The value the offer was read from: one that stands, since no other is offered.
+        const fact = row ? standingFacts(row).find((f) => f.key === read.key) : undefined;
+        if (row && fact && factReview(fact) === 'proposed' && (!options.mayDecide || mayDecidePaper(project, row, options.mayDecide))) {
+          reviewFacts(project, row.id, [fact.key], 'accept', actor, undefined, { mayDecide: options.mayDecide });
+        }
       }
       seen.add(offer.input);
       applied.push(offer);
@@ -803,7 +892,8 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
  * Set offers aside. They stay out of the page until the file says something
  * different — a new document, a corrected value — which is a new offer.
  */
-export function setAsideValueOffers(project: DdProject, ids: readonly string[], actor: string): number {
+export function setAsideValueOffers(project: DdProject, ids: readonly string[], actor: string, options: { mayDecide?: MayDecide } = {}): number {
+  assertMayDecideValue(options.mayDecide);
   const offers = new Map(valueOffers(project).map((o) => [o.id, o]));
   const at = new Date().toISOString();
   const list = project.valueSetAside ?? [];

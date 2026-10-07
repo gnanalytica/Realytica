@@ -377,7 +377,8 @@ describe('project cockpit chat', () => {
     const result = applyProjectChat(project, 'Run valuation');
     assert.equal(project.valuationRuns.length, before + 1);
     assert.equal(result.navigations[0]?.target, 'valuation');
-    assert.match(result.assistantTurn.text, /indicative/i);
+    // The seeded file holds no rate, so the run comes to no figure and the reply says so. It used to say "Indicative value INR 0".
+    assert.match(result.assistantTurn.text, /^No figure yet\./);
   });
 
   it('closes a named action from chat', () => {
@@ -547,10 +548,12 @@ describe('project chat wizard', () => {
     const after = project.evidence.find((e) => e.id === gap!.id)!;
     assert.equal(after.status, 'received');
     assert.equal(after.attachments.length, 1);
-    assert.equal(after.quotes?.[0]?.text, 'No objection for occupancy of Tower A subject to hydrant coverage.');
+    // Words that came with the file from a reader, with no value found on a page behind them, are not the page's words:
+    // the row's quotes are cut from its facts, and this file has none.
+    assert.deepEqual(after.quotes ?? [], []);
     const checkId = (card!.payload.checkIds as string[] | undefined)?.[0] ?? after.checkIds[0];
     if (checkId) {
-      assert.ok(quotesForCheck(project, checkId).some((q) => /hydrant coverage/i.test(q.text)));
+      assert.ok(!quotesForCheck(project, checkId).some((q) => /hydrant coverage/i.test(q.text)));
     }
   });
 

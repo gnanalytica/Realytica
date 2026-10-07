@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, GitBranch, Maximize2, Minus, Plus, X } from 'lucide-react';
-import { buildProjectGraph, extractProjectSubgraph, findProjectNodes, projectDepartments, traceProjectNode, type DdProject, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
+import { buildProjectGraph, extractProjectSubgraph, findProjectNodes, traceProjectNode, type DdProject, type ProjectGraphNode } from '@realytica/shared';
 import { Badge, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
 import type { Transform } from '../../../components/canvas/Canvas';
 import { useMeasure } from '../../../components/charts/primitives';
+import { departmentWord, linksOf, secondLine } from './graph-links';
 
 const KIND_ORDER: ProjectGraphNode['kind'][] = [
   // How the work is organised comes first: the stages, the departments and
-  // their workstreams, who works there, and the engagements drawing on them.
+  // their functions, who works there, and the engagements drawing on them.
   'stage',
   'department',
   'workstream',
@@ -36,6 +37,16 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
   'sheet',
   'milestone',
   'site_entry',
+  // The cost register, in the order the money moves through it: the budget's
+  // packages, the contracts that cover them, the bills raised under those,
+  // their lines, and the certificates issued on them.
+  'work_package',
+  'contract',
+  'bill',
+  'bill_line',
+  'certification',
+  'questionnaire',
+  'answer',
   'contradiction',
   'finding',
   'risk',
@@ -49,23 +60,34 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
 
 /**
  * Where the graph opens: the project and each of its departments, so the
- * first view is the structure — stages, departments, their workstreams — with
- * the records placed in it one click away.
+ * first view is the structure (the four stages, the departments and their
+ * functions) with the records placed in it one click away.
+ *
+ * Read off the graph rather than worked out here. The departments drawn are
+ * the menu's five, and asking the graph which they are is what keeps this
+ * page from holding a second opinion about it.
  */
-function openingSeeds(project: DdProject): string[] {
-  return [project.id, ...projectDepartments(project).map((key) => `${project.id}::dept::${key}`)];
+function openingSeeds(graph: { nodes: ProjectGraphNode[] }): string[] {
+  return graph.nodes.filter((n) => n.kind === 'project' || n.kind === 'department').map((n) => n.id);
 }
 
 const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
   stage: 'Stages',
   department: 'Departments',
-  workstream: 'Workstreams',
+  workstream: 'Functions',
   member: 'People on it',
   engagement: 'Engagements',
   quick_assessment: 'Quick assessments',
   certified_report: 'Certified reports',
   milestone: 'Milestones',
   site_entry: 'Site log',
+  work_package: 'Work packages',
+  contract: 'Contracts',
+  bill: 'Bills',
+  bill_line: 'Bill lines',
+  certification: 'Certificates',
+  questionnaire: 'Questionnaires',
+  answer: 'Answers',
   project: 'Project',
   parcel: 'Land',
   party: 'People',
@@ -101,6 +123,13 @@ const KIND_TONE: Record<ProjectGraphNode['kind'], string> = {
   certified_report: 'var(--status-good, var(--brand))',
   milestone: 'var(--status-info, var(--axis))',
   site_entry: 'var(--status-info, var(--axis))',
+  work_package: 'var(--status-info, var(--axis))',
+  contract: 'var(--status-good, var(--brand))',
+  bill: 'var(--status-info, var(--axis))',
+  bill_line: 'var(--status-info, var(--axis))',
+  certification: 'var(--status-good, var(--brand))',
+  questionnaire: 'var(--status-info, var(--axis))',
+  answer: 'var(--status-good, var(--brand))',
   project: 'var(--brand)',
   parcel: 'var(--status-good, var(--brand))',
   party: 'var(--status-good, var(--brand))',
@@ -141,6 +170,9 @@ interface Placed {
   y: number;
 }
 
+/** The frame the records sit in: the stages, the departments and their functions. */
+const FRAME_KINDS = new Set<ProjectGraphNode['kind']>(['stage', 'department', 'workstream']);
+
 function layoutGraph(nodes: ProjectGraphNode[]): { placed: Placed[]; lanes: { kind: ProjectGraphNode['kind']; x: number; width: number; count: number }[]; bounds: { x: number; y: number; width: number; height: number } } {
   const placed: Placed[] = [];
   const lanes: { kind: ProjectGraphNode['kind']; x: number; width: number; count: number }[] = [];
@@ -150,9 +182,10 @@ function layoutGraph(nodes: ProjectGraphNode[]): { placed: Placed[]; lanes: { ki
   const pending: { x: number; nodes: ProjectGraphNode[] }[] = [];
 
   KIND_ORDER.forEach((kind, ordinal) => {
-    const laneNodes = nodes
-      .filter((n) => n.kind === kind)
-      .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+    // The frame keeps the order the graph gives it, which is the menu's: Land
+    // before Completed, Legal's functions together. Records go by name.
+    const laneNodes = nodes.filter((n) => n.kind === kind);
+    if (!FRAME_KINDS.has(kind)) laneNodes.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
     if (laneNodes.length === 0 && kind !== 'project') return;
     const columnCount = Math.max(1, Math.ceil(laneNodes.length / MAX_ROWS));
     const perColumn = Math.max(1, Math.ceil(laneNodes.length / columnCount));
@@ -252,6 +285,8 @@ export function ProjectGraphCanvas({
   onOpen?: (id: string) => void;
 }) {
   const graph = useMemo(() => buildProjectGraph(project), [project]);
+  const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
+  const seeds = useMemo(() => openingSeeds(graph), [graph]);
   /*
    * "Why is this here?": the node and everything it rests on, walked down to
    * the documents, and nothing else. A finding's trace is the check that
@@ -302,7 +337,7 @@ export function ProjectGraphCanvas({
    * branch, because the one thing a pruned view of a diligence file must never
    * do is prune the problems.
    */
-  const [expanded, setExpanded] = useState<string[]>(() => (focusId ? [focusId] : openingSeeds(project)));
+  const [expanded, setExpanded] = useState<string[]>(() => (focusId ? [focusId] : seeds));
 
   /*
    * Opening a node writes `?node=<id>`, which arrives straight back here as
@@ -314,7 +349,7 @@ export function ProjectGraphCanvas({
    * Only a different project starts over.
    */
   useEffect(() => {
-    setExpanded(openingSeeds(project));
+    setExpanded(seeds);
     setSelectedId(null);
     // Only a different project starts over; a change on this one keeps the walk.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -338,14 +373,14 @@ export function ProjectGraphCanvas({
     const sub = extractProjectSubgraph(graph, [...expanded, ...matches], 1);
     // The opening view is the work, not the talk about it: questions, the
     // model's thinking and its proposals appear once somebody opens one.
-    const opening = !matches.length && expanded.length === openingSeeds(project).length;
-    if (!opening) return sub;
-    const shown = sub.nodes.filter((n) => n.layer !== 'deliberation');
-    const ids = new Set(shown.map((n) => n.id));
-    return { nodes: shown, edges: sub.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) };
-    // `project` only for its id and departments, which `graph` already follows.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, expanded, matches, trace]);
+    const opening = !matches.length && expanded.length === seeds.length;
+    if (matches.length) return sub;
+    const keep = new Set((opening ? sub.nodes.filter((n) => n.layer !== 'deliberation') : sub.nodes).map((n) => n.id));
+    // All four stages stay on screen while walking, not only the one the
+    // project is at: a walk from the project reaches just that one.
+    for (const n of graph.nodes) if (n.kind === 'stage') keep.add(n.id);
+    return { nodes: graph.nodes.filter((n) => keep.has(n.id)), edges: graph.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) };
+  }, [graph, expanded, matches, trace, seeds]);
 
   const layout = useMemo(() => layoutGraph(visible.nodes), [visible.nodes]);
   const placedById = useMemo(() => new Map(layout.placed.map((p) => [p.node.id, p])), [layout.placed]);
@@ -481,10 +516,10 @@ export function ProjectGraphCanvas({
     onSelect?.(null);
   }
 
-  const selected = graph.nodes.find((n) => n.id === selectedId) ?? null;
-  const selectedEdges = selected
-    ? graph.edges.filter((e) => e.from === selected.id || e.to === selected.id)
-    : [];
+  const selected = (selectedId ? nodeById.get(selectedId) : undefined) ?? null;
+  const selectedLinks = selected ? linksOf(selected.id, graph.edges, nodeById, KIND_ORDER) : [];
+  // Under a function's name, its department before its detail, as on its card.
+  const selectedDetail = selected ? [departmentWord(selected), selected.detail].filter(Boolean).join(' · ') : '';
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -646,10 +681,8 @@ export function ProjectGraphCanvas({
                     >
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[12px] font-medium leading-tight text-ink">{node.label}</span>
-                        <span className="block truncate text-[10px] text-ink-muted">
-                          {KIND_LABEL[node.kind]}
-                          {node.detail ? ` · ${node.detail}` : ''}
-                        </span>
+                        {/* A function says its department here: two of them are both "Handover". */}
+                        <span className="block truncate text-[10px] text-ink-muted">{secondLine(node, KIND_LABEL[node.kind])}</span>
                       </span>
                       {/*
                         Where the graph continues. Without it a node with forty
@@ -706,7 +739,7 @@ export function ProjectGraphCanvas({
               <div>
                 <Badge>{KIND_LABEL[selected.kind]}</Badge>
                 <p className="mt-1.5 text-[13px] font-medium text-ink">{selected.label}</p>
-                {selected.detail ? <p className="mt-0.5 text-[12px] text-ink-muted">{selected.detail}</p> : null}
+                {selectedDetail ? <p className="mt-0.5 text-[12px] text-ink-muted">{selectedDetail}</p> : null}
               </div>
               <button type="button" aria-label="Close inspector" onClick={() => select(null)} className="rounded p-1 text-ink-muted hover:bg-sunken">
                 <X size={14} />
@@ -734,27 +767,39 @@ export function ProjectGraphCanvas({
                 </button>
               ) : null}
             </div>
-            <ul className="mt-3 space-y-1">
-              {selectedEdges.map((e) => (
-                <li key={e.id}>
-                  <button
-                    type="button"
-                    onClick={() => select(e.from === selected.id ? e.to : e.from)}
-                    className="w-full rounded-md px-2 py-1 text-left text-[12px] text-ink-secondary hover:bg-sunken hover:text-ink"
-                  >
-                    {e.rel} → {labelOf(graph.nodes, e.from === selected.id ? e.to : e.from, e)}
-                  </button>
-                </li>
+            {/*
+              What it touches, by the kind of thing at the other end and with
+              what it rests on first. Each line is the relation said of this
+              node, then the other: "rests on → Sale deed", "still needs →
+              Mother deed", "is held by → Legal › Title".
+            */}
+            <div className="mt-3 space-y-2">
+              {selectedLinks.map((group) => (
+                <section key={group.kind}>
+                  <h3 className="px-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+                    {KIND_LABEL[group.kind]}
+                    <span className="ml-1.5 font-normal normal-case tracking-normal text-ink-muted/70">{group.links.length}</span>
+                  </h3>
+                  <ul>
+                    {group.links.map((link) => (
+                      <li key={link.edgeId}>
+                        <button
+                          type="button"
+                          onClick={() => select(link.otherId)}
+                          className="w-full rounded-md px-2 py-1 text-left text-[12px] text-ink-secondary hover:bg-sunken hover:text-ink"
+                        >
+                          <span className="text-ink-muted">{link.phrase} →</span> {link.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ))}
-              {selectedEdges.length === 0 ? <li className="text-[12px] text-ink-muted">No register links on this node.</li> : null}
-            </ul>
+              {selectedLinks.length === 0 ? <p className="px-2 text-[12px] text-ink-muted">No register links on this node.</p> : null}
+            </div>
           </aside>
         ) : null}
       </div>
     </div>
   );
-}
-
-function labelOf(nodes: ProjectGraphNode[], id: string, _edge: ProjectGraphEdge): string {
-  return nodes.find((n) => n.id === id)?.label ?? id;
 }

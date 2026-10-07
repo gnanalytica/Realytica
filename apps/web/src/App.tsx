@@ -3,11 +3,10 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { MotionRoot } from './lib/motion';
 import AppShell from './components/layout/AppShell';
 import { AuthGate } from './components/layout/AuthGate';
-import { ToastHost } from './components/ui/kit';
+import { Spinner, ToastHost } from './components/ui/kit';
 import MyWork from './pages/MyWork';
 import Landing from './pages/Landing';
 
-import ProjectList from './pages/projects/ProjectList';
 import NewProject from './pages/projects/NewProject';
 import ProjectLayout from './pages/projects/ProjectLayout';
 import Overview from './pages/projects/Overview';
@@ -19,6 +18,8 @@ import { EvidenceRegister, FindingRegister } from './pages/projects/Registers';
 import SiteView from './pages/projects/SiteView';
 import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions';
 import Reports from './pages/projects/Reports';
+import ReviewTable from './pages/projects/ReviewTable';
+import Outgoing from './pages/projects/Outgoing';
 import Valuation from './pages/projects/Valuation';
 import AiDrafts from './pages/projects/AiDrafts';
 import ProjectPeople from './pages/projects/ProjectPeople';
@@ -45,6 +46,12 @@ const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Requests = lazy(() => import('./pages/Requests'));
 const ReportPrint = lazy(() => import('./pages/projects/ReportPrint'));
+/*
+ * The example project carries every function's made-up data with it, a third
+ * of a megabyte nobody working on a real project needs, so it arrives only
+ * when it is opened.
+ */
+const ExampleWorkspace = lazy(() => import('./pages/example/ExampleWorkspace'));
 
 /*
  * Two project tabs that are the exception to the eager rule above.
@@ -74,6 +81,20 @@ export default function App() {
         {/* The landing page is the one thing outside the gate: somebody has to
             be able to read what this is before being asked to sign in. */}
         <Route index element={<Landing />} />
+        {/* The example project stands outside the gate too: it is the product
+            shown whole, with made-up data and nothing saved, for somebody who
+            has no account yet. It fills the window, so it is outside the
+            shell as well. */}
+        <Route
+          path="example/:department?/:fn?"
+          element={
+            <Suspense fallback={<div className="grid h-[100dvh] place-items-center bg-page"><Spinner size={18} /></div>}>
+              <ExampleWorkspace />
+            </Suspense>
+          }
+        />
+        {/* An address that runs on past a function is still the example's: without this it fell to the app's catch-all, which is the sign-in door for a visitor. */}
+        <Route path="example/*" element={<Navigate to="/example" replace />} />
         {/* The printable report stands outside the shell, so the page that
             prints is the report and not the navigation around it. */}
         <Route
@@ -99,7 +120,8 @@ export default function App() {
           <Route path="work" element={<MyWork />} />
           {/* Automations are off in this build; an old link lands somewhere useful. */}
           <Route path="flows/*" element={<Navigate to="/portfolio" replace />} />
-          <Route path="projects" element={<ProjectList />} />
+          {/* The list of projects is one of the portfolio's two views now, not a page beside it. */}
+          <Route path="projects" element={<Navigate to="/portfolio" replace />} />
           <Route path="projects/new" element={<NewProject />} />
           {/* The case dashboard is now the workspace's Overview. Old links, and a
               question asked from them, land there. */}
@@ -121,6 +143,8 @@ export default function App() {
             <Route path="risks" element={<RisksActions />} />
             <Route path="decisions" element={<DecisionRegister />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="review" element={<ReviewTable />} />
+            <Route path="outgoing" element={<Outgoing />} />
             <Route path="valuation" element={<Valuation />} />
             <Route path="graph" element={<CockpitGraph />} />
             <Route path="ai" element={<AiDrafts />} />

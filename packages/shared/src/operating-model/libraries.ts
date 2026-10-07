@@ -534,6 +534,67 @@ export const CHECK_DEFINITIONS: CheckDefinition[] = [
       evidence: ['Coordination model / drawings', 'RFI log', 'Meeting minutes'],
       criteria: 'Open clashes have an owner and a resolution path.',
     },
+    /*
+     * The four below are the due diligence of a building that already
+     * stands. What each expects is the list an engineering firm sends the
+     * seller on day one, discipline by discipline, so the requirement sheet
+     * reads the way that list does.
+     */
+    {
+      id: 'as_built_architecture',
+      section: 'Architecture',
+      title: 'What was built matches what was approved and specified',
+      purpose: 'A building is bought as drawn; the differences are what the buyer inherits.',
+      evidence: [
+        'Approved master plan and built contour layout',
+        'Architectural and interior as-built drawings',
+        'Technical specifications, unpriced BOQ and list of makes',
+        'Design basis report: interiors and façade, with FSI calculations',
+        'Façade maintenance contract',
+      ],
+      criteria: 'As-built drawings exist for every floor and elevation, agree with the approved plan, and deviations are listed with their area.',
+    },
+    {
+      id: 'structural_condition',
+      section: 'Structural',
+      title: 'The structure is sound for its age and its use',
+      purpose: 'Repairs, alterations and untested members are where a standing building hides its cost.',
+      evidence: [
+        'Soil investigation report',
+        'Structural design basis report',
+        'Structural drawings',
+        'Structural design calculations',
+        'Concrete grades of major members',
+        'Foundation details',
+        'Age of each structure, with additions and alterations',
+        'Record of major repairs, strengthening and waterproofing',
+        'Structural test reports since commissioning',
+      ],
+      criteria: 'Design basis, drawings and test results are on file; every alteration and repair is dated and explained; no member is relied on untested where distress was observed.',
+    },
+    {
+      id: 'services_condition',
+      section: 'MEP',
+      title: 'Building services are documented, maintained and within their service life',
+      purpose: 'Chillers, transformers, lifts and pumps are the capital spend a buyer meets first.',
+      evidence: [
+        'Services as-built drawings (HVAC, plumbing, fire, electrical, IBMS)',
+        'Services technical specifications, unpriced BOQ and equipment makes',
+        'Services design basis reports',
+        'Services design calculations',
+        'Equipment warranties and guarantees',
+        'Maintenance contracts',
+      ],
+      criteria: 'Each system has its design basis, as-built drawings and a current maintenance contract; equipment past its service life is listed with a replacement cost.',
+    },
+    {
+      id: 'statutory_record',
+      section: 'Statutory',
+      title: 'Approvals are on file from construction to the latest renewal',
+      purpose: 'An approval that lapsed after handover is the seller’s omission and the buyer’s problem.',
+      evidence: ['Statutory approvals during construction', 'Statutory approvals after construction', 'Renewed statutory approvals', 'Green building certification (LEED or IGBC)'],
+      criteria: 'Every approval the building needs is on file and in force; each renewal due is dated.',
+    },
   ]),
   ...checks('cost_quantity', [
     {

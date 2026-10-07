@@ -4,7 +4,7 @@
  * The colours and the two typefaces are Realytica's own identity, the same as
  * the web app's, so a project looks like the same project on a phone: calm
  * grey pages, white cards, near-black actions, teal for links and selection,
- * rose for anything waiting on a person's decision. The sizes are not the
+ * blue for anything waiting on a person's decision. The sizes are not the
  * web's: this app is used outdoors, in sunlight, often with gloves on, so type
  * is a step larger and nothing you can press is smaller than 48 points.
  */
@@ -73,9 +73,9 @@ export const light: Palette = {
   brandStrong: '#084C4C',
   brandSoft: '#E2F1F0',
   brandInk: '#FFFFFF',
-  ai: '#B0245A',
-  aiSoft: '#FBEAF1',
-  aiText: '#9A1F4F',
+  ai: '#2B5FA8',
+  aiSoft: '#E8EFFA',
+  aiText: '#1F4C8C',
   good: '#16794A',
   goodText: '#16794A',
   goodSoft: 'rgba(22,121,74,0.10)',
@@ -109,9 +109,9 @@ export const dark: Palette = {
   brandStrong: '#8FD9D3',
   brandSoft: '#102E2D',
   brandInk: '#0E0F12',
-  ai: 'rgb(232,112,160)',
-  aiSoft: '#3A1626',
-  aiText: '#F19BBF',
+  ai: 'rgb(86,133,214)',
+  aiSoft: '#1A263E',
+  aiText: '#A9C4F5',
   good: 'rgb(74,196,128)',
   goodText: '#6AD39B',
   goodSoft: 'rgba(74,196,128,0.14)',

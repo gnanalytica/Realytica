@@ -2678,9 +2678,39 @@ export interface ChatChoice {
    * always say which — and an option that re-asks the question it was
    * offered to answer is a loop, not a choice. Honoured only when the pinned
    * record is itself one of the candidates for what was typed, so a stale
-   * URL can never redirect an instruction to a different record.
+   * URL can never redirect an instruction to a different record. A document
+   * is pinned by `evidenceId`: two papers can carry one title too.
    */
-  sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+  sitting?: ChoicePin;
+}
+
+/** What a pressed choice carries beside its sentence. */
+export interface ChoicePin {
+  ddId?: string;
+  scopeId?: string;
+  checkId?: string;
+  evidenceId?: string;
+  /**
+   * On a choice that accepts or sets aside: which of the two it does.
+   *
+   * Such a choice acts on the ids below and on nothing else. Its sentence
+   * says what was pressed and is not read: two cards can carry one title,
+   * and "the last reply" is a different reply by the time an old button is
+   * pressed. A sentence with no ids beside it does nothing.
+   */
+  decision?: 'accept' | 'aside';
+  /** The cards it accepts or sets aside. */
+  proposalIds?: string[];
+  /** The papers whose waiting values it accepts with them. */
+  evidenceIds?: string[];
+  /**
+   * On a choice under a plan: the plan it acts on, by its id, and what it
+   * does to it. As with `decision`, the sentence beside it is not read: a
+   * button pressed under an old plan acts on that plan and on no other.
+   */
+  plan?: { id: string; act: 'run' | 'cancel' | 'stop' | 'carry_on' | 'take_out'; step?: number };
+  /** On the Undo under a reply: the reply whose changes are put back, by its id. The sentence beside it is not read. */
+  undo?: { turnId: string };
 }
 
 export interface CopilotTurn {
@@ -2710,14 +2740,22 @@ export interface CopilotTurn {
   choices?: ChatChoice[];
   /** Figures in a model answer that nothing on the file supports. See `ProjectChatTurn`. */
   unsupportedClaims?: string[];
+  /** The facts of the project's memory the answer rests on, with the tags code printed for them and where in the text each stands. See `ProjectChatTurn`. */
+  restsOn?: Array<{ id: string; tag: 'approved' | 'proposed' | 'thought'; stands?: boolean; at?: number[] }>;
   /** What this turn changed on the file, as figures. See `ProjectChatTurn`. */
   metrics?: ChatMetric[];
   /** Which sitting this turn belongs to. See `ProjectChatTurn`. */
   sessionId?: string;
+  /** The page and stage the person was on when this was asked. See `ProjectChatTurn`. */
+  place?: { pane?: string; department?: string; fn?: string; stage?: string };
   /** What this turn cost to produce. See `ProjectChatTurn`. */
   spend?: TurnSpend;
   /** Why the question was not answered, when the text below is a fallback. See `ProjectChatTurn`. */
   unanswered?: string;
+  /** The plan this turn shows or reports on, by its id in the run ledger. See `ProjectChatTurn`. */
+  planId?: string;
+  /** On a project's chat: what this reply changed on the record, and whether it has been undone. */
+  changed?: import('./operating-model/turn-changes').TurnChanged;
 }
 
 /* ------------------------------------------------------------------ */

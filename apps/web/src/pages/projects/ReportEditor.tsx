@@ -26,6 +26,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
 import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, Trash2 } from 'lucide-react';
 import {
   engagementForReport,
@@ -35,6 +36,7 @@ import {
   REPORT_SOURCE_LABEL,
   REPORT_SOURCE_READS,
   isLiveBlock,
+  isStatusSource,
   readReportBlock,
   reportIsFrozen,
   reportSummaryLine,
@@ -153,7 +155,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
 
       {frozen ? (
         <Callout tone="neutral" title={`Issued ${new Date(report.signedAt ?? report.generatedAt).toLocaleDateString()}`}>
-          This is what the report said when it was issued, and it will not change again — somebody is holding this version.
+          This is the report as issued. It will not change.
           {drift === null ? null : drift.length === 0 ? (
             <> Nothing in the registers has moved since.</>
           ) : (
@@ -236,7 +238,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
       >
         <div className="space-y-3">
           <p className="text-[13px] leading-relaxed text-ink-secondary">
-            Every live section freezes at what it says now and the document stops changing. A later version is a new report.
+            Live sections freeze as they read now. A later version is a new report.
           </p>
           {unapproved > 0 ? (
             <Callout tone="warning" title={`${unapproved} section${unapproved === 1 ? ' is' : 's are'} not approved`}>
@@ -382,7 +384,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
             ) : null}
             {live ? (
               <IconBtn
-                title="Detach — keep what it says now, and edit it yourself. It will stop updating, and the report will say so."
+                title="Detach: keep what it says now and edit it. It stops updating."
                 disabled={busy}
                 onClick={() => onRun(() => api.detachReportBlock(project.id, report.id, block.id), 'Detached — this section is yours now')}
               >
@@ -439,15 +441,30 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
                   </option>
                 ))}
               </Select>
-              <label className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
-                <input
-                  type="checkbox"
-                  checked={block.source!.materialOnly === true}
-                  disabled={busy}
-                  onChange={(e) => onRun(() => api.retuneReportBlock(project.id, report.id, block.id, { ...block.source!, materialOnly: e.target.checked }))}
-                />
-                material only
-              </label>
+              {isStatusSource(block.source!.kind) ? (
+                // A status section has nothing to narrow. What it can be is plain: as code wrote it, with no model's wording over it.
+                block.wording?.length ? (
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
+                    <input
+                      type="checkbox"
+                      checked={block.source!.plain === true}
+                      disabled={busy}
+                      onChange={(e) => onRun(() => api.retuneReportBlock(project.id, report.id, block.id, { ...block.source!, plain: e.target.checked }))}
+                    />
+                    plain words
+                  </label>
+                ) : null
+              ) : (
+                <label className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
+                  <input
+                    type="checkbox"
+                    checked={block.source!.materialOnly === true}
+                    disabled={busy}
+                    onChange={(e) => onRun(() => api.retuneReportBlock(project.id, report.id, block.id, { ...block.source!, materialOnly: e.target.checked }))}
+                  />
+                  material only
+                </label>
+              )}
               <span className="text-[12px] text-ink-muted">{REPORT_SOURCE_READS[block.source!.kind]}</span>
             </div>
           ) : null}
@@ -455,6 +472,11 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
             <p className="text-[13px] italic text-ink-muted">
               {resolved.note ?? 'Nothing in the registers matches this section yet. It will fill in as the file does — it is not printing “none found”.'}
             </p>
+          ) : resolved.table ? (
+            <>
+              <ReportTableView table={resolved.table} onOpenRecord={onOpenRecord} />
+              <ReportPhotos project={project} table={resolved.table} />
+            </>
           ) : (
             <ul className="space-y-1">
               {resolved.lines.map((line, i) => {

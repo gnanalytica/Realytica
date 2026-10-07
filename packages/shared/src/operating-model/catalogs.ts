@@ -39,16 +39,26 @@ export const PROJECT_ARCHETYPES: { key: ProjectArchetype; label: string; example
   { key: 'specialized', label: 'Specialized', examples: 'Data centres, utility-intensive developments' },
 ];
 
+/**
+ * The twelve steps a project moves through, each with the one name it is
+ * called by everywhere: the stage panel, the lists, a report's first line,
+ * what the copilot says.
+ *
+ * They sit inside the four stages (Land, Pre-construction, Under
+ * construction, Completed; see `STAGES` in `departments.ts`). No step shares
+ * a stage's name: the step before work starts on site is Mobilisation,
+ * because Pre-construction is the stage before it.
+ */
 export const LIFECYCLE_STAGES: { key: LifecycleStage; label: string; meaning: string }[] = [
-  { key: 'opportunity_site', label: 'Opportunity / Site', meaning: 'Site or project is being identified or screened.' },
+  { key: 'opportunity_site', label: 'Opportunity', meaning: 'Site or project is being identified or screened.' },
   { key: 'feasibility', label: 'Feasibility', meaning: 'Development options and business case are being evaluated.' },
-  { key: 'acquisition', label: 'Acquisition / Pre-development', meaning: 'Commitment, acquisition, JV/JDA, or development rights are being assessed.' },
+  { key: 'acquisition', label: 'Acquisition', meaning: 'Commitment, acquisition, JV/JDA, or development rights are being assessed.' },
   { key: 'design', label: 'Design', meaning: 'Concept, schematic, detailed, or discipline design is in progress.' },
   { key: 'approvals', label: 'Approvals', meaning: 'Authorities, NOCs, permits, and approval conditions are being pursued.' },
-  { key: 'procurement', label: 'Procurement', meaning: 'Contractors, consultants, vendors, and packages are being tendered or awarded.' },
-  { key: 'pre_construction', label: 'Pre-construction', meaning: 'Project is preparing to mobilise construction.' },
+  { key: 'procurement', label: 'Tender & procurement', meaning: 'Contractors, consultants, vendors, and packages are being tendered or awarded.' },
+  { key: 'pre_construction', label: 'Mobilisation', meaning: 'Project is preparing to mobilise construction.' },
   { key: 'construction', label: 'Construction', meaning: 'Execution is active.' },
-  { key: 'testing_commissioning', label: 'Testing / Commissioning', meaning: 'Systems are tested and commissioned.' },
+  { key: 'testing_commissioning', label: 'Testing & commissioning', meaning: 'Systems are tested and commissioned.' },
   { key: 'completion', label: 'Completion', meaning: 'Works are being completed and closed out.' },
   { key: 'handover', label: 'Handover', meaning: 'Asset is being prepared for owner/user/tenant handover.' },
   { key: 'operations', label: 'Operations', meaning: 'Asset is operational or post-completion.' },
@@ -289,6 +299,10 @@ export const REPORT_KIND_LABEL: Record<ReportKind, string> = {
   changes_since_previous: 'Changes since previous DD',
   indicative_valuation: 'Indicative valuation',
   handover_readiness: 'Handover readiness',
+  technical_dd: 'Technical due diligence report',
+  legal_dd: 'Legal due diligence report',
+  financial_dd: 'Financial due diligence report',
+  status: 'Status report',
 };
 
 export const VALUATION_SIGN_OFF_LABEL: Record<ValuationSignOff, string> = {

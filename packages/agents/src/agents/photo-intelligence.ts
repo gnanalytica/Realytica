@@ -203,7 +203,16 @@ export interface RunPhotoIntelligenceInput {
   zone?: string;
   takenAt?: string;
   onStep?: (step: AgentStep) => void;
+  /** How long the reading may take before it is given up, in place of `PHOTO_READ_LIMIT_MS`. */
+  timeoutMs?: number;
 }
+
+/**
+ * How long one photograph's reading may take. It had no limit, and a reader
+ * that did not answer held whatever was waiting for it for as long as the
+ * request lived. Past this the photograph is filed unread, with why.
+ */
+export const PHOTO_READ_LIMIT_MS = 60_000;
 
 export interface PhotoIntelligenceResult {
   run: AgentRun;
@@ -307,6 +316,7 @@ export async function runPhotoIntelligence(input: RunPhotoIntelligenceInput): Pr
           ],
         },
       ],
+      timeoutMs: input.timeoutMs ?? PHOTO_READ_LIMIT_MS,
     });
   } catch (e) {
     const reason = describeError(e);

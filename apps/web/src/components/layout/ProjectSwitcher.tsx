@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, ChevronDown, FolderTree, Plus } from 'lucide-react';
-import { LIFECYCLE_STAGE_LABEL, PROJECT_HEALTH_LABEL, type ProjectHealth, type ProjectSummary } from '@realytica/shared';
+import { PROJECT_HEALTH_LABEL, type ProjectHealth, type ProjectSummary, stageDefinition, stageOf } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Badge, cn, type Tone } from '../ui/kit';
 
-const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'visits', 'findings', 'risks', 'decisions', 'reports', 'valuation', 'graph', 'ai', 'orchestrate', 'people']);
+const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'visits', 'findings', 'risks', 'decisions', 'reports', 'review', 'outgoing', 'valuation', 'graph', 'ai', 'orchestrate', 'people']);
 
 export function projectSwitchPath(pathname: string, nextId: string): string {
   const parts = pathname.split('/').filter(Boolean);
@@ -130,7 +130,7 @@ export default function ProjectSwitcher() {
                       <Badge tone={healthTone(p.health)}>{PROJECT_HEALTH_LABEL[p.health]}</Badge>
                     </span>
                     <span className="mt-0.5 block truncate font-mono text-[11px] text-ink-muted">
-                      {p.reference} · {LIFECYCLE_STAGE_LABEL[p.currentStage]}
+                      {p.reference} · {stageDefinition(stageOf(p.currentStage)).label}
                     </span>
                   </span>
                 </button>
@@ -153,7 +153,7 @@ export default function ProjectSwitcher() {
               type="button"
               onClick={() => {
                 setOpen(false);
-                navigate('/projects');
+                navigate('/portfolio');
               }}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ink hover:bg-sunken"
             >

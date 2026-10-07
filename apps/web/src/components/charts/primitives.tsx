@@ -61,7 +61,29 @@ export function useMeasure<T extends HTMLElement = HTMLDivElement>(): [RefObject
     return holder as RefObject<T>;
   }, [measure]);
 
-  useEffect(() => () => observerRef.current?.disconnect(), []);
+  /*
+   * The observer is let go when the component goes, and taken up again when
+   * it comes back to a node that never left.
+   *
+   * Strict mode does exactly that in development: it runs this cleanup once
+   * and then the effect again, while the ref setter above is never called a
+   * second time because the node is the same one. With only the cleanup here
+   * the observer stayed disconnected, so in development nothing measured this
+   * way followed a resize.
+   */
+  useEffect(() => {
+    const el = nodeRef.current;
+    if (el && !observerRef.current) {
+      measure(el);
+      const ro = new ResizeObserver(() => measure(el));
+      ro.observe(el);
+      observerRef.current = ro;
+    }
+    return () => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+    };
+  }, [measure]);
 
   return [ref, size];
 }
@@ -224,9 +246,12 @@ export interface LegendItem {
   shape?: 'rect' | 'line';
 }
 
-/** Present whenever there are >=2 series; a single series names itself via the card title instead. */
-export function Legend({ items, className }: { items: LegendItem[]; className?: string }) {
-  if (items.length < 2) return null;
+/**
+ * Present whenever there are >=2 series; a single series names itself via the card title instead.
+ * `single` draws a lone item too, for a chart that lists here the marks it had no room to label.
+ */
+export function Legend({ items, className, single = false }: { items: LegendItem[]; className?: string; single?: boolean }) {
+  if (items.length < (single ? 1 : 2)) return null;
   return (
     <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1', className)} role="list">
       {items.map((it) => (

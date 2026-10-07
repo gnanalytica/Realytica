@@ -27,6 +27,7 @@
  *    access to that" rather than an emptiness that reads as a fact.
  */
 
+import { alertsOfCopy } from './alerts';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
 import type {
   ActionRecord,
@@ -183,8 +184,11 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const conversation = project.conversation.filter((t) => t.actor && t.actor === access.email);
   if (conversation.length < project.conversation.length) withheld.push('conversation');
 
+  // The cost register is the budget split into packages, and every figure claimed, certified and paid against it.
   const commercial = area('commercials');
-  if (!commercial && project.budget !== undefined) withheld.push('commercials');
+  const cost = project.cost;
+  const costKept = Boolean(cost && (cost.workPackages.length || cost.contracts.length || cost.bills.length || cost.extraColumns?.length || cost.forecast));
+  if (!commercial && (project.budget !== undefined || costKept)) withheld.push('commercials');
 
   const view: DdProject = {
     ...project,
@@ -199,7 +203,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     siteVisits,
     sheets,
     conversation,
-    ...(commercial ? {} : { budget: undefined }),
+    ...(commercial ? {} : { budget: undefined, cost: undefined }),
     // The fee is a commercial term between the firm and its client.
     ...(commercial ? {} : { engagements: (project.engagements ?? []).map(({ fee: _fee, ...e }) => e) }),
     // Requests name who else the firm is chasing. A collaborator sees the ones
@@ -213,14 +217,34 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     // Proposals, drafts and orchestrator runs are the workspace thinking aloud
     // about the whole file. None of it is a collaborator's.
     chatProposals: [],
+    // Who met and what was said at the firm's own meetings is the same.
+    meetings: [],
+    // A questionnaire's answers are drawn from every paper on the file, each with the paper, the page and its words:
+    // none of it is shown to somebody who may not see those papers.
+    questionnaires: [],
     aiDrafts: [],
     orchestratorRuns: [],
     capabilityRuns: [],
+    // The review table is the firm's own reading across every paper on the file, a model's answers among it.
+    reviewTable: undefined,
+    // What the firm is drafting to send is its own until it sends it.
+    outgoing: [],
+    // The site's own day-by-day entries, and the words of a voice note among them, are the firm's.
+    siteLog: [],
     // The trail names everybody's actions across the whole project.
     audit: [],
     // So does the last instruction somebody gave the chat, and only staff can take it back.
     lastUndo: undefined,
   };
+
+  // An alert is written from the whole file: an overdue action's says what the action is and the meeting it came from.
+  // This copy keeps the alerts its own records raise, in its own words (`alertsOfCopy`), so none tells of what was taken out above.
+  // Where they cannot be worked out, the copy holds none: an alert left as the whole file wrote it is the leak.
+  try {
+    view.alerts = alertsOfCopy(project.alerts, view, access.email);
+  } catch {
+    view.alerts = [];
+  }
 
   const writableCheckIds = grantCanWrite(grant) ? checkIds : new Set<string>();
 
@@ -243,7 +267,7 @@ export const WITHHELD_LABEL: Record<WithheldPart, string> = {
   decisions: 'the decisions on this project',
   valuation: 'the valuation on this project',
   reports: 'the reports on this project',
-  commercials: 'the budget and figures on this project',
+  commercials: 'the budget, contracts, bills and payments on this project',
   site_record: 'the site visits and sheets on this project',
   conversation: 'other people’s conversations on this project',
 };
@@ -282,12 +306,27 @@ export function projectRecordIds(project: DdProject): Set<string> {
  * collections are left to the briefing the model is given — which contains
  * only what this reader may see, and is told to say so rather than to answer
  * from an emptiness.
+ *
+ * The commercials answer to the cost register's own phrases: a running bill,
+ * bills raised, a payment certificate, retention held, a work package, a
+ * contract's value, the cost to complete. "Which bills has the contractor
+ * raised?" asked by somebody who may not see them is answered that they are
+ * withheld, never that there are none.
+ *
+ * The bare words are left out on purpose. "Bill", "payment" and "retention"
+ * are an electricity bill filed as address proof, a property tax payment and
+ * a retention of title clause as often as they are the register's, and
+ * "certificate" and "certified" are an occupancy certificate and a certified
+ * report. A question that uses one of those about the register and none of
+ * its phrases is not refused here. It is covered by the briefing, which names
+ * the contracts, bills and payments as withheld (`WITHHELD_LABEL`).
  */
 const ASKED_ABOUT: Partial<Record<WithheldPart, RegExp>> = {
   valuation: /\b(valuation|valued?|value|worth|appraisal|price per|psf|dcf|indicative)\b/i,
   reports: /\b(report|deliverable|dossier|issued? (the )?report)\b/i,
   decisions: /\b(decision|decisions|sign[- ]?off|signoff|go\/no[- ]?go|approval to proceed)\b/i,
-  commercials: /\b(budget|cost of the deal|commercials?|spend|consideration|purchase price)\b/i,
+  commercials:
+    /\b(budget|cost of the deal|commercials?|spend|consideration|purchase price|running bills?|ra[- ]bills?|contractor[’']?s[’']? bills?|bills? (?:\w+ ){0,3}rais(?:ed?|es|ing)|rais(?:ed?|es|ing) (?:\w+ ){0,3}bills?|payment certificates?|retention (?:held|money)|work packages?|contract values?|cost to complete)\b/i,
   site_record: /\b(site visit|inspection|site record|master ?plan|sheet|survey)\b/i,
 };
 

@@ -31,6 +31,7 @@ import type {
 } from '../types';
 import { matchProjectLocality } from './capabilities';
 import { documentKindForLabel } from './document-parse';
+import { revenueReads } from './revenue-map';
 import {
   addAction,
   addDecision,
@@ -253,6 +254,27 @@ function projectKarnatakaAttributes(project: DdProject): KarnatakaAttributes | u
   };
 }
 
+/**
+ * The outline the screen may take as the site's.
+ *
+ * A person's outline is the site as they drew it. An outline the revenue map
+ * supplied is one parcel, which is the site only while one parcel is kept:
+ * on a site of several survey numbers it is the first of them, and held
+ * against the whole site's area it reads as most of the land missing, and
+ * set back from as if it were the plot it shrinks the building to a third.
+ *
+ * Nor is it the site where that one parcel is the whole of a survey number
+ * and a part of it was asked for: the state's map holds the number entire,
+ * and five times the land a deed conveys is not an outline to measure the
+ * deed against or to set a building back from.
+ */
+function siteBoundary(project: DdProject): DdProject['surveyBoundary'] {
+  const boundary = project.surveyBoundary;
+  if (boundary?.source !== 'revenue_map') return boundary;
+  const reads = revenueReads(project);
+  return reads.length > 1 || reads[0]?.askedAs?.length ? undefined : boundary;
+}
+
 export function projectToIdentity(project: DdProject): PropertyIdentity {
   const locality = matchProjectLocality(project);
   // India is the only country pack. A project is screened against Indian
@@ -286,7 +308,7 @@ export function projectToIdentity(project: DdProject): PropertyIdentity {
     // The surveyor's outline, when somebody supplied one. It drives area
     // reconciliation and the site-constraint geometry, and the project path
     // was holding it and not passing it.
-    boundary: project.surveyBoundary,
+    boundary: siteBoundary(project),
     karnataka: projectKarnatakaAttributes(project),
   };
 }

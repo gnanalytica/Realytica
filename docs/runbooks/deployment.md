@@ -138,6 +138,18 @@ needs it.
 
 → `REALYTICA_GOOGLE_MAPS_API_KEY`
 
+**A second key, for the browser, is optional.** With it the site map draws
+Google's satellite and street layers and opens street view inside the map.
+Without it the map draws Esri imagery and OpenStreetMap, and street view is a
+link to Google Maps. This key is seen by every browser, so restrict it the
+other way round: by website, to the production address and the preview
+addresses, and by API to the Maps JavaScript API alone. It is read when the
+web build is made, so a deployment has to be rebuilt after it is set or
+changed. Each street view a person opens is billed by Google as one panorama
+load on this key.
+
+→ `VITE_GOOGLE_MAPS_BROWSER_KEY`
+
 ## Where each value goes
 
 **Vercel → Project → Settings → Environment Variables**, ticked for
@@ -239,6 +251,19 @@ derived half rebuilds when the store returns, and annotations attempted during
 the outage are refused with a 503 rather than accepted.
 
 Locally the journal is the default and needs no account.
+
+**A preview deployment keeps no graph.** A preview (Vercel's `VERCEL_ENV` is
+`preview`) runs a branch against the same project store and the same Neo4j as
+production. A branch that draws the graph differently would rewrite every
+stored project in its own shape, production would write it back, and a note
+pinned to a node only one of them draws would lose its link for good. So a
+preview writes nothing to Neo4j and reads nothing from it: every graph it
+shows is its own projection of the record, and on a save it builds none to
+store. `GET /api/health` answers `graph: "projection"`, each graph route names
+`adapter: "projection"`, and a note is refused with a 503. Deleting a project
+on a preview still removes its graph, because the record itself is gone. The
+project record is still shared: what is saved on a preview is saved for
+production too.
 
 ### Alerts by email and push — optional
 

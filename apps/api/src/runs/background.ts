@@ -64,6 +64,34 @@ function platformWaitUntil(): WaitUntil | null {
   }
 }
 
+/**
+ * Lets work that no reply waits for run to its end.
+ *
+ * On a long-lived server it simply runs. On serverless the instance may be
+ * frozen once the reply has gone, so the platform is told the work is still
+ * this request's, where it offers a way to say so. The work must settle its
+ * own failures: nothing is listening for them.
+ */
+export function finishAfterReply(work: Promise<unknown>): void {
+  const ended = work.catch(() => undefined).finally(() => unfinished.delete(ended));
+  unfinished.add(ended);
+  const waitUntil = platformWaitUntil();
+  if (waitUntil) waitUntil(work);
+}
+
+/** The work no reply waits for that has not ended yet. */
+const unfinished = new Set<Promise<unknown>>();
+
+/**
+ * Resolves once every piece of work handed to `finishAfterReply` has ended,
+ * work it started meanwhile included. For whoever is about to take away what
+ * that work writes to: a test removing its data directory, a process shutting
+ * down. Nothing a request calls.
+ */
+export async function afterReplyWorkDone(): Promise<void> {
+  while (unfinished.size) await Promise.all([...unfinished]);
+}
+
 export interface BackgroundStart {
   runId: string;
   /** True when the platform accepted responsibility for the detached work. */

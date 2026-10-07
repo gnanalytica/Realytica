@@ -15,10 +15,19 @@
  */
 
 import type { DocumentFact } from './document-parse';
-import { factsOnFile } from './document-intake';
+import { factsOnFile, readingsWaitingOnFile } from './document-intake';
 import { packCompleteness } from './operations';
 import { plural } from './text';
 import type { ChatChoice, DdProject, EvidenceRecord, FindingRecord, FindingSeverity } from './types';
+import { approvalsRegister } from './approvals';
+import { chatPlaceLabel, functionOfFinding, type ChatPlace } from './chat-places';
+import { DEPARTMENT_SHORT, menuFunctions, stageOf, workstreamDefinition, type MenuFunction } from './departments';
+import { workstreamChecks } from './engagements';
+import { progressSummary } from './progress';
+import { QUICK_VERDICT_LABEL, quickAssessment } from './quick-assessments';
+import { menuAt } from './stage-view';
+import { projectDepartments } from './team';
+import { workstreamDocuments } from './vault';
 
 export interface FileAnswer {
   text: string;
@@ -26,8 +35,12 @@ export interface FileAnswer {
   summary: string;
   citedEvidenceIds: string[];
   citedNodeIds: string[];
-  /** Where the right-hand pane should go so the source is in view. */
-  navigate?: { pane: 'evidence' | 'findings' | 'risks' | 'actions' | 'valuation' | 'overview' | 'reports'; evidenceId?: string; page?: string };
+  /**
+   * Where the right-hand pane should go so the source is in view: a register,
+   * a document at a page, or a function's page at one of its parts. An answer
+   * about the page a person is on names none, and the page stays.
+   */
+  navigate?: { pane: 'evidence' | 'findings' | 'risks' | 'actions' | 'valuation' | 'overview' | 'reports'; evidenceId?: string; page?: string } | { fn: string; section?: string };
   choices?: ChatChoice[];
 }
 
@@ -51,18 +64,55 @@ const QUESTION_SHAPE = /^(?:(?:so|and|ok|okay|hey|please)[\s,]+)?(?:what|what's|
 interface Topic {
   key: string;
   test: RegExp;
+  /** The question as this topic is looked for in it: a word of the topic said as the common word it also is, taken out. */
+  read?: (question: string) => string;
+}
+
+const FAR_SAID_COMMONLY = /\b(?:how|so|as|thus|by|too|very|go(?:es|ing)?|went|gone|get(?:s|ting)?|got)\s+far\b|(?<!\bthe\s+|\bour\s+(?=far\s+(?:too|(?:more|less|better|worse)\s+than)\b))\bfar\s+(?:back|along|away|off|from|enough|more|less|better|worse|too|apart|behind|ahead|beyond|out)\b/gi;
+
+/**
+ * A question that opens by setting "far" itself against a number the size of
+ * a ratio, with nothing after the number but what is asked of it: "is far
+ * more than 2 allowed?" Nothing else is there for it to be said of. Where the
+ * number counts something ("far more than 40 crore", "far more than 3
+ * floors") far is said of that. It may follow a word a question opens with
+ * (`OPENS`).
+ */
+const FAR_AGAINST_A_NUMBER = /^\W*(?:(?:so|and|ok|okay|hey|please)[\s,]+)?(?:is|are|was|were)\s+(?=far\s+(?:more|less)\s+than\s+\d(?:\.\d+)?(?:\s+(?:allowed|permitted|permissible|sanctioned|used|ok|okay)\b|\W*$))/i;
+
+/**
+ * A question without "far" where it is the common word and not the floor
+ * area ratio: "how far back", "so far", "far along", "far more than we
+ * thought". A question that says it this way is not about FAR, here or where
+ * memory reads what a question is about.
+ *
+ * Written as the abbreviation it is the ratio, whatever stands beside it, and
+ * stays: in capitals where the word beside it is not, or as "the far", "our
+ * far too" or "our far more than" ("is FAR more than 2 allowed?", "is our
+ * far too high?"). So does the one a question opens with and sets against a
+ * number, in any case: "IS FAR MORE THAN 2 ALLOWED?" "This far", "that far",
+ * "our far back boundary" and "our far better option" are the common word.
+ */
+export function withoutFarAsACommonWord(question: string): string {
+  const opens = FAR_AGAINST_A_NUMBER.exec(question)?.[0].length;
+  return question.replace(FAR_SAID_COMMONLY, (said, at: number) => (at === opens || (/\bFAR\b/.test(said) && said !== said.toUpperCase()) ? said : ' '));
 }
 
 const TOPICS: Topic[] = [
   { key: 'help', test: /\b(?:what\s+can\s+you\s+do|what\s+do\s+you\s+do|how\s+(?:do|does)\s+(?:i|you|this)\s+(?:use|work)|how\s+to\s+use|^help\b|^\?$|getting\s+started|how\s+do\s+i\s+start)\b/i },
-  { key: 'greeting', test: /^(?:hi|hello|hey|hiya|good\s+(?:morning|afternoon|evening)|namaste|yo)\b[\s!.,]*$/i },
-  { key: 'thanks', test: /^(?:thanks|thank\s+you|thx|ty|cheers|great|perfect|nice|cool|ok(?:ay)?|got\s+it|awesome)\b[\s!.,]*(?:thanks|thank\s+you)?[\s!.,]*$/i },
+  // A greeting or a thank-you with the few words people add to one: "hi there", "thank you so much".
+  { key: 'greeting', test: /^(?:hi|hello|hey|hiya|good\s+(?:morning|afternoon|evening)|namaste|yo)\b(?:\s+(?:there|all|everyone|everybody|team|again))?[\s!.,]*$/i },
+  { key: 'thanks', test: /^(?:thanks|thank\s+you|thx|ty|cheers|great|perfect|nice|cool|ok(?:ay)?|got\s+it|awesome)\b[\s!.,]*(?:thanks|thank\s+you)?(?:\s+(?:(?:so|very)\s+much|a\s+lot|again))?[\s!.,]*$/i },
   { key: 'owner', test: /\b(?:who\s+(?:owns|is\s+the\s+owner|holds\s+title|bought|sold)|owner(?:ship)?\b|vendor|purchaser|seller|buyer|title\s+holder|in\s+whose\s+name)\b/i },
   { key: 'extent', test: /\b(?:extent|land\s+area|site\s+area|plot\s+(?:size|area)|how\s+(?:big|large)|size\s+of|square\s+met|sq\.?\s?m|sqft|acres?|guntas?)\b/i },
   { key: 'parcel', test: /\b(?:survey\s+(?:no|number)s?|sy\.?\s*no|parcel|which\s+survey|khata\s+(?:no|number)|pid)\b/i },
   { key: 'encumbrance', test: /\b(?:encumbr\w*|mortgages?|charges?\s+on|loans?|liens?|\bec\b|hypothecat\w*|attach(?:ed|ment)|charged|clean\s+title)\b/i },
   { key: 'conversion', test: /\b(?:conver(?:t|ted|sion)|agricultural|non[\s-]?agri\w*|\bdc\s+order|land\s+use\s+change)\b/i },
-  { key: 'zoning', test: /\b(?:zon(?:e|ing)|land\s+use|\bfar\b|floor\s+area\s+ratio|master\s+plan|\brmp\b|permissible|plan\s+in\s+force)\b/i },
+  // "FAR" is the floor area ratio. "How far back does the title go", "what have we found so far" and "how far along is the work" are not about it.
+  { key: 'zoning', test: /\b(?:zon(?:e|ing)|land\s+use|far|floor\s+area\s+ratio|master\s+plan|\brmp\b|permissible|plan\s+in\s+force)\b/i, read: withoutFarAsACommonWord },
+  // Ahead of the sanction and of what is missing: "which approvals are missing or lapsed" is about the register of approvals, not one plan and not the documents.
+  { key: 'approvals', test: /\bwhich\s+(?:approvals?|nocs?)\b|\b(?:approvals?|nocs?|clearances?)\b[^?]*\b(?:missing|lapsed|expired|expiring|in\s+force|outstanding)\b|\b(?:missing|lapsed|expired|expiring)\s+(?:approvals?|nocs?)\b/i },
+  { key: 'progress', test: /\bhow\s+far\s+along\b|\bmilestones?\b|\b(?:work|construction|site)\s+progress\b|\bpercent(?:age)?\s+complete\b|\bbehind\s+schedule\b/i },
   { key: 'sanction', test: /\b(?:sanction\w*|approved\s+plan|building\s+plan|plan\s+approval|built[\s-]?up|\boc\b|occupancy|refuge)\b/i },
   { key: 'tax', test: /\b(?:property\s+tax|tax\s+(?:paid|receipt|status)|\bsas\b|khata|dues)\b/i },
   { key: 'title', test: /\b(?:title\s+chain|chain\s+of\s+title|mother\s+deed|root\s+of\s+title|title\s+history|previous\s+owners?|how\s+far\s+back|sale\s+deed|registered)\b/i },
@@ -77,7 +127,7 @@ const TOPICS: Topic[] = [
 ];
 
 function topicsOf(question: string): string[] {
-  return TOPICS.filter((t) => t.test.test(question)).map((t) => t.key);
+  return TOPICS.filter((t) => t.test.test(t.read ? t.read(question) : question)).map((t) => t.key);
 }
 
 /**
@@ -101,20 +151,48 @@ export function looksLikeFileQuestion(question: string): boolean {
   return QUESTION_SHAPE.test(q);
 }
 
+/** A question put for a fact: asked, and neither an instruction nor a matter of judgement ("why", "should we"). */
+export function asksForAFact(question: string): boolean {
+  const q = question.trim();
+  return QUESTION_SHAPE.test(q) && !JUDGEMENT.test(q) && !(COMMAND.test(q) && !/\?$/.test(q));
+}
+
+/**
+ * A greeting, a thank-you, or "what can you do": said to the assistant, and
+ * about nothing on the record. Its reply is no answer a fact could stand
+ * under.
+ */
+export function saidInPassing(question: string): boolean {
+  return topicsOf(question.trim()).some((topic) => topic === 'help' || topic === 'greeting' || topic === 'thanks');
+}
+
 /* ==================================================================== */
 /* Reading the file                                                      */
 /* ==================================================================== */
 
 type Sourced = { fact: DocumentFact; evidence: EvidenceRecord };
 
-/** "Sale deed" reads as "sale deed" mid-sentence; "DC conversion order" keeps its acronym. */
-function sourceName(evidence: EvidenceRecord): string {
-  const name = evidence.documentType ?? evidence.title;
-  return /^[A-Z][a-z]/.test(name) ? name.charAt(0).toLowerCase() + name.slice(1) : name;
+/**
+ * Where a value was read, as the thread draws it: a chip that names the paper
+ * and its page and opens the paper there. Written `[ev:<paper's id>:p<page>]`,
+ * the form the chat page reads for a citation.
+ *
+ * A citation comes after the sentence it stands behind, full stop first, and
+ * never before a mark of its own: a chip that ends a line of the thread would
+ * leave that mark alone on the next.
+ */
+export function citeToken(evidenceId: string, page?: number): string {
+  return page && page > 0 ? `[ev:${evidenceId}:p${Math.trunc(page)}]` : `[ev:${evidenceId}]`;
 }
 
 function cite(row: Sourced): string {
-  return `${sourceName(row.evidence)}, p.${row.fact.page}`;
+  return citeToken(row.evidence.id, row.fact.page);
+}
+
+/** A paper by its kind, as a sentence names it: "Sale deed" reads as "sale deed" mid-sentence; "DC conversion order" keeps its acronym. */
+function sourceName(evidence: EvidenceRecord): string {
+  const name = evidence.documentType ?? evidence.title;
+  return /^[A-Z][a-z]/.test(name) ? name.charAt(0).toLowerCase() + name.slice(1) : name;
 }
 
 function byKey(facts: Sourced[], ...keys: string[]): Sourced[] {
@@ -162,6 +240,68 @@ function nothingYet(what: string, document: string): string {
   return `Nothing on file states ${what} yet. Drop the ${document} into the chat and I'll read it.`;
 }
 
+/**
+ * The values each answer is made from. A reading of one of them that waits
+ * on a paper (a model's that nobody has accepted, or one two readers differ
+ * on) is not on file and is in no answer. It is said beside the answer, as
+ * what it is, so "nothing on file states the extent" is never said of a paper
+ * whose extent is read and waiting.
+ */
+const TOPIC_KEYS: Record<string, readonly string[]> = {
+  owner: ['purchaser', 'vendor', 'owner'],
+  extent: ['extent_title', 'extent_khata', 'extent_survey', 'sanctioned_extent'],
+  parcel: ['survey_numbers', 'khata_number', 'pid'],
+  encumbrance: ['ec_from', 'ec_to', 'ec_nil', 'subsisting_charges'],
+  conversion: ['conversion_status', 'conversion_date', 'order_number', 'converted_use'],
+  zoning: ['zoning', 'permissible_far', 'plan_in_force', 'sanctioned_far'],
+  sanction: ['sanction_date', 'sanctioned_area', 'sanctioned_far', 'sanction_number', 'oc_issued'],
+  tax: ['tax_paid', 'tax_year', 'tax_paid_on', 'khata_type'],
+  title: ['root_year', 'registration_date', 'title_origin', 'document_number'],
+  value: ['consideration'],
+};
+
+/**
+ * The kinds of value a question is about, by key: those the answer to it is
+ * made from. "Is there a mortgage?" is about what the encumbrance certificate
+ * searched and found, whichever words it was asked in. Empty for a question
+ * about no one kind of value: what is missing, a summary, the findings.
+ */
+export function factKeysAsked(question: string): string[] {
+  const topic = topicsOf(question.trim())[0];
+  return topic ? [...(TOPIC_KEYS[topic] ?? [])] : [];
+}
+
+/** What waits, in a line: the reading, where it is, and that it is not on file. */
+function waitingLine(rows: Sourced[]): string {
+  const first = rows[0]!;
+  const where = cite(first);
+  if (rows.length === 1) {
+    return first.fact.otherReading
+      ? `Two readers read the ${first.fact.label.toLowerCase()} differently: ${first.fact.display} and ${first.fact.otherReading.display}. Nobody has kept one, so it is not on file. ${where}`
+      : first.fact.source === 'model'
+        ? `A model read ${first.fact.label.toLowerCase()} ${first.fact.display}. Nobody has accepted it, so it is not on file. ${where}`
+        : `${first.fact.label} ${first.fact.display} was read on a paper that was hard to read here. Nobody has accepted it, so it is not on file. ${where}`;
+  }
+  const labels = [...new Set(rows.map((row) => row.fact.label.toLowerCase()))];
+  return `${rows.length} readings are waiting to be accepted and are not on file: ${labels.slice(0, 4).join(', ')}${labels.length > 4 ? ` and ${labels.length - 4} more` : ''}.`;
+}
+
+/** An answer with what waits for its topic said after it; or, where the answer was that nothing is on file, said in its place. */
+function withWaiting(project: DdProject, topic: string, answer: FileAnswer | null): FileAnswer | null {
+  const keys = TOPIC_KEYS[topic];
+  const waiting = keys ? readingsWaitingOnFile(project).filter((row) => keys.includes(row.fact.key)) : [];
+  if (!waiting.length) return answer;
+  const line = waitingLine(waiting);
+  const lead = waiting[0]!;
+  const open: FileAnswer['navigate'] = { pane: 'evidence', evidenceId: lead.evidence.id, page: String(lead.fact.page) };
+  const ids = [...new Set(waiting.map((row) => row.evidence.id))];
+  // "Nothing on file states it yet. Drop the paper in" is the wrong thing to say of a paper that is in, read, and waiting.
+  if (!answer || (!answer.citedEvidenceIds.length && /not on file$/.test(answer.summary))) {
+    return { text: line, summary: 'A reading is waiting', citedEvidenceIds: ids, citedNodeIds: answer?.citedNodeIds ?? [], navigate: open };
+  }
+  return { ...answer, text: `${answer.text}\n${line}`, citedEvidenceIds: [...new Set([...answer.citedEvidenceIds, ...ids])], navigate: answer.navigate ?? open };
+}
+
 /* ==================================================================== */
 /* Answers                                                               */
 /* ==================================================================== */
@@ -188,14 +328,22 @@ function answerOwner(project: DdProject, facts: Sourced[]): FileAnswer | null {
   if (purchaser) {
     const when = first(facts, 'registration_date');
     lines.push(
-      `${purchaser.fact.display}${vendor ? `, who bought it from ${vendor.fact.display}` : ''}${when ? ` (registered ${when.fact.display})` : ''} — ${cite(purchaser)}.`,
+      `${purchaser.fact.display}${vendor ? `, who bought it from ${vendor.fact.display}` : ''}${when ? ` (registered ${when.fact.display})` : ''}. ${cite(purchaser)}`,
     );
     used.push(purchaser);
   }
+  // A name is said once for each kind of paper that states it: two copies of the khata are one sentence, cited to both.
+  const stated = new Map<string, Sourced[]>();
   for (const row of khataOwner) {
+    const key = `${sourceName(row.evidence)}|${row.fact.display.toLowerCase()}`;
+    stated.set(key, [...(stated.get(key) ?? []), row]);
+  }
+  for (const rows of stated.values()) {
+    const row = rows[0]!;
     const same = purchaser && row.fact.display.toLowerCase() === purchaser.fact.display.toLowerCase();
-    lines.push(same ? `The ${sourceName(row.evidence)} is in the same name (p.${row.fact.page}).` : `The ${sourceName(row.evidence)} names ${row.fact.display} (p.${row.fact.page}).`);
-    used.push(row);
+    const paper = `The ${sourceName(row.evidence)}`;
+    lines.push(`${same ? `${paper} is in the same name.` : `${paper} names ${row.fact.display}.`} ${rows.map(cite).join(' ')}`);
+    used.push(...rows);
   }
   if (!lines.length) return project.developer ? null : { text: nothingYet('who owns the property', 'sale deed or khata'), summary: 'Owner not on file', citedEvidenceIds: [], citedNodeIds: [] };
   if (purchaser && khataOwner.length && khataOwner.some((k) => k.fact.display.toLowerCase() !== purchaser.fact.display.toLowerCase())) {
@@ -219,9 +367,10 @@ function answerExtent(project: DdProject, facts: Sourced[]): FileAnswer | null {
     }
     return { text: nothingYet('the extent', 'sale deed, khata or survey sketch'), summary: 'Extent not on file', citedEvidenceIds: [], citedNodeIds: [] };
   }
-  // One line of values, each with its source; the flag, if any, on the next.
+  // Each value is said with its source after it, and no mark stands between two for a line's end to leave alone: one or two as sentences on a line, three or more as a list, a value a row. The flag, if any, after them.
   const short: Record<string, string> = { extent_title: 'Title', extent_khata: 'Khata', extent_survey: 'Survey', sanctioned_extent: 'Sanctioned layout' };
-  const lines = [unique.map((r) => `${short[r.fact.key] ?? r.fact.label} ${r.fact.display} (${cite(r)})`).join(' · ') + '.'];
+  const stated = (r: Sourced): string => `${short[r.fact.key] ?? r.fact.label} ${r.fact.display}`;
+  const lines = unique.length < 3 ? [unique.map((r) => `${stated(r)}. ${cite(r)}`).join(' ')] : unique.map((r) => `- ${stated(r)} ${cite(r)}`);
   const values = unique.map((r) => Number(r.fact.value)).filter((n) => Number.isFinite(n) && n > 0);
   if (values.length > 1) {
     const max = Math.max(...values);
@@ -240,16 +389,16 @@ function answerParcel(project: DdProject, facts: Sourced[]): FileAnswer | null {
   const lines: string[] = [];
   const used: Sourced[] = [];
   if (sy) {
-    lines.push(`Survey No. ${sy.fact.value} (${cite(sy)}).`);
+    lines.push(`Survey No. ${sy.fact.value}. ${cite(sy)}`);
     used.push(sy);
   } else if (project.parcelId) {
     lines.push(`The project record gives the parcel as ${project.parcelId}.`);
   }
   if (khata) {
-    lines.push(`Khata No. ${khata.fact.display}${pid ? `, PID ${pid.fact.display}` : ''} (${cite(khata)}).`);
+    lines.push(`Khata No. ${khata.fact.display}${pid ? `, PID ${pid.fact.display}` : ''}. ${cite(khata)}`);
     used.push(khata);
   } else if (pid) {
-    lines.push(`PID ${pid.fact.display} (${cite(pid)}).`);
+    lines.push(`PID ${pid.fact.display}. ${cite(pid)}`);
     used.push(pid);
   }
   if (!lines.length) return { text: nothingYet('the survey number', 'sale deed or RTC'), summary: 'Parcel not on file', citedEvidenceIds: [], citedNodeIds: [] };
@@ -264,17 +413,17 @@ function answerEncumbrance(project: DdProject, facts: Sourced[]): FileAnswer | n
   const lines: string[] = [];
   const used: Sourced[] = [];
   if (from && to) {
-    lines.push(`The EC searches ${from.fact.display} to ${to.fact.display} (${cite(from)}).`);
+    lines.push(`The EC searches ${from.fact.display} to ${to.fact.display}. ${cite(from)}`);
     used.push(from);
   }
   const charges = openFindings(project).filter((f) => /\b(?:mortgage|charge|hypothecation|attachment|lien|encumbr)\b/i.test(f.title));
   if (nil && nil.fact.value === false) {
-    lines.push(`It is NOT clean: ${first(facts, 'subsisting_charges')?.fact.display ?? 'at least one'} subsisting charge on record (${cite(nil)}).`);
+    lines.push(`It is NOT clean: ${first(facts, 'subsisting_charges')?.fact.display ?? 'at least one'} subsisting charge on record. ${cite(nil)}`);
     used.push(nil);
     for (const f of charges.slice(0, 2)) lines.push(`⚑ ${f.title} — ${f.severity}.`);
     if (!charges.length) lines.push('It is not on the findings register yet — accept the finding waiting under Findings, or say “add a finding”.');
   } else if (nil && nil.fact.value === true) {
-    lines.push(`Nil encumbrance for that period (${cite(nil)}).`);
+    lines.push(`Nil encumbrance for that period. ${cite(nil)}`);
     used.push(nil);
   }
   return { text: lines.join('\n'), summary: 'Encumbrances, from the EC', ...sourcesOf(used), citedNodeIds: charges.slice(0, 2).map((f) => f.id) };
@@ -288,8 +437,8 @@ function answerConversion(facts: Sourced[]): FileAnswer | null {
   const use = first(facts, 'converted_use');
   const text =
     status.fact.value === 'converted'
-      ? `Yes — converted to non-agricultural${use ? ` ${use.fact.display.replace(/^non-agricultural\s*/, '')}` : ''} use${date ? ` by an order dated ${date.fact.display}` : ''}${order ? ` (${order.fact.display})` : ''} — ${cite(status)}.`
-      : `No — the order on file leaves it ${status.fact.display} (${cite(status)}).`;
+      ? `Yes — converted to non-agricultural${use ? ` ${use.fact.display.replace(/^non-agricultural\s*/, '')}` : ''} use${date ? ` by an order dated ${date.fact.display}` : ''}${order ? ` (${order.fact.display})` : ''}. ${cite(status)}`
+      : `No — the order on file leaves it ${status.fact.display}. ${cite(status)}`;
   return { text, summary: 'Conversion, from the DC order', ...sourcesOf([status]), citedNodeIds: [] };
 }
 
@@ -302,11 +451,11 @@ function answerZoning(project: DdProject, facts: Sourced[]): FileAnswer | null {
   const lines: string[] = [];
   const used: Sourced[] = [];
   if (zoning) {
-    lines.push(`${zoning.fact.display}${plan ? ` under the ${plan.fact.display}` : ''} (${cite(zoning)}).`);
+    lines.push(`${zoning.fact.display}${plan ? ` under the ${plan.fact.display}` : ''}. ${cite(zoning)}`);
     used.push(zoning);
   }
   if (far) {
-    lines.push(`Permissible FAR ${far.fact.display}${sanctionedFar ? `; ${sanctionedFar.fact.display} was sanctioned (${cite(sanctionedFar)})` : ''}.`);
+    lines.push(`Permissible FAR ${far.fact.display}${sanctionedFar ? `; ${sanctionedFar.fact.display} was sanctioned. ${cite(sanctionedFar)}` : '.'}`);
     used.push(far);
   }
   if (far && project.landAreaSqm && project.builtUpAreaSqm) {
@@ -327,14 +476,14 @@ function answerSanction(project: DdProject, facts: Sourced[]): FileAnswer | null
   const used: Sourced[] = [];
   if (date || area) {
     const lead = (date ?? area)!;
-    lines.push(`Sanctioned${date ? ` on ${date.fact.display}` : ''}${number ? ` (${number.fact.display})` : ''}${area ? ` for ${area.fact.display} built-up` : ''}${far ? `, FAR ${far.fact.display}` : ''} — ${cite(lead)}.`);
+    lines.push(`Sanctioned${date ? ` on ${date.fact.display}` : ''}${number ? ` (${number.fact.display})` : ''}${area ? ` for ${area.fact.display} built-up` : ''}${far ? `, FAR ${far.fact.display}` : ''}. ${cite(lead)}`);
     used.push(lead);
   }
   if (area && project.builtUpAreaSqm && project.builtUpAreaSqm > Number(area.fact.value) * 1.05) {
     lines.push(`⚑ The project record's built-up (${Math.round(project.builtUpAreaSqm).toLocaleString('en-IN')} sqm) is ${Math.round((project.builtUpAreaSqm / Number(area.fact.value) - 1) * 100)}% above the sanction.`);
   }
   if (oc) {
-    lines.push(`Occupancy certificate: ${oc.fact.display} (${cite(oc)}).`);
+    lines.push(`Occupancy certificate: ${oc.fact.display}. ${cite(oc)}`);
     used.push(oc);
   }
   return { text: lines.join('\n'), summary: 'Sanction, from the documents', ...sourcesOf(used), citedNodeIds: [] };
@@ -349,11 +498,11 @@ function answerTax(facts: Sourced[]): FileAnswer | null {
   const used: Sourced[] = [];
   if (paid) {
     const on = first(facts, 'tax_paid_on');
-    lines.push(`Property tax ${paid.fact.display} paid${year ? ` for ${year.fact.display}` : ''}${on ? ` on ${on.fact.display}` : ''} (${cite(paid)}).`);
+    lines.push(`Property tax ${paid.fact.display} paid${year ? ` for ${year.fact.display}` : ''}${on ? ` on ${on.fact.display}` : ''}. ${cite(paid)}`);
     used.push(paid);
   }
   if (khataType) {
-    lines.push(`${khataType.fact.display} (${cite(khataType)}).`);
+    lines.push(`${khataType.fact.display}. ${cite(khataType)}`);
     used.push(khataType);
   }
   return { text: lines.join('\n'), summary: 'Tax and khata, from the documents', ...sourcesOf(used), citedNodeIds: [] };
@@ -368,13 +517,13 @@ function answerTitle(facts: Sourced[]): FileAnswer | null {
   const used: Sourced[] = [];
   if (root) {
     const years = Math.floor((Date.now() - Date.parse(String(root.fact.value))) / (365.25 * 86400000));
-    lines.push(`Root of title ${root.fact.display}${origin ? `, where title arose by ${origin.fact.display}` : ''} — ${years} years of chain (${cite(root)}).`);
+    lines.push(`Root of title ${root.fact.display}${origin ? `, where title arose by ${origin.fact.display}` : ''} — ${years} years of chain. ${cite(root)}`);
     used.push(root);
     if (years < 30) lines.push(`⚑ Short of the usual 30 years in Karnataka.`);
   }
   if (reg) {
     const doc = first(facts, 'document_number');
-    lines.push(`Latest conveyance registered ${reg.fact.display}${doc ? ` as ${doc.fact.display}` : ''} (${cite(reg)}).`);
+    lines.push(`Latest conveyance registered ${reg.fact.display}${doc ? ` as ${doc.fact.display}` : ''}. ${cite(reg)}`);
     used.push(reg);
   }
   return { text: lines.join('\n'), summary: 'Title chain, from the deeds', ...sourcesOf(used), citedNodeIds: [] };
@@ -395,7 +544,7 @@ function answerValue(project: DdProject, facts: Sourced[]): FileAnswer | null {
   }
   const hasValue = lines.length > 0;
   if (!hasValue) lines.push('No indicative value yet — say “run the property screen” and I’ll work one out from what is on file.');
-  if (paid) lines.push(`It last changed hands for ${paid.fact.display} (${cite(paid)}).`);
+  if (paid) lines.push(`It last changed hands for ${paid.fact.display}. ${cite(paid)}`);
   if (hasValue) lines.push('Indicative only — not an IBBI-registered valuation.');
   return { text: lines.join('\n'), summary: 'Value', citedEvidenceIds: paid ? [paid.evidence.id] : [], citedNodeIds: [], navigate: { pane: 'valuation' } };
 }
@@ -410,6 +559,194 @@ function joinTitles(titles: string[], budget = 170): string {
   }
   const rest = titles.length - out.length;
   return `${out.join('; ')}${rest ? `; and ${rest} more` : ''}`;
+}
+
+/* ==================================================================== */
+/* Answers about the page a person is on                                 */
+/* ==================================================================== */
+
+/**
+ * The page a question is about: a function, or a department with the
+ * functions it shows.
+ *
+ * "What's missing", "summarise" and "which findings are critical" mean the
+ * page a person is on when they are on a function's or a department's. The
+ * answer opens by saying so ("On Title: …"), because the thread stays when
+ * the page changes and an answer has to say what it was about.
+ */
+interface Scope {
+  label: string;
+  fns: MenuFunction[];
+}
+
+/** A question about everything, whatever page it was asked on: it names the project or the file. */
+const WHOLE_PROJECT = /\b(?:whole|entire|this|the|our)\s+(?:project|file)\b|\bacross\s+the\s+(?:project|file|departments)\b|\bproject[\s-]wide\b|\beverywhere\b|\boverall\b/i;
+
+function scopeOf(project: DdProject, question: string, here: ChatPlace | undefined): Scope | undefined {
+  if (!here?.department || WHOLE_PROJECT.test(question)) return undefined;
+  const all = menuFunctions(here.department);
+  if (here.fn) {
+    const fn = all.find((f) => f.key === here.fn);
+    return fn ? { label: chatPlaceLabel(here), fns: [fn] } : undefined;
+  }
+  // A department's Summary is about the functions it lists: those that show at the stage being looked at and are switched on.
+  const enabled = projectDepartments(project);
+  const shown = menuFunctions(here.department, menuAt(project, here.stage ?? stageOf(project.currentStage))).filter((fn) => enabled.includes(fn.department));
+  return shown.length ? { label: DEPARTMENT_SHORT[here.department], fns: shown } : undefined;
+}
+
+/**
+ * How an answer about one page opens. To an outside collaborator it says the
+ * answer is of the part of the file they were given: what is missing or in
+ * force is counted from that part, and stated bare it read as a fact about
+ * the project.
+ */
+function onPage(label: string, outside: boolean): string {
+  return outside ? `Of what you have been given, on ${label}:` : `On ${label}:`;
+}
+
+/** The answer for a function whose department is switched off on this project, or null while it is on. It is said as its page would say it, and opens nothing. */
+function switchedOff(project: DdProject, fn: string): FileAnswer | null {
+  const department = workstreamDefinition(fn)?.department;
+  if (!department || projectDepartments(project).includes(department)) return null;
+  return { text: `${chatPlaceLabel({ fn })} is switched off on this project. Departments are set on Overview.`, summary: 'Switched off', citedEvidenceIds: [], citedNodeIds: [] };
+}
+
+/** The same question, of the whole project: offered under every answer that was about one page. */
+function wholeProject(send: string): ChatChoice[] {
+  return [{ id: 'whole-project', label: 'Whole project', detail: 'The same, across every department', send, kind: 'action' }];
+}
+
+const built = (key: string): boolean => workstreamDefinition(key)?.status === 'live';
+
+function scopedChecks(project: DdProject, scope: Scope) {
+  return scope.fns.flatMap((fn) => fn.workstreams.flatMap((key) => workstreamChecks(project, key)));
+}
+
+function scopedDocuments(project: DdProject, scope: Scope): EvidenceRecord[] {
+  return scope.fns.flatMap((fn) => fn.workstreams.flatMap((key) => workstreamDocuments(project, key)));
+}
+
+function scopedFindings(project: DdProject, scope: Scope): FindingRecord[] {
+  const keys = new Set(scope.fns.map((fn) => fn.key));
+  return openFindings(project).filter((f) => keys.has(functionOfFinding(project, f) ?? ''));
+}
+
+/** A function's estimate in a few words: its headline, or that there is not enough to say. */
+function standing(project: DdProject, fn: MenuFunction): string {
+  const live = fn.workstreams.find(built);
+  if (!live) return 'not built yet';
+  const qa = quickAssessment(project, live);
+  return qa.verdict === 'insufficient' ? QUICK_VERDICT_LABEL.insufficient.toLowerCase() : /^[A-Z][a-z]/.test(qa.headline) ? qa.headline.charAt(0).toLowerCase() + qa.headline.slice(1) : qa.headline;
+}
+
+function answerSummaryOf(project: DdProject, scope: Scope, outside: boolean): FileAnswer {
+  // A function's estimate is the firm's own reading of the whole file. An outside collaborator is given the counts and not the estimate.
+  const lead = outside
+    ? ''
+    : scope.fns.length === 1
+      ? `On ${scope.label}: ${standing(project, scope.fns[0]!)}.`
+      : `On ${scope.label}: ${scope.fns.map((fn) => `${fn.label} ${fn.workstreams.some(built) ? `— ${standing(project, fn)}` : 'is not built yet'}`).join('; ')}.`;
+  const lines = lead ? [lead] : [];
+  const checks = scopedChecks(project, scope);
+  if (checks.length) {
+    const issues = checks.filter((c) => c.result === 'non_compliant' || c.result === 'partially_compliant' || c.result === 'missing_evidence').length;
+    lines.push(`${checks.filter((c) => c.result !== 'pending').length} of ${plural(checks.length, 'check')} answered${issues ? `, ${issues} with an issue` : ''}.`);
+  }
+  const papers = scopedDocuments(project, scope);
+  const expected = papers.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested').length;
+  const filed = papers.filter((e) => e.attachments.length).length;
+  if (papers.length) lines.push(`${plural(filed, 'document')} on file${expected ? `, ${expected} still expected` : ''}.`);
+  const open = scopedFindings(project, scope);
+  const material = open.filter((f) => f.severity === 'critical' || f.severity === 'high');
+  if (open.length) lines.push(`${plural(open.length, 'open finding')}${material.length ? `, ${material.length} material — worst: ${material[0]!.title}` : ''}.`);
+  if (outside) lines[0] = `${onPage(scope.label, true)} ${lines[0] ?? 'nothing to report.'}`;
+  return {
+    text: lines.join('\n'),
+    summary: `Where ${scope.label} stands`,
+    citedEvidenceIds: [],
+    citedNodeIds: material.slice(0, 2).map((f) => f.id),
+    choices: wholeProject('Summarise the whole project'),
+  };
+}
+
+function answerMissingOf(project: DdProject, scope: Scope, outside: boolean): FileAnswer {
+  const lines: string[] = [];
+  // What each function's own estimate says would firm it up: the deeds, an approval, a milestone.
+  const needs = [...new Set(scope.fns.flatMap((fn) => fn.workstreams.filter(built).flatMap((key) => quickAssessment(project, key).gaps)))];
+  if (needs.length) lines.push(`still needs ${joinTitles(needs, 150)}.`);
+  const expected = scopedDocuments(project, scope).filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
+  if (expected.length) lines.push(`${plural(expected.length, 'document')} expected and not in: ${joinTitles(expected.map((e) => e.title), 130)}.`);
+  const checks = scopedChecks(project, scope);
+  const pending = checks.filter((c) => c.result === 'pending').length;
+  if (pending) lines.push(`${pending} of ${plural(checks.length, 'check')} unanswered.`);
+  const none = scope.fns.some((fn) => fn.workstreams.some(built)) ? 'nothing is outstanding.' : 'not built yet, and nothing is waiting for it.';
+  const [first, ...rest] = lines.length ? lines : [none];
+  return {
+    text: [`${onPage(scope.label, outside)} ${first}`, ...rest.map((line) => line.charAt(0).toUpperCase() + line.slice(1))].join('\n'),
+    summary: `What ${scope.label} is missing`,
+    citedEvidenceIds: expected.slice(0, 6).map((e) => e.id),
+    citedNodeIds: [],
+    choices: wholeProject("What's missing on the whole project?"),
+  };
+}
+
+function answerFindingsOf(project: DdProject, scope: Scope, question: string, outside: boolean): FileAnswer {
+  const wanted = SEVERITY_ORDER.filter((s) => new RegExp(`\\b${s}\\b`, 'i').test(question));
+  const kind = wanted.length ? `${wanted.join('/')} ` : '';
+  const pick = (rows: FindingRecord[]) => rows.filter((f) => !wanted.length || wanted.includes(f.severity));
+  const here = pick(scopedFindings(project, scope));
+  const elsewhere = pick(openFindings(project)).length - here.length;
+  const titles = here.map((f) => (wanted.length === 1 ? f.title : `${f.title} (${f.severity})`));
+  return {
+    text: here.length
+      ? `${onPage(scope.label, outside)} ${plural(here.length, `open ${kind}finding`)}: ${joinTitles(titles)}.`
+      : `${onPage(scope.label, outside)} no open ${kind}findings.${elsewhere > 0 ? ` ${elsewhere} elsewhere on the project.` : ''}`,
+    summary: `Findings on ${scope.label}`,
+    citedEvidenceIds: [],
+    citedNodeIds: here.slice(0, 5).map((f) => f.id),
+    choices: wholeProject(`Which ${kind}findings are open on the whole project?`),
+  };
+}
+
+/** Where the approvals stand, from the register: how many are in force, and which have lapsed, are running out or are missing. */
+function answerApprovals(project: DdProject, outside: boolean): FileAnswer {
+  const off = switchedOff(project, 'legal.approvals');
+  if (off) return off;
+  const register = approvalsRegister(project);
+  const of = (...statuses: string[]) => register.filter((line) => statuses.includes(line.status));
+  const lapsed = of('expired');
+  const missing = of('missing');
+  const expiring = of('expiring');
+  const inForce = of('in_force', 'expiring').length;
+  const needed = inForce + lapsed.length + missing.length;
+  const lines = [needed ? `${inForce} of ${plural(needed, 'approval')} in force.` : 'No approval is on file, and none is due at the step the project is at.'];
+  if (lapsed.length) lines.push(`Lapsed: ${joinTitles(lapsed.map((line) => line.kind.label), 150)}.`);
+  if (expiring.length) lines.push(`Running out: ${joinTitles(expiring.map((line) => `${line.kind.label} (${line.daysLeft} days left)`), 150)}.`);
+  if (missing.length) lines.push(`Missing: ${joinTitles(missing.map((line) => line.kind.label), 150)}.`);
+  // The register is read from the papers on file. An outside collaborator has some of them, so the count is of those.
+  if (outside) lines[0] = `Of what you have been given: ${lines[0]!.charAt(0).toLowerCase()}${lines[0]!.slice(1)}`;
+  return {
+    text: lines.join('\n'),
+    summary: 'Approvals, from the register',
+    citedEvidenceIds: [...lapsed, ...expiring].flatMap((line) => line.held.map((h) => h.evidenceId)).slice(0, 6),
+    citedNodeIds: [],
+    navigate: { fn: 'legal.approvals', section: 'approvals' },
+  };
+}
+
+/** How far along the work is, from the milestones and the site log. */
+function answerProgress(project: DdProject, outside: boolean): FileAnswer {
+  const off = switchedOff(project, 'construction.progress');
+  if (off) return off;
+  const p = progressSummary(project);
+  if (p.percent === null) {
+    return { text: 'No milestones yet. Add them on Progress and the site log will move them.', summary: 'Progress', citedEvidenceIds: [], citedNodeIds: [], navigate: { fn: 'construction.progress', section: 'progress' } };
+  }
+  const lines = [`${outside ? 'Of what you have been given: ' : ''}${p.percent}% complete: ${p.complete} of ${plural(p.milestones, 'milestone')} done.`];
+  lines.push(p.late.length ? `Late: ${joinTitles(p.late.map((m) => `${m.name} (due ${m.plannedFinish}, at ${m.percent}%)`), 150)}.` : 'None is past its planned finish.');
+  if (p.lastEntry) lines.push(`Last site entry ${p.lastEntry.date}, by ${p.lastEntry.author}.`);
+  return { text: lines.join('\n'), summary: 'Progress, from the milestones', citedEvidenceIds: [], citedNodeIds: [], navigate: { fn: 'construction.progress', section: 'progress' } };
 }
 
 function answerFindings(project: DdProject, question: string): FileAnswer {
@@ -525,17 +862,46 @@ function answerSummary(project: DdProject, facts: Sourced[]): FileAnswer {
  */
 /**
  * The house style: four lines at most. The detail belongs in the pane the
- * answer opens, not in a paragraph above it.
+ * answer opens, not in a paragraph above it. A list is one thing said, a
+ * value a row: it counts as one line, and its rows keep their places.
  */
 function fit(answer: FileAnswer | null): FileAnswer | null {
   if (!answer) return null;
   const lines = answer.text.split('\n').filter((l) => l.trim());
-  if (lines.length <= 4) return answer;
-  return { ...answer, text: [...lines.slice(0, 3), lines.slice(3).join(' ')].join('\n') };
+  const listed = (line: string) => line.startsWith('- ');
+  const rows = lines.filter(listed).length;
+  if (lines.length - Math.max(0, rows - 1) <= 4) return answer;
+  /*
+   * A line that opens with the flag mark is drawn as a row of its own, and
+   * only while the mark opens the line. So the lines past the fourth are
+   * folded into the plain line before them, and a flagged line is never one
+   * of the lines folded: it keeps its place, and its row.
+   */
+  const flagged = (line: string) => line.trimStart().startsWith('⚑');
+  const room = Math.max(1, 4 - lines.filter(flagged).length - (rows ? 1 : 0));
+  const out: string[] = [];
+  let plain = 0;
+  let last = -1;
+  for (const line of lines) {
+    if (flagged(line) || listed(line)) {
+      out.push(line);
+    } else if (plain < room) {
+      plain += 1;
+      last = out.push(line) - 1;
+    } else {
+      out[last] = `${out[last]} ${line}`;
+    }
+  }
+  return { ...answer, text: out.join('\n') };
 }
 
-export function answerFromFile(project: DdProject, question: string): FileAnswer | null {
-  return fit(answerFromFileUnfitted(project, question));
+/**
+ * `here` is the page the person asked from. On a function's or a department's
+ * page, what is missing, a summary and the findings are that page's, unless
+ * the question names the project or the file.
+ */
+export function answerFromFile(project: DdProject, question: string, here?: ChatPlace, options: { outside?: boolean } = {}): FileAnswer | null {
+  return fit(answerFromFileUnfitted(project, question, here, options.outside === true));
 }
 
 /**
@@ -569,13 +935,14 @@ function answerSuperlative(project: DdProject, q: string): FileAnswer | null {
   return { text: `The high risk “${r.title}” — the only material item open.`, summary: 'Most serious item', citedEvidenceIds: [], citedNodeIds: [r.id], navigate: { pane: 'risks' } };
 }
 
-function answerFromFileUnfitted(project: DdProject, question: string): FileAnswer | null {
+function answerFromFileUnfitted(project: DdProject, question: string, here: ChatPlace | undefined, outside: boolean): FileAnswer | null {
   const q = question.trim();
   const top = answerSuperlative(project, q);
   if (top) return top;
   if (!looksLikeFileQuestion(q)) return null;
   const topics = topicsOf(q);
   const facts = factsOnFile(project);
+  const scope = scopeOf(project, q, here);
   for (const topic of topics) {
     switch (topic) {
       case 'help':
@@ -585,44 +952,218 @@ function answerFromFileUnfitted(project: DdProject, question: string): FileAnswe
       case 'thanks':
         return { text: 'Anytime.', summary: 'Thanks', citedEvidenceIds: [], citedNodeIds: [] };
       case 'summary':
-        return answerSummary(project, facts);
+        return scope ? answerSummaryOf(project, scope, outside) : answerSummary(project, facts);
+      case 'approvals':
+        return answerApprovals(project, outside);
+      case 'progress':
+        return answerProgress(project, outside);
       case 'owner': {
-        const a = answerOwner(project, facts);
+        const a = withWaiting(project, topic, answerOwner(project, facts));
         if (a) return a;
         break;
       }
       case 'extent':
-        return answerExtent(project, facts);
+        return withWaiting(project, topic, answerExtent(project, facts));
       case 'parcel':
-        return answerParcel(project, facts);
-      case 'encumbrance': {
-        const a = answerEncumbrance(project, facts);
-        if (a) return a;
-        return null;
-      }
+        return withWaiting(project, topic, answerParcel(project, facts));
+      case 'encumbrance':
+        // No EC on file and none waiting: the portal routes answer this better.
+        return withWaiting(project, topic, answerEncumbrance(project, facts));
       case 'conversion':
-        return answerConversion(facts);
+        return withWaiting(project, topic, answerConversion(facts));
       case 'zoning':
-        return answerZoning(project, facts);
+        return withWaiting(project, topic, answerZoning(project, facts));
       case 'sanction':
-        return answerSanction(project, facts);
+        return withWaiting(project, topic, answerSanction(project, facts));
       case 'tax':
-        return answerTax(facts);
+        return withWaiting(project, topic, answerTax(facts));
       case 'title':
-        return answerTitle(facts);
+        return withWaiting(project, topic, answerTitle(facts));
       case 'value':
-        return answerValue(project, facts);
+        return withWaiting(project, topic, answerValue(project, facts));
       case 'findings':
-        return answerFindings(project, q);
+        return scope ? answerFindingsOf(project, scope, q, outside) : answerFindings(project, q);
       case 'risks':
         return answerRisks(project);
       case 'actions':
         return answerActions(project);
       case 'missing':
-        return answerMissing(project);
+        return scope ? answerMissingOf(project, scope, outside) : answerMissing(project);
       case 'documents':
         return answerDocuments(project);
     }
   }
   return null;
 }
+
+/* ==================================================================== */
+/* A paper's own words                                                   */
+/* ==================================================================== */
+
+/**
+ * What a question asks the papers themselves for.
+ *
+ * The values a reading understood are on the file, and the answers above are
+ * made from them. Whatever the rules had no pattern for is still on the page:
+ * a right of way, the witnesses, a covenant. Each page's words are kept
+ * beside its file for exactly this, and these say when a question is one for
+ * them, which papers it is about, and how the passage found is said.
+ */
+export interface PaperWordsAsked {
+  /** The words to find together on one page, as a search takes them. */
+  words: string;
+  /** The paper as the question names it ("the sale deed"), where it names one. */
+  paper?: string;
+  /** The words count only where one passage holds them all, and not anywhere on a page. Set for a question nothing else answered. */
+  together?: true;
+}
+
+const OPENS = String.raw`^(?:(?:so|and|ok|okay|hey|please)[\s,]+)?`;
+const SAYS = String.raw`(?:says?|states?|mentions?|provides?|records?|covers?|contains?|includes?|refers?\s+to|talks?\s+about|speaks?\s+of)`;
+/** "What does the deed say about the right of way?", "does the EC mention a lease?", "where does it say acquisition?" */
+const PAPER_SAYS = new RegExp(String.raw`${OPENS}(?:what|where|which\s+page)?\s*\b(?:does|do|did)\s+(.{2,60}?)\s+${SAYS}\b(?:\s+(?:anything|something))?(?:\s+(?:about|on|regarding|concerning|of|for))?\s+(.{2,120}?)[\s?.!]*$`, 'i');
+/** "Is there anything about a right of way in the deed?", "what is said about the witnesses?" */
+const SAID_ABOUT = new RegExp(String.raw`${OPENS}(?:(?:is|are)\s+there\s+(?:anything|something|any\s+mention|a\s+mention|any\s+clause|a\s+clause)|what\s+is\s+(?:said|stated|written|mentioned))\s+(?:about|of|on|regarding|concerning)\s+(.{2,120}?)(?:\s+in\s+(.{2,60}?))?[\s?.!]*$`, 'i');
+/** "Which paper mentions the witnesses?" */
+const WHICH_PAPER = new RegExp(String.raw`${OPENS}which\s+(?:papers?|documents?|deeds?|certificates?|pages?)\s+${SAYS}\s+(.{2,120}?)[\s?.!]*$`, 'i');
+
+/** Who a question may ask instead of a paper: "what do we say", "what does memory hold". */
+const NOT_A_PAPER = /^(?:i|we|you|they|he|she|anyone|anybody|someone|somebody|people|memory|the\s+(?:assistant|copilot|chat|team|firm|lender|buyer|seller|owner))$/i;
+/** Every paper on the file, however it is said. */
+const ANY_PAPER = /^(?:it|this|that|these|those|(?:(?:the|any|our|these|those|all(?:\s+the)?)\s+)?(?:papers?|documents?|files?|pages?))$/i;
+
+/** Words that say nothing of what is looked for: the question's own, and the ones for a paper. */
+const NOT_LOOKED_FOR = new Set(
+  [
+    'a an the this that these those it its is are was were be been being am do does did has have had will would shall should can could may might must',
+    'i we you he she they me us him her them my our your his their who whom whose which what when where why how',
+    'of in on at to for from by with about into over under between through per as than then so and or but if not no any all some each every both more most much many such same other',
+    'there here now also just only very too still yet again ever never please thanks thank ok okay hey hi hello yes',
+    'say says said tell tells told show shows give gives mention mentions mentioned state states stated written mean means know find look',
+    'paper papers document documents file files page pages anything something nothing everything thing things',
+    // What a shortened word leaves once it is cut at its apostrophe: "who's", "doesn't", "we'll".
+    's t d m ll re ve isn aren wasn weren doesn don didn hasn haven hadn won wouldn shouldn couldn mustn',
+  ].flatMap((line) => line.split(' ')),
+);
+
+/** The words of some text a page is searched for, in the order written, each once. */
+function wordsLookedFor(text: string): string[] {
+  const words = text.normalize('NFKC').toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter((word) => word && !NOT_LOOKED_FOR.has(word));
+  return [...new Set(words)];
+}
+
+/**
+ * Whether a question is one for the papers' own words, and what it asks them.
+ *
+ * Asked outright in one of three forms: what a paper says about something,
+ * whether anything is said about it, which paper says it. A question in one
+ * of those is the papers' unless what it asks about is something the file
+ * answers by rule ("what does the deed say about the extent" is the extent).
+ *
+ * `unanswered` is for a question nothing else answered, no rule and no
+ * model: then its own words are looked for, as long as it is a question, not
+ * one of judgement, and names something with more than one word. One word is
+ * on some page of some paper whatever was meant by it: "where is the site?"
+ * is not about every page that says site. And its words count only where
+ * they stand together in one passage (`together`): two common words are
+ * somewhere on most pages. The pages are the last place such a question is
+ * put. The chat's own rules have it first, and a question they ask back
+ * about is theirs; then memory, where it holds what the question names.
+ */
+export function paperWordsAsked(question: string, options: { unanswered?: boolean } = {}): PaperWordsAsked | undefined {
+  const q = question.trim();
+  if (!q || q.length > 220) return undefined;
+  const says = PAPER_SAYS.exec(q);
+  const said = says ? undefined : SAID_ABOUT.exec(q);
+  const which = says || said ? undefined : WHICH_PAPER.exec(q);
+  const about = says?.[2] ?? said?.[1] ?? which?.[1];
+  const paper = (says?.[1] ?? said?.[2])?.trim();
+  if (about !== undefined) {
+    if (paper && NOT_A_PAPER.test(paper)) return undefined;
+    // What the file holds as a value is answered from the value, with its page.
+    if (topicsOf(about).length) return undefined;
+    const words = wordsLookedFor(about);
+    return words.length ? { words: words.join(' '), ...(paper && !ANY_PAPER.test(paper) ? { paper } : {}) } : undefined;
+  }
+  if (!options.unanswered || !asksForAFact(q)) return undefined;
+  const words = wordsLookedFor(q);
+  return words.length > 1 && words.some((word) => word.length >= 4) ? { words: words.join(' '), together: true } : undefined;
+}
+
+/** Short names people use for a kind of paper, and the words the register writes it in. */
+const PAPER_SHORT: Record<string, string[]> = { ec: ['encumbrance', 'certificate'], oc: ['occupancy', 'certificate'], cc: ['commencement', 'certificate'] };
+
+/**
+ * The papers a question for the papers' own words is about: those on file
+ * whose title or kind has every word the question names its paper by, or all
+ * of them where it names none. `project` is the record as the person asking
+ * may see it, so a paper out of their reach is never one of them.
+ */
+export function papersAsked(project: Pick<DdProject, 'evidence'>, asked: PaperWordsAsked): EvidenceRecord[] {
+  const filed = project.evidence.filter((row) => row.attachments.length > 0);
+  const named = wordsLookedFor(asked.paper ?? '').flatMap((word) => PAPER_SHORT[word] ?? [word]);
+  if (!named.length) return filed;
+  return filed.filter((row) => {
+    const held = new Set(wordsLookedFor(`${row.title} ${row.documentType ?? ''}`));
+    return named.every((word) => held.has(word));
+  });
+}
+
+/** A passage found on one kept page of a paper. */
+export interface PaperPassage {
+  evidenceId: string;
+  /** 1-based. */
+  page: number;
+  /** The page's own words around what was looked for. */
+  snippet: string;
+  /** Whose words they are: the file's text, OCR's reading of it, or what a model quoted. */
+  reader: 'text' | 'ocr' | 'model';
+}
+
+/** How many passages one reply quotes. The rest are counted. */
+export const PAPER_PASSAGES_SAID = 3;
+
+/** The tool a reply made of the papers' own words is named by. */
+export const PAPER_WORDS = 'paper_words';
+
+const HOW_READ: Record<PaperPassage['reader'], string> = { text: '', ocr: 'as OCR read them', model: 'as a model quoted them' };
+
+/** A passage as it is set against another: its letters and digits, whatever the case, the spacing or the marks around them. */
+const wordsOfPassage = (snippet: string): string => snippet.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
+
+/**
+ * The passages found, said as what they are: the paper's own words, each
+ * with a citation that opens the paper at its page. They are no value on the
+ * file, and the reply does not word them as one. Null where nothing was
+ * found. `notOpened` is how many papers the search did not get to.
+ *
+ * A passage two pages hold word for word, as two copies of a paper do, is
+ * said once and cited to both. It is said to be a reading only where no copy
+ * has it as the file's own text.
+ */
+export function paperWordsAnswer(passages: readonly PaperPassage[], more: { notOpened?: number } = {}): FileAnswer | null {
+  if (!passages.length) return null;
+  const stated: PaperPassage[][] = [];
+  for (const passage of passages) {
+    const same = stated.find((held) => wordsOfPassage(held[0]!.snippet) === wordsOfPassage(passage.snippet));
+    if (same) same.push(passage);
+    else stated.push([passage]);
+  }
+  const said = stated.slice(0, PAPER_PASSAGES_SAID);
+  const pages = said.flat();
+  // The copy quoted is the file's own text where one has it, before any reading of a scan.
+  const copy = (held: PaperPassage[]): PaperPassage => (['text', 'ocr', 'model'] as const).flatMap((reader) => held.filter((passage) => passage.reader === reader))[0]!;
+  const quoted = (held: PaperPassage[]): string => `“${copy(held).snippet}” ${held.map((passage) => citeToken(passage.evidenceId, passage.page)).join(' ')}`;
+  const how = (held: PaperPassage[]): string => HOW_READ[copy(held).reader];
+  const papers = new Set(pages.map((passage) => passage.evidenceId)).size;
+  const lines =
+    said.length === 1
+      ? [`The ${papers === 1 ? 'paper’s' : 'papers’'} own words${how(said[0]!) ? `, ${how(said[0]!)}` : ''}: ${quoted(said[0]!)}`]
+      : ['The papers’ own words:', ...said.map((held) => `- ${how(held) ? `${how(held).charAt(0).toUpperCase()}${how(held).slice(1)}: ` : ''}${quoted(held)}`)];
+  const rest = passages.length - pages.length;
+  if (rest > 0) lines.push(`- and ${plural(rest, 'more page')}`);
+  if (more.notOpened) lines.push(`${plural(more.notOpened, 'paper')} ${more.notOpened === 1 ? 'was' : 'were'} not searched.`);
+  // The reply opens by saying whose words these are. The label under it says where they were found, and does not say the same again.
+  return { text: lines.join('\n'), summary: pages.length === 1 ? 'Quoted from the page' : 'Quoted from the pages', citedEvidenceIds: [...new Set(pages.map((passage) => passage.evidenceId))], citedNodeIds: [] };
+}
+

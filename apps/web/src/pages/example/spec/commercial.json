@@ -1,0 +1,3036 @@
+{
+ "department": "Commercial",
+ "functions": [
+  {
+   "name": "Market",
+   "stages": [
+    "land",
+    "pre",
+    "build"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "4 competing projects, prices 3 months old"
+   },
+   "sections": [
+    {
+     "id": "brief",
+     "name": "Brief",
+     "icon": "links",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Arrives from other functions",
+       "cols": [
+        "Item",
+        "Value",
+        "From",
+        "As of"
+       ],
+       "rows": [
+        [
+         "2 BHK",
+         "42 units, 750 sqft carpet",
+         "Design",
+         "25 Sep 2026"
+        ],
+        [
+         "2 BHK large",
+         "28 units, 900 sqft carpet",
+         "Design",
+         "25 Sep 2026"
+        ],
+        [
+         "3 BHK",
+         "28 units, 1,100 sqft carpet",
+         "Design",
+         "25 Sep 2026"
+        ],
+        [
+         "3 BHK large",
+         "14 units, 1,250 sqft carpet",
+         "Design",
+         "25 Sep 2026"
+        ],
+        [
+         "Cost per sqft, carpet",
+         "₹ 6,800 /sqft",
+         "Budget",
+         "30 Sep 2026"
+        ],
+        [
+         "Guidance value",
+         "₹ 5,400 /sqft, residential",
+         "Valuation",
+         "12 Sep 2026"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Design, Budget and Valuation",
+       "add": ""
+      },
+      {
+       "type": "fields",
+       "title": "Buyer and launch",
+       "items": [
+        {
+         "l": "Apartments",
+         "v": "112 on 14 floors",
+         "state": "calc"
+        },
+        {
+         "l": "Target buyer",
+         "v": "End users, young families",
+         "state": "sug",
+         "from": "Quarterly city report, Q2 2026",
+         "page": 18
+        },
+        {
+         "l": "Launch date",
+         "v": "15 Nov 2026",
+         "state": "set"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "comparables",
+     "name": "Comparables",
+     "icon": "map",
+     "blocks": [
+      {
+       "type": "map",
+       "title": "Catchment and competitors",
+       "view": "area",
+       "layers": [
+        "plot",
+        "rings",
+        "roads"
+       ],
+       "pins": [
+        {
+         "t": "Project A",
+         "kind": "competitor",
+         "x": 60,
+         "y": 62
+        },
+        {
+         "t": "Project B",
+         "kind": "competitor",
+         "x": 36,
+         "y": 42
+        },
+        {
+         "t": "Project C",
+         "kind": "competitor",
+         "x": 56,
+         "y": 39
+        },
+        {
+         "t": "Project D",
+         "kind": "competitor",
+         "x": 68,
+         "y": 34
+        },
+        {
+         "t": "Metro station",
+         "kind": "amenity",
+         "x": 78,
+         "y": 26
+        },
+        {
+         "t": "Business park",
+         "kind": "amenity",
+         "x": 26,
+         "y": 28
+        },
+        {
+         "t": "School",
+         "kind": "amenity",
+         "x": 46,
+         "y": 57
+        }
+       ],
+       "measures": [
+        {
+         "t": "Nearest competitor",
+         "v": "1.5 km",
+         "tone": "ok"
+        },
+        {
+         "t": "Competitors within 3 km",
+         "v": "4",
+         "tone": "ok"
+        },
+        {
+         "t": "School",
+         "v": "1.0 km",
+         "tone": "ok"
+        },
+        {
+         "t": "Business park",
+         "v": "3.9 km",
+         "tone": "ok"
+        },
+        {
+         "t": "Metro station",
+         "v": "4.4 km",
+         "tone": "warn"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Competing projects",
+       "cols": [
+        "Project",
+        "Unit type",
+        "Carpet area",
+        "Price per sqft",
+        "Sold",
+        "Source"
+       ],
+       "rows": [
+        [
+         "Project A",
+         "2 BHK",
+         "740 sqft",
+         "₹ 9,700 /sqft",
+         "112 of 150",
+         "Registered sales, Jul 2026"
+        ],
+        [
+         "Project A",
+         "3 BHK",
+         "1,080 sqft",
+         "₹ 9,450 /sqft",
+         "56 of 90",
+         "Registered sales, Jul 2026"
+        ],
+        [
+         "Project B",
+         "2 BHK",
+         "760 sqft",
+         "₹ 9,250 /sqft",
+         "96 of 180",
+         "Portal, asking price"
+        ],
+        [
+         "Project C",
+         "2 BHK",
+         "780 sqft",
+         "₹ 10,100 /sqft",
+         "140 of 200",
+         "Registered sales, Jun 2026"
+        ],
+        [
+         "Project C",
+         "3 BHK",
+         "1,120 sqft",
+         "₹ 9,900 /sqft",
+         "65 of 120",
+         "Registered sales, Jun 2026"
+        ],
+        [
+         "Project D",
+         "3 BHK",
+         "1,200 sqft",
+         "₹ 10,900 /sqft",
+         "61 of 150",
+         "Portal, asking price"
+        ]
+       ],
+       "status": null,
+       "money": [
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "fetched",
+       "from": "the regulator's site and portals",
+       "add": ""
+      },
+      {
+       "type": "search",
+       "title": "Guidance value",
+       "source": "Kaveri, guidance value",
+       "query": "Hosakere village, survey no. 41/2",
+       "results": [
+        {
+         "t": "₹ 5,400 /sqft, residential",
+         "sub": "April 2026 revision, gazette not seen",
+         "picked": true
+        },
+        {
+         "t": "₹ 4,900 /sqft, residential",
+         "sub": "Before the April 2026 revision",
+         "picked": false
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "demand",
+     "name": "Demand and absorption",
+     "icon": "people",
+     "blocks": [
+      {
+       "type": "figure",
+       "label": "Months to sell nearby stock",
+       "value": "11 months",
+       "range": [
+        "9 months",
+        "14 months"
+       ],
+       "chips": [
+        "Indicative"
+       ],
+       "stats": [
+        {
+         "l": "Monthly sales nearby",
+         "v": "34 units",
+         "n": "4 projects, last quarter"
+        },
+        {
+         "l": "Unsold stock",
+         "v": "360 units",
+         "n": "of 890 launched"
+        },
+        {
+         "l": "Rate range",
+         "v": "₹ 9,250 to 10,900",
+         "n": "per sqft carpet area"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Sales by quarter, nearby",
+       "cols": [
+        "Quarter",
+        "Units sold",
+        "Per month",
+        "Average rate",
+        "Unsold at end"
+       ],
+       "rows": [
+        [
+         "Apr to Jun 2025",
+         "96",
+         "32",
+         "₹ 9,100 /sqft",
+         "768"
+        ],
+        [
+         "Jul to Sep 2025",
+         "120",
+         "40",
+         "₹ 9,300 /sqft",
+         "648"
+        ],
+        [
+         "Oct to Dec 2025",
+         "108",
+         "36",
+         "₹ 9,500 /sqft",
+         "540"
+        ],
+        [
+         "Jan to Mar 2026",
+         "78",
+         "26",
+         "₹ 9,700 /sqft",
+         "462"
+        ],
+        [
+         "Apr to Jun 2026",
+         "102",
+         "34",
+         "₹ 9,900 /sqft",
+         "360"
+        ]
+       ],
+       "status": null,
+       "money": [
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "fetched",
+       "from": "K-RERA updates and registered sales",
+       "add": ""
+      },
+      {
+       "type": "slots",
+       "title": "Market reports",
+       "groups": [
+        {
+         "name": "",
+         "lines": [
+          {
+           "t": "Quarterly city report, Q2 2026",
+           "state": "in",
+           "pages": 46
+          },
+          {
+           "t": "Portal listings, north Bengaluru, Jul 2026",
+           "state": "in",
+           "pages": 12
+          },
+          {
+           "t": "Quarterly city report, Q3 2026",
+           "state": "asked",
+           "who": "Consultancy",
+           "due": "30 Oct 2026"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "pricing",
+     "name": "Pricing",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Pricing rules",
+       "items": [
+        {
+         "l": "Base rate",
+         "v": "₹ 9,800 /sqft carpet",
+         "state": "sug"
+        },
+        {
+         "l": "Floor rise",
+         "v": "₹ 50 /sqft per floor above level 4",
+         "state": "assume"
+        },
+        {
+         "l": "Corner or view premium",
+         "v": "₹ 150 /sqft",
+         "state": "assume"
+        },
+        {
+         "l": "Parking charge",
+         "v": "₹ 4.5 L a slot",
+         "state": "assume"
+        },
+        {
+         "l": "Slots per apartment",
+         "v": "1 for 2 BHK, 2 for 3 BHK",
+         "state": "set"
+        },
+        {
+         "l": "Minimum margin",
+         "v": "15% on cost",
+         "state": "assume"
+        },
+        {
+         "l": "Price floor",
+         "v": "₹ 7,820 /sqft",
+         "state": "calc"
+        },
+        {
+         "l": "GST on top",
+         "v": "5%, no input credit",
+         "state": "set"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sheet",
+     "name": "Price sheet",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Price sheet, level 8",
+       "cols": [
+        "Unit type",
+        "Carpet area",
+        "Base price",
+        "Floor rise",
+        "Extras",
+        "Total"
+       ],
+       "rows": [
+        [
+         "2 BHK",
+         "750 sqft",
+         "₹ 73.5 L",
+         "₹ 1.5 L",
+         "₹ 4.5 L",
+         "₹ 79.5 L"
+        ],
+        [
+         "2 BHK large",
+         "900 sqft",
+         "₹ 88.2 L",
+         "₹ 1.8 L",
+         "₹ 4.5 L",
+         "₹ 94.5 L"
+        ],
+        [
+         "3 BHK",
+         "1,100 sqft",
+         "₹ 107.8 L",
+         "₹ 2.2 L",
+         "₹ 9.0 L",
+         "₹ 119.0 L"
+        ],
+        [
+         "3 BHK large",
+         "1,250 sqft",
+         "₹ 122.5 L",
+         "₹ 2.5 L",
+         "₹ 9.0 L",
+         "₹ 134.0 L"
+        ]
+       ],
+       "status": null,
+       "money": [
+        2,
+        3,
+        4,
+        5
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": ""
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "With 112 more apartments, nearby stock rises to 472 units, about 14 months of sales",
+     "rests": [
+      "Apartments"
+     ]
+    },
+    {
+     "t": "Base rate sits 1% below the nearby average of ₹ 9,900 /sqft",
+     "rests": [
+      "Base rate"
+     ]
+    },
+    {
+     "t": "Nearby rates rose about 2% a quarter, so three-month-old prices may be low",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "April 2026 guidance value not confirmed as gazetted",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Two of six rates are portal asking prices",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Floor rise and parking charge still assumed",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Rate range per sq ft carpet area by unit type",
+     "Monthly absorption and months of unsold stock nearby",
+     "Price sheet: base rate, floor rise, location charge, parking",
+     "Stamp duty and registration estimate, price against guidance value"
+    ],
+    "certified": [],
+    "reports": [
+     "Market study report",
+     "Competitor and absorption tracker",
+     "Price sheet and payment plan note",
+     "Price approval note"
+    ],
+    "sent": [
+     "Approved price sheet to Sales",
+     "Absorption and revenue assumptions to Finance",
+     "Total price breakdown to Legal for the agreement"
+    ]
+   },
+   "mustHave": [
+    "Price on carpet area (RERA s.2(k)); super built-up area is not a legal basis.",
+    "Stamp duty runs on the higher of price and guidance value; check before quoting.",
+    "Price over 10% below stamp value triggers tax: developer s.53, buyer s.92 (2025 Act).",
+    "GST sits on top: 5% residential, 1% affordable, no input credit (commercial rate unconfirmed).",
+    "Guidance values: April 2026 revision announced; confirm it is gazetted before quoting duty."
+   ],
+   "standards": [
+    {
+     "name": "RERA Act 2016: s.2(k) carpet area; s.11(2) and s.12 advertisements",
+     "why": "Carpet area is the sale basis; advertisements bind the promoter",
+     "url": "https://www.up-rera.in/pdf/reraact.pdf"
+    },
+    {
+     "name": "IS 3861:2002 Method of measurement of plinth, carpet and rentable areas of buildings",
+     "why": "Indian method for carpet and lettable area; in force",
+     "url": "https://law.resource.org/pub/in/bis/S03/is.3861.2002.pdf"
+    },
+    {
+     "name": "IPMS: All Buildings (January 2023)",
+     "why": "International floor-area basis for comparing projects; replaces earlier IPMS sets",
+     "url": "https://ipmsc.org/wp-content/uploads/2023/01/ipms-all-buildings-.pdf"
+    },
+    {
+     "name": "Income-tax Act 2025: s.53, s.78, s.92 (stamp value tolerance)",
+     "why": "10% gap between price and stamp value; renumbered from 43CA, 50C, 56",
+     "url": "https://www.incometaxindia.gov.in/documents/d/guest/income_tax_act_2025_as_amended_by_fa_act_2026-pdf"
+    }
+   ]
+  },
+  {
+   "name": "Sales",
+   "stages": [
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "61 of 112 units sold"
+   },
+   "sections": [
+    {
+     "id": "inventory",
+     "name": "Inventory",
+     "icon": "box",
+     "blocks": [
+      {
+       "type": "grid",
+       "title": "Stack plan, top seven floors",
+       "legend": [
+        "Available",
+        "Blocked",
+        "Booked",
+        "Agreement",
+        "Registered"
+       ],
+       "rows": [
+        {
+         "name": "Level 14",
+         "cells": [
+          "Available",
+          "Available",
+          "Blocked",
+          "Available",
+          "Booked",
+          "Available",
+          "Available",
+          "Available"
+         ]
+        },
+        {
+         "name": "Level 13",
+         "cells": [
+          "Available",
+          "Booked",
+          "Available",
+          "Available",
+          "Available",
+          "Agreement",
+          "Available",
+          "Available"
+         ]
+        },
+        {
+         "name": "Level 12",
+         "cells": [
+          "Available",
+          "Available",
+          "Booked",
+          "Available",
+          "Agreement",
+          "Available",
+          "Booked",
+          "Available"
+         ]
+        },
+        {
+         "name": "Level 11",
+         "cells": [
+          "Registered",
+          "Available",
+          "Available",
+          "Booked",
+          "Available",
+          "Agreement",
+          "Available",
+          "Blocked"
+         ]
+        },
+        {
+         "name": "Level 10",
+         "cells": [
+          "Agreement",
+          "Registered",
+          "Available",
+          "Available",
+          "Booked",
+          "Available",
+          "Agreement",
+          "Available"
+         ]
+        },
+        {
+         "name": "Level 9",
+         "cells": [
+          "Registered",
+          "Agreement",
+          "Booked",
+          "Available",
+          "Registered",
+          "Available",
+          "Available",
+          "Booked"
+         ]
+        },
+        {
+         "name": "Level 8",
+         "cells": [
+          "Registered",
+          "Registered",
+          "Agreement",
+          "Booked",
+          "Available",
+          "Agreement",
+          "Registered",
+          "Blocked"
+         ]
+        }
+       ]
+      },
+      {
+       "type": "figure",
+       "title": "Sales so far",
+       "label": "Units sold",
+       "value": "61 of 112",
+       "chips": [
+        "54% of stock"
+       ],
+       "stats": [
+        {
+         "l": "Available",
+         "v": "45",
+         "n": "6 more blocked"
+        },
+        {
+         "l": "Booked",
+         "v": "19",
+         "n": "No agreement yet"
+        },
+        {
+         "l": "Agreements signed",
+         "v": "42",
+         "n": "27 registered"
+        },
+        {
+         "l": "Value of unsold stock",
+         "v": "₹ 79.6 Cr",
+         "n": "51 units at list price"
+        }
+       ],
+       "share": [
+        {
+         "l": "Booked",
+         "p": 31
+        },
+        {
+         "l": "Agreement",
+         "p": 25
+        },
+        {
+         "l": "Registered",
+         "p": 44
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "partners",
+     "name": "Channel partners",
+     "icon": "people",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Agent register",
+       "cols": [
+        "Agent",
+        "Registration no.",
+        "Valid until",
+        "Units sold",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Agent A",
+         "AG/KA/RERA/2023/0187",
+         "14 Mar 2028",
+         "21",
+         "In force"
+        ],
+        [
+         "Agent B",
+         "AG/KA/RERA/2024/0412",
+         "30 Jun 2029",
+         "15",
+         "In force"
+        ],
+        [
+         "Agent C",
+         "AG/KA/RERA/2021/0091",
+         "8 Nov 2026",
+         "10",
+         "Expiring"
+        ],
+        [
+         "Agent D",
+         "AG/KA/RERA/2021/0033",
+         "19 Aug 2026",
+         "8",
+         "Expired"
+        ],
+        [
+         "Agent E",
+         "AG/KA/RERA/2025/0064",
+         "2 Feb 2030",
+         "7",
+         "In force"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add agent"
+      },
+      {
+       "type": "search",
+       "title": "Regulator's agent list",
+       "source": "K-RERA, registered agents",
+       "query": "Agent C",
+       "results": [
+        {
+         "t": "Agent C, Bengaluru Urban",
+         "sub": "AG/KA/RERA/2021/0091, valid until 8 Nov 2026",
+         "picked": true
+        },
+        {
+         "t": "Agent C, Bengaluru Rural",
+         "sub": "AG/KA/RERA/2020/0158, valid until 3 Jun 2025",
+         "picked": false
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "bookings",
+     "name": "Bookings",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Recent bookings",
+       "cols": [
+        "Unit",
+        "Buyer",
+        "Date",
+        "Price",
+        "Advance",
+        "Agent"
+       ],
+       "rows": [
+        [
+         "1405",
+         "Buyer 1405",
+         "1 Oct 2026",
+         "₹ 1.92 Cr",
+         "₹ 10 L",
+         "Agent A"
+        ],
+        [
+         "1203",
+         "Buyer 1203",
+         "28 Sep 2026",
+         "₹ 1.64 Cr",
+         "₹ 8 L",
+         "Agent E"
+        ],
+        [
+         "903",
+         "Buyer 903",
+         "25 Sep 2026",
+         "₹ 1.52 Cr",
+         "₹ 7.5 L",
+         "Agent B"
+        ],
+        [
+         "1104",
+         "Buyer 1104",
+         "22 Sep 2026",
+         "₹ 1.71 Cr",
+         "₹ 8.5 L",
+         "Agent D"
+        ],
+        [
+         "1302",
+         "Buyer 1302",
+         "17 Sep 2026",
+         "₹ 1.86 Cr",
+         "₹ 24 L",
+         "Agent A"
+        ],
+        [
+         "804",
+         "Buyer 804",
+         "11 Sep 2026",
+         "₹ 1.48 Cr",
+         "₹ 7.4 L",
+         "Agent C"
+        ]
+       ],
+       "status": null,
+       "money": [
+        3,
+        4
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add booking"
+      }
+     ]
+    },
+    {
+     "id": "agreements",
+     "name": "Agreements and registration",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Agreement register",
+       "cols": [
+        "Unit",
+        "Agreement date",
+        "Registration no.",
+        "Stamp duty paid",
+        "Status"
+       ],
+       "rows": [
+        [
+         "1306",
+         "30 Sep 2026",
+         "Awaited",
+         "₹ 11.3 L",
+         "Pending"
+        ],
+        [
+         "1205",
+         "26 Sep 2026",
+         "Awaited",
+         "₹ 10.1 L",
+         "Pending"
+        ],
+        [
+         "1106",
+         "22 Sep 2026",
+         "Awaited",
+         "₹ 10.4 L",
+         "Pending"
+        ],
+        [
+         "1101",
+         "11 Sep 2026",
+         "HSK-1-02231-2026-27",
+         "₹ 10.2 L",
+         "Registered"
+        ],
+        [
+         "1002",
+         "28 Aug 2026",
+         "HSK-1-02066-2026-27",
+         "₹ 9.4 L",
+         "Registered"
+        ],
+        [
+         "801",
+         "6 Aug 2026",
+         "HSK-1-01894-2026-27",
+         "₹ 8.9 L",
+         "Registered"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add agreement"
+      },
+      {
+       "type": "slots",
+       "title": "Forms and registered copies",
+       "groups": [
+        {
+         "name": "Templates",
+         "lines": [
+          {
+           "t": "Agreement for sale, Annexure-A format",
+           "state": "in",
+           "pages": 28
+          },
+          {
+           "t": "Allotment letter template",
+           "state": "in",
+           "pages": 3
+          }
+         ]
+        },
+        {
+         "name": "Registered copies",
+         "lines": [
+          {
+           "t": "Registered agreement, unit 801",
+           "state": "in",
+           "pages": 31
+          },
+          {
+           "t": "Registered agreement, unit 1002",
+           "state": "in",
+           "pages": 31
+          },
+          {
+           "t": "Registered agreement, unit 1101",
+           "state": "asked",
+           "who": "Sub-Registrar",
+           "due": "9 Oct 2026"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "leases",
+     "name": "Leases",
+     "icon": "key",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Lettable space",
+       "cols": [
+        "Space",
+        "Tenant",
+        "Area",
+        "Rent",
+        "Start",
+        "Expiry",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Clubhouse cafe",
+         "Tenant A",
+         "900 sqft",
+         "₹ 1.1 L /month",
+         "1 Sep 2028",
+         "31 Aug 2031",
+         "Pending"
+        ],
+        [
+         "Shop G1",
+         "Tenant B",
+         "520 sqft",
+         "₹ 0.8 L /month",
+         "1 Sep 2028",
+         "31 Aug 2031",
+         "Accepted"
+        ],
+        [
+         "Shop G2",
+         "Not let",
+         "580 sqft",
+         "₹ 0.9 L /month",
+         "—",
+         "—",
+         "Open"
+        ]
+       ],
+       "status": 6,
+       "money": [
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add lease"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "32 of the 51 unsold units are on levels 8 to 14",
+     "rests": []
+    },
+    {
+     "t": "Agent A and Agent B brought 36 of the 61 sales",
+     "rests": []
+    },
+    {
+     "t": "Tenant A and Tenant B leases run three years and need registering",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Unit 1302 advance above 10% with no agreement",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Agent D booked unit 1104 after registration expired",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Agent C renewal not yet applied for",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Live availability with price, GST and duty estimate per unit",
+     "Sales velocity against plan and value of unsold stock",
+     "Draft allotment letter and agreement filled from unit data",
+     "Agent-wise sales and commission payable"
+    ],
+    "certified": [
+     "Carpet area per unit: project architect, against RERA s.2(k) and the sanctioned plan",
+     "Agreement for sale: both parties sign; Sub-Registrar registers it (RERA s.13, Registration Act s.17)",
+     "Lease over one year: registered by Sub-Registrar (Registration Act s.17(1)(d)); Karnataka duty under Article 30"
+    ],
+    "reports": [
+     "Unit inventory and status register",
+     "Booking and agreement register",
+     "K-RERA quarterly bookings list",
+     "Agent register with commission ledger"
+    ],
+    "sent": [
+     "Booking confirmation and allotment letter to buyer",
+     "Draft agreement and registration appointment to buyer",
+     "Sold-unit list to Collections, Finance and Legal"
+    ]
+   },
+   "mustHave": [
+    "No advance above 10% of cost without a registered agreement for sale (RERA s.13).",
+    "Use the Annexure-A agreement format (Karnataka rule 8A, since 12 June 2020).",
+    "Every ad shows K-RERA number, website and QR code (s.11(2); order 19 August 2023).",
+    "Agents need K-RERA registration (s.9); at ₹20 lakh turnover they also report under PMLA.",
+    "No mortgage on a unit after its agreement for sale (s.11(4)(h)); lender NOC first."
+   ],
+   "standards": [
+    {
+     "name": "RERA Act 2016: s.9 and s.10 agents; s.11(4)(h); s.13 advance limit",
+     "why": "Agent registration, 10% advance cap, no charge after sale",
+     "url": "https://www.up-rera.in/pdf/reraact.pdf"
+    },
+    {
+     "name": "Karnataka RERA Rules 2017, rule 8A and Annexure-A (agreement for sale)",
+     "why": "Prescribed agreement format; buyer-signed letters cannot limit rights",
+     "url": "https://rerafiling.com/rera-news-detail.php/authorities/1293/rera-karnataka-issued-format-of-agreement-to-sale"
+    },
+    {
+     "name": "PMLA 2002 s.2(1)(sa)(iii); Ministry of Finance notification of 28 December 2020",
+     "why": "Real estate agents with ₹20 lakh turnover are reporting entities",
+     "url": "https://www.scconline.com/blog/post/2020/12/29/centre-notifies-real-estate-agents-as-persons-carrying-on-designated-businesses-or-professions/"
+    },
+    {
+     "name": "Registration Act 1908 s.17; Karnataka Stamp Act 1957 Article 30 (leases)",
+     "why": "Registration of agreements and leases; lease duty by term",
+     "url": "https://agreementdesk.in/blog/karnataka-stamp-duty-articles-rental-agreement"
+    }
+   ]
+  },
+  {
+   "name": "Collections",
+   "stages": [
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "certified",
+    "by": "K. Shetty",
+    "role": "Chartered accountant",
+    "on": "15 Jul 2026",
+    "moved": false
+   },
+   "sections": [
+    {
+     "id": "plans",
+     "name": "Payment plans",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Standard payment plan",
+       "cols": [
+        "Milestone",
+        "Share of base price",
+        "Falls due"
+       ],
+       "rows": [
+        [
+         "Booking and agreement",
+         "20%",
+         "10% at booking, 10% at registration"
+        ],
+        [
+         "Basement and podium complete",
+         "15%",
+         "Certified 29 Jun 2026"
+        ],
+        [
+         "Slab of level 2",
+         "5%",
+         "Certified 3 Aug 2026"
+        ],
+        [
+         "Slab of level 4",
+         "5%",
+         "Certified 30 Sep 2026"
+        ],
+        [
+         "Roof slab",
+         "25%",
+         "On certificate, planned Mar 2027"
+        ],
+        [
+         "Finishes and possession offer",
+         "30%",
+         "On certificate, planned Jun 2028"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": 1,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add a stage"
+      }
+     ]
+    },
+    {
+     "id": "demands",
+     "name": "Demands",
+     "icon": "report",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Milestones certified",
+       "cols": [
+        "Milestone",
+        "Certified on",
+        "Certified by",
+        "Demand raised"
+       ],
+       "rows": [
+        [
+         "Basement and podium complete",
+         "29 Jun 2026",
+         "S. Kulkarni, architect",
+         "Done"
+        ],
+        [
+         "Slab of level 2",
+         "3 Aug 2026",
+         "N. Rao, structural engineer",
+         "Done"
+        ],
+        [
+         "Slab of level 4",
+         "30 Sep 2026",
+         "N. Rao, structural engineer",
+         "Pending"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Progress",
+       "add": ""
+      },
+      {
+       "type": "table",
+       "title": "Demands, July to September",
+       "cols": [
+        "Unit",
+        "Milestone",
+        "Amount",
+        "GST",
+        "Due",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Unit 706",
+         "Basement and podium complete",
+         "₹ 24.0 L",
+         "₹ 1.2 L",
+         "16 Jul 2026",
+         "Overdue"
+        ],
+        [
+         "Unit 1108",
+         "Basement and podium complete",
+         "₹ 30.0 L",
+         "₹ 1.5 L",
+         "16 Jul 2026",
+         "Partly"
+        ],
+        [
+         "Unit 1203",
+         "Basement and podium complete",
+         "₹ 30.0 L",
+         "₹ 1.5 L",
+         "16 Jul 2026",
+         "Paid"
+        ],
+        [
+         "Unit 402",
+         "Slab of level 2",
+         "₹ 6.0 L",
+         "₹ 0.3 L",
+         "20 Aug 2026",
+         "Overdue"
+        ],
+        [
+         "Unit 508",
+         "Slab of level 2",
+         "₹ 8.0 L",
+         "₹ 0.4 L",
+         "20 Aug 2026",
+         "Overdue"
+        ],
+        [
+         "Unit 903",
+         "Slab of level 2",
+         "₹ 12.0 L",
+         "₹ 0.6 L",
+         "20 Aug 2026",
+         "Overdue"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Raise a demand"
+      }
+     ]
+    },
+    {
+     "id": "receipts",
+     "name": "Receipts",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Bank receipts matched",
+       "cols": [
+        "Date",
+        "Unit",
+        "Amount",
+        "To RERA account",
+        "To operating account"
+       ],
+       "rows": [
+        [
+         "9 Jul 2026",
+         "Unit 1203",
+         "₹ 31.2 L",
+         "₹ 20.8 L",
+         "₹ 10.4 L"
+        ],
+        [
+         "21 Jul 2026",
+         "Unit 402",
+         "₹ 18.7 L",
+         "₹ 12.5 L",
+         "₹ 6.2 L"
+        ],
+        [
+         "24 Jul 2026",
+         "Unit 903",
+         "₹ 37.4 L",
+         "₹ 24.9 L",
+         "₹ 12.5 L"
+        ],
+        [
+         "24 Aug 2026",
+         "Unit 1406",
+         "₹ 12.5 L",
+         "₹ 8.3 L",
+         "₹ 4.2 L"
+        ],
+        [
+         "29 Aug 2026",
+         "Unit 1203",
+         "₹ 10.4 L",
+         "₹ 6.9 L",
+         "₹ 3.5 L"
+        ],
+        [
+         "12 Sep 2026",
+         "Unit 1108",
+         "₹ 20.8 L",
+         "₹ 13.9 L",
+         "₹ 6.9 L"
+        ]
+       ],
+       "status": null,
+       "money": [
+        2,
+        3,
+        4
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Add a receipt"
+      },
+      {
+       "type": "fields",
+       "title": "July to September",
+       "items": [
+        {
+         "l": "Received",
+         "v": "₹ 131.0 L",
+         "state": "calc"
+        },
+        {
+         "l": "In the RERA account",
+         "v": "₹ 87.3 L",
+         "state": "calc"
+        },
+        {
+         "l": "GST in receipts",
+         "v": "₹ 6.3 L",
+         "state": "calc"
+        },
+        {
+         "l": "RERA share, net of GST",
+         "v": "70.0%",
+         "state": "calc"
+        },
+        {
+         "l": "Payer of 30 Sep credit",
+         "v": "Unit 508, ₹ 8.3 L",
+         "state": "sug"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Buyers' tax papers",
+       "groups": [
+        {
+         "name": "Tax deducted by buyers",
+         "lines": [
+          {
+           "t": "Form 141 acknowledgement, Unit 1203",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Form 141 acknowledgement, Unit 903",
+           "state": "in",
+           "pages": 2
+          },
+          {
+           "t": "Form 141 acknowledgement, Unit 1108",
+           "state": "asked",
+           "who": "Buyer, Unit 1108",
+           "due": "30 Oct 2026"
+          },
+          {
+           "t": "Form 132 certificate, Unit 1203",
+           "state": "none"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "dues",
+     "name": "Dues",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Buyer ledger, open balances",
+       "cols": [
+        "Unit",
+        "Demanded",
+        "Received",
+        "Tax deducted",
+        "Balance",
+        "Days overdue",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Unit 706",
+         "₹ 67.2 L",
+         "₹ 33.3 L",
+         "₹ 0.3 L",
+         "₹ 33.6 L",
+         "79",
+         "Overdue"
+        ],
+        [
+         "Unit 1108",
+         "₹ 84.0 L",
+         "₹ 62.4 L",
+         "₹ 0.6 L",
+         "₹ 21.0 L",
+         "79",
+         "Partly"
+        ],
+        [
+         "Unit 903",
+         "₹ 100.8 L",
+         "₹ 87.4 L",
+         "₹ 0.8 L",
+         "₹ 12.6 L",
+         "44",
+         "Overdue"
+        ],
+        [
+         "Unit 508",
+         "₹ 67.2 L",
+         "₹ 58.2 L",
+         "₹ 0.6 L",
+         "₹ 8.4 L",
+         "44",
+         "Overdue"
+        ],
+        [
+         "Unit 402",
+         "₹ 50.4 L",
+         "₹ 43.7 L",
+         "₹ 0.4 L",
+         "₹ 6.3 L",
+         "44",
+         "Overdue"
+        ],
+        [
+         "Unit 1406",
+         "₹ 50.4 L",
+         "₹ 12.5 L",
+         "₹ 0.1 L",
+         "₹ 37.8 L",
+         "19",
+         "Overdue"
+        ]
+       ],
+       "status": 6,
+       "money": [
+        1,
+        2,
+        3,
+        4
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": ""
+      },
+      {
+       "type": "figure",
+       "label": "Total overdue",
+       "value": "₹ 119.7 L",
+       "chips": [
+        "6 of 112 buyers"
+       ],
+       "stats": [
+        {
+         "l": "Under 30 days",
+         "v": "₹ 37.8 L",
+         "n": "1 buyer"
+        },
+        {
+         "l": "30 to 60 days",
+         "v": "₹ 27.3 L",
+         "n": "3 buyers"
+        },
+        {
+         "l": "Over 60 days",
+         "v": "₹ 54.6 L",
+         "n": "2 buyers"
+        },
+        {
+         "l": "Delay interest",
+         "v": "₹ 1.6 L",
+         "n": "at 10.80%"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "refunds",
+     "name": "Cancellations and refunds",
+     "icon": "chat",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Cancellation requests",
+       "cols": [
+        "Unit",
+        "Date",
+        "Reason",
+        "Refund",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Unit 1005",
+         "11 Aug 2026",
+         "Found another home",
+         "₹ 52.8 L",
+         "Paid"
+        ],
+        [
+         "Unit 211",
+         "9 Sep 2026",
+         "Job moved to another city",
+         "₹ 37.9 L",
+         "Accepted"
+        ],
+        [
+         "Unit 706",
+         "22 Sep 2026",
+         "Home loan refused",
+         "₹ 17.3 L",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "message",
+       "from": "buyers",
+       "add": "Log a request"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Unit 706 is 79 days overdue and asked to cancel on 22 Sep",
+     "rests": []
+    },
+    {
+     "t": "A 30 Sep credit of ₹ 8.3 L fits the open demand of Unit 508",
+     "rests": [
+      "Payer of 30 Sep credit"
+     ]
+    },
+    {
+     "t": "The RERA account holds 70% of receipts net of GST",
+     "rests": [
+      "RERA share, net of GST"
+     ]
+    }
+   ],
+   "flags": [
+    {
+     "t": "Two buyers over 60 days overdue, ₹ 54.6 L",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Demand for slab of level 4 not raised",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "TDS acknowledgement awaited for Unit 1108",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Demand per milestone: amount, GST, TDS and RERA 70% share",
+     "Late-payment interest per buyer at SBI highest MCLR plus 2%",
+     "Dues ageing with flags for likely defaults",
+     "Cancellation statement: forfeiture capped near 10% of base price"
+    ],
+    "certified": [
+     "Withdrawals from RERA account: engineer, architect and chartered accountant, in proportion to completion (RERA s.4(2)(l)(D))",
+     "Annual Form 7 fund audit: chartered accountant in practice, within six months of year end",
+     "Stage reached before each demand: project architect or engineer, as the agreement's Schedule C requires"
+    ],
+    "reports": [
+     "Buyer ledger and statement of account",
+     "Demand and receipt register",
+     "Dues ageing and interest statement",
+     "K-RERA Forms 4 to 7 data pack"
+    ],
+    "sent": [
+     "Demand letter with GST invoice and milestone certificate",
+     "Payment reminder, then interest notice, before any cancellation notice",
+     "Receipt, TDS credit confirmation and refund letters"
+    ]
+   },
+   "mustHave": [
+    "Deposit 70% of buyer receipts, net of GST and pass-throughs, in the RERA account.",
+    "Buyer deducts 1% TDS if price or stamp value is ₹50 lakh or more.",
+    "Delay interest is one rate both ways: SBI highest MCLR plus 2%, now 10.80%.",
+    "Forfeiture on buyer cancellation is capped near 10% of base price; refund the rest.",
+    "GST: tax invoice on each demand, receipt voucher on each advance (CGST Act s.31)."
+   ],
+   "standards": [
+    {
+     "name": "RERA Act 2016: s.4(2)(l)(D), s.18, s.19(6)-(7)",
+     "why": "70% account, refund with interest, buyer's duty to pay on time",
+     "url": "https://www.up-rera.in/pdf/reraact.pdf"
+    },
+    {
+     "name": "K-RERA General Regulations 2022, reg 29, Forms 4 to 7; Karnataka Rules 2017, rule 16",
+     "why": "RERA account, quarterly certificates, annual audit; interest rate",
+     "url": "https://www.legitquest.com/act/karnataka-real-estate-regulatory-authority-general-regulations-2022/C559"
+    },
+    {
+     "name": "Income-tax Act 2025, s.393(1) Sl. 3(i); Forms 141 and 132",
+     "why": "Buyer's 1% TDS: Form 141 within 30 days of month end",
+     "url": "https://www.incometax.gov.in/iec/foportal/help/all-topics/e-filing-services/form-141-challan-cum-statement-deduction-tax-us-3931-UM"
+    },
+    {
+     "name": "Supreme Court of India, judgment of 3 February 2025, on forfeiting a buyer's earnest money",
+     "why": "Forfeiture of 10% of base price reasonable; 20% excessive",
+     "url": "https://indiankanoon.org/doc/65254917/"
+    }
+   ]
+  },
+  {
+   "name": "Handover",
+   "stages": [
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "0 of 112 units handed over, occupancy certificate awaited"
+   },
+   "sections": [
+    {
+     "id": "readiness",
+     "name": "Readiness",
+     "icon": "checks",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Handover board, Level 2",
+       "cols": [
+        "Unit",
+        "Approvals in place",
+        "Dues cleared",
+        "Snags open",
+        "Ready"
+       ],
+       "rows": [
+        [
+         "Unit 201, sample",
+         "0 of 6",
+         "Not sold",
+         "2",
+         "Not ready"
+        ],
+        [
+         "Unit 202",
+         "0 of 6",
+         "No",
+         "2",
+         "Not ready"
+        ],
+        [
+         "Unit 203",
+         "0 of 6",
+         "No",
+         "1",
+         "Not ready"
+        ],
+        [
+         "Unit 204",
+         "0 of 6",
+         "No",
+         "Not inspected",
+         "Not ready"
+        ],
+        [
+         "Unit 205",
+         "0 of 6",
+         "No, payment late",
+         "Not inspected",
+         "Not ready"
+        ],
+        [
+         "Unit 206",
+         "0 of 6",
+         "No",
+         "Not inspected",
+         "Not ready"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": ""
+      },
+      {
+       "type": "table",
+       "title": "Occupancy certificate and clearances",
+       "cols": [
+        "Approval",
+        "Issued by",
+        "Expected",
+        "Needed for",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Lift licence",
+         "Chief Inspector of Lifts",
+         "10 Apr 2028",
+         "Occupancy certificate",
+         "Pending"
+        ],
+        [
+         "Final fire NOC",
+         "Karnataka Fire and Emergency Services",
+         "24 Apr 2028",
+         "Occupancy certificate",
+         "Pending"
+        ],
+        [
+         "KSPCB consent to operate",
+         "KSPCB",
+         "20 May 2028",
+         "Occupancy certificate",
+         "Pending"
+        ],
+        [
+         "Occupancy certificate",
+         "City corporation",
+         "31 Aug 2028",
+         "Possession",
+         "Pending"
+        ],
+        [
+         "Permanent power",
+         "BESCOM",
+         "30 Sep 2028",
+         "Possession",
+         "Pending"
+        ],
+        [
+         "Permanent water",
+         "BWSSB",
+         "30 Sep 2028",
+         "Possession",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Approvals",
+       "add": ""
+      },
+      {
+       "type": "table",
+       "title": "Dues by unit",
+       "cols": [
+        "Unit",
+        "Final account",
+        "Delay interest",
+        "TDS credited",
+        "Dues"
+       ],
+       "rows": [
+        [
+         "Unit 202",
+         "₹ 74.2 L",
+         "₹ 0 L",
+         "₹ 0.4 L",
+         "Pending"
+        ],
+        [
+         "Unit 203",
+         "₹ 81.5 L",
+         "₹ 0 L",
+         "₹ 0.4 L",
+         "Pending"
+        ],
+        [
+         "Unit 204",
+         "₹ 69.8 L",
+         "₹ 0 L",
+         "₹ 0.3 L",
+         "Pending"
+        ],
+        [
+         "Unit 205",
+         "₹ 88.4 L",
+         "₹ 0.3 L",
+         "₹ 0.3 L",
+         "Overdue"
+        ],
+        [
+         "Unit 206",
+         "₹ 77.1 L",
+         "₹ 0 L",
+         "₹ 0.4 L",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        1,
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "link",
+       "from": "Collections",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "inspection",
+     "name": "Pre-delivery inspection",
+     "icon": "photos",
+     "blocks": [
+      {
+       "type": "photos",
+       "title": "Inspection photographs, Unit 201",
+       "items": [
+        {
+         "where": "Unit 201, bathroom ceiling",
+         "says": "Damp patch about 400 mm wide",
+         "art": "damp",
+         "state": "sug"
+        },
+        {
+         "where": "Unit 201, balcony door",
+         "says": "Hollow-sounding tiles near the threshold",
+         "art": "stone",
+         "state": "sug"
+        },
+        {
+         "where": "Unit 201, entrance",
+         "says": "Hairline crack along the corridor wall joint",
+         "art": "column",
+         "state": "ok"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Inspections done",
+       "cols": [
+        "Unit",
+        "Date",
+        "Inspector",
+        "Snags found"
+       ],
+       "rows": [
+        [
+         "Unit 201",
+         "22 Sep 2026",
+         "R. Iyer",
+         "3"
+        ],
+        [
+         "Unit 202",
+         "25 Sep 2026",
+         "R. Iyer",
+         "2"
+        ],
+        [
+         "Unit 203",
+         "30 Sep 2026",
+         "A. Fernandes",
+         "1"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Add inspection"
+      }
+     ]
+    },
+    {
+     "id": "snags",
+     "name": "Snag list",
+     "icon": "table",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Snag register, Level 2",
+       "cols": [
+        "Unit and room",
+        "Trade",
+        "Defect",
+        "Severity",
+        "Contractor",
+        "Due",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Unit 201, bathroom",
+         "Waterproofing",
+         "Damp patch on ceiling, 400 mm wide",
+         "High",
+         "Northline Constructions",
+         "29 Sep 2026",
+         "Overdue"
+        ],
+        [
+         "Unit 201, balcony",
+         "Tiling",
+         "Hollow tiles near door threshold",
+         "Medium",
+         "Northline Constructions",
+         "6 Oct 2026",
+         "Open"
+        ],
+        [
+         "Unit 201, entrance",
+         "Plaster",
+         "Hairline crack along corridor wall joint",
+         "Low",
+         "Northline Constructions",
+         "13 Oct 2026",
+         "Closed"
+        ],
+        [
+         "Unit 202, kitchen",
+         "Plumbing",
+         "Sink waste pipe weeps at joint",
+         "Medium",
+         "Northline Constructions",
+         "9 Oct 2026",
+         "Open"
+        ],
+        [
+         "Unit 202, bedroom 2",
+         "Joinery",
+         "Door shutter rubs on frame",
+         "Low",
+         "Northline Constructions",
+         "16 Oct 2026",
+         "Open"
+        ],
+        [
+         "Unit 203, living room",
+         "Electrical",
+         "Switch plate loose",
+         "Low",
+         "Northline Constructions",
+         "21 Oct 2026",
+         "Open"
+        ]
+       ],
+       "status": 6,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Add snag"
+      }
+     ]
+    },
+    {
+     "id": "possession",
+     "name": "Possession",
+     "icon": "key",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Possession appointments",
+       "items": [
+        {
+         "t": "Trial handover, Unit 201",
+         "due": "15 Oct 2026",
+         "who": "A. Fernandes",
+         "state": "Due"
+        },
+        {
+         "t": "Possession offers with occupancy certificate",
+         "due": "15 Sep 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "First possession slots, Level 2",
+         "due": "3 Oct 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Buyers take possession",
+         "due": "31 Oct 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Handover record, Unit 201",
+       "items": [
+        {
+         "l": "Unit",
+         "v": "201, sample apartment",
+         "state": "set"
+        },
+        {
+         "l": "Handover date",
+         "v": "15 Oct 2026",
+         "state": "set"
+        },
+        {
+         "l": "Electricity meter reading",
+         "v": "14.3 kWh",
+         "state": "sug"
+        },
+        {
+         "l": "Water meter reading",
+         "v": "2.4 kL",
+         "state": "sug"
+        },
+        {
+         "l": "Keys issued",
+         "v": "",
+         "state": "empty"
+        },
+        {
+         "l": "Possession letter signed",
+         "v": "No",
+         "state": "set",
+         "options": [
+          "Yes",
+          "No"
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "defects",
+     "name": "Defect liability",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Defects after possession",
+       "cols": [
+        "Unit",
+        "Defect",
+        "Reported on",
+        "Fixed on",
+        "Status"
+       ],
+       "rows": [],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "Buyers",
+       "add": "Log a defect"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Unit 201 holds three of the six snags, including the only high-severity one",
+     "rests": []
+    },
+    {
+     "t": "Both meter readings for Unit 201 were read from photographs and await confirmation",
+     "rests": [
+      "Electricity meter reading",
+      "Water meter reading"
+     ]
+    },
+    {
+     "t": "Five of the six snags found so far are still open",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Possession blocked until the occupancy certificate is on file",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Unit 201 damp patch snag is past its due date",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Leak source may be the slab above Unit 201",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Snag classes and severity suggested from photographs",
+     "Handover readiness per unit from approvals, dues and snags",
+     "Defect liability end date per unit",
+     "Interest owed to buyer for late possession"
+    ],
+    "certified": [
+     "Occupancy certificate: local planning authority (GBA city corporation in Bengaluru); RERA s.11(4)(b), s.17(1)",
+     "Fire clearance and lift licence: Karnataka Fire and Emergency Services; Chief Inspector of Lifts (2012 Act)",
+     "As-built carpet area per unit: project architect, against RERA s.2(k) before final price adjustment"
+    ],
+    "reports": [
+     "Pre-delivery inspection report per unit",
+     "Snag register with closure evidence",
+     "Possession and handover register",
+     "Defect liability register, five years"
+    ],
+    "sent": [
+     "Possession offer with OC copy and final account",
+     "Snag rectification orders to contractors",
+     "Documents, warranties and keys to association and Operations"
+    ]
+   },
+   "mustHave": [
+    "Possession only after the OC; buyer takes it within 2 months of OC (s.19(10)).",
+    "Conveyance within 3 months of OC; documents to association within 30 days (s.17).",
+    "Five-year defect liability from possession; fix within 30 days, free of charge (s.14(3)).",
+    "Delay interest runs each month to possession (s.18(1)); undertakings cannot waive rights (rule 8A).",
+    "Promoter pays outgoings and runs essential services until the association takes over (s.11(4)(d), (g))."
+   ],
+   "standards": [
+    {
+     "name": "RERA Act 2016: s.11(4)(b), (d), (g); s.14(3); s.17; s.18(1); s.19(10)",
+     "why": "Occupancy certificate, defects, possession timelines, delay interest",
+     "url": "https://www.up-rera.in/pdf/reraact.pdf"
+    },
+    {
+     "name": "Karnataka RERA Rules 2017, rule 8A and Annexure-A",
+     "why": "Agreement format; buyer-signed papers cannot limit rights",
+     "url": "https://rerafiling.com/rera-news-detail.php/authorities/1293/rera-karnataka-issued-format-of-agreement-to-sale"
+    },
+    {
+     "name": "Karnataka Fire Force Act 1964, as amended 2025",
+     "why": "Fire clearance for high-rise buildings; amended in 2025",
+     "url": "https://kla.kar.nic.in/council/house/bills/156/42E.pdf"
+    },
+    {
+     "name": "Greater Bengaluru e-Aasthi e-khata (verified e-khata needed to register a sale)",
+     "why": "Each unit's khata must be verified before sale deed registration",
+     "url": "https://bbmpeaasthi.karnataka.gov.in/"
+    }
+   ]
+  },
+  {
+   "name": "Operations",
+   "stages": [
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "planned for after completion in June 2028"
+   },
+   "sections": [
+    {
+     "id": "assets",
+     "name": "Assets",
+     "icon": "box",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Asset register",
+       "cols": [
+        "Asset",
+        "Location",
+        "Make",
+        "Warranty until",
+        "Service interval",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Lifts 1 to 3",
+         "Main core",
+         "Make A",
+         "30 Jun 2030",
+         "Monthly",
+         "Due"
+        ],
+        [
+         "Fire pumps",
+         "Basement 2, pump room",
+         "Make B",
+         "30 Jun 2029",
+         "Monthly",
+         "Due"
+        ],
+        [
+         "Fire alarm panel",
+         "Ground, control room",
+         "Make B",
+         "30 Jun 2029",
+         "Quarterly",
+         "In service"
+        ],
+        [
+         "Sewage treatment plant",
+         "Basement 2, plant room",
+         "Make C",
+         "30 Jun 2029",
+         "Monthly",
+         "Overdue"
+        ],
+        [
+         "Generator sets 1 and 2",
+         "Ground, generator yard",
+         "Make D",
+         "30 Jun 2030",
+         "Test monthly, service quarterly",
+         "In service"
+        ],
+        [
+         "Water pumps",
+         "Basement 2, pump room",
+         "Make C",
+         "30 Jun 2029",
+         "Quarterly",
+         "In service"
+        ]
+       ],
+       "status": 5,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add asset"
+      },
+      {
+       "type": "table",
+       "title": "Handover pack",
+       "cols": [
+        "Pack item",
+        "Covers",
+        "Owner",
+        "Due",
+        "Status"
+       ],
+       "rows": [
+        [
+         "As-built drawings",
+         "Architecture, structure and services",
+         "S. Kulkarni",
+         "30 Jun 2028",
+         "Received"
+        ],
+        [
+         "Operation and maintenance manuals",
+         "Lifts, pumps, plant and generators",
+         "R. Iyer",
+         "30 Jun 2028",
+         "Received"
+        ],
+        [
+         "Warranties",
+         "Every asset in the register",
+         "D. Pinto",
+         "31 Jul 2028",
+         "Partly"
+        ],
+        [
+         "Service contracts",
+         "Lifts, fire systems, plant, generators",
+         "D. Pinto",
+         "31 Jul 2028",
+         "Received"
+        ],
+        [
+         "Keys and meter readings",
+         "Common areas and plant rooms",
+         "A. Fernandes",
+         "30 Jun 2028",
+         "Received"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Handover",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "maintenance",
+     "name": "Preventive maintenance",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Maintenance calendar",
+       "items": [
+        {
+         "t": "Sewage plant: monthly service",
+         "due": "28 Sep 2028",
+         "who": "Vendor C",
+         "state": "Overdue"
+        },
+        {
+         "t": "Generators: monthly run test",
+         "due": "4 Oct 2028",
+         "who": "Vendor D",
+         "state": "Done"
+        },
+        {
+         "t": "Lifts 1 to 3: monthly service",
+         "due": "14 Oct 2028",
+         "who": "Vendor A",
+         "state": "Due"
+        },
+        {
+         "t": "Fire pumps: monthly test run",
+         "due": "15 Oct 2028",
+         "who": "Vendor B",
+         "state": "Due"
+        },
+        {
+         "t": "Generators: quarterly service",
+         "due": "20 Oct 2028",
+         "who": "Vendor D",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Water pumps: quarterly service",
+         "due": "30 Oct 2028",
+         "who": "Vendor C",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Fire alarm panel: quarterly check",
+         "due": "15 Nov 2028",
+         "who": "Vendor B",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Last jobs done",
+       "cols": [
+        "Job",
+        "Asset",
+        "Done on",
+        "By",
+        "Result"
+       ],
+       "rows": [
+        [
+         "Monthly run test",
+         "Generator sets 1 and 2",
+         "4 Oct 2028",
+         "Vendor D",
+         "Passed"
+        ],
+        [
+         "Monthly test run",
+         "Fire pumps",
+         "15 Sep 2028",
+         "Vendor B",
+         "Passed"
+        ],
+        [
+         "Monthly service",
+         "Lifts 1 to 3",
+         "14 Sep 2028",
+         "Vendor A",
+         "Done"
+        ],
+        [
+         "Monthly service",
+         "Sewage treatment plant",
+         "28 Aug 2028",
+         "Vendor C",
+         "Done"
+        ],
+        [
+         "Quarterly check",
+         "Fire alarm panel",
+         "15 Aug 2028",
+         "Vendor B",
+         "Passed"
+        ],
+        [
+         "Quarterly service",
+         "Water pumps",
+         "30 Jul 2028",
+         "Vendor C",
+         "Partly"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "phone",
+       "from": "",
+       "add": "Log a job"
+      }
+     ]
+    },
+    {
+     "id": "compliance",
+     "name": "Compliance",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Licence and consent dates",
+       "items": [
+        {
+         "t": "Lifts: quarterly test, registered person",
+         "due": "16 Jul 2028",
+         "who": "Vendor A",
+         "state": "Done"
+        },
+        {
+         "t": "Lifts: quarterly test, registered person",
+         "due": "16 Oct 2028",
+         "who": "Vendor A",
+         "state": "Due"
+        },
+        {
+         "t": "Generator consent from KSPCB",
+         "due": "15 Nov 2028",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Lift licence: apply three months before expiry",
+         "due": "20 Dec 2028",
+         "who": "S. Rao",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Lifts: quarterly test, registered person",
+         "due": "16 Jan 2029",
+         "who": "Vendor A",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Fire clearance: apply to renew",
+         "due": "31 Mar 2029",
+         "who": "S. Rao",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Sewage plant consent: apply to renew",
+         "due": "30 Sep 2029",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Licences and consents",
+       "groups": [
+        {
+         "name": "Lifts",
+         "lines": [
+          {
+           "t": "Lift licence, lifts 1 to 3",
+           "state": "none",
+           "ref": {
+            "dept": "legal",
+            "fn": "Approvals",
+            "t": "Lift licence copy"
+           }
+          },
+          {
+           "t": "Lift test report, July 2028",
+           "state": "in",
+           "pages": 3
+          },
+          {
+           "t": "Lift test report, October 2028",
+           "state": "none"
+          }
+         ]
+        },
+        {
+         "name": "Fire",
+         "lines": [
+          {
+           "t": "Fire clearance",
+           "state": "in",
+           "pages": 6
+          }
+         ]
+        },
+        {
+         "name": "KSPCB consents",
+         "lines": [
+          {
+           "t": "Sewage plant consent",
+           "state": "in",
+           "pages": 8
+          },
+          {
+           "t": "Generator consent",
+           "state": "asked",
+           "who": "KSPCB",
+           "due": "15 Nov 2028"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "charges",
+     "name": "Service charges",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Budget by head",
+       "cols": [
+        "Head",
+        "Budget",
+        "Spent",
+        "Billed"
+       ],
+       "rows": [
+        [
+         "Security and housekeeping",
+         "₹ 32.4 L",
+         "₹ 8.4 L",
+         "₹ 8.1 L"
+        ],
+        [
+         "Lifts, generators and plant",
+         "₹ 18.4 L",
+         "₹ 2.9 L",
+         "₹ 4.6 L"
+        ],
+        [
+         "Water and sewage plant",
+         "₹ 12.0 L",
+         "₹ 3.4 L",
+         "₹ 3.0 L"
+        ],
+        [
+         "Common electricity and diesel",
+         "₹ 21.2 L",
+         "₹ 6.1 L",
+         "₹ 5.3 L"
+        ],
+        [
+         "Landscape and clubhouse",
+         "₹ 9.6 L",
+         "₹ 2.2 L",
+         "₹ 2.4 L"
+        ],
+        [
+         "Insurance, audit and admin",
+         "₹ 7.2 L",
+         "₹ 2.0 L",
+         "₹ 1.8 L"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add head"
+      },
+      {
+       "type": "fields",
+       "title": "Charge basis",
+       "items": [
+        {
+         "l": "Budget year",
+         "v": "Jul 2028 to Jun 2029",
+         "state": "set"
+        },
+        {
+         "l": "Chargeable area",
+         "v": "1,05,000 sqft",
+         "state": "calc"
+        },
+        {
+         "l": "Rate per sqft",
+         "v": "₹ 8.0 /sqft a month",
+         "state": "calc"
+        },
+        {
+         "l": "Apportionment basis",
+         "v": "Carpet area",
+         "state": "sug",
+         "options": [
+          "Carpet area",
+          "Saleable area",
+          "Equal share"
+         ]
+        },
+        {
+         "l": "Sinking fund balance",
+         "v": "₹ 63.4 L",
+         "state": "set"
+        },
+        {
+         "l": "Fire cess",
+         "v": "1% of property tax",
+         "state": "set"
+        },
+        {
+         "l": "Year-end account",
+         "v": "Certified by K. Shetty",
+         "state": "assume"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "tenants",
+     "name": "Tenants",
+     "icon": "people",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Rent roll",
+       "cols": [
+        "Tenant",
+        "Area",
+        "Rent",
+        "Deposit",
+        "Expiry",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Tenant A, clubhouse cafe",
+         "900 sqft",
+         "₹ 1.1 L /month",
+         "₹ 6.6 L",
+         "31 Aug 2031",
+         "In force"
+        ],
+        [
+         "Tenant B, Shop G1",
+         "520 sqft",
+         "₹ 0.8 L /month",
+         "₹ 4.8 L",
+         "31 Aug 2031",
+         "In force"
+        ],
+        [
+         "Shop G2, not let",
+         "580 sqft",
+         "₹ 0.9 L /month",
+         "—",
+         "—",
+         "Open"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add lease"
+      },
+      {
+       "type": "table",
+       "title": "Service requests",
+       "cols": [
+        "Request",
+        "Unit",
+        "Raised",
+        "Closed",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Lift 2 stops between floors",
+         "Unit 1204",
+         "2 Oct 2028",
+         "3 Oct 2028",
+         "Closed"
+        ],
+        [
+         "Low water pressure in kitchen",
+         "Unit 803",
+         "29 Sep 2028",
+         "—",
+         "Open"
+        ],
+        [
+         "Generator noise at night",
+         "Unit 1402",
+         "26 Sep 2028",
+         "30 Sep 2028",
+         "Closed"
+        ],
+        [
+         "Basement 1 lights not working",
+         "Basement 1",
+         "4 Oct 2028",
+         "5 Oct 2028",
+         "Closed"
+        ],
+        [
+         "Water leak near shop entrance",
+         "Shop G1",
+         "7 Oct 2028",
+         "—",
+         "Open"
+        ],
+        [
+         "Cafe air conditioner not cooling",
+         "Clubhouse",
+         "8 Oct 2028",
+         "—",
+         "Pending"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "occupants",
+       "add": "Log a request"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Four of six asset groups leave warranty on 30 Jun 2029",
+     "rests": []
+    },
+    {
+     "t": "Electricity and diesel cost ₹ 6.1 L against ₹ 5.3 L billed",
+     "rests": [
+      "Rate per sqft",
+      "Chargeable area"
+     ]
+    },
+    {
+     "t": "Both tenants pay above ₹ 50,000 a month, so each deducts 10% TDS",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Sewage plant monthly service is overdue",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Generator consent from KSPCB not yet in hand",
+     "by": "rule",
+     "level": "medium"
+    },
+    {
+     "t": "Two of six warranty certificates not received",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Service-charge budget per unit from costs and areas",
+     "Preventive maintenance schedule from asset register and OEM intervals",
+     "Renewal calendar for licences, consents and AMCs",
+     "Arrears forecast and rent escalation due dates"
+    ],
+    "certified": [
+     "Lift licence and quarterly tests: registered lift person; Chief Inspector of Lifts, Karnataka Lifts Act 2012",
+     "Fire clearance and renewal: Karnataka Fire and Emergency Services, Karnataka Fire Force Act 1964",
+     "Sewage plant and generator consents: KSPCB, under Water Act 1974 and Air Act 1981"
+    ],
+    "reports": [
+     "Rent roll and tenant ledger",
+     "Service-charge budget and year-end statement",
+     "Preventive maintenance log",
+     "Statutory compliance register"
+    ],
+    "sent": [
+     "Service-charge demands and arrears reminders",
+     "Rent invoices, escalation and renewal notices to tenants",
+     "Renewal reminders to vendors and the association"
+    ]
+   },
+   "mustHave": [
+    "Lifts: registered person tests quarterly; apply to renew licence three months before expiry.",
+    "Fire cess of 1% of property tax applies to new multi-storey buildings (2025 amendment).",
+    "Business tenants deduct 10% TDS on rent above ₹50,000 a month (2025 Act s.393(1)).",
+    "Karnataka Rent Act 1999 excludes premises with rent above ₹3,500 a month (s.3).",
+    "Service charges: budget, apportion on agreed area, certified year-end account (RICS, UK practice)."
+   ],
+   "standards": [
+    {
+     "name": "National Building Code 2016, Part 12: Asset and Facility Management",
+     "why": "Asset management and maintenance duties of owners and occupants",
+     "url": "https://www.bis.gov.in/national-building-code/"
+    },
+    {
+     "name": "ISO 41001:2018 Facility management: management systems",
+     "why": "Management-system frame for planned maintenance and service delivery",
+     "url": "https://www.iso.org/standard/68021.html"
+    },
+    {
+     "name": "Karnataka Lifts, Escalators and Passenger Conveyors Act 2012; Rules 2015",
+     "why": "Licence, renewal, quarterly testing, accident reporting",
+     "url": "https://prsindia.org/files/bills_acts/acts_states/karnataka/2013/2013KR9.pdf"
+    },
+    {
+     "name": "Karnataka Fire Force Act 1964, as amended 2025",
+     "why": "Fire clearance for high-rise; 1% fire cess on new buildings",
+     "url": "https://kla.kar.nic.in/council/house/bills/156/42E.pdf"
+    }
+   ]
+  }
+ ]
+}

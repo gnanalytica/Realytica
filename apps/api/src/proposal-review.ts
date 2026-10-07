@@ -29,13 +29,29 @@ export const PROPOSAL_IDENTITY: ReadonlySet<string> = new Set([
   'citations',
   'draftIds',
   'evidenceId',
+  // What this server and a model read off the file, each value with who read
+  // it and what stands behind it. A person corrects a value where it waits on
+  // its row, and the row records that they did. Taken from a request, a
+  // model's reading could come back as one the rules made, and stand at once.
+  'facts',
   'mimeType',
+  // On a site entry read from a voice note: which note it is, and the id that files it once. The lines are the person's to correct.
+  'note',
+  'clientId',
+  // Whether a model read the file. This server's record of its own work.
+  'modelRead',
   'proposalId',
+  // How much of the file was read, by which reader, and what was sent to a
+  // model: this server's record of its own reading, and nobody's to send.
+  'reading',
   'reportId',
   'scopeInstanceIds',
   'sizeBytes',
   'storageKey',
   'subject',
+  // Where a card that files a document under a function would put it. The card was raised and titled for one place, and whoever
+  // accepts it accepts that. Sent with an accept, another place would be a move nobody was shown.
+  'workstream',
 ]);
 
 /**
@@ -55,4 +71,33 @@ export function applyReviewedPayload(
     stored[key] = value;
   }
   return stored;
+}
+
+/**
+ * Put a person's corrections on a card for the commit that is about to read
+ * it, and take them off again if that commit does not happen.
+ *
+ * The corrections are written first because the commit works from the card.
+ * But they belong to that commit. One that is refused, that fails, or that
+ * leaves the card waiting with nothing on it decided was not made with them,
+ * and left on the card they would be carried out later by whoever accepts it
+ * as it is titled. So `settle` is called once the commit has been tried,
+ * however it went: where the card still waits exactly as it was corrected, it
+ * is put back exactly as it was raised. A card the commit filed, or decided in
+ * part, keeps what went in.
+ */
+export function reviewCard(
+  card: { status: string; payload: Record<string, unknown> },
+  confirmed: Record<string, unknown> | undefined,
+): { settle: () => void } {
+  const raised = structuredClone(card.payload);
+  applyReviewedPayload(card.payload, confirmed);
+  const corrected = JSON.stringify(card.payload);
+  return {
+    settle: () => {
+      if (card.status !== 'proposed' || JSON.stringify(card.payload) !== corrected) return;
+      for (const key of Object.keys(card.payload)) delete card.payload[key];
+      Object.assign(card.payload, raised);
+    },
+  };
 }

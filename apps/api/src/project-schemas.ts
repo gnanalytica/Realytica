@@ -324,10 +324,16 @@ export const createDecisionBodySchema = z.object({
   actor: actorSchema,
 });
 
+/** A moment, as a report's period names one. */
+const instantSchema = z.string().max(40).refine((value) => !Number.isNaN(Date.parse(value)), 'Not a date');
+
 export const generateReportBodySchema = z.object({
   kind: reportKindSchema,
   assessmentIds: z.array(z.string()).optional(),
   generatedBy: z.string().trim().min(1).max(120).optional(),
+  /** For a status report: the period it covers and who it is written for. */
+  period: z.object({ from: instantSchema, to: instantSchema }).optional(),
+  audience: z.string().trim().min(1).max(60).optional(),
   actor: actorSchema,
 });
 
@@ -352,11 +358,18 @@ export const reportBoundSourceSchema = z.object({
     'checks',
     'valuation',
     'changes_since_previous',
+    'status_changed',
+    'status_waiting',
+    'status_next',
   ]),
   assessmentIds: z.array(z.string()).optional(),
   materialOnly: z.boolean().optional(),
   openOnly: z.boolean().optional(),
   discipline: scopeKeySchema.optional(),
+  // A section of a status report: its period, and whether it is shown as code wrote it.
+  from: instantSchema.optional(),
+  to: instantSchema.optional(),
+  plain: z.boolean().optional(),
 });
 
 export const insertReportBlockBodySchema = z.object({
@@ -604,19 +617,63 @@ export const patchStatusBodySchema = z.object({
   actor: actorSchema,
 });
 
+/**
+ * The page a question was asked from: the pane, the department and function
+ * when the page is one of theirs, and the stage being looked at. Words only;
+ * the route checks them against the menu and takes none on trust.
+ */
+export const chatPlaceSchema = z.object({
+  pane: z.string().max(40).optional(),
+  department: z.string().max(40).optional(),
+  fn: z.string().max(80).optional(),
+  stage: z.string().max(40).optional(),
+});
+
 export const projectChatBodySchema = z.object({
-  question: z.string().trim().min(1).max(4000),
+  // Long enough for a meeting's notes to be pasted. A paste that long is kept as a file and not in the thread: see the chat route.
+  question: z.string().trim().min(1).max(20_000),
   viewContext: z.string().max(400).optional(),
+  /** Where the person is. Absent means a client that sends the pane alone, in `viewContext`. */
+  place: chatPlaceSchema.optional(),
   /** Which sitting this belongs to. Absent means a client that predates sessions. */
   sessionId: z.string().max(120).optional(),
+  /** The earlier chat this sitting carries on, by its id. */
+  continues: z.string().max(120).optional(),
+  /**
+   * When this sitting began. A turn the server wrote since then outside a chat
+   * request names no sitting and is on screen in this chat, so "approve all"
+   * typed under it has to find it. Read for this request and not kept.
+   */
+  sessionStartedAt: z.string().max(40).optional(),
   actor: actorSchema,
   sitting: z
     .object({
       ddId: z.string().optional(),
       scopeId: z.string().optional(),
       checkId: z.string().optional(),
+      /** The document a pressed choice was offered for. */
+      evidenceId: z.string().max(120).optional(),
+      /** A pressed choice that accepts or sets aside: which, and the cards and papers it names. It acts on these and reads no words. */
+      decision: z.enum(['accept', 'aside']).optional(),
+      proposalIds: z.array(z.string().max(120)).max(200).optional(),
+      evidenceIds: z.array(z.string().max(120)).max(200).optional(),
+      /** A pressed choice under a plan: the plan it acts on, by its id, and what it does. It reads no words. */
+      plan: z
+        .object({
+          id: z.string().max(120),
+          act: z.enum(['run', 'cancel', 'stop', 'carry_on', 'take_out']),
+          step: z.number().int().min(1).max(20).optional(),
+        })
+        .optional(),
+      /** The Undo under a reply: the reply whose changes are put back, by its id. It reads no words. */
+      undo: z.object({ turnId: z.string().max(120) }).optional(),
     })
     .optional(),
+});
+
+/** A chat's name. Empty hands the chat back to its first question. */
+export const renameChatBodySchema = z.object({
+  name: z.string().max(200),
 });
 
 export const projectChatProposalBodySchema = z.object({
@@ -652,6 +709,13 @@ export const factReviewBodySchema = z.object({
       display: z.string().min(1).max(2000),
     })
     .optional(),
+  /** Keep the other reader's value for the one key named, where two readers read it differently. */
+  take: z.literal('other').optional(),
+});
+
+/** What a person says a paper is, in place of what a model took it for. */
+export const correctDocumentTypeBodySchema = z.object({
+  documentType: z.string().min(1).max(120),
 });
 
 /** A decision on a check's waiting values, a field at a time. */

@@ -82,13 +82,13 @@ import type {
   PromptUsage,
   PropertyIdentity,
 } from '@realytica/shared';
-import { KHATA_TYPE_LABEL, prepareValue } from '@realytica/shared';
+import { exactValue, KHATA_TYPE_LABEL, prepareValue, STANDARD_PAPERS, standardKeyForm, standardKeyGuide, standardPaperOfKind } from '@realytica/shared';
 import { describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt, type ResolvedPrompt } from '../prompts';
 import { describeGap } from '../routing';
 import { loadPdfForExtraction, MAX_PDF_BYTES } from '../pdf';
 import { pageCheckModel } from '../config';
-import { modelPageChecker, pdfPageCount, placeQuotes, type Placement } from './page-check';
+import { modelPageReader, normalizeForPage, pdfPageCount, placeReadings, type Placement } from './page-check';
 import { missingCredentialsReason, resolveRoute, toolUseOf } from '../providers';
 import type { LlmContentBlock, LlmContentPart, LlmSchemaTool } from '../providers';
 
@@ -105,7 +105,41 @@ export interface DocumentIntelligenceResult {
    * at its own rate.
    */
   pageCheckUsage?: { model: string; usage: AgentUsage }[];
+  /** How many pages the file has, and the 1-based pages of it the reader was sent. Set on a reading that was made. */
+  pagesInFile?: number;
+  pagesSent?: number[];
+  /**
+   * Which of the rules' own papers the reader took the document for
+   * (`STANDARD_PAPERS`), or `other`. A value under one of the rules' keys is
+   * taken only on a paper that carries the key.
+   */
+  paper?: string;
+  /**
+   * What the reader read and nothing confirmed on a page: a value under one of
+   * the rules' keys, or one that has to be exact, that nobody could look for;
+   * one the second reader read differently on its page, or did not find
+   * there; and an exact one the words quoted for it do not state. None is
+   * among `fields` with a page. Handed back apart so it can be shown for what
+   * it is.
+   */
+  unconfirmed?: UnconfirmedField[];
+  /**
+   * The time allowed ran out before the second reader had read every page it
+   * was to: values that might have been confirmed are unconfirmed for want of
+   * time, and the paper is worth reading again.
+   */
+  checksCut?: boolean;
 }
+
+export interface UnconfirmedField extends ExtractedField {
+  /** The page the reading named for it, as a page of the whole file: where to look, nothing more. */
+  namedPage?: number;
+  /** True when the second reader read that page and did not read this value there; false when nobody could look. */
+  looked: boolean;
+}
+
+/** The longest one reading may wait on the model when nobody set an earlier stop. A long bundle's answer runs to minutes. */
+const READING_CALL_LIMIT_MS = 240_000;
 
 export interface RunDocumentIntelligenceInput {
   caseId: string;
@@ -129,6 +163,24 @@ export interface RunDocumentIntelligenceInput {
   pageTexts?: readonly string[];
   /** Check no page against a model after this instant; what is left stays unchecked. */
   checkDeadline?: number;
+  /**
+   * No call of this reading runs past this instant: not the reading itself,
+   * not a page check. The request that asked is waiting, and what is not read
+   * by then is said to be unread rather than waited for.
+   */
+  stopAt?: number;
+  /**
+   * The 1-based pages whose words in `pageTexts` are OCR's and not the file's
+   * own text layer. A value that has to be exact is not proved by finding its
+   * quote among those: see `QuoteToPlace.exact`.
+   */
+  ocrPages?: readonly number[];
+  /**
+   * The 1-based pages of a PDF to send, when not all of them: the pages this
+   * server could not read well itself. Nothing else of the file leaves, and a
+   * page the reading names is mapped back to its place in the whole file.
+   */
+  pages?: readonly number[];
 }
 
 /* ==================================================================== */
@@ -188,7 +240,7 @@ const FIELD_GUIDANCE: Partial<Record<DocumentKind, string>> = {
     'parties (seller/vendor name, buyer/purchaser name), sale consideration (amount, with currency as the unit), registration number, ' +
     'execution/registration date, survey number, and extent conveyed (value + unit, e.g. "2400" + "sqft"). ' +
     'Then the SCHEDULE OF PROPERTY, which is usually a separate block at the end of the deed and is the most under-read part of it. ' +
-    'Extract each of the four boundaries exactly as written, under the keys boundaryNorth, boundaryEast, boundarySouth and boundaryWest ' +
+    'Extract each of the four boundaries exactly as written, under the keys boundary_north, boundary_east, boundary_south and boundary_west ' +
     '(value = the abutting feature, e.g. "Sy. No. 118/3", "30 feet wide road", "property of Sri. Ramaiah"). ' +
     'Extract the site dimensions separately from the extent, under the keys dimensionEastWest and dimensionNorthSouth, ' +
     'value = the number alone and unit = "ft" or "m" (e.g. "40" + "ft"). Do not compute either from the other and do not ' +
@@ -200,7 +252,7 @@ const FIELD_GUIDANCE: Partial<Record<DocumentKind, string>> = {
   mother_deed:
     'parties (grantor name, grantee name), execution/registration date, survey number, and the extent conveyed under the key ' +
     'extentConveyed (value + unit). Extract the schedule of property exactly as for a sale deed: the four boundaries under ' +
-    'boundaryNorth, boundaryEast, boundarySouth and boundaryWest, and the site dimensions under dimensionEastWest and ' +
+    'boundary_north, boundary_east, boundary_south and boundary_west, and the site dimensions under dimensionEastWest and ' +
     'dimensionNorthSouth (value = the number alone, unit = "ft" or "m"). The schedule in the parent conveyance is what makes ' +
     'an undocumented subdivision visible, so it matters here as much as it does in the sale deed.',
   rera_registration: 'K-RERA registration number and its period of validity (from–to dates).',
@@ -245,12 +297,17 @@ function buildExtractionTool(): LlmSchemaTool {
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['kind', 'kindConfidence', 'fields', 'notes'],
+      required: ['kind', 'paper', 'kindConfidence', 'fields', 'notes'],
       properties: {
         kind: {
           type: 'string',
           enum: ALL_DOCUMENT_KINDS,
           description: 'The document kind this file actually is, from the catalogue in the system prompt.',
+        },
+        paper: {
+          type: 'string',
+          enum: [...STANDARD_PAPERS, 'other'],
+          description: 'Which of the papers listed with the standard keys this document is, or "other". Only that paper\'s standard keys may be used.',
         },
         kindConfidence: { type: 'number', minimum: 0, maximum: 1, description: 'Your honest confidence in the classification.' },
         fields: {
@@ -260,7 +317,10 @@ function buildExtractionTool(): LlmSchemaTool {
             additionalProperties: false,
             required: ['key', 'label', 'value', 'unit', 'confidence', 'quote', 'originalValue', 'page'],
             properties: {
-              key: { type: 'string', description: 'Short camelCase identifier, e.g. "registrationNumber".' },
+              key: {
+                type: 'string',
+                description: 'The standard key from the system prompt where the field is one of those; otherwise a short camelCase identifier, e.g. "registrationNumber".',
+              },
               label: { type: 'string', description: 'Human-readable label, e.g. "Registration number".' },
               value: { type: 'string', description: 'The extracted value as plain text.' },
               unit: { type: ['string', 'null'], description: 'Unit of the value, e.g. "sqft", "INR" — null when the value has no unit.' },
@@ -320,9 +380,15 @@ function buildExtractionTool(): LlmSchemaTool {
  */
 function buildSystemPrompt(): Promise<ResolvedPrompt> {
   const catalogue = ALL_DOCUMENT_KINDS.map(k => `- ${k}: ${DOCUMENT_KIND_CATALOGUE[k]}`).join('\n');
-  const guidance = (Object.keys(FIELD_GUIDANCE) as DocumentKind[])
-    .map(k => `- ${k}: extract ${FIELD_GUIDANCE[k]}`)
-    .join('\n');
+  /*
+   * The keys this server's own rules file a fact under, so that a value the
+   * model reads lands where the same value read by the rules would: under one
+   * name, in one form, able to be set beside it. See `STANDARD_FACT_KEYS`.
+   */
+  const standard =
+    '- Standard keys, for a document of any kind. Where the document states one of the things below, record it under exactly ' +
+    `that key; every other field keeps a short camelCase key of your own. ${standardKeyGuide()}`;
+  const guidance = [...(Object.keys(FIELD_GUIDANCE) as DocumentKind[]).map(k => `- ${k}: extract ${FIELD_GUIDANCE[k]}`), standard].join('\n');
 
   return resolvePrompt(PROMPT_KEYS.documentIntelligenceSystem, {
     catalogue,
@@ -331,13 +397,63 @@ function buildSystemPrompt(): Promise<ResolvedPrompt> {
   });
 }
 
-function buildUserPrompt(document: CaseDocument, identity: PropertyIdentity): string {
+function buildUserPrompt(document: CaseDocument, identity: PropertyIdentity, shown?: { pages: number[]; of: number }): string {
   return [
     `Case property: ${identity.label} — ${identity.addressLine}, ${identity.locality}, ${identity.city}, ${identity.state}.`,
     `Survey/parcel on file: ${identity.parcelId || 'not recorded'}.`,
     `Uploaded document: "${document.fileName}" (${document.mimeType}).`,
+    // Said so that a registration page shown without its deed is read as part of one, and its pages counted as given.
+    ...(shown
+      ? [`You are shown ${shown.pages.length} of its ${shown.of} pages: ${shown.pages.map((page) => page + 1).join(', ')} of the original. Count pages as they are given to you, from 1.`]
+      : []),
     'Classify this document and extract its fields as instructed in the system prompt.',
   ].join('\n');
+}
+
+/** What one page's words may add to a request, and all of them together: a long bundle's OCR is not sent twice over. */
+const WORDS_PER_PAGE = 6_000;
+const WORDS_IN_ALL = 60_000;
+
+/**
+ * The words this server's own OCR read on the pages being sent, for the pages
+ * that are not in Latin script.
+ *
+ * Measured on 5 October 2026 with an invented Kannada khata certificate, a
+ * clean scan: the model read every number and every name in Latin letters
+ * correctly and almost none of the Kannada. It quoted the line "ಖಾತಾ ಸಂಖ್ಯೆ:
+ * 1907/88/3" as "ಬಾಧಾ ಸಂಪತ್ತಿ: 1907/88/3", took the paper for an encumbrance
+ * certificate, and nine of its ten quotes were found on no page, so nine of
+ * its values were rightly withheld. This server's OCR had read 98 in 100 of
+ * the same page's Kannada words. A model reads Kannada text far better than
+ * it reads Kannada print, so it is given the text: OCR for the letters, the
+ * model for what they mean.
+ *
+ * Not for a page in Latin script. There the model reads the print well, and
+ * OCR's mistakes on a poor scan (a digit dropped, a stamp's words run into a
+ * name) are the very thing it is being asked to see past.
+ */
+function wordsReadHere(pageTexts: readonly string[] | undefined, sent: number[] | undefined): string {
+  if (!pageTexts?.length) return '';
+  const shown = sent ?? pageTexts.map((_, i) => i);
+  const pages: string[] = [];
+  let room = WORDS_IN_ALL;
+  shown.forEach((original, given) => {
+    const text = (pageTexts[original] ?? '').trim();
+    const letters = (text.match(/\p{L}/gu) ?? []).length;
+    const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
+    if (letters < 20 || (letters - latin) / letters < 0.2 || room <= 0) return;
+    const part = text.slice(0, Math.min(WORDS_PER_PAGE, room));
+    room -= part.length;
+    pages.push(`[page ${given + 1}]\n${part}`);
+  });
+  if (!pages.length) return '';
+  return [
+    'This server\'s own OCR read the words below on the pages named, counted as they are given to you. It reads the letters of an Indian script ' +
+      'more surely than they can be read off the image, so take the letters of a quote from it. It is OCR all the same: it breaks, shortens and ' +
+      'misreads names and numbers written in Latin letters and digits, so read every one of those from the image, in full, and never give a ' +
+      'name or a number that the image does not show whole. Quote only words that are printed on the page.',
+    ...pages,
+  ].join('\n\n');
 }
 
 /* ==================================================================== */
@@ -660,9 +776,12 @@ const FieldSchema = z.object({
 
 const ExtractionOutputSchema = z.object({
   kind: z.string(),
+  // Nullish: an answer without it loses its standard keys' paper, not every field with it.
+  paper: z.string().nullish(),
   kindConfidence: z.number().min(0).max(1),
   fields: z.array(FieldSchema),
-  notes: z.string(),
+  // Nullish: twice in one run a reader left it out, and both readings were thrown away whole for want of a remark.
+  notes: z.string().nullish(),
 });
 
 /* ==================================================================== */
@@ -789,7 +908,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   /** The image as sent, so a page check can be shown the same sheet. */
   let imageBase64: string | undefined;
   if (isPdf) {
-    const loaded = await loadPdfForExtraction(fileBytes);
+    const loaded = await loadPdfForExtraction(fileBytes, input.pages);
     if (!loaded.ok) {
       emit({ kind: 'error', label: 'PDF rejected before sending', detail: loaded.message });
       return finishFailure('failed', loaded.message);
@@ -799,7 +918,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     emit({
       kind: 'tool_result',
       label: loaded.pdf.window
-        ? `Loaded ${loaded.pdf.pageCount} of ${loaded.pdf.window.of} pages — the first and the last, ${(loaded.pdf.sizeBytes / 1048576).toFixed(1)}MB`
+        ? `Loaded ${loaded.pdf.pageCount} of ${loaded.pdf.window.of} pages — ${input.pages?.length ? 'the ones not read well here' : 'the first and the last'}, ${(loaded.pdf.sizeBytes / 1048576).toFixed(1)}MB`
         : `Loaded PDF — ${loaded.pdf.pageCount} page(s), ${(loaded.pdf.sizeBytes / 1024).toFixed(0)}KB`,
     });
     documentPart = {
@@ -841,7 +960,10 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   const tool = buildExtractionTool();
   const systemPrompt = await buildSystemPrompt();
   promptUsages = systemPrompt.usages;
-  const userPrompt = buildUserPrompt(document, identity);
+  const userPrompt = [buildUserPrompt(document, identity, pdfWindow), wordsReadHere(input.pageTexts, pdfWindow?.pages)].filter(Boolean).join('\n\n');
+  // Counted from the file's page tree, which the loader's scan of the bytes cannot always do.
+  const pagesInFile = isPdf ? ((await pdfPageCount(fileBytes)) ?? documentPages) : 1;
+  const pagesSent = pdfWindow ? pdfWindow.pages.map((page) => page + 1) : Array.from({ length: pagesInFile }, (_, i) => i + 1);
 
   emit({ kind: 'tool_call', label: `Requesting classification & extraction from ${model} (${tier} tier)`, toolName: EXTRACTION_TOOL_NAME });
 
@@ -850,6 +972,12 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   // document block, adaptive thinking, the refusal fallback — is the
   // provider's job to express in its own dialect, and the Anthropic provider
   // reproduces the pre-port request exactly.
+  const left = input.stopAt === undefined ? READING_CALL_LIMIT_MS : Math.min(READING_CALL_LIMIT_MS, input.stopAt - Date.now());
+  if (left < 1_000) {
+    const reason = 'The time allowed for reading ran out before this document was sent, so the reading timed out.';
+    emit({ kind: 'error', label: 'Out of time', detail: reason });
+    return finishFailure('failed', reason);
+  }
   const request = {
     agent: 'document_intelligence' as const,
     model,
@@ -857,6 +985,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
     tools: [tool],
     messages: [{ role: 'user' as const, content: [documentPart, { type: 'text' as const, text: userPrompt }] }],
+    timeoutMs: left,
   };
 
   let result;
@@ -927,13 +1056,33 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     emit({ kind: 'error', label: 'Invalid extraction output', detail: reason });
     return finishFailure('failed', reason, usage);
   }
-  if (!isDocumentKind(parsed.data.kind)) {
-    const reason = `Model returned an unrecognised document kind: "${parsed.data.kind}".`;
-    emit({ kind: 'error', label: 'Invalid document kind', detail: reason });
-    return finishFailure('failed', reason, usage);
+  /*
+   * A reader told the rules' names for the papers uses them where the kind
+   * goes as well. Measured: for a record of rights, a zoning certificate and
+   * a survey sketch, which have no kind of their own here, it answered with
+   * kind "rtc", "zoning_certificate" and "survey_sketch", and every one of
+   * those readings was thrown away as an answer of no known kind. Such a
+   * name is taken for what it is, the paper; the kind is that paper's, or
+   * "other" where it has none.
+   */
+  const paperName = (said: string | null | undefined): string | undefined => {
+    const name = (said ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    return (STANDARD_PAPERS as readonly string[]).includes(name) ? name : undefined;
+  };
+  const kindAsPaper = isDocumentKind(parsed.data.kind) ? undefined : paperName(parsed.data.kind);
+  /*
+   * And a kind that is neither is no reason to throw the reading away. A
+   * gateway does not hold a model to the list, so a paper the catalogue has
+   * no name for comes back under a name of the model's own. It is "other":
+   * no kind is claimed for it, none of the rules' keys is taken on its
+   * strength, and what it states under keys of the reader's own is kept like
+   * any other reading.
+   */
+  if (!isDocumentKind(parsed.data.kind) && !kindAsPaper) {
+    emit({ kind: 'message', label: 'A kind the catalogue does not have', detail: 'The reader named a kind of document that is not one of the known kinds. It is taken as “other”.' });
   }
 
-  const kind = parsed.data.kind;
+  const kind: DocumentKind = isDocumentKind(parsed.data.kind) ? parsed.data.kind : ((kindAsPaper && ALL_DOCUMENT_KINDS.find((known) => standardPaperOfKind(known) === kindAsPaper)) || 'other');
   // The classification is a self-report about the same unverified input the
   // fields came from, so it takes the same discount rather than standing
   // alone as the one confident number on a degraded run.
@@ -957,41 +1106,56 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   });
 
   /*
-   * Where no citation can place a quote, the page is checked here instead:
-   * against the page's own text, or by showing a reader that page alone. See
-   * `./page-check`. A page the model named is only where to look; the page a
-   * field ends up with is one its words were found on.
+   * Where no citation can place a value, its page is checked here instead:
+   * its own quote, then the page's own text, then a second reader shown that
+   * page alone and asked for the value by name. See `./page-check`. A page
+   * the model named is only where to look; the page a field ends up with is
+   * one the value was found on.
    */
   let placements: Placement[] | undefined;
   let pagesChecked = 0;
+  /** A page went without its second reading for want of time. */
+  let checksCut = false;
   const pageCheckUsage: { model: string; usage: AgentUsage }[] = [];
   if (!pageVerificationAvailable && parsed.data.fields.length > 0) {
-    const checker = modelPageChecker({
+    const second = modelPageReader({
       provider,
       model: pageCheckModel() ?? model,
       caseId,
       source: isPdf ? { kind: 'pdf', bytes: fileBytes } : { kind: 'image', base64: imageBase64 ?? '', mediaType: document.mimeType },
       onUsage: (usage, checkModel) => pageCheckUsage.push({ model: checkModel, usage }),
+      onCut: () => (checksCut = true),
+      ...(input.stopAt !== undefined ? { stopAt: input.stopAt } : {}),
     });
     const deadline = input.checkDeadline;
-    const pageCount = isPdf ? ((await pdfPageCount(fileBytes)) ?? documentPages) : 1;
-    const placed = await placeQuotes({
-      quotes: parsed.data.fields.map((f) => ({ quote: f.quote, hint: originalPage(f.page, isPdf, pdfWindow) })),
+    const placed = await placeReadings({
+      readings: parsed.data.fields.map((f) => ({ key: f.key, value: f.value, unit: f.unit, originalValue: f.originalValue, quote: f.quote, hint: originalPage(f.page, isPdf, pdfWindow) })),
       pageTexts: input.pageTexts,
-      pageCount,
-      checkPage: deadline === undefined ? checker : (page, quotes) => (Date.now() > deadline ? Promise.resolve(null) : checker(page, quotes)),
+      ocrPages: input.ocrPages,
+      pageCount: pagesInFile,
+      // Only where the first reader looked: a value is not placed on a page it was never sent.
+      pagesSent,
+      readPage:
+        deadline === undefined
+          ? second
+          : (page, keys) => {
+              if (Date.now() <= deadline) return second(page, keys);
+              checksCut = true;
+              return Promise.resolve(null);
+            },
     });
     placements = placed.placements;
     pagesChecked = placed.pagesChecked;
     const tally = tallyPlacements(placements);
     emit({
       kind: 'tool_result',
-      label: `Checked the quotes against their pages: ${tally.placed} found${tally.refuted ? `, ${tally.refuted} not on the page named` : ''}${tally.unchecked ? `, ${tally.unchecked} not checked` : ''}`,
-      ...(pagesChecked ? { detail: `${pagesChecked} page(s) read on their own.` } : {}),
+      label: `Checked the values against their pages: ${tally.placed} found${tally.refuted ? `, ${tally.refuted} not read on the page named` : ''}${tally.unsupported ? `, ${tally.unsupported} not in the words quoted for them` : ''}${tally.unchecked ? `, ${tally.unchecked} not checked` : ''}`,
+      ...(pagesChecked ? { detail: `${pagesChecked} page(s) read a second time, on their own.` } : {}),
     });
   }
 
   const fields: ExtractedField[] = [];
+  const unconfirmed: UnconfirmedField[] = [];
   const evidence: EvidenceItem[] = [];
   const disagreementNotes: string[] = [];
   let evidenceSeq = 0;
@@ -1010,7 +1174,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     // the citation engine could not place.
     const placement = placements?.[index];
     const checkedHere = placement !== undefined && placement.status !== 'unchecked';
-    const sourcePage = placement?.status === 'placed' ? placement.page : citedSourcePage;
+    // A cited page is one the reader was sent, or it is no page: a quote is not placed where nobody looked.
+    const sourcePage = placement?.status === 'placed' ? placement.page : citedSourcePage !== undefined && pagesSent.includes(citedSourcePage) ? citedSourcePage : undefined;
     const pageCheck = placement?.status === 'placed' ? placement.method : citedSourcePage !== undefined ? 'citation' : undefined;
     const outcome = fieldOutcome({
       pageVerificationAvailable: pageVerificationAvailable || checkedHere,
@@ -1018,7 +1183,17 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       sourcePage,
       confidence: raw.confidence,
     });
-    if (!outcome.keep) continue;
+    /*
+     * A value the second reader read differently on its page, or one the
+     * words quoted for it do not state, is no field. Where it is one of the
+     * rules' own values, or has to be exact, it is still handed back, apart
+     * and marked as what it is, so a person can see what was read and look at
+     * the page: a survey number that vanished without a word would be asked
+     * for again, of a reader that would give the same one.
+     */
+    const exact = exactValue(raw.key, raw.value);
+    const refuted = placement?.status === 'refuted' || placement?.status === 'unsupported';
+    if (!outcome.keep && !(refuted && (exact || standardKeyForm(raw.key)))) continue;
     let confidence = outcome.confidence;
 
     const disagreement = checkDisagreement(raw, identity, kind);
@@ -1046,10 +1221,20 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
      * and it is the text the model itself said it was reading, so recovering
      * from it cannot import something from elsewhere on the page.
      */
-    const scripted = prepareValue(raw.key, raw.value, raw.originalValue ?? undefined, raw.quote);
+    /*
+     * And the original must be on the page. Measured on a Kannada khata that
+     * prints its owner's name in Latin letters: the model was asked for the
+     * value "exactly as written" and wrote the name out in Kannada, which is
+     * printed nowhere on the page. An original is kept only where its words
+     * are in the field's own quote, or in the words this server read on the
+     * page the quote was found on.
+     */
+    const printed = normalizeForPage(`${raw.quote} ${sourcePage ? (input.pageTexts?.[sourcePage - 1] ?? '') : ''}`);
+    const original = raw.originalValue && printed.includes(normalizeForPage(raw.originalValue)) ? raw.originalValue : undefined;
+    const scripted = prepareValue(raw.key, raw.value, original, raw.quote);
     const carriesOriginal = scripted.original !== scripted.value && scripted.script !== 'latin';
 
-    fields.push({
+    const field: ExtractedField = {
       key: raw.key,
       label: raw.label,
       value: scripted.value,
@@ -1061,7 +1246,16 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       ...(sourcePage !== undefined && pageCheck ? { pageCheck } : {}),
       quote: raw.quote.slice(0, 220),
       method: 'ocr',
-    });
+    };
+    if (!outcome.keep) {
+      unconfirmed.push({ ...field, namedPage: placement?.status === 'refuted' ? placement.page : originalPage(raw.page, isPdf, pdfWindow), looked: placement?.status === 'refuted' });
+      continue;
+    }
+    fields.push(field);
+    // Kept as a reading with no page, as it always was; and where it is one of the rules' own values, or an exact one, said to be unconfirmed.
+    if (placements && sourcePage === undefined && (exact || standardKeyForm(raw.key))) {
+      unconfirmed.push({ ...field, namedPage: originalPage(raw.page, isPdf, pdfWindow), looked: false });
+    }
 
     evidenceSeq += 1;
     const pageSuffix = sourcePage ? `, p.${sourcePage}` : '';
@@ -1090,7 +1284,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     .filter(gap => !(placements && gap === 'citations_unavailable'))
     .map(describeGap);
   const checkNote = placements ? describeChecks(tallyPlacements(placements)) : '';
-  const notes = [parsed.data.notes, ...disagreementNotes, ...degradationNotes, checkNote].filter(s => s.trim().length > 0).join(' ');
+  const notes = [parsed.data.notes ?? '', ...disagreementNotes, ...degradationNotes, checkNote].filter(s => s.trim().length > 0).join(' ');
 
   emit({
     kind: 'message',
@@ -1122,7 +1316,23 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     producedEvidenceIds: evidence.map(e => e.id),
   };
 
-  return { run, kind, kindConfidence, fields, evidence, notes, ...(pageCheckUsage.length ? { pageCheckUsage } : {}) };
+  // The paper the reader named, however it spelt it; failing that, the one its kind is, where the rules have that kind.
+  const paper = paperName(parsed.data.paper) ?? kindAsPaper ?? standardPaperOfKind(kind) ?? 'other';
+
+  return {
+    run,
+    kind,
+    kindConfidence,
+    fields,
+    evidence,
+    notes,
+    ...(pageCheckUsage.length ? { pageCheckUsage } : {}),
+    pagesInFile,
+    pagesSent,
+    paper,
+    ...(unconfirmed.length ? { unconfirmed } : {}),
+    ...(checksCut ? { checksCut: true } : {}),
+  };
 }
 
 /**
@@ -1148,27 +1358,36 @@ interface PlacementTally {
   placed: number;
   refuted: number;
   unchecked: number;
+  /** Exact values the words quoted for them do not state. Absent on a tally made before these were told apart. */
+  unsupported?: number;
 }
 
 function tallyPlacements(placements: Placement[]): PlacementTally {
-  const tally: PlacementTally = { placed: 0, refuted: 0, unchecked: 0 };
+  const tally: PlacementTally = { placed: 0, refuted: 0, unchecked: 0, unsupported: 0 };
   for (const p of placements) {
     if (p.status === 'placed') tally.placed += 1;
     else if (p.status === 'refuted') tally.refuted += 1;
+    else if (p.status === 'unsupported') tally.unsupported = (tally.unsupported ?? 0) + 1;
     else tally.unchecked += 1;
   }
   return tally;
 }
 
 function summarizeTally(t: PlacementTally): string {
-  return [`${t.placed} placed`, ...(t.refuted ? [`${t.refuted} not on their page`] : []), ...(t.unchecked ? [`${t.unchecked} unchecked`] : [])].join(', ');
+  return [
+    `${t.placed} placed`,
+    ...(t.refuted ? [`${t.refuted} not read on their page`] : []),
+    ...(t.unsupported ? [`${t.unsupported} not in their own quote`] : []),
+    ...(t.unchecked ? [`${t.unchecked} unchecked`] : []),
+  ].join(', ');
 }
 
 /** The sentence a person reads about how the pages were checked. */
 export function describeChecks(t: PlacementTally): string {
-  const total = t.placed + t.refuted + t.unchecked;
+  const unsupported = t.unsupported ?? 0;
+  const total = t.placed + t.refuted + t.unchecked + unsupported;
   if (total === 0) return '';
-  const head = `Each quote was looked for on its page here: ${t.placed} of ${total} found.`;
+  const head = `Each value was looked for on its page here: ${t.placed} of ${total} found.`;
   const tail = t.unchecked
     ? ` ${t.unchecked} could not be checked, so ${t.unchecked === 1 ? 'it stays a reading' : 'they stay readings'} with no page.`
     : '';

@@ -6,7 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
-import { proposeFacts } from './fact-review';
+import { dropAsItStands, proofOf, proposeOnRow, standingAsRead, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
@@ -22,6 +22,7 @@ import {
   createAssessment,
   ensureProjectShape,
   generateReport,
+  recordAuditEvent,
   recordCheckFields,
   editReportBlock,
   insertReportBlock,
@@ -30,7 +31,9 @@ import {
   recommendedDdTypes,
   updateEvidenceStatus,
 } from './operations';
-import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { logSiteEntry } from './progress';
+import { siteEntryInput, type SiteEntryProposal } from './site-notes';
+import { LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
 import type {
   CheckResult,
@@ -60,7 +63,12 @@ import type {
 import { connectorEvidenceInput } from './chat-sides';
 import { absorbAnsweredGaps, factFillProposals, flagFindingProposals, matchReadToRow } from './document-intake';
 import type { DocumentFact } from './document-parse';
-import { documentTypeOfKind } from './vault';
+import { documentTypeOfKind, kindAsRead, setDocumentWorkstream } from './vault';
+import { shownWords } from './chat-places';
+import { asksAQuestion, readInstruction, wordsOf } from './instruction';
+import { setProjectDepartments, type MayDecide } from './team';
+import { addRequest } from './project-requests';
+import { DEPARTMENT_KEYS, STAGES, stageAndStep, stageEntryStep, type DepartmentKey } from './departments';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -265,7 +273,7 @@ export function buildWizardProposals(project: DdProject, actor = 'operator'): Ch
       proposal(
         'add_asset',
         `Add asset: ${hint.name}`,
-        `A ${project.type.replaceAll('_', ' ')} project at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} usually records ${hint.assetType.toLowerCase()} as its own asset so DDs can target it.`,
+        `A ${project.type.replaceAll('_', ' ')} project at ${stageAndStep(project.currentStage)} usually records ${hint.assetType.toLowerCase()} as its own asset so DDs can target it.`,
         'Creates an asset node. Later DDs can target it instead of the whole project.',
         { name: hint.name, assetType: hint.assetType } satisfies CreateAssetInput,
         actor,
@@ -315,7 +323,9 @@ export function classifyIngestFile(
   file: ChatIngestFile,
   prefer?: SittingRef,
 ): { hint: FileHint; evidence?: EvidenceRecord; assessmentIds: string[]; scopeInstanceIds: string[]; checkIds: string[] } {
-  const hay = `${file.fileName.replace(/[_-]+/g, ' ')} ${file.excerpt ?? ''} ${file.extractionNotes ?? ''} ${file.kindHint ?? ''}`.toLowerCase();
+  // The file's name and the words this server read on its pages. Never a model's notes or the kind it took the paper for: those
+  // are an offer for a person, and a row chosen from them is a model filing the paper.
+  const hay = `${file.fileName.replace(/[_-]+/g, ' ')} ${file.excerpt ?? ''}`.toLowerCase();
   let best: FileHint = { keys: [], kind: 'document', scopes: [], titles: ['Uploaded document'] };
   let bestScore = 0;
   /*
@@ -340,9 +350,24 @@ export function classifyIngestFile(
   }
 
   const gaps = openGaps(project);
+  /*
+   * A file nobody could read answers the row its name or its text names,
+   * and failing that a row a file of its kind answers. Both as whole words:
+   * matched as letters, every text named the rows "OC" and "EC" ("document",
+   * "record"), an EC answered "Court records", and a file no hint knew was
+   * matched on the stand-in title "Uploaded document", so a paper the reader
+   * could make nothing of was filed as the occupancy certificate. A kind's
+   * titles are plural where a row's is not ("Survey plans", "Survey plan"),
+   * so those two are compared without the plural.
+   */
+  const named = plainWords(hay);
+  const singular = (text: string) => plainWords(text).replace(/(\w{3})s /g, '$1 ');
+  const kinds = bestScore > 0 ? best.titles.map(singular) : [];
+  const titled = gaps.filter((gap) => plainWords(gap.title).trim());
   let byTitle = read
     ? matchReadToRow(project, read, file.kindHint)
-    : gaps.find((g) => hay.includes(g.title.toLowerCase()) || best.titles.some((t) => g.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(g.title.toLowerCase())));
+    : (titled.find((gap) => named.includes(plainWords(gap.title)))
+      ?? titled.find((gap) => kinds.some((kind) => singular(gap.title).includes(kind) || kind.includes(singular(gap.title)))));
   const assessmentIds = new Set<string>(byTitle?.assessmentIds ?? []);
   const scopeInstanceIds = new Set<string>(byTitle?.scopeInstanceIds ?? []);
   const checkIds = new Set<string>(byTitle?.checkIds ?? []);
@@ -442,13 +467,17 @@ function ingestRationale(file: ChatIngestFile, scopeNames: string[]): string {
    */
   if (file.read && file.read.type !== 'other') {
     const how = file.read.method === 'text' ? '' : ` Read by OCR${file.read.ocrConfidence ? ` (${file.read.ocrConfidence}% confidence)` : ''}.`;
-    const facts = file.read.facts
-      .filter((f) => !f.key.startsWith('boundary_'))
-      .slice(0, 6)
-      .map((f) => `${f.label} ${f.display} (p.${f.page})`)
-      .join('; ');
+    const said = (list: DocumentFact[], room: number) =>
+      list
+        .filter((f) => !f.key.startsWith('boundary_'))
+        .slice(0, room)
+        .map((f) => `${f.label} ${f.display} (p.${f.page})`);
+    const stated = said(standingAsRead(file.read), 6);
+    // A model's reading, or one two readers differ on, is said as what it is: waiting.
+    const waiting = said(waitingAsRead(file.read), 6 - stated.length);
+    const facts = `${stated.length ? ` ${stated.join('; ')}.` : ''}${waiting.length ? ` Waiting to be accepted: ${waiting.join('; ')}.` : ''}`;
     const flags = file.read.flags.length ? ` ⚑ ${file.read.flags.map((f) => f.title).join('; ')}.` : '';
-    return clip(`${file.read.summary}.${how}${facts ? ` ${facts}.` : ''}${flags}${scopeNames.length ? ` Links to ${scopeNames.join(', ')}.` : ''}`, 700);
+    return clip(`${file.read.summary}.${how}${facts}${flags}${scopeNames.length ? ` Links to ${scopeNames.join(', ')}.` : ''}`, 700);
   }
   if (file.readFailure) return file.readFailure;
   const quotes = (file.quotes ?? [])
@@ -502,17 +531,19 @@ export function proposalsFromIngest(
      * reader gave it. The type guards a classification made from a filename,
      * not values a page was checked for.
      */
-    const modelFacts = read ? [] : (file.read?.facts ?? []).filter((f) => f.source === 'model');
+    const modelFacts = read ? [] : waitingAsRead(file.read).filter((f) => f.source === 'model');
+    // Every value read goes onto the row, in the order it was read, and each waits there for a person. That is filing the reading, not acting on it.
     const facts = read ? read.facts : modelFacts.length ? modelFacts : undefined;
     const kind = classified.evidence?.title ?? classified.hint.titles[0] ?? 'new evidence';
     /*
      * A read document is named for what it is; a new row gets the document's
      * own label rather than a filename with its underscores turned to
      * spaces. Quotes come from the facts, so the row carries the words its
-     * values were read from.
+     * values were read from: words found in the page's own text, never a
+     * model's wording that only a second model stands behind.
      */
     const factQuotes = (facts ?? [])
-      .filter((f) => !f.key.startsWith('boundary_'))
+      .filter((f) => !f.key.startsWith('boundary_') && (f.source !== 'model' || proofOf(f) === 'page_text'))
       .slice(0, 6)
       .map((f) => ({ text: `${f.label}: ${f.quote}`.slice(0, 240), page: f.page }));
     out.push(
@@ -538,13 +569,17 @@ export function proposalsFromIngest(
           scopeInstanceIds: classified.scopeInstanceIds,
           checkIds: classified.checkIds,
           checkId: classified.checkIds[0],
-          quotes: factQuotes.length ? factQuotes : file.quotes,
+          quotes: factQuotes,
           extractionNotes: read ? read.summary : file.extractionNotes,
           readFailure: read || modelFacts.length ? undefined : file.readFailure,
           facts,
-          documentType: read?.label ?? documentTypeOfKind(file.kindHint),
+          // Typed by what the rules read it as. What only a model, or a hint that came with the file, took it for is an offer:
+          // it names nothing and answers no waiting row until a person confirms it on the row.
+          documentType: read?.label,
+          ...(read || !documentTypeOfKind(file.kindHint) ? {} : { proposedDocumentType: documentTypeOfKind(file.kindHint) }),
           readMethod: read?.method,
           ...(file.modelRead ? { modelRead: true } : {}),
+          ...(file.landed ? { landed: true } : {}),
         },
         actor,
         {
@@ -555,11 +590,43 @@ export function proposalsFromIngest(
     );
     if (read) {
       const source = { fileName: file.fileName, evidenceId: classified.evidence?.id, storageKey: file.storageKey, documentLabel: read.label };
-      out.push(...factFillProposals(project, read.facts, source, actor, out));
+      // A document as it is read is the one moment its disagreement with what is recorded is worth raising.
+      // To the checks go the values that stand. A model's, and one two readers differ on, wait on the row.
+      // A paper put on its row as it was read (`landed`) has been in front of people since. A value set aside or corrected there
+      // meanwhile is what the paper states now, so its checks are offered the row as it stands, never the reading as it was read.
+      out.push(...factFillProposals(project, dropAsItStands(project, file).standing, source, actor, out, { differences: true }));
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }
   return out;
+}
+
+/**
+ * Files one read paper on its row now, ahead of the turn that reports the
+ * drop it came in: the row, the file on it, what the paper states waiting
+ * there, and what it was taken for. Papers dropped together are read a few at
+ * a time and each is saved as it finishes, so a turn cut short loses nothing
+ * that was read.
+ *
+ * Done exactly as the turn files it: the file's own card, built and committed
+ * as the turn does. That card is the turn's to keep, so it is taken off
+ * again here; the turn raises its own and, finding the reading on the row
+ * (`landed`), writes no value twice. The cards a reading raises for checks
+ * and for the project's own details are the turn's too, and are not raised
+ * here.
+ *
+ * Returns the row's id.
+ */
+export function landIngestFile(project: DdProject, file: ChatIngestFile, actor = 'operator', prefer?: SittingRef): string | undefined {
+  const card = proposalsFromIngest(project, [file], actor, prefer).find((p) => p.kind === 'file_evidence');
+  if (!card) return undefined;
+  project.chatProposals.push(card);
+  try {
+    return commitChatProposal(project, card.id, actor).recordId;
+  } finally {
+    const at = project.chatProposals.indexOf(card);
+    if (at >= 0) project.chatProposals.splice(at, 1);
+  }
 }
 
 function bytesToLatin1(bytes: Uint8Array): string {
@@ -588,12 +655,28 @@ export function extractReadableExcerpt(bytes: Uint8Array, mimeType: string, file
   return '';
 }
 
-export function commitChatProposal(project: DdProject, proposalId: string, actor = 'operator'): { proposal: ChatProposal; recordId?: string } {
+/** Cards only a workspace admin may approve, like the controls they stand for. */
+export const ADMIN_ONLY_PROPOSALS: ReadonlySet<ChatProposalKind> = new Set<ChatProposalKind>(['set_departments']);
+
+export function commitChatProposal(
+  project: DdProject,
+  proposalId: string,
+  actor = 'operator',
+  opts: {
+    admin?: boolean;
+    /** Where the person accepting leads or signs. A card that gives a paper to another function moves it, and is held to the rule for a move (`moveDocument`). */
+    mayDecide?: MayDecide;
+  } = {},
+): { proposal: ChatProposal; recordId?: string } {
   ensureProjectShape(project);
   const item = project.chatProposals.find((p) => p.id === proposalId);
   if (!item) throw new Error('Proposal not found');
   if (item.status === 'rejected') throw new Error('Rejected proposals cannot be committed');
   if (item.status === 'committed') return { proposal: item, recordId: item.committedRecordId };
+
+  if (ADMIN_ONLY_PROPOSALS.has(item.kind) && !opts.admin) {
+    throw new Error('Changing which departments a project runs needs a workspace admin. An admin can approve this card, or change them from Overview.');
+  }
 
   const payload = item.payload;
   let recordId: string | undefined;
@@ -644,14 +727,23 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (quotes.length) evidence.quotes = mergeQuoteLists(evidence.quotes, quotes);
     const notes = proposalExtractionNotes(payload);
     if (notes) evidence.extractionNotes = notes;
+    // A row with no kind takes the one the rules read. A row that has one keeps it, and what was read is offered beside it (`kindAsRead`).
+    kindAsRead(evidence, {
+      known: typeof payload.documentType === 'string' ? payload.documentType : undefined,
+      offered: typeof payload.proposedDocumentType === 'string' ? payload.proposedDocumentType : undefined,
+    });
     // What the document states travels with it onto the row, so a check
     // started later — and every chat answer — can read it with its page.
     // Each value waits on the row for a person to accept it where it sits;
-    // one the row already accepts is not asked again.
-    if (Array.isArray(payload.facts) && payload.facts.length) {
-      evidence.facts = proposeFacts(evidence.facts ?? [], payload.facts as DocumentFact[]);
+    // one the row already accepts is not asked again. Put there once the row
+    // says what the paper is, so a value its kind does not carry never waits.
+    // Not a second time where this very reading was put on the row as the paper was read (`landIngestFile`).
+    // Only where the row still holds it: a paper whose row has gone since it landed is filed again here, values and all.
+    const landedHere = payload.landed === true && evidence.attachments.some((a) => a.storageKey === payload.storageKey);
+    if (Array.isArray(payload.facts) && payload.facts.length && !landedHere) {
+      evidence.facts = proposeOnRow(evidence, payload.facts as DocumentFact[]);
+      recordAuditEvent(project, { actor, action: 'read', entityType: 'evidence', entityId: evidence.id, newValue: `${payload.facts.length} value(s)` });
     }
-    if (typeof payload.documentType === 'string') evidence.documentType = payload.documentType;
     if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;
     if (payload.modelRead === true) {
       evidence.modelReadAt = nowIso();
@@ -674,8 +766,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
       );
     }
     // A document that answers other open rows too — the DD's "Title
-    // extract" beside the pack's "Sale deed" — answers all of them.
-    absorbAnsweredGaps(project, evidence);
+    // extract" beside the pack's "Sale deed" — answers all of them. Only as
+    // the paper the rules read it as: a row typed before, by a person or an
+    // earlier reading, answered what it answers then.
+    if (typeof payload.documentType === 'string') absorbAnsweredGaps(project, evidence);
     for (const checkId of evidence.checkIds) {
       for (const assessment of project.assessments) {
         for (const scope of assessment.scopes) {
@@ -685,6 +779,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
       }
     }
     recordId = evidence.id;
+  } else if (item.kind === 'log_site_entry') {
+    // A site entry read from a voice note, accepted by a person: filed on the site log as the note's entry, once.
+    const { entry } = logSiteEntry(project, siteEntryInput(payload as unknown as SiteEntryProposal), actor);
+    recordId = entry.id;
   } else if (item.kind === 'request_evidence' || item.kind === 'add_action') {
     const record = addAction(project, payload as unknown as CreateActionInput, actor);
     recordId = record.id;
@@ -697,6 +795,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (filed && !(input.evidenceIds ?? []).includes(filed.id)) input.evidenceIds = [...(input.evidenceIds ?? []), filed.id];
     delete (input as unknown as Record<string, unknown>).sourceStorageKey;
     const record = addFinding(project, input, actor);
+    // An observation's own three fields: where, what to do, and against which code.
+    if (typeof payload.area === 'string' && payload.area.trim()) record.area = payload.area.trim();
+    if (typeof payload.mitigation === 'string' && payload.mitigation.trim()) record.mitigation = payload.mitigation.trim();
+    if (typeof payload.standardRef === 'string' && payload.standardRef.trim()) record.standardRef = payload.standardRef.trim();
     recordId = record.id;
   } else if (item.kind === 'generate_report') {
     const record = generateReport(
@@ -782,6 +884,39 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
   } else if (item.kind === 'patch_project') {
     patchProject(project, payload as PatchProjectInput, actor);
     recordId = project.id;
+  } else if (item.kind === 'set_departments') {
+    const wanted = (Array.isArray(payload.departments) ? payload.departments : []).filter((d): d is DepartmentKey => (DEPARTMENT_KEYS as readonly string[]).includes(String(d)));
+    setProjectDepartments(project, wanted, actor);
+    recordId = project.id;
+  } else if (item.kind === 'request_documents') {
+    // One request per document, each tied to the row it will answer, so the
+    // sheet shows who was asked and the request closes itself on arrival.
+    const ids = (Array.isArray(payload.evidenceIds) ? payload.evidenceIds : []).map(String);
+    const recipient = String(payload.recipient ?? '').trim();
+    for (const evidenceId of ids) {
+      const row = project.evidence.find((e) => e.id === evidenceId);
+      if (!row) continue;
+      const out = (project.requests ?? []).some((r) => r.evidenceId === evidenceId && (r.status === 'sent' || r.status === 'draft'));
+      if (out) continue;
+      const made = addRequest(
+        project,
+        {
+          title: row.title,
+          detail: typeof payload.detail === 'string' ? payload.detail : undefined,
+          recipient,
+          recipientRole: typeof payload.recipientRole === 'string' ? payload.recipientRole : undefined,
+          dueAt: typeof payload.dueAt === 'string' ? payload.dueAt : undefined,
+          evidenceId,
+          send: true,
+        },
+        actor,
+      );
+      recordId = recordId ?? made.id;
+    }
+    if (!recordId) throw new Error('None of those documents is still waiting to be asked for.');
+  } else if (item.kind === 'assign_document') {
+    const moved = setDocumentWorkstream(project, String(payload.evidenceId), typeof payload.workstream === 'string' ? payload.workstream : null, actor, { mayDecide: opts.mayDecide });
+    recordId = moved.id;
   } else if (item.kind === 'patch_asset') {
     const record = patchAsset(project, String(payload.assetId), payload as PatchAssetInput, actor);
     recordId = record.id;
@@ -857,31 +992,6 @@ export function rejectChatProposal(project: DdProject, proposalId: string): Chat
   return item;
 }
 
-export function matchProposal(project: DdProject, question: string): ChatProposal | undefined {
-  const open = project.chatProposals.filter((p) => p.status === 'proposed');
-  const quoted = question.match(/["“]([^"”]+)["”]/);
-  if (quoted) {
-    const needle = quoted[1].toLowerCase();
-    return open.find((p) => p.title.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle));
-  }
-  const q = question.toLowerCase();
-  const byId = open.find((p) => q.includes(p.id.toLowerCase()));
-  if (byId) return byId;
-  let best: ChatProposal | undefined;
-  let score = 0;
-  for (const p of open) {
-    const title = p.title.toLowerCase();
-    if (q.includes(title)) return p;
-    const tokens = title.split(/[^a-z0-9]+/).filter((t) => t.length >= 4);
-    const hits = tokens.filter((t) => q.includes(t)).length;
-    if (hits > score) {
-      best = p;
-      score = hits;
-    }
-  }
-  return score >= 2 ? best : undefined;
-}
-
 export function wantsWizard(question: string): boolean {
   const q = question.trim().toLowerCase();
   if (q.length === 0) return true;
@@ -908,18 +1018,6 @@ export function wantsReport(q: string): boolean {
 
 export function wantsProofs(q: string): boolean {
   return /\bproofs?\b/.test(q) || /\bcite\b/.test(q) || /\bwhat supports\b/.test(q) || /\bevidence for\b/.test(q);
-}
-
-export function wantsApprove(q: string): boolean {
-  const t = q.trim().toLowerCase();
-  if (/^(yes|ok|okay|do it|go ahead)([.! ]|$)/.test(t)) return true;
-  if (/\bapprove(\s+all)?\b/.test(t)) return true;
-  if (/^(accept|commit)\b/.test(t)) return true;
-  return /\b(accept|commit) (this|all|the|it)\b/.test(t);
-}
-
-export function wantsReject(q: string): boolean {
-  return /\b(reject|skip|dismiss|no thanks)\b/.test(q);
 }
 
 function looksLikeInquiry(question: string): boolean {
@@ -979,10 +1077,53 @@ function inferAssetType(name: string, extra = ''): string {
   return extra.trim() || 'Asset';
 }
 
-function matchStage(text: string): LifecycleStage | undefined {
-  const t = text.toLowerCase();
-  const byLabel = LIFECYCLE_STAGES.find((s) => t.includes(s.label.toLowerCase()) || t.includes(s.key.replaceAll('_', ' ')));
-  return byLabel?.key;
+/** Lower case, with every run of punctuation a single space, padded so a name is found only as whole words. */
+export function plainWords(text: string): string {
+  return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+}
+
+/**
+ * The step a sentence names, by its own name or by the name of its stage,
+ * with the words it was named by.
+ *
+ * A stage's name means the step a project enters it by: "move the project to
+ * pre-construction" is Design, the first step of that stage, and never the
+ * Mobilisation step, which carried that name before the stages were renamed.
+ * Where one name sits inside another the longer one wins, so "under
+ * construction" and "pre-construction" are the stages and not the
+ * Construction step found inside the words.
+ *
+ * "Land" and "Completed" are ordinary words ("add the land parcel", "the
+ * tower completed in 2019"), so they count as a stage only where the
+ * sentence ends on them or calls them a stage.
+ *
+ * The words come back with the step for a reader that has to know the
+ * sentence said nothing else: the chat goes to a stage only when the stage is
+ * all that was named.
+ */
+export function stageNamed(text: string): { step: LifecycleStage; words: string } | undefined {
+  const t = plainWords(text);
+  const names: Array<{ name: string; step: LifecycleStage; common?: boolean }> = [
+    ...STAGES.map((s) => ({ name: s.label, step: stageEntryStep(s.key), common: s.key === 'pre_development' || s.key === 'operations' })),
+    ...LIFECYCLE_STAGES.flatMap((s) => [
+      { name: s.label, step: s.key },
+      { name: s.key.replaceAll('_', ' '), step: s.key },
+    ]),
+  ];
+  let best: { step: LifecycleStage; words: string } | undefined;
+  for (const { name, step, common } of names) {
+    const plain = plainWords(name);
+    const word = plain.trim();
+    const said = common ? new RegExp(` (?:to|at|in|is) (?:the )?${word}(?: stage)? $| ${word} stage `).test(t) : t.includes(plain);
+    // First found keeps a tie: the stages are listed first, so "pre construction" is the stage.
+    if (said && (!best || word.length > best.words.length)) best = { step, words: word };
+  }
+  return best;
+}
+
+/** The step a sentence names. See `stageNamed`. */
+export function matchStage(text: string): LifecycleStage | undefined {
+  return stageNamed(text)?.step;
 }
 
 function matchExistingAsset(project: DdProject, text: string) {
@@ -1007,7 +1148,8 @@ export function interpretConversation(project: DdProject, question: string, acto
 } {
   ensureProjectShape(project);
   const q = question.trim();
-  if (looksLikeInquiry(q) || wantsApprove(q.toLowerCase()) || wantsReject(q.toLowerCase())) {
+  // A question asks for nothing to be changed, and an instruction to accept or set aside is carried out as itself.
+  if (looksLikeInquiry(q) || readInstruction(q)) {
     return { proposals: [], imperative: false };
   }
 
@@ -1129,7 +1271,7 @@ export function interpretConversation(project: DdProject, question: string, acto
         proposal(
           'add_asset',
           `Add asset: ${name}`,
-          `Chat named “${name}” as ${type.toLowerCase()}${stage ? ` at ${LIFECYCLE_STAGE_LABEL[stage]}` : ''}.`,
+          `Chat named “${name}” as ${type.toLowerCase()}${stage ? ` at ${stageAndStep(stage)}` : ''}.`,
           'Creates the asset on the project tree. Later DDs can target it.',
           { name, assetType: type, currentStage: stage } satisfies CreateAssetInput,
           actor,
@@ -1179,13 +1321,15 @@ export function interpretConversation(project: DdProject, question: string, acto
 
   const stage = matchStage(q);
   const stagedAsset = matchExistingAsset(project, q);
-  if (stage && /\b(stage|now|move|moved|at|to)\b/i.test(q)) {
+  // Asking to be shown a stage is looking at it. Looking moves nothing, so it proposes nothing. Read by the reader of places, so the two cannot differ.
+  const looking = Boolean(shownWords(q));
+  if (stage && !looking && /\b(stage|now|move|moved|at|to)\b/i.test(q)) {
     if (stagedAsset && stagedAsset.currentStage !== stage) {
       out.push(
         proposal(
           'change_stage',
-          `Move ${stagedAsset.name} to ${LIFECYCLE_STAGE_LABEL[stage]}`,
-          `Currently ${LIFECYCLE_STAGE_LABEL[stagedAsset.currentStage]}.`,
+          `Move ${stagedAsset.name} to ${stageAndStep(stage)}`,
+          `Currently ${stageAndStep(stagedAsset.currentStage)}.`,
           'Writes a stage history row on the asset.',
           { subject: 'asset', assetId: stagedAsset.id, stage, reason: q.slice(0, 180) },
           actor,
@@ -1196,8 +1340,8 @@ export function interpretConversation(project: DdProject, question: string, acto
       out.push(
         proposal(
           'change_stage',
-          `Move project to ${LIFECYCLE_STAGE_LABEL[stage]}`,
-          `Currently ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
+          `Move project to ${stageAndStep(stage)}`,
+          `Currently ${stageAndStep(project.currentStage)}.`,
           'Writes a stage history row on the project.',
           { subject: 'project', stage, reason: q.slice(0, 180) },
           actor,
@@ -1312,10 +1456,31 @@ export function interpretConversation(project: DdProject, question: string, acto
     );
   }
 
-  const receivedHit = q.match(/\b(?:received|got|have|filed)\b.{0,48}/i);
-  if (receivedHit) {
+  /*
+   * "I have the encumbrance certificate": a paper the file is waiting for,
+   * said to have arrived. It is read only when the whole sentence says that
+   * and nothing else: the person or the firm has it, got it or received it,
+   * the paper is named by its title as whole words, and at most "now" or
+   * "today" follows.
+   *
+   * Found anywhere in a sentence, the same words marked a paper received
+   * that was needed ("we need to have the OC by June"), promised ("the seller
+   * will have the OC next month"), applied for ("we have filed the OC
+   * application") or not there at all ("nobody has received the OC"). Found
+   * as letters, "I have the documents now" marked the OC received, because
+   * "documents" holds "oc". It still only raises a card for a person to
+   * accept.
+   */
+  if (!asksAQuestion(q)) {
+    const said = wordsOf(q).join(' ');
     const gaps = project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
-    const hit = gaps.find((g) => q.toLowerCase().includes(g.title.toLowerCase()));
+    const hit = gaps.find((g) => {
+      const title = wordsOf(g.title).join(' ');
+      return (
+        Boolean(title)
+        && new RegExp(`^(?:(?:i|we) (?:have received|have got|have|got|received)|(?:ive|weve) (?:got|received)) (?:(?:the|a|an|our|my) )?${title}(?: (?:now|today))?$`, 'u').test(said)
+      );
+    });
     if (hit) {
       out.push(
         proposal(

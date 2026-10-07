@@ -49,6 +49,8 @@ export interface SiteLogEntry {
   issues: Array<{ title: string; severity: 'low' | 'medium' | 'high'; note?: string }>;
   photos: SiteLogPhoto[];
   point?: GeoPoint;
+  /** The voice note the entry was read from, where it was: the file, and its words kept beside it. */
+  voiceNote?: import('./site-notes').VoiceNoteFile;
   createdAt: string;
 }
 
@@ -109,6 +111,7 @@ export interface SiteLogInput {
   issues?: Array<{ title: string; severity?: 'low' | 'medium' | 'high'; note?: string }>;
   photos?: SiteLogPhoto[];
   point?: GeoPoint;
+  voiceNote?: import('./site-notes').VoiceNoteFile;
 }
 
 /**
@@ -133,6 +136,7 @@ export function logSiteEntry(project: DdProject, input: SiteLogInput, author: st
     issues: (input.issues ?? []).filter((i) => i.title.trim()).map((i) => ({ title: i.title.trim(), severity: i.severity ?? 'medium', ...(i.note ? { note: i.note } : {}) })),
     photos: input.photos ?? [],
     ...(input.point ? { point: input.point } : {}),
+    ...(input.voiceNote ? { voiceNote: input.voiceNote } : {}),
     createdAt: at,
   };
   for (const u of entry.milestoneUpdates) setMilestonePercent(project, u.milestoneId, u.percent, author, at);

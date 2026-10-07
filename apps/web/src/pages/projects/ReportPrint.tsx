@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
 import { useParams } from 'react-router-dom';
 import {
   engagementForReport,
@@ -82,10 +83,16 @@ export default function ReportPrint() {
         {report.body.blocks.map((block) => {
           const resolved = readReportBlock(project, block, frozen);
           return (
-            <section key={block.id} className="mt-6 break-inside-avoid-page">
+            <section key={block.id} className={resolved.table ? 'mt-6' : 'mt-6 break-inside-avoid-page'}>
               <h2 className="text-[17px] font-semibold">{block.heading ?? 'Section'}</h2>
               {block.origin === 'derived' ? (
-                resolved.lines.length ? (
+                resolved.table ? (
+                  <>
+                    <ReportTableView table={resolved.table} print />
+                    {resolved.note ? <p className="mt-1 italic text-neutral-600">{resolved.note}</p> : null}
+                    <ReportPhotos project={project} table={resolved.table} print />
+                  </>
+                ) : resolved.lines.length ? (
                   <ul className="mt-1 list-disc space-y-0.5 pl-5">
                     {resolved.lines.map((line, i) => (
                       <li key={i}>{line}</li>

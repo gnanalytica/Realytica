@@ -98,7 +98,7 @@ export function EvidenceDropZone({
       setProgress(null);
       await onFiled();
       close();
-      toast(`Filed ${entries.length} document${entries.length === 1 ? '' : 's'}. Each is read and given to the workstream it belongs to.`, 'good');
+      toast(`Filed ${entries.length} document${entries.length === 1 ? '' : 's'}. Each is read and given to the function it belongs to.`, 'good');
     } catch (e) {
       setProgress(null);
       toast(e instanceof Error ? e.message : 'Those documents did not file.', 'critical');

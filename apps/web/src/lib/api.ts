@@ -7,6 +7,8 @@ import type {
   AgentCapability,
   AgentStep,
   ReadingStreamEvent,
+  ChatTurnPlace,
+  ChoicePin,
   CopilotTurn,
   DataSourceDescriptor,
   IngestionReport,
@@ -97,6 +99,7 @@ import type {
   FlowNodeType,
 } from '@realytica/shared';
 import { authHeader, renewToken, signOut } from './auth';
+import type { RevenueReadResult } from './revenue-run';
 
 const BASE = '/api';
 
@@ -293,8 +296,8 @@ async function askCopilotStreaming(
 }
 
 /** What a chat turn reports while it runs: its steps, and any document being read. */
-/** A chat turn's result, and — when the person's instruction changed the file — how to take it back. */
-export type ProjectChatResponse = ProjectChatResult & { project: DdProject; undo?: { token: string; label: string } };
+/** A chat turn's result, with the project as the turn left it. What the turn changed is on its reply (`changed`), and is undone from there. */
+export type ProjectChatResponse = ProjectChatResult & { project: DdProject };
 
 export interface ProjectChatListeners {
   onStep?: (step: AgentStep) => void;
@@ -918,16 +921,56 @@ export const api = {
       from: 'last read' | 'address' | null;
       note?: string;
     }>(`/projects/${projectId}/gis-overlay/revenue/suggest`),
-  readRevenueMap: (
+  /**
+   * Read one survey number off the state's map. A number the map does not
+   * hold, and a read that failed, are answers here and not throws: a run of
+   * several shows each number's own outcome and goes on to the next.
+   * `unlessKept` answers from the parcel already kept when the number turns
+   * out to be one; `several` says the request is one of a run of them. A
+   * parcel that is kept is read again by its own reference, not by a place.
+   */
+  readRevenueMap: async (
     projectId: string,
-    body: { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string },
-  ) =>
-    request<{ read: RevenueMapRead; boundary: ParcelBoundary | null; notEvidence: true; note: string }>(
-      `/projects/${projectId}/gis-overlay/revenue`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
+    body:
+      | { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string; asWritten?: string[]; unlessKept?: boolean; several?: boolean }
+      | { parcelRef: string; several?: boolean },
+  ): Promise<RevenueReadResult> => {
+    const res = await fetchWithAuth(`${BASE}/projects/${projectId}/gis-overlay/revenue`, { method: 'POST', body: JSON.stringify(body) });
+    const answer = (await res.json().catch(() => ({}))) as {
+      read?: RevenueMapRead;
+      boundary?: ParcelBoundary | null;
+      note?: string;
+      already?: boolean;
+      error?: string;
+      near?: string[];
+      alsoAsked?: string[];
+      full?: boolean;
+    };
+    if (res.ok && answer.read) {
+      return { ok: true, read: answer.read, boundary: answer.boundary ?? null, note: answer.note ?? '', ...(answer.already ? { already: true } : {}) };
+    }
+    // A server that has had too many requests for the minute says how long to leave it alone.
+    const retryAfterS = Number(res.headers.get('Retry-After'));
+    return {
+      ok: false,
+      status: res.status,
+      error: answer.error ?? `${res.status} ${res.statusText}`,
+      ...(answer.near ? { near: answer.near } : {}),
+      ...(answer.alsoAsked?.length ? { alsoAsked: answer.alsoAsked } : {}),
+      ...(answer.full ? { full: true } : {}),
+      ...(Number.isFinite(retryAfterS) && retryAfterS > 0 ? { retryAfterS } : {}),
+    };
+  },
   fileRevenueMap: (projectId: string) =>
     request<{ evidence: EvidenceRecord; project: DdProject }>(`/projects/${projectId}/gis-overlay/revenue/file`, { method: 'POST' }),
+  /**
+   * Take one parcel's read off the project; the others stay. A parcel has to
+   * be named: with none, the address would be the one that clears every read.
+   */
+  removeRevenueRead: (projectId: string, parcelRef: string) =>
+    parcelRef
+      ? request<void>(`/projects/${projectId}/gis-overlay/revenue/${encodeURIComponent(parcelRef)}`, { method: 'DELETE' })
+      : Promise.reject(new ApiRequestError('No parcel was named to remove.', 400)),
   clearRevenueMap: (projectId: string) =>
     request<void>(`/projects/${projectId}/gis-overlay/revenue`, { method: 'DELETE' }),
   projectGraphNeighbourhood: (projectId: string, query: string, hops = 2) =>
@@ -997,10 +1040,16 @@ export const api = {
     body: {
       question: string;
       viewContext?: string;
+      /** The page the question is asked from, and the stage it is looked at in. */
+      place?: ChatTurnPlace;
       actor?: string;
       /** The sitting these turns belong to, so history can be cut into chats. */
       sessionId?: string;
-      sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+      /** The earlier chat this sitting carries on. */
+      continues?: string;
+      /** When this sitting began: what the server wrote since then is in this chat too. */
+      sessionStartedAt?: string;
+      sitting?: ChoicePin;
     },
     opts?: ProjectChatListeners,
   ) =>
@@ -1021,24 +1070,37 @@ export const api = {
       }
       return readProjectChatStream(res, opts?.onStep, opts?.onReading);
     }),
+  /** Whether a voice note can be put into words here, where its sound is sent, and how large one request may be. */
+  chatVoice: (projectId: string) => request<{ available: boolean; model?: string; host?: string; reads?: boolean; maxBytes: number; maxRequestBytes: number }>(`/projects/${projectId}/chat/voice`),
+
   projectChatFiles: (
     projectId: string,
     body: {
       files: File[];
+      /** What this page knows of each file and its bytes may not say, in the order of the files. */
+      captured?: Array<{ day?: string; takenAt?: string; seconds?: number }>;
       question?: string;
       viewContext?: string;
+      place?: ChatTurnPlace;
       actor?: string;
       sessionId?: string;
-      sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+      continues?: string;
+      sessionStartedAt?: string;
+      sitting?: ChoicePin;
     },
     opts?: ProjectChatListeners,
   ) => {
     const form = new FormData();
     body.files.forEach((f) => form.append('files', f));
+    if (body.captured) form.append('captured', JSON.stringify(body.captured));
     if (body.question) form.append('question', body.question);
     if (body.viewContext) form.append('viewContext', body.viewContext);
+    // A form carries words, so the place goes as one field of them.
+    if (body.place) form.append('place', JSON.stringify(body.place));
     if (body.actor) form.append('actor', body.actor);
     if (body.sessionId) form.append('sessionId', body.sessionId);
+    if (body.continues) form.append('continues', body.continues);
+    if (body.sessionStartedAt) form.append('sessionStartedAt', body.sessionStartedAt);
     if (body.sitting?.ddId) form.append('ddId', body.sitting.ddId);
     if (body.sitting?.scopeId) form.append('scopeId', body.sitting.scopeId);
     if (body.sitting?.checkId) form.append('checkId', body.sitting.checkId);
@@ -1072,6 +1134,9 @@ export const api = {
       body: JSON.stringify({}),
     }),
   clearProjectChat: (projectId: string) => request<void>(`/projects/${projectId}/chat`, { method: 'DELETE' }),
+  /** Name a chat. An empty name hands it back to its first question. */
+  renameChat: (projectId: string, sessionId: string, name: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/chat/sessions/${encodeURIComponent(sessionId)}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   /*
    * Deciding on the canvas. Each names what it decides by id, writes no chat
    * turn, and answers with the project as it now stands.
@@ -1080,12 +1145,27 @@ export const api = {
   reviewFacts: (
     projectId: string,
     evidenceId: string,
-    body: { keys: string[] | 'all'; decision: 'accept' | 'reject' | 'reopen'; edit?: { value: string | number | boolean; display: string } },
+    body: {
+      keys: string[] | 'all';
+      decision: 'accept' | 'reject' | 'reopen';
+      edit?: { value: string | number | boolean; display: string };
+      /** Keep the other reader's value for the one key named. */
+      take?: 'other';
+    },
   ) =>
     request<{ project: DdProject; changed: number }>(`/projects/${projectId}/evidence/${evidenceId}/facts/review`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /** Confirm what a model took a filed document for, so it becomes the row's type. */
+  confirmDocumentType: (projectId: string, evidenceId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/confirm`, { method: 'POST' }),
+  /** Refuse what a model took a filed document for. The offer goes, and is not made again for that document. */
+  setAsideDocumentType: (projectId: string, evidenceId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/set-aside`, { method: 'POST' }),
+  /** Say what a filed document is, in place of what a model took it for. */
+  correctDocumentType: (projectId: string, evidenceId: string, documentType: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/correct`, { method: 'POST', body: JSON.stringify({ documentType }) }),
   /** Accept or set aside values waiting on a check, a field at a time. */
   decideCheckFields: (projectId: string, proposalId: string, body: { keys: string[]; decision: 'accept' | 'reject'; values?: Record<string, unknown> }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/fields`, { method: 'POST', body: JSON.stringify(body) }),
@@ -1103,9 +1183,6 @@ export const api = {
     }),
   setAsideWaiting: (projectId: string, proposalId: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/set-aside`, { method: 'POST', body: JSON.stringify({}) }),
-  /** Take back the last instruction given in the chat. */
-  undoInstruction: (projectId: string, token: string) =>
-    request<{ project: DdProject }>(`/projects/${projectId}/undo/${token}`, { method: 'POST', body: JSON.stringify({}) }),
   orchestrateProject: (projectId: string, actor?: string) =>
     request<{ run: OrchestratorRun; drafts: AiDraft[]; project: DdProject }>(`/projects/${projectId}/orchestrate`, {
       method: 'POST',

@@ -36,6 +36,8 @@ import type { DdProject, EvidenceRecord } from './types';
 import type { GeoPoint } from '../types';
 import { haversineMetres } from '../site';
 import { addEvidence, recordAuditEvent } from './operations';
+import { decisionRefused } from './review';
+import type { MayDecide } from './team';
 
 /* ==================================================================== */
 /* Units                                                                 */
@@ -389,8 +391,15 @@ export function updateComparable(project: DdProject, id: string, patch: Comparab
   return c;
 }
 
-/** Accept or set aside comparables, by id. */
-export function decideComparables(project: DdProject, ids: readonly string[], decision: 'accept' | 'reject', actor: string): number {
+/**
+ * Accept or set aside comparables, by id.
+ *
+ * Which comparables count sets the rate the schedule gives the valuation, so
+ * deciding one is Finance's: with `mayDecide`, a lead's or a signer's there,
+ * and anybody else is refused before anything changes.
+ */
+export function decideComparables(project: DdProject, ids: readonly string[], decision: 'accept' | 'reject', actor: string, options: { mayDecide?: MayDecide } = {}): number {
+  if (options.mayDecide && !options.mayDecide('finance')) throw decisionRefused('Deciding a comparable', 'finance', options.mayDecide);
   const at = nowIso();
   let n = 0;
   for (const c of project.comparables ?? []) {
