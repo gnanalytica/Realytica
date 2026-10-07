@@ -245,7 +245,9 @@ describe('a value compared across the papers', () => {
   it('is answered as "what is the extent?" is: every paper that states one, side by side', () => {
     const project = readFile();
     const asked = applyProjectChat(project, 'what is the extent?').assistantTurn.text;
-    assert.match(asked, /12,000 sqm.+11,850 sqm/);
+    // The paper filed last is said first, and the deed and the khata here are often filed in the same millisecond: either order.
+    assert.match(asked, /12,000 sqm/);
+    assert.match(asked, /11,850 sqm/);
     for (const said of [
       'compare the extent on the deed and the khata',
       'reconcile the extent across the papers',
