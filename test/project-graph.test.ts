@@ -26,6 +26,8 @@ import { describe, it } from 'node:test';
 import {
   addAction,
   addAsset,
+  addBill,
+  addContract,
   addDecision,
   addEvidence,
   addFinding,
@@ -35,10 +37,13 @@ import {
   addRisk,
   addSheet,
   addSiteVisit,
+  addWorkPackages,
   answerQuestion,
   applyProjectChat,
   attachEvidenceFile,
   buildProjectGraph,
+  certifyBill,
+  certifyLine,
   changeStage,
   commitAiDraft,
   createEngagement,
@@ -235,8 +240,9 @@ function screenedProject(): DdProject {
  * risk no finding raised, a milestone a site entry moved, an answered
  * questionnaire, a certified report, an engagement and the report it
  * delivers, a person holding every role, links drawn by hand (one of each
- * relation a person may draw between these kinds), and talk that cites a
- * record and commits a draft.
+ * relation a person may draw between these kinds), a work package measured
+ * against the milestone with a contract that covers it and a certified bill
+ * under that, and talk that cites a record and commits a draft.
  */
 function filledProject(): DdProject {
   const project = screenedProject();
@@ -265,6 +271,12 @@ function filledProject(): DdProject {
   addLink(project, { from: { kind: 'approval', id: 'environment' }, to: { kind: 'workstream', id: 'construction.safety' }, type: 'gates' }, 'tester');
   addLink(project, { from: { kind: 'document', id: plan.id }, to: { kind: 'finding', id: finding.id }, type: 'cites' }, 'tester');
   addLink(project, { from: { kind: 'engagement', id: engagement.id }, to: { kind: 'workstream', id: 'procurement.vendors' }, type: 'draws_on' }, 'tester');
+
+  const [pack] = addWorkPackages(project, [{ code: 'B', name: 'Structure', budget: 5_000_000, milestoneId: milestone!.id }], 'tester');
+  const contract = addContract(project, { contractor: 'Sharma Constructions', title: 'Civil works', workPackageIds: [pack!.id], value: 4_500_000 }, 'tester');
+  const bill = addBill(project, { contractId: contract.id, number: 'RA-1', date: '2026-10-02', lines: [{ item: '2.4', description: 'Raft concrete', workPackageId: pack!.id, amount: 600_000, readBy: 'person' }] }, 'tester');
+  certifyLine(project, bill.id, bill.lines[0]!.id, { amount: 600_000 }, 'qs@firm.in');
+  certifyBill(project, bill.id, { signer: { email: 'qs@firm.in', profession: 'Quantity Surveyor' }, certifiedOn: '2026-10-03' }, 'qs@firm.in');
 
   applyProjectChat(project, 'Give me a briefing');
   project.conversation.at(-1)!.citedNodeIds = [finding.id];

@@ -3,16 +3,21 @@
  * by no model.
  *
  * Two things. Under an answer the chat gave by rule, the facts memory holds
- * that the question is about, each with its tag: at most four, the ones that
- * wait first, and nothing where memory holds nothing about the question
- * (`memUnderAnswer`). And the answer to a question put to memory itself:
- * what it holds about something, what was agreed about it, what is still
- * undecided, what changed (`memAsksMemory`, `memAnswer`).
+ * that bear on what was asked, each with its tag: at most four, the ones that
+ * wait first, and nothing where none does (`memUnderAnswer`). And the answer
+ * to a question put to memory itself: what it holds about something, what
+ * was agreed about it, what is still undecided, what changed
+ * (`memAsksMemory`, `memAnswer`).
  *
  * A fact is said in one line: what it says, its tag, who approved it or how
  * it was read, when, and what states it. The tag is printed here from the
  * fact, and the line keeps where in the text it stands, so that a page draws
- * it as a tag there and nowhere else (`MemRest`).
+ * it as a tag there and nowhere else (`MemRest`). A paper that states a fact
+ * is written as a citation, which the page draws as a chip that opens the
+ * paper at the page. What follows the tag is words with commas between, and
+ * the citation ends the line after a space: wherever the line wraps, no mark
+ * is left alone at an end or carried to the next. A value two papers state
+ * alike, as two copies of one paper do, is one line cited to both.
  *
  * Pure. The caller hands in the facts this reader may see, and `project` is
  * the record as they may see it: it gives every title and every name.
@@ -23,7 +28,8 @@ import { chatPlaceLabel } from './chat-places';
 import { DEPARTMENT_SHORT, MENU_DEPARTMENTS, menuFunctions } from './departments';
 import { allChecks } from './engagements';
 import { acceptedFacts } from './fact-review';
-import { memBySeed, memIsNear, memNear, memSeeds, memTagPrinted, memTellingWords, memTitles, type MemAsk, type MemRest, type MemSeed } from './mem-context';
+import { asksForAFact, citeToken, factKeysAsked, saidInPassing, withoutFarAsACommonWord } from './file-answers';
+import { memIsNear, memNear, memSeeds, memTagPrinted, memTellingWords, memTitles, type MemAsk, type MemRest, type MemSeed } from './mem-context';
 import { memWho } from './mem-delta';
 import { memFormOfKey, type MemFact } from './mem-facts';
 import { meetingCalled, meetingDayIn, meetingItemStands, meetingNotesMark, meetingOfRecord, meetingsHeld } from './meetings';
@@ -69,6 +75,8 @@ export function memPeople(project: DdProject): Map<string, string> {
 interface Names {
   projectId: string;
   titles: ReadonlyMap<string, string>;
+  /** The papers on the register, by id: a fact one of them states is cited to it. */
+  papers: ReadonlySet<string>;
   people: ReadonlyMap<string, string>;
   /** Where each decision and action stands on the record, in the record's own words, whether it is still open, and the meeting it came out of where it came out of one. */
   records: ReadonlyMap<string, { stands: string; open: boolean; unmade?: boolean; from?: string }>;
@@ -87,7 +95,7 @@ function namesOf(project: DdProject): Names {
   // Pending is how a point left open stands: a decision that is on the record and that nobody has made.
   for (const decision of project.decisions) records.set(decision.id, { stands: DECISION_STATUS_LABEL[decision.status].toLowerCase(), open: DECISION_OPEN.has(decision.status), ...(decision.status === 'pending' ? { unmade: true } : {}), ...from(decision.id) });
   for (const action of project.actions) records.set(action.id, { stands: ACTION_STATUS_LABEL[action.status].toLowerCase(), open: action.status !== 'closed', ...from(action.id) });
-  return { projectId: project.id, titles: memTitles(project), people: memPeople(project), records };
+  return { projectId: project.id, titles: memTitles(project), papers: new Set(project.evidence.map((row) => row.id)), people: memPeople(project), records };
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -132,20 +140,55 @@ interface Line {
   rest?: { fact: MemFact; at: number };
 }
 
+/** A fact to say, and the others that state the same value and are cited beside it. */
+interface Stated {
+  fact: MemFact;
+  also: MemFact[];
+}
+
+/**
+ * Facts each said once. Papers that state the same kind of value, with the
+ * same value, standing the same way, say one thing: the first of them is
+ * said, and the rest are cited on its line. Two copies of a paper on the
+ * register would otherwise say every value twice.
+ */
+function saidOnce(facts: readonly MemFact[], names: Names): Stated[] {
+  const out: Stated[] = [];
+  const held = new Map<string, Stated>();
+  for (const fact of facts) {
+    const paper = names.papers.has(fact.source) && fact.tag !== 'thought' && fact.key !== 'decision' && fact.key !== 'action';
+    const what = paper ? [fact.label, valueOf(fact), memTagPrinted(fact.tag, fact.stands), fact.aboutId === fact.source ? '' : fact.aboutId].join('|') : undefined;
+    const first = what ? held.get(what) : undefined;
+    if (first) {
+      first.also.push(fact);
+      continue;
+    }
+    const one: Stated = { fact, also: [] };
+    if (what) held.set(what, one);
+    out.push(one);
+  }
+  return out;
+}
+
 const words = (text: string): Line => ({ text });
 
 /**
  * One fact as one line for a person: what it says, its tag, who approved it
  * or how it was read, when, and what states it. `past` adds what it was
- * before.
+ * before. `also` is the other papers that state the same, cited after its
+ * own.
  */
-function lineOf(fact: MemFact, names: Names, past = false): Line {
+function lineOf(fact: MemFact, names: Names, past = false, also: readonly MemFact[] = []): Line {
   const tag = memTagPrinted(fact.tag, fact.stands);
   const titled = (id: string): string | undefined => (id === names.projectId ? undefined : names.titles.get(id));
   const when = dayOf(fact.at ?? fact.recordedAt);
   const about = fact.aboutId === fact.source ? undefined : titled(fact.aboutId);
+  const person = fact.by ? names.people.get(fact.by) : undefined;
+  const by = person ? `by ${person}` : undefined;
   let head: string;
   let after: Array<string | undefined>;
+  // The papers that state it, each a citation the page draws as a chip that opens the paper at the page.
+  let cited: string[] = [];
   if (fact.tag === 'thought') {
     head = String(fact.value);
     after = [when, about ? `about “${about}”` : undefined];
@@ -156,16 +199,19 @@ function lineOf(fact: MemFact, names: Names, past = false): Line {
     const what = fact.key === 'action' ? 'Action recorded' : record?.unmade ? 'Decision still to be made' : 'Decision recorded';
     // A kind that says nothing, "other", is left unsaid.
     const kind = fact.value === 'other' ? undefined : valueOf(fact);
-    const standing = [kind, record?.stands].filter(Boolean).join(', ');
+    // Where the record stands is said once: an approved decision has the tag beside it, which says so.
+    const stands = record && tag === `[${record.stands}]` ? undefined : record?.stands;
+    const standing = [kind, stands].filter(Boolean).join(', ');
     head = `${what}: “${names.titles.get(fact.aboutId) ?? 'a record no longer on file'}”${standing ? ` (${standing})` : ''}`;
-    after = [fact.by ? names.people.get(fact.by) : undefined, when, record?.from];
+    after = [by, when, record?.from];
   } else {
     const source = titled(fact.source);
     head = `${fact.label}: ${valueOf(fact)}`;
     after = [
-      fact.tag === 'approved' ? (fact.by ? names.people.get(fact.by) : undefined) : HOW_READ[fact.readBy ?? ''],
+      fact.tag === 'approved' ? by : HOW_READ[fact.readBy ?? ''],
       when,
-      source ? `“${source}”${fact.page ? `, p.${fact.page}` : ''}` : undefined,
+      // A card or a turn that states it is named in words. A paper is cited, at the end of the line.
+      source && !names.papers.has(fact.source) ? `“${source}”${fact.page ? `, p.${fact.page}` : ''}` : undefined,
       about ? `on “${about}”` : undefined,
       fact.contests ? 'another reader reads it differently' : undefined,
       // What holds for one day says the day once.
@@ -178,9 +224,11 @@ function lineOf(fact: MemFact, names: Names, past = false): Line {
         ? `before: ${fact.was.map((was) => `${WHAT_HAPPENED[was.what] ?? was.what} ${dayOf(was.at)}${was.said ? ` (${was.said})` : ''}`).join('; ')}`
         : undefined,
     ];
+    cited = [...new Set([fact, ...also].filter((stated) => names.papers.has(stated.source)).map((stated) => citeToken(stated.source, stated.page)))];
   }
   const lead = `- ${head} `;
-  return { text: [`${lead}${tag}`, ...after.filter(Boolean)].join(' · '), rest: { fact, at: lead.length } };
+  // The tag, then the rest in words with commas between: a line that ends anywhere leaves no mark alone at its end or at the head of the next.
+  return { text: [`${lead}${tag}`, after.filter(Boolean).join(', '), ...cited].filter(Boolean).join(' '), rest: { fact, at: lead.length } };
 }
 
 /** Lines as one text, with the place of every tag in it. A fact said twice rests once, with both places. */
@@ -222,33 +270,101 @@ const newestFirst = (a: MemFact, b: MemFact): number => {
 const OF_THE_PROJECT = /\b(?:this|the|our|my) (?:project|file|site|plot|property|deal)\b|\bso far\b|\boverall\b/i;
 
 /**
- * What is said under an answer the chat gave by rule: the facts memory holds
- * that the question is about, at most four, the ones that wait first.
- *
- * About the question means the closest thing it is about that memory holds
- * anything of: what the question names, else the record the sitting is on,
- * else the page it was asked on. A question about the project as a whole, or
- * an answer that is (`whole`), brings what waits anywhere on the project and
- * then the newest of what a named person approved: a field nobody is on
- * record as setting, the city a project was made with, is not news to
- * anybody. Nothing is said where memory holds nothing about the question.
+ * Where a word that is also the name of a kind of value is the common word
+ * and not the name: "let me know", "let's see". "Far" in "how far back" and
+ * "so far" is taken out the same way (`withoutFarAsACommonWord`): FAR is the
+ * floor area ratio, and neither is about it.
  */
-export function memUnderAnswer(project: DdProject, facts: readonly MemFact[], ask: MemAsk, options: { whole?: boolean } = {}): MemSaid | undefined {
-  const seeds = memSeeds(project, ask);
-  const brought = memBySeed(project.id, facts, seeds);
-  let own: MemFact[] = [];
-  for (const from of ['named', 'sitting', 'page'] as const) {
-    own = seeds.flatMap((seed, at) => (seed.from === from ? brought[at]! : []));
-    if (own.length) break;
-  }
-  // A stable sort: within what waits, and within what is approved, the order the seeds gave is kept.
-  let chosen = [...own].sort((a, b) => waitingFirst(a) - waitingFirst(b));
+const LET_AS_A_COMMON_WORD = /\blet(?:'s|’s)?\s+(?:me|us|them|him|her|it)\b/gi;
+
+/** A kind of value written out in full where its label has the short form. */
+const SAID_IN_FULL = /\bfloor[\s-]+area[\s-]+ratio\b|\bfloor[\s-]+space[\s-]+index\b|\bfsi\b/gi;
+
+/** A word for something done. It is said of anything ("has it been paid", "when was it issued"), so alone it names no kind of value. */
+const SOMETHING_DONE = /(?<!e)ed$|^(?:paid|done|sold|built|held|kept|made|given|taken)$/;
+
+/** A question that asks who. It is answered by a name: "who paid the tax?" is not answered by how much was paid. */
+const ASKS_WHO = /^\W*(?:(?:so|and|ok|okay|hey|please)[\s,]+)?who(?:m|se)?\b/i;
+const namesSomebody = (fact: MemFact): boolean => typeof fact.value === 'string' && memFormOfKey(fact.key, fact.label) !== 'date';
+
+/** The kinds a fact can be that are a record and no value: asked by name they are the registers' to list. */
+const A_RECORD = new Set(['decision', 'action', 'answer', 'note']);
+
+/** A question as it is meant: a word used as the common word it also is left out, and a kind of value written out in full read as its short name. */
+function asMeant(question: string): string {
+  return withoutFarAsACommonWord(question).replace(LET_AS_A_COMMON_WORD, ' ').replace(SAID_IN_FULL, ' FAR ');
+}
+
+/** The words of a question that say what it is about: the ones of the question as it is meant that can tell one thing from another. */
+function subjectWords(question: string): Set<string> {
+  return new Set(memTellingWords(asMeant(question)));
+}
+
+/**
+ * Whether the words name this kind of value in full: every word of its label
+ * that tells it apart, and not only a word for something done. A label with
+ * one such word ("Project status", "Stage") is named only where that word is
+ * all the question is about: in "the status of the mortgage" the question is
+ * about the mortgage, and "status" is said of it.
+ */
+function namesInFull(subject: ReadonlySet<string>, label: string): boolean {
+  const telling = memTellingWords(label);
+  if (telling.length === 1 && subject.size > 1) return false;
+  return telling.some((word) => !SOMETHING_DONE.test(word)) && telling.every((word) => subject.has(word));
+}
+
+/**
+ * What is said under an answer the chat gave by rule: the facts memory holds
+ * that bear on what was asked, at most four, the ones that wait first.
+ *
+ * A fact bears on a question in one of three ways. The question names its
+ * kind of value in full, by the question's own subject words ("the land
+ * area", "the permissible FAR"). Or it names no kind in full and is about
+ * one the file answers from: "is there a mortgage?" is about what the
+ * encumbrance certificate searched and found. Or the question names the
+ * record the fact is about, by its title or its kind. A kind of value named
+ * is closer to what was asked than a record named, and is what is said.
+ *
+ * Nothing else brings a fact: not the page the question was asked on, not
+ * the record a sitting is on, and not a common word that happens to be in a
+ * label. So "far" in "so far" names no FAR, and one word that is a whole
+ * label ("status", "type", "name", "stage") names it only where the question
+ * is about nothing else. A greeting or a thank-you has nothing under it, with
+ * whatever few words were added to it. Nor has a reply that is no answer to
+ * what was asked: the caller says nothing under one.
+ *
+ * A question about the project as a whole, or an answer that is (`whole`),
+ * brings what waits anywhere on the project and then the newest of what a
+ * named person approved: a field nobody is on record as setting, the city a
+ * project was made with, is not news to anybody. No lines are better than
+ * lines about something else, so where nothing bears on the question nothing
+ * is said. A value two papers state alike is one line (`saidOnce`).
+ *
+ * `named` is for a question no rule answered. Then only a kind of value the
+ * question names in full is said, and it is the answer: "what is the project
+ * type?" is the project's own field. A record the question names, or the
+ * project as a whole, is where the file stands and not what was asked. And
+ * only a question put for a fact is answered so: "why is it residential?" is
+ * not answered by saying that it is, nor "who paid the tax?" by the amount.
+ */
+export function memUnderAnswer(project: DdProject, facts: readonly MemFact[], ask: MemAsk, options: { whole?: boolean; named?: boolean } = {}): MemSaid | undefined {
+  if (saidInPassing(ask.question)) return undefined;
+  const subject = subjectWords(ask.question);
+  const fitting = options.named && ASKS_WHO.test(ask.question) ? facts.filter(namesSomebody) : facts;
+  const inFull = fitting.filter((fact) => !A_RECORD.has(fact.key) && namesInFull(subject, fact.label));
+  if (options.named && (!inFull.length || !asksForAFact(ask.question))) return undefined;
+  const answeredFrom = new Set(inFull.length ? [] : factKeysAsked(ask.question));
+  const kinds = inFull.length ? inFull : facts.filter((fact) => answeredFrom.has(fact.key));
+  const records = memSeeds(project, { question: ask.question }).filter((seed) => seed.from === 'named' && seed.aboutIds.length);
+  const near = memNear(project.id, records);
+  const ofRecords = records.length ? facts.filter((fact) => memIsNear(fact, near)) : [];
+  let chosen = [...(kinds.length ? kinds : ofRecords)].sort((a, b) => waitingFirst(a) - waitingFirst(b) || newestFirst(a, b));
   if (!chosen.length && (options.whole || OF_THE_PROJECT.test(ask.question))) {
     chosen = facts.filter((fact) => fact.tag === 'proposed' || (fact.tag === 'approved' && fact.by)).sort((a, b) => waitingFirst(a) - waitingFirst(b) || newestFirst(a, b));
   }
   if (!chosen.length) return undefined;
   const names = namesOf(project);
-  return said([words('In this project’s memory:'), ...chosen.slice(0, MEM_UNDER_ANSWER).map((fact) => lineOf(fact, names))]);
+  return said([words('In this project’s memory:'), ...saidOnce(chosen, names).slice(0, MEM_UNDER_ANSWER).map(({ fact, also }) => lineOf(fact, names, false, also))]);
 }
 
 /** What a question asks of memory itself. */
@@ -296,7 +412,7 @@ interface Subject {
   /** The whole project: every fact memory holds. */
   everything: boolean;
   seeds: MemSeed[];
-  /** Words that tell a record's title or a note as being about it, when it is a kind of value and no record. */
+  /** The words the question gave for it, the ones that tell one thing from another: a title, a note or a kind of value that has them is about it. */
   telling: string[];
   /** A line to end the answer with: for a meeting, how much of its notes still waits on cards. */
   also?: string;
@@ -328,7 +444,7 @@ function subjectOf(project: DdProject, asked: MemAsked, ask: MemAsk): Subject | 
   }
   const met = about ? meetingAsked(project, about) : undefined;
   if (met) return met;
-  const named = memSeeds(project, { question: about ?? ask.question }).filter((seed) => seed.from === 'named');
+  const named = memSeeds(project, { question: asMeant(about ?? ask.question) }).filter((seed) => seed.from === 'named');
   const page = about ? A_PAGE.exec(about)?.[1]?.toLowerCase() : undefined;
   const pages: MemSeed[] = !page
     ? []
@@ -348,10 +464,9 @@ function subjectOf(project: DdProject, asked: MemAsked, ask: MemAsk): Subject | 
     if (ids.length) return { called: calledAs(about), everything: false, seeds: [{ from: 'named', title: calledAs(about), aboutIds: ids.slice(0, 40), keys: [] }], telling: [] };
   }
   if (!seeds.length) return about ? undefined : whole;
-  const keys = named.flatMap((seed) => seed.keys);
   const titles = named.filter((seed) => seed.aboutIds.length).map((seed) => `“${seed.title}”`);
   const called = about ? calledAs(about) : [...titles, ...pages.map((seed) => `the ${seed.title} page`)].slice(0, 2).join(' and ') || 'what the question names';
-  return { called, everything: false, seeds, telling: keys.length && !titles.length ? memTellingWords(about ? calledAs(about) : '') : [] };
+  return { called, everything: false, seeds, telling: about ? memTellingWords(calledAs(about)) : [] };
 }
 
 /**
@@ -385,10 +500,11 @@ const HEAD: Record<MemAskedKind, (called: string) => string> = {
   changed: (called) => `What changed about ${called}:`,
 };
 
-/** A list cut to its length, with a line that says how many more there are. */
+/** A list with each thing said once, cut to its length, with a line that says how many more there are. What a fact was before is its own, so with the past asked for each fact has its line. */
 function listed(facts: readonly MemFact[], atMost: number, names: Names, past = false): Line[] {
-  const more = facts.length - atMost;
-  return [...facts.slice(0, atMost).map((fact) => lineOf(fact, names, past)), ...(more > 0 ? [words(`- and ${more} more`)] : [])];
+  const stated = past ? facts.map((fact) => ({ fact, also: [] })) : saidOnce(facts, names);
+  const more = stated.length - atMost;
+  return [...stated.slice(0, atMost).map(({ fact, also }) => lineOf(fact, names, past, also)), ...(more > 0 ? [words(`- and ${more} more`)] : [])];
 }
 
 /**
@@ -398,9 +514,17 @@ function listed(facts: readonly MemFact[], atMost: number, names: Names, past = 
  * person approved and what waits, in the order the question wants them, and
  * for a question about change what each was before. Then the decisions and
  * actions about it, then the assistant's own notes about it, set apart and
- * said to be thoughts. One line when the question names nothing memory can
- * find. `notesUnread` is for a reader of memory whose notes could not be
- * read just now, and adds a line that says so.
+ * said to be thoughts. Asked what was agreed or decided, the decisions and
+ * actions come first, those out of a meeting before the rest, and the values
+ * follow. One line when the question names nothing memory can find.
+ *
+ * A value is about what was asked when its kind is the one the question's
+ * words name, or it is about a paper they name, or it is on the page they
+ * name. One that only shares a word with the question is not: the four
+ * boundaries a deed recites say nothing of a boundary wall.
+ *
+ * `notesUnread` is for a reader of memory whose notes could not be read just
+ * now, and adds a line that says so.
  */
 export function memAnswer(project: DdProject, facts: readonly MemFact[], asked: MemAsked, ask: MemAsk, options: { notesUnread?: boolean } = {}): MemSaid {
   const subject = subjectOf(project, asked, ask);
@@ -423,7 +547,16 @@ export function memAnswer(project: DdProject, facts: readonly MemFact[], asked: 
     ...project.actions.filter((a) => ties([a.evidenceIds, a.checkIds, a.findingIds, a.riskIds]) || worded(a.title)).map((a) => a.id),
   ]);
 
-  const own = (subject.everything ? told : told.filter((fact) => memIsNear(fact, near))).filter((fact) => !isRecord(fact)).sort(newestFirst);
+  // The subject's words name something when every word of one is in the other: "the extent" names the extent per title, "the boundary wall" no boundary.
+  const isNamed = (text: string | undefined): boolean => {
+    const said = memTellingWords(text ?? '');
+    return said.length > 0 && (said.every((word) => subject.telling.includes(word)) || subject.telling.every((word) => said.includes(word)));
+  };
+  const onThePage = { aboutIds: [], keys: [], fns: near.fns, departments: near.departments };
+  const kindOf = new Map(project.evidence.map((row) => [row.id, row.documentType]));
+  const bears = (fact: MemFact): boolean =>
+    !subject.telling.length || memIsNear(fact, onThePage) || isNamed(fact.label) || isNamed(names.titles.get(fact.aboutId)) || isNamed(kindOf.get(fact.aboutId));
+  const own = (subject.everything ? told : told.filter((fact) => memIsNear(fact, near) && bears(fact))).filter((fact) => !isRecord(fact)).sort(newestFirst);
   const records = told
     .filter((fact) => isRecord(fact) && (subject.everything || aboutIt.has(fact.aboutId) || tied.has(fact.aboutId)))
     // Asked what is undecided, only the decisions nobody has settled and the actions nobody has closed.
@@ -448,8 +581,12 @@ export function memAnswer(project: DdProject, facts: readonly MemFact[], asked: 
     // What stands beside what waits, where the question is about one thing. For the whole project that is everything else, and is left out.
     if (!subject.everything) part('Agreed so far:', listed(approved, MEM_ANSWER_RECORDS, names));
   } else if (asked.kind === 'agreed') {
-    if (approved.length || records.length) part(HEAD.agreed(called), listed(approved, MEM_ANSWER_FACTS, names));
-    else lines.push(words(`Nothing about ${called} has been agreed yet.`));
+    // What was agreed is first what people decided and took on, out of a meeting before any other. The values a person approved follow.
+    const outOfAMeeting = (fact: MemFact): number => (names.records.get(fact.aboutId)?.from ? 0 : 1);
+    const decided = [...records].sort((a, b) => outOfAMeeting(a) - outOfAMeeting(b));
+    part(`Decisions and actions about ${called}:`, listed(decided, MEM_ANSWER_RECORDS, names));
+    if (approved.length) part(decided.length ? 'Values approved:' : HEAD.agreed(called), listed(approved, MEM_ANSWER_FACTS, names));
+    else if (!decided.length) lines.push(words(`Nothing about ${called} has been agreed yet.`));
     part('Not yet agreed:', listed(waiting, MEM_ANSWER_RECORDS, names));
   } else if (asked.kind === 'changed') {
     const moved = own.filter((fact) => fact.was?.length);
@@ -459,15 +596,16 @@ export function memAnswer(project: DdProject, facts: readonly MemFact[], asked: 
     part('As it stands:', listed(own.filter((fact) => !fact.was?.length), MEM_ANSWER_RECORDS, names));
   } else if (own.length || records.length || notes.length) {
     // What a person approved first, and room kept for what waits, so that neither crowds the other out of the list.
-    const first = approved.slice(0, Math.max(MEM_ANSWER_FACTS - MEM_ANSWER_NOTES, MEM_ANSWER_FACTS - waiting.length));
-    const then = waiting.slice(0, MEM_ANSWER_FACTS - first.length);
-    const more = approved.length + waiting.length - first.length - then.length;
-    part(HEAD.holds(called), [...first, ...then].map((fact) => lineOf(fact, names)).concat(more > 0 ? [words(`- and ${more} more`)] : []));
+    const [stands, waits] = [saidOnce(approved, names), saidOnce(waiting, names)];
+    const first = stands.slice(0, Math.max(MEM_ANSWER_FACTS - MEM_ANSWER_NOTES, MEM_ANSWER_FACTS - waits.length));
+    const then = waits.slice(0, MEM_ANSWER_FACTS - first.length);
+    const more = stands.length + waits.length - first.length - then.length;
+    part(HEAD.holds(called), [...first, ...then].map(({ fact, also }) => lineOf(fact, names, false, also)).concat(more > 0 ? [words(`- and ${more} more`)] : []));
   } else {
     lines.push(words(`Memory holds nothing about ${called} yet.`));
   }
-  // Where nothing was said above them, the decisions and actions are the answer, and their heading says what they are about.
-  part(asked.kind === 'undecided' ? 'Decisions and actions still open:' : lines.length ? 'Decisions and actions:' : `Decisions and actions about ${called}:`, listed(records, MEM_ANSWER_RECORDS, names));
+  // Where nothing was said above them, the decisions and actions are the answer, and their heading says what they are about. Asked what was agreed, they were said first.
+  if (asked.kind !== 'agreed') part(asked.kind === 'undecided' ? 'Decisions and actions still open:' : lines.length ? 'Decisions and actions:' : `Decisions and actions about ${called}:`, listed(records, MEM_ANSWER_RECORDS, names));
   part('The assistant’s own notes, which are not facts of the file:', listed(notes, MEM_ANSWER_NOTES, names));
   if (subject.also) lines.push(words(''), words(subject.also));
   if (options.notesUnread) lines.push(words(''), words('The memory store did not answer in time, so the assistant’s own notes are not among these.'));

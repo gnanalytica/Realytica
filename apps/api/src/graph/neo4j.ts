@@ -29,6 +29,7 @@ import {
   IMPACT_HOPS,
   IMPACT_RELATIONS,
   clampGraphHops,
+  extractProjectSubgraph,
   isProjectNodeKind,
   PROJECT_NODE_KINDS,
   projectLayerFor,
@@ -424,12 +425,16 @@ export const neo4jAdapter: GraphAdapter = {
           { projectId, keep },
         ),
       );
-      return {
-        projectId,
-        builtAt: new Date().toISOString(),
+      // The walk fetches the plain neighbourhood and the shared rule trims it
+      // (`extractProjectSubgraph`, same seeds and hops), so the store never
+      // answers with more than the algorithm would: a bill's lines come in
+      // only as a seed or straight from one.
+      const fetched = {
         nodes: nodeRecords.map(r => toNode(r.toObject() as unknown as NodeRow)),
         edges: edgeResult.records.map(r => r.toObject() as unknown as ProjectGraphEdge),
       };
+      const kept = extractProjectSubgraph(fetched, seedIds, depth);
+      return { projectId, builtAt: new Date().toISOString(), nodes: kept.nodes, edges: kept.edges };
     } finally {
       await session.close();
     }

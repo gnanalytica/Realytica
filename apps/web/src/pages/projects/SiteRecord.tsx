@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   CAPTURE_PURPOSES,
   CAPTURE_PURPOSE_LABEL,
@@ -33,7 +33,8 @@ import {
   type VisitLimitationKind,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, InfoTip, Input, Modal, Select, SubmitButton, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, InfoTip, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../../components/ui/kit';
+import { MARKED_ROW } from '../../components/workspace/marked';
 import type { ProjectOutlet } from './ProjectLayout';
 import { SheetPlacer } from '../../components/SheetPlacer';
 
@@ -64,10 +65,38 @@ export default function SiteRecord() {
   }, [load, project.updatedAt]);
 
   const byVisit = useMemo(() => new Map(coverage.map((c) => [c.visitId, c])), [coverage]);
+  /*
+   * A visit a link named (`item`) is lit and brought into view once the
+   * visits have come. The map and the place above the list are still arriving
+   * then, and each pushes the row down as it lands, so the row is brought
+   * back until the page stops growing or the person scrolls for themselves.
+   */
+  const [searchParams] = useSearchParams();
+  const item = searchParams.get('item');
+  const marked = item && visits.some((v) => v.id === item) ? item : null;
+  const record = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = marked ? record.current?.querySelector<HTMLElement>('[data-marked]') : null;
+    // This record is the foot of the Site page: what grows above the list grows inside the page that holds it.
+    const page = record.current?.parentElement ?? record.current;
+    if (!row || !page) return;
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const grown = new ResizeObserver(() => row.scrollIntoView({ block: 'center', behavior: calm ? 'auto' : 'smooth' }));
+    grown.observe(page);
+    const settle = () => grown.disconnect();
+    const theirs = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const;
+    for (const type of theirs) window.addEventListener(type, settle, { passive: true });
+    const timer = window.setTimeout(settle, 4000);
+    return () => {
+      settle();
+      window.clearTimeout(timer);
+      for (const type of theirs) window.removeEventListener(type, settle);
+    };
+  }, [marked]);
   const placement = placing ? placements.find((p) => p.sheet.id === placing) : undefined;
 
   return (
-    <div className="space-y-6">
+    <div ref={record} className="space-y-6">
       {/* The empty state carries its own call to action, so showing this one
           beside it offered the same thing twice. It appears once there is a
           list to add to. */}
@@ -110,7 +139,7 @@ export default function SiteRecord() {
               {visits.map((visit) => {
                 const row = byVisit.get(visit.id);
                 return (
-                  <div key={visit.id} className="space-y-1.5 px-4 py-3">
+                  <div key={visit.id} data-marked={visit.id === marked ? '' : undefined} className={cn('space-y-1.5 px-4 py-3', visit.id === marked && MARKED_ROW)}>
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="text-[13px] font-medium text-ink">{visit.title}</p>

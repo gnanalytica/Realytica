@@ -231,11 +231,16 @@ export function candidateChoices(
     detail: candidateDetail(project, row.sitting),
     send: options.send ? options.send(row.sitting) : sendForCandidate(row.sitting),
     kind: KIND_WORD[row.sitting.kind],
-    sitting: {
-      ddId: row.sitting.extra.ddId,
-      scopeId: row.sitting.extra.scopeId,
-      checkId: row.sitting.extra.checkId,
-    },
+    // The record on the button, by its id: two checks can share a title, and so can two papers. A paper is pinned as the
+    // paper and not as the check it is linked to, or picking it would point at the check.
+    sitting:
+      row.sitting.kind === 'evidence'
+        ? { evidenceId: row.sitting.extra.evidenceId }
+        : {
+            ddId: row.sitting.extra.ddId,
+            scopeId: row.sitting.extra.scopeId,
+            checkId: row.sitting.extra.checkId,
+          },
   }));
 }
 
@@ -267,10 +272,10 @@ export function narrowingChoices(
   const out: ChatChoice[] = [];
   const seen = new Set<string>();
 
-  const add = (label: string, detail: string, title: string) => {
+  const add = (label: string, detail: string, title: string, sitting: NonNullable<ChatChoice['sitting']>) => {
     if (out.length >= limit || seen.has(title)) return;
     seen.add(title);
-    out.push({ id: choiceId('near', out.length), label, detail, send: `Open "${title}"`, kind: 'check' });
+    out.push({ id: choiceId('near', out.length), label, detail, send: `Open "${title}"`, kind: 'check', sitting });
   };
 
   const current = sittingCheckOf(project, options.sitting);
@@ -279,6 +284,7 @@ export function narrowingChoices(
       current.check.title,
       `Where you are now · ${SCOPE_LABEL[current.scope.scopeKey]} · ${CHECK_RESULT_LABEL[current.check.result]}`,
       current.check.title,
+      { ddId: current.assessment.id, scopeId: current.scope.id, checkId: current.check.id },
     );
   }
 
@@ -291,6 +297,7 @@ export function narrowingChoices(
           check.title,
           `${assessment.name} · ${SCOPE_LABEL[scope.scopeKey]} · not started`,
           check.title,
+          { ddId: assessment.id, scopeId: scope.id, checkId: check.id },
         );
       }
     }

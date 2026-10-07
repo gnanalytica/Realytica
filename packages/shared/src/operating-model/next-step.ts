@@ -365,7 +365,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
         text: spoken(
                     `Start the ${rec.label}.`,
           `You’re at ${stageAndStep(project.currentStage)} with nothing running.`,
-          'They are waiting on the right. One at a time — the rest can wait.',
+          'It is waiting on the right.',
         ),
         proposals: [card],
         pane: 'dd',

@@ -377,7 +377,8 @@ describe('project cockpit chat', () => {
     const result = applyProjectChat(project, 'Run valuation');
     assert.equal(project.valuationRuns.length, before + 1);
     assert.equal(result.navigations[0]?.target, 'valuation');
-    assert.match(result.assistantTurn.text, /indicative/i);
+    // The seeded file holds no rate, so the run comes to no figure and the reply says so. It used to say "Indicative value INR 0".
+    assert.match(result.assistantTurn.text, /^No figure yet\./);
   });
 
   it('closes a named action from chat', () => {

@@ -1,7 +1,7 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
+import { ArrowRight, ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
   STAGES,
   STAGE_WORD,
@@ -25,23 +25,26 @@ import {
   stageInAddress,
   stageInView,
   waitingOnCanvas,
+  waitingOnCheck,
   type AgentStep,
   type ChatPlace,
   type ChoicePin,
   type CockpitPathExtra,
   type CopilotTurn,
   type DdProject,
+  type DocumentFact,
   type EvidenceItem,
   type ProjectCockpitPane,
   type ReadingStreamEvent,
   type StageKey,
   type TalkSitting,
   type TurnChip,
+  type WaitingCheckValue,
   type WaitingEntry,
 } from '@realytica/shared';
 import { api, type ProjectChatResponse } from '../../lib/api';
 import { carriedQuestion } from '../../components/chat/carried-question';
-import { liveTurns, mayDeleteChats, mintSitting, sittingKept, waitingElsewhere, type Sitting } from '../../components/chat/chat-list';
+import { liveTurns, mayDeleteChats, mintSitting, sittingKept, turnKept, waitingElsewhere, type Sitting } from '../../components/chat/chat-list';
 import { uploadLargeDocument } from '../../lib/workspace-api';
 
 /** Past this, a document goes up in parts: a serverless request carries 4.5 MB at most. */
@@ -275,6 +278,20 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const [asking, setAsking] = useState(false);
   const [chatSteps, setChatSteps] = useState<AgentStep[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  /** The requests the person ended with Stop. One ended by a later send, or by leaving the project, is not theirs to have back. */
+  const stoppedRef = useRef(new WeakSet<AbortController>());
+  /** The address names another project, or this page has gone. Nothing that arrives after that is for it. */
+  const goneRef = useRef(false);
+  /** Resolves when the send before this one has finished, its last look at the thread included. */
+  const settledRef = useRef<Promise<void> | null>(null);
+  /** The message being answered, for the chat to show at once: its words and the names of its files. */
+  const [sending, setSending] = useState<{ text: string; files: string[] } | null>(null);
+  /** Why the last message did not go. Said under the message box, whatever sent it. */
+  const [askError, setAskError] = useState<string | null>(null);
+  /** Words for the message box: a question carried in an address, or a send handed back with its files. */
+  const [draft, setDraft] = useState<{ text: string; files?: File[] } | null>(null);
+  /** On a phone, the page each answer would have opened, by the answer's id. It is opened from the answer. */
+  const [sourceOf, setSourceOf] = useState<Record<string, string>>({});
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [highlightIds, setHighlightIds] = useState<string[]>([]);
   const [liveLabel, setLiveLabel] = useState<string | null>(null);
@@ -290,13 +307,15 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const [reading, setReading] = useState<ReadingSession | null>(null);
   /* Whether a voice note can be put into words here and where its sound goes: said beside the microphone before the first one is sent. */
   const [voice, setVoice] = useState<{ available: boolean; model?: string; host?: string; reads?: boolean; maxBytes: number; maxRequestBytes: number } | undefined>();
-  useEffect(() => {
-    let live = true;
-    api.chatVoice(project.id).then((info) => live && setVoice(info), () => undefined);
-    return () => {
-      live = false;
-    };
+  // Asked when the project opens. Where that ask was refused or failed, the microphone asks again when it is pressed.
+  const checkVoice = useCallback(async () => {
+    const info = await api.chatVoice(project.id);
+    setVoice(info);
+    return info;
   }, [project.id]);
+  useEffect(() => {
+    checkVoice().catch(() => undefined);
+  }, [checkVoice]);
   const [deskOpen, setDeskOpen] = useState(false);
   const [deskPin, setDeskPin] = useState<string | null>(null);
   const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
@@ -338,14 +357,25 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  /*
+   * The desk closed for a page that is about to open.
+   *
+   * The router changes the page in a transition, one pass after anything set
+   * outright. Closed outright, the desk would uncover the page being left for
+   * that pass. That page would start scrolling to the part its address names,
+   * and the page opened next would begin part way down. Closed in a
+   * transition, the desk goes in the pass the new page arrives in.
+   */
+  const leaveDesk = useCallback(() => startTransition(() => setDeskOpen(false)), []);
+
   const goPane = useCallback(
     (next: ProjectCockpitPane, extra?: CockpitPathExtra) => {
       setFocusMode(false);
-      setDeskOpen(false);
+      leaveDesk();
       setMobileSurface('work');
       navigate(cockpitPath(project.id, next, extra));
     },
-    [navigate, project.id],
+    [navigate, project.id, leaveDesk],
   );
 
   /*
@@ -362,7 +392,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     (next: StageKey) => {
       if (next === stage) return;
       setFocusMode(false);
-      setDeskOpen(false);
+      leaveDesk();
       setMobileSurface('work');
       const to = placeAtStage(project, place, next);
       const stays = to.department === place.department && to.fn === place.fn;
@@ -374,7 +404,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         hash: stays ? location.hash : '',
       });
     },
-    [navigate, project, place, stage, location.pathname, location.search, location.hash],
+    [navigate, project, place, stage, location.pathname, location.search, location.hash, leaveDesk],
   );
 
   /*
@@ -384,10 +414,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    * register the whole project shares when no function's page has a place for
    * it. A check is docked in the chat as well, so it can be answered from
    * there. What the menu has no place for (a parcel, a party, a deed in the
-   * chain) is looked at in the graph.
+   * chain) is looked at in the graph. A citation that names a page of its
+   * paper opens the paper at that page.
    */
   const openCited = useCallback(
-    (id: string) => {
+    (id: string, page?: number) => {
       const talk = sittingWithField(project, sittingFromCitedId(project, id));
       if (talk && (talk.kind === 'check' || talk.kind === 'scope')) setDockTalk(talk);
       const at = placeOfRecord(project, id, here);
@@ -398,7 +429,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       }
       if (at) {
         setHighlightIds((prev) => [...new Set([...prev, id, ...(talk?.highlightIds ?? [])])]);
-        goPane(at.open.pane, at.open.extra);
+        goPane(at.open.pane, typeof page === 'number' && at.open.extra.evidenceId ? { ...at.open.extra, page: String(page) } : at.open.extra);
         return;
       }
       if (talk) {
@@ -422,7 +453,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   );
 
   const applyResult = useCallback(
-    (response: ProjectChatResponse) => {
+    // `readNow`: this turn read papers, and the desk is open on them.
+    (response: ProjectChatResponse, readNow = false) => {
       /*
        * Documents this response filed, shown being filed.
        *
@@ -476,18 +508,34 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       );
       if (named && (named.kind === 'check' || named.kind === 'scope')) setDockTalk(named);
       const lookAt = STAGES.find((s) => s.key === lastNav?.stage)?.key;
-      if (target && lookAt && target === pane && !lastNav?.department && !lastNav?.workstream && !namedId && !lastNav?.evidenceId) {
+      const opened = target ? cockpitPath(response.project.id, target, extrasForNavigation(response.project, target, ids, lastNav)) : null;
+      const landOnField = named?.kind === 'check' || named?.kind === 'scope';
+      const onWork = target === 'scope' || Boolean(lastNav?.checkId);
+      /*
+       * An answer that opens its source: a reply that did nothing by command
+       * and names a page. On a phone the answer and the page are never on
+       * screen together, and a paper opens over both. So there the person
+       * stays on the answer, the page is not opened yet, and the answer
+       * carries the way to it.
+       */
+      const fromAnswer = !isDesktop && opened !== null && response.commands.length === 0 && response.proposals.length === 0 && !landOnField && !onWork;
+      // The desk covers the page. It stays only over papers this reply read or filed; any other page a reply opens is seen.
+      const seen = !readNow && !filedNow.length;
+      if (fromAnswer) {
+        setSourceOf((was) => ({ ...was, [response.assistantTurn.id]: opened }));
+      } else if (target && lookAt && target === pane && !lastNav?.department && !lastNav?.workstream && !namedId && !lastNav?.evidenceId) {
         // Another stage asked for, on a page the whole project shares: the address stays as it is, a check or a
         // document open in it included, and only the stage changes, as it does when the track is pressed.
+        if (seen) leaveDesk();
         pickStage(lookAt);
-      } else if (target) {
+      } else if (opened) {
         setFocusMode(false);
-        navigate(cockpitPath(response.project.id, target, extrasForNavigation(response.project, target, ids, lastNav)));
+        if (seen) leaveDesk();
+        navigate(opened);
       }
-      const landOnField = named?.kind === 'check' || named?.kind === 'scope';
-      if (landOnField) {
+      if (landOnField || fromAnswer) {
         setMobileSurface('chat');
-      } else if (target === 'scope' || Boolean(lastNav?.checkId)) {
+      } else if (onWork) {
         setMobileSurface('work');
       } else if (response.proposals.length > 0 && response.commands.length === 0) {
         setMobileSurface('chat');
@@ -496,7 +544,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       }
       if (response.commands.length > 0) toast(response.commands.join(' · '), 'good');
     },
-    [setProject, navigate, toast, pane, pickStage],
+    [setProject, navigate, toast, pane, pickStage, isDesktop, leaveDesk],
   );
 
   /*
@@ -566,13 +614,35 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
        * the document.
        */
       pinned?: ChoicePin,
+      /** Sent by a button: a choice, Undo, a plan's own. Its words were not typed, and the button is still there to press. */
+      pressed = false,
     ) => {
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
       setAsking(true);
       setChatSteps([]);
+      setAskError(null);
+      setSending({ text: question.trim(), files: (files ?? []).map((f) => f.name) });
       setMobileSurface('chat');
+      /*
+       * One send at a time. Stop frees the chat at once, while the send it
+       * stopped is still being looked for in the thread. A send made in that
+       * moment waits for the answer, so the message found is not taken for
+       * its own.
+       */
+      const before = settledRef.current;
+      let settled = (): void => undefined;
+      settledRef.current = new Promise<void>((resolve) => {
+        settled = resolve;
+      });
+      // The thread as it stood, to tell afterwards whether a send that failed or was stopped was kept all the same.
+      let had = new Set<string>();
+      // Something of this send is on the project: a large file filed in parts, or papers the server has begun to read. It goes on with those when the page stops listening.
+      let kept = false;
+      let sent = false;
+      // Whether this send is nobody's to hear of any more: the project was left, or the request was ended by a later send and not by Stop.
+      const left = (): boolean => goneRef.current || (ac.signal.aborted && !stoppedRef.current.has(ac));
       // A choice that accepts or sets aside pins the cards and papers it means, one under a plan pins the plan, and Undo pins the reply it undoes. They go with it whole.
       const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision || pinned?.plan || pinned?.undo
         ? pinned
@@ -587,6 +657,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       const onReading = (event: ReadingStreamEvent) => {
         const isFresh = fresh;
         fresh = false;
+        kept = true;
         setReading((prev) => applyReadingEvent(isFresh || !prev ? newReadingSession('live') : prev, event, { localFiles: files }));
         // A paper saved while the rest are still being read: its row is on the file now, so it is on the page now.
         if (event.event === 'filed' && event.row) {
@@ -604,6 +675,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         }
       };
       try {
+        await before;
+        had = new Set((projectRef.current.conversation ?? []).map((turn) => turn.id));
         /*
          * A document too big for one request — a 70 MB merged title bundle —
          * goes into the vault in parts first; the chat then reads what was
@@ -626,42 +699,90 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         for (const [n, file] of big.entries()) {
           setLiveLabel(`Filing ${file.name} in parts (${n + 1} of ${big.length})…`);
           await uploadLargeDocument(project.id, file, { onProgress: (share) => setLiveLabel(`Filing ${file.name}: ${Math.round(share * 100)}%`) });
+          kept = true;
         }
         if (big.length) setLiveLabel(null);
         const ask = question.trim() || (big.length && !small.length ? 'Read the filed documents' : question);
+        sent = true;
         // `viewContext` stays for a server that reads only the pane; `place` says the department, the function and the stage.
         const response = small.length
           ? await api.projectChatFiles(project.id, { question: ask, viewContext: pane, place: here, files: small, captured, sitting, sessionId, continues, sessionStartedAt }, { onStep, onReading, signal: ac.signal })
           : await api.projectChat(project.id, { question: ask, viewContext: pane, place: here, sitting, sessionId, continues, sessionStartedAt }, { onStep, onReading, signal: ac.signal });
+        // The project was left while the last of the reply was arriving: it is not laid over the one opened since, and opens no page of this one.
+        if (left()) return;
         // The id these turns were kept under is the sitting's from here on, so what was just said stays on screen.
         setHeld((was) => sittingKept(was, response));
-        applyResult(response);
+        applyResult(response, !fresh);
       } catch (e) {
-        if (e instanceof DOMException && e.name === 'AbortError') return;
-        if (e instanceof Error && e.name === 'AbortError') return;
-        throw e;
+        // Ended by a later send, or by leaving the project: there is nothing to hand back and nobody to tell.
+        if (left()) return;
+        // What the server or this page said of it. A request that never arrived is a browser's error, with no words for a person in it.
+        const failed = ac.signal.aborted ? null : e instanceof Error && !(e instanceof TypeError) ? e.message : 'Could not reach the copilot. Please retry.';
+        /*
+         * A send that failed, or that the person stopped, may have been kept
+         * all the same: the server answers by rule in a moment, and goes on
+         * with a plan or a drop of papers when the page stops listening. So
+         * the thread is read once more. Where it holds the message, it is
+         * shown. Where nothing was kept, the words go back in the box with
+         * their files, to be sent again. What a button sent is not put there:
+         * the button is still on screen.
+         */
+        const now = sent ? await api.getProject(project.id).catch(() => null) : null;
+        if (left()) return;
+        const thread = now?.conversation ?? [];
+        const turn = now ? turnKept(thread, had, sessionId) : undefined;
+        if (now && turn) {
+          // Laid over the page's own copy at once: a send that waited for this read starts from the thread with this message in it.
+          projectRef.current = now;
+          setProject(now);
+          setHeld((was) => sittingKept(was, { userTurn: turn }));
+        } else if (!kept && !pressed) {
+          setDraft({ text: question, files });
+        }
+        // Kept and answered, it did not fail as far as the person is concerned: the reply is on screen.
+        const answered = turn ? thread.slice(thread.indexOf(turn) + 1).some((t) => t.role === 'assistant' && !had.has(t.id)) : false;
+        if (failed && !answered) setAskError(failed);
       } finally {
+        settled();
         if (!fresh) setReading((prev) => (prev && prev.mode === 'live' ? finishReading(prev) : prev));
         if (abortRef.current === ac) {
           abortRef.current = null;
           setAsking(false);
           setChatSteps([]);
+          setSending(null);
         }
       }
     },
     [project.id, pane, here, params.ddId, params.scopeId, searchParams, applyResult, setProject, sessionId, continues, sessionStartedAt, voice],
   );
 
+  /*
+   * A reply still on its way belongs to this project. It is stopped when the
+   * address names another one and when the page is left, so it cannot land on
+   * the project opened next or take the person back to this one. A send the
+   * person stopped is still being looked for in the thread then: what is
+   * found is not drawn either.
+   */
+  useEffect(() => {
+    goneRef.current = !loaded;
+    return () => {
+      goneRef.current = true;
+      abortRef.current?.abort();
+    };
+  }, [loaded]);
+
   /**
    * Documents opened for review: their pages, and the values waiting on them.
    * Built from the register rows, so a document filed last week reviews
    * exactly as one read a minute ago.
    */
-  const openReview = useCallback((evidenceIds: string[], pin?: string) => {
+  const openReview = useCallback((evidenceIds: string[], pin?: string, shown?: { fileKey?: string; facts: DocumentFact[] }) => {
     const files: ReadingFile[] = [];
+    // A row's values are read from its latest file. A value read from an earlier one names it.
+    const fileOf = (row: DdProject['evidence'][number], key?: string) => row.attachments.find((a) => key && a.storageKey === key) ?? row.attachments.filter((a) => a.storageKey).at(-1) ?? row.attachments.at(-1);
     for (const id of evidenceIds) {
       const row = projectRef.current.evidence.find((e) => e.id === id);
-      const file = row?.attachments.find((a) => a.storageKey) ?? row?.attachments[0];
+      const file = row ? fileOf(row, id === pin ? shown?.fileKey : undefined) : undefined;
       if (!row || !file) continue;
       files.push({
         key: file.storageKey,
@@ -672,18 +793,42 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         phase: 'done',
         label: row.documentType,
         method: row.readMethod,
-        facts: [],
+        // The desk opens a paper at the page of the first of these: the values a source chip may mean.
+        facts: id === pin ? (shown?.facts ?? []) : [],
         modelFacts: [],
       });
     }
     if (!files.length) return;
-    const pinned = pin ? projectRef.current.evidence.find((e) => e.id === pin)?.attachments[0]?.storageKey : undefined;
+    const pinnedRow = pin ? projectRef.current.evidence.find((e) => e.id === pin) : undefined;
+    const pinned = pinnedRow ? fileOf(pinnedRow, shown?.fileKey)?.storageKey : undefined;
     setReading({ ...newReadingSession('review'), files, finished: true });
-    setSourceFocus(null);
+    // One value named: its page is turned to and its words are marked there.
+    setSourceFocus(pinned && shown?.facts.length === 1 ? { key: pinned, fact: shown.facts[0]! } : null);
     setDeskPin(pinned ?? files[0]!.key);
     setDeskOpen(true);
     setMobileSurface('work');
   }, []);
+
+  /*
+   * What a source chip on a check stands for: the file its value was read
+   * from, and the value as the paper states it. A chip may say which value
+   * it is. One that says only which paper means the values of that paper
+   * waiting on the check in the address.
+   */
+  const shownByChip = useCallback(
+    (evidenceId: string, named?: Pick<WaitingCheckValue, 'proposalId' | 'key' | 'page'>) => {
+      const now = projectRef.current;
+      const checkId = searchParams.get('check');
+      const values = named ? [named] : checkId ? waitingOnCheck(now, checkId).fields.flatMap((field) => field.values).filter((value) => value.sourceEvidenceId === evidenceId) : [];
+      const from = now.chatProposals.find((card) => card.id === values[0]?.proposalId)?.payload.sourceStorageKey;
+      const stated = now.evidence.find((e) => e.id === evidenceId)?.facts ?? [];
+      return {
+        fileKey: typeof from === 'string' && from ? from : undefined,
+        facts: values.flatMap((value) => stated.find((fact) => fact.key === value.key && (value.page === undefined || fact.page === value.page)) ?? []),
+      };
+    },
+    [searchParams],
+  );
 
   /*
    * Where a jump to something waiting lands: the work surface keeps its
@@ -691,6 +836,15 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    * the values on a check — would open out of sight.
    */
   const workScrollRef = useRef<HTMLDivElement>(null);
+  /*
+   * A page newly opened starts at its top. Every page is drawn in this one
+   * scroller, which would otherwise keep the scroll of the page before. It is
+   * done before the page's own effects run, so a part or a row the address
+   * names is still scrolled to by the page.
+   */
+  useLayoutEffect(() => {
+    workScrollRef.current?.scrollTo({ top: 0 });
+  }, [location.pathname]);
   const [landOn, setLandOn] = useState<{ kind: 'check' | 'pane'; at: number } | null>(null);
   useEffect(() => {
     if (!landOn) return;
@@ -785,7 +939,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    * in the box, so a reload does not put them there again.
    */
   const [, setSearchParams] = useSearchParams();
-  const [draft, setDraft] = useState<{ text: string } | null>(null);
   useEffect(() => {
     const carried = carriedQuestion(searchParams);
     if (!carried) return;
@@ -794,12 +947,13 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     setSearchParams(carried.rest, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // Asked from the command bar while a reply is on its way, it is sent when that reply has landed: sending now would stop the first.
   useEffect(() => {
-    if (!pendingQuestion) return;
+    if (!pendingQuestion || asking) return;
     const q = pendingQuestion;
     setPendingQuestion(null);
     void handleAsk(q);
-  }, [pendingQuestion, handleAsk]);
+  }, [pendingQuestion, asking, handleAsk]);
 
   const overdue = project.actions.filter((a) => a.status === 'overdue').length;
   const pendingDrafts = (project.aiDrafts ?? []).filter((d) => d.status === 'draft' || d.status === 'accepted' || d.status === 'in_review').length;
@@ -851,7 +1005,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     onAcceptWaiting: (id, payload) => void acceptWaiting(id, payload),
     onSetAsideWaiting: (id) => void setAsideWaiting(id),
     waitingBusy: deciding || asking,
-    onReviewDocument: (evidenceId) => openReview([evidenceId], evidenceId),
+    onReviewDocument: (evidenceId, named) => openReview([evidenceId], evidenceId, shownByChip(evidenceId, named)),
     onOpenCited: openCited,
   };
 
@@ -864,11 +1018,14 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       place={here}
       draft={draft}
       onDraftTaken={() => setDraft(null)}
+      pending={sending}
+      askError={askError}
       onNewChat={() => startChat()}
       onContinueChat={(id) => startChat(id)}
       onRenameChat={async (id, name) => setProject((await api.renameChat(project.id, id, name)).project)}
       leadTurn={leadTurn}
       fill
+      className={isDesktop ? 'p-4' : 'p-3'}
       compact={!isDesktop}
       conversation={conversation}
       evidence={evidenceForChat(project)}
@@ -877,15 +1034,28 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       busy={asking}
       steps={chatSteps}
       nodes={nodeLabels}
-      onPickChoice={(text, pinned) => void handleAsk(text, undefined, pinned)}
+      onPickChoice={(text, pinned) => void handleAsk(text, undefined, pinned, true)}
       // A plan that moved while this page only watched it: the thread is read again. A read that fails leaves the page as it is.
       plans={{ projectId: project.id, onChanged: () => void api.getProject(project.id).then(setProject, () => undefined) }}
       screenResult={project.lastScreenResult}
       askingPrice={project.budget ?? null}
-      onCancel={asking ? () => abortRef.current?.abort() : undefined}
+      onCancel={
+        asking
+          ? () => {
+              const ac = abortRef.current;
+              if (!ac) return;
+              stoppedRef.current.add(ac);
+              ac.abort();
+              // Stop is taken at once. The message stays on screen until the thread says whether it was kept.
+              setAsking(false);
+              setChatSteps([]);
+            }
+          : undefined
+      }
       disabled={false}
       allowAttach
       voice={voice}
+      onCheckVoice={checkVoice}
       onOpenCommands={() => setCommandOpen(true)}
       emptyTitle={next.title}
       emptyHint={next.why}
@@ -927,6 +1097,24 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         return (
           <>
             {field && !docked ? <SittingChip talk={field} onOpen={() => setDockTalk(field)} /> : null}
+            {!isDesktop && sourceOf[turn.id] ? (
+              // On a phone an answer does not open its source over itself. This is the way to it.
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFocusMode(false);
+                    leaveDesk();
+                    setMobileSurface('work');
+                    navigate(sourceOf[turn.id]!);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken coarse:min-h-11"
+                >
+                  <span className="text-ink-secondary">Show it on the page</span>
+                  <ArrowRight size={12} className="text-ink-muted" aria-hidden />
+                </button>
+              </div>
+            ) : null}
             <TurnWaiting project={project} turn={turn} waiting={waiting} here={here} onGo={goChip} />
           </>
         );
@@ -1185,7 +1373,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             )}
             style={spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }}
           >
-            <div className="flex min-h-0 flex-1 flex-col p-4">{chat}</div>
+            <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
           </section>
 
           {spec.rightPane ? (
@@ -1289,7 +1477,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             hidden={mobileSurface !== 'chat'}
             className={cn('min-h-0 flex-col bg-surface', mobileSurface === 'chat' ? 'flex flex-1' : 'hidden')}
           >
-            <div className="flex min-h-0 flex-1 flex-col p-3">{chat}</div>
+            <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
           </section>
           <section
             aria-label="Work surface"
@@ -1351,8 +1539,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       <ProjectCommandBar
         open={commandOpen}
         project={project}
+        here={here}
         onClose={() => setCommandOpen(false)}
         onGo={goPane}
+        onStage={pickStage}
+        onOpen={openCited}
         onAsk={(q) => setPendingQuestion(q)}
         onChanged={refresh}
       />

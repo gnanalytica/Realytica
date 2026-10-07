@@ -167,6 +167,28 @@ const PLAYBOOK = /\bplaybook\b/i;
 const MAKES = /^(?:write|generate|prepare|make|create|produce|draft)\b/i;
 const A_REPORT = /\breports?\b|\bred[\s-]flag\b/i;
 const ACCEPTS_RAISED = /^(?:accept|approve)\s+(?:what|whatever|everything)\s+(?:it|that|the last reply|the reply)\s+(?:raised|proposed|offered)\b/i;
+/**
+ * A clause that asks for something to send to somebody: a reply, a letter, an
+ * email. That is a draft to send (`outgoing.ts`) and no step of a plan,
+ * whatever it is about: "draft a reply to the lender's questions" answers no
+ * questionnaire, and "draft a letter about the red flag report" writes no
+ * report. A word or two may describe it ("a short reply", "a brief formal
+ * letter"). A word that begins what it is about, or names an answer, a
+ * questionnaire, a report or minutes, describes nothing: "draft answers to
+ * the letter" is no letter.
+ */
+const DESCRIBES = String.raw`(?:(?!(?:to|for|about|on|of|in|as|an?|the|it|this|that|him|her|them|us|me|and|or|answers?|questionnaires?|questions|requisitions|reports?|minutes|notes)\b)[\w-]+\s+){0,3}`;
+const TO_SEND = new RegExp(String.raw`^((?:(?:please|can you|could you)\s+)*(?:draft|write|prepare)\s+(?:me\s+|us\s+)?(?:an?\s+|the\s+|my\s+|our\s+)?)${DESCRIBES}(reply|response|letter|e-?mail|rfi|request for information)\b`, 'i');
+
+/**
+ * A sentence that asks for a draft to send, said the way the reader of those
+ * takes it (`outgoing.ts`): without the words that only describe it, and
+ * with an email called a letter, since the firm drafts and approves both the
+ * same way. Any other sentence is given back as it was.
+ */
+export function draftToSendSaid(sentence: string): string {
+  return sentence.replace(TO_SEND, (_all, lead: string, kind: string) => `${lead}${/^e-?mail$/i.test(kind) ? 'letter' : kind}`);
+}
 
 /** Words in a clause about reading that say nothing of which papers. */
 const READ_FILLER = new Set(
@@ -192,7 +214,7 @@ function reportAsked(clause: string): ReportKind {
 /** One clause as a step it asks for, or nothing when it asks for none of the fixed kinds. */
 function wantOf(clause: string): PlanWant | undefined {
   const said = clause.trim().replace(/[.!\s]+$/, '');
-  if (!said) return undefined;
+  if (!said || TO_SEND.test(said)) return undefined;
   if (READS.test(said) && PAPERS.test(said)) {
     const only = said
       .toLowerCase()
@@ -274,6 +296,8 @@ const JOB_NOUNS = [/\b(?:documents?|docs|files|papers)\b/i, /\b(?:questionnaires
 export function planMayBeAsked(question: string): boolean {
   const q = question.trim();
   if (q.length < 30 || q.length > 600 || /\?\s*$/.test(q) || /^(?:what|which|who|when|where|why|how|is|are|was|were|do|does|did|can|could|should|would|will)\b/i.test(q)) return false;
+  // One draft to send is one thing, however many of these it mentions.
+  if (TO_SEND.test(q.replace(CLAUSE_LEAD, ''))) return false;
   return JOB_NOUNS.filter((noun) => noun.test(q)).length >= 2;
 }
 
@@ -489,6 +513,16 @@ const ONLY = /^(?:please\s+)?(?:only|just)\s+(?:the\s+)?(.{2,60}?)(?:\s+(?:docum
 export function planMayBeMeant(sentence: string): boolean {
   const said = sentence.trim().replace(/[.!?\s]+$/, '');
   return said.length <= 80 && [RUN_IT, CANCEL_IT, STOP_IT, CARRY_ON, HOW_FAR, TAKE_OUT, ONLY].some((form) => form.test(said));
+}
+
+/**
+ * Whether a sentence names the plan it is about: "run the plan", "carry on
+ * with the plan". "Go ahead", "do it" and "carry on" name nothing. They are
+ * an answer to whatever was said last, and run a plan only where the plan is
+ * that (`planTurnFor`).
+ */
+export function planIsNamed(sentence: string): boolean {
+  return /\bplan\b/i.test(sentence);
 }
 
 /**

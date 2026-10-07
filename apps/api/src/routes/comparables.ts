@@ -5,12 +5,13 @@
  * POST   /search       search 99acres and MagicBricks; what is found lands as proposed
  * POST   /             add a comparable by hand
  * PATCH  /:id          change a comparable's adjustments or weight
- * POST   /decide       accept or set aside comparables by id
+ * POST   /decide       accept or set aside comparables by id: a lead's or signer's in Finance
  */
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { actorOf, addComparable, comparableSchedule, decideComparables, noteProjectEdit, updateComparable } from '@realytica/shared';
+import { DecisionRefused, actorOf, addComparable, comparableSchedule, decideComparables, noteProjectEdit, updateComparable } from '@realytica/shared';
+import { decidesFor } from '../auth/access';
 import { principalOf } from '../auth/middleware';
 import { store } from '../store';
 import { runComparableSearch, unblockerConfigured } from '../comparables/search';
@@ -135,7 +136,14 @@ projectComparablesRouter.post<ProjectParams>('/decide', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const n = decideComparables(project, parsed.data.ids, parsed.data.decision, actorOf(principalOf(req)));
+  let n: number;
+  try {
+    // Which comparables count sets the valuation's rate: a lead's or a signer's in Finance to decide.
+    n = decideComparables(project, parsed.data.ids, parsed.data.decision, actorOf(principalOf(req)), { mayDecide: decidesFor(req, project) });
+  } catch (err) {
+    res.status(err instanceof DecisionRefused ? 403 : 400).json({ error: err instanceof Error ? err.message : 'Could not decide the comparables' });
+    return;
+  }
   if (n) {
     noteProjectEdit(project, `${parsed.data.decision === 'accept' ? 'Accepted' : 'Set aside'} ${n} comparable${n === 1 ? '' : 's'}.`, { actor: actorOf(principalOf(req)) });
     await store.save();

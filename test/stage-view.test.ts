@@ -27,10 +27,13 @@ import {
   STAGES,
   STAGE_WORD,
   WORKSTREAMS,
+  addBill,
+  addContract,
   addEvidence,
   addMilestones,
   addQuestionnaire,
   addSiteVisit,
+  addWorkPackages,
   buildProjectGraph,
   createProject,
   ensureWorkstreamChecks,
@@ -240,6 +243,9 @@ describe('work already done stays on show', () => {
           fileCertifiedReport(q, { workstream: 'finance.budget', title: 'Cost report', evidenceId: paper.id, signer: { name: 'A surveyor', profession: 'Quantity Surveyor' }, verdict: 'clear' }, 'tester');
         },
       ],
+      // The cost register is Budget's: a package of the budget, or a contract awarded before the budget is split.
+      ['finance.budget', (q) => addWorkPackages(q, [{ name: 'Structure' }], 'tester')],
+      ['finance.budget', (q) => addContract(q, { contractor: 'Sharma Constructions', title: 'Civil works', value: 4_500_000 }, 'tester')],
     ];
     for (const [fn, add] of each) {
       const q = project('handover');
@@ -262,6 +268,9 @@ describe('work already done stays on show', () => {
     fileCertifiedReport(filled, { workstream: 'legal.title', title: 'Legal opinion', evidenceId: opinion.id, signer: { name: 'An advocate', profession: 'Advocate' }, verdict: 'clear' }, 'tester');
     ensureWorkstreamChecks(filled, ['design.drawings', 'procurement.orders'], 'tester');
     recordCheckResult(filled, workstreamChecks(filled, 'design.drawings')[0]!.id, { result: 'compliant' }, 'tester');
+    const [pack] = addWorkPackages(filled, [{ name: 'Structure', budget: 5_000_000 }], 'tester');
+    const contract = addContract(filled, { contractor: 'Sharma Constructions', title: 'Civil works', workPackageIds: [pack!.id], value: 4_500_000 }, 'tester');
+    addBill(filled, { contractId: contract.id, number: 'RA-1', date: '2026-10-01', lines: [{ description: 'Raft concrete', workPackageId: pack!.id, amount: 600_000, readBy: 'person' }] }, 'tester');
 
     for (const p of [seedDemoProject(), seedBdaReferenceProject(), filled]) {
       const graph = buildProjectGraph(p);
@@ -291,7 +300,7 @@ describe('work already done stays on show', () => {
       // Neither everything nor nothing, or the comparison would say little.
       assert.ok(holding.size > 0 && holding.size < functions.length, `${p.name} holds records in ${holding.size} functions`);
     }
-    assert.deepEqual([...functionsHoldingRecords(filled)].sort(), ['construction.progress', 'construction.quality', 'construction.site', 'design', 'legal.approvals', 'legal.title']);
+    assert.deepEqual([...functionsHoldingRecords(filled)].sort(), ['construction.progress', 'construction.quality', 'construction.site', 'design', 'finance.budget', 'legal.approvals', 'legal.title']);
   });
 });
 

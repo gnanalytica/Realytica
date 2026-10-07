@@ -1,5 +1,6 @@
 import type { Request } from 'express';
 import {
+  decidesIn,
   fullView,
   grantHasExpired,
   projectRecordIds,
@@ -7,6 +8,7 @@ import {
   reachesEveryProject,
   sameEmail,
   type DdProject,
+  type MayDecide,
   type ProjectAccess,
   type ProjectGrant,
   type ProjectView,
@@ -151,11 +153,45 @@ export function assertWorkspaceWork(req: Request, project: DdProject, what: stri
 }
 
 /**
+ * Where this caller decides on this project: the departments they lead or
+ * sign in.
+ *
+ * The write gate says whether somebody may change a record at all. This says
+ * whether where a read value stands is theirs to decide: accepting what a
+ * paper states, setting it aside, reopening it, picking one of two. That is a
+ * lead's or a signer's of the department the value belongs to, by the
+ * project's team list or by the firm role's default. It is handed to every
+ * shared function a person's decision arrives through, and that function does
+ * the refusing (`DecisionRefused`), so no route decides this for itself.
+ *
+ * Read off the real project, never a projection: the team list is the firm's
+ * record of who decides, whoever is asking.
+ */
+export function decidesFor(req: Request, project: DdProject): MayDecide {
+  const me = principalOf(req);
+  return decidesIn(project, { email: me.email, workspaceRole: me.role });
+}
+
+/**
  * Carry a chat turn written against the projection back onto the real file.
  *
  * The projection's `conversation` is a filtered copy, so turns pushed onto it
  * would otherwise be lost at the end of the request. Proposals raised in the
  * turn go back too: an approval card nobody can commit is worse than no card.
+ *
+ * So do the lines the turn wrote on the trail. A projection is handed out
+ * with an empty trail, since the real one names everybody's work, and the
+ * documents and checks on it are the real ones: a value a collaborator
+ * accepts in the chat is accepted on the file. The line that says who
+ * accepted it was written on the projection's trail, and is put on the real
+ * one here, so no decision made through a collaborator's chat is missing
+ * from the trail.
+ *
+ * Only a line about something that is on the real file once the turn is
+ * merged. The projection's registers are copies of the lists, so a finding,
+ * an action, a risk or a DD the turn added to one of them was added to the
+ * copy and is gone with it. A line for it would have the trail name a record
+ * that does not exist.
  *
  * Every turn is stamped with who wrote it. That stamp is what makes a
  * collaborator's own thread readable to them later — an unattributed turn
@@ -169,6 +205,13 @@ export function mergeConversation(project: DdProject, canvas: DdProject, actor: 
     const raised = new Set((project.chatProposals ?? []).map((p) => p.id));
     for (const p of canvas.chatProposals ?? []) {
       if (!raised.has(p.id)) (project.chatProposals ??= []).push(p);
+    }
+
+    const onTrail = new Set(project.audit.map((line) => line.id));
+    // Read after the turns and cards above went back: a line about one of those names something that is there now.
+    const onFile = projectRecordIds(project);
+    for (const line of canvas.audit ?? []) {
+      if (!onTrail.has(line.id) && onFile.has(line.entityId)) project.audit.push(line);
     }
     project.updatedAt = canvas.updatedAt;
   }

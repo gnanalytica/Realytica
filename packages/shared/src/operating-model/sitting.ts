@@ -1063,20 +1063,35 @@ function extraHasFocus(extra?: CockpitPathExtra): boolean {
   return Boolean(extra.checkId || extra.evidenceId || extra.findingId || extra.riskId || extra.actionId || extra.assetId || (extra.ddId && extra.scopeId));
 }
 
-/** Keep an already-specific sitting (Guide me). Fill a generic pane from talk/cites. */
+/**
+ * Keep an already-specific sitting (Guide me). Fill a generic pane from talk/cites.
+ *
+ * `placed` says where a document in hand lives: the page of the function that
+ * holds it, at its documents. The caller gives it, because the menu is not
+ * this file's to read. With it a document a model's reply cites opens where a
+ * typed sentence and a pressed chip open it; without it, in the register of
+ * every document. So does a document the model's own tools opened first:
+ * they name it by the register's address, and it is placed the same way.
+ */
 export function withTalkNavigation(
   project: DdProject,
   navigations: Array<{ target: string } & CockpitPathExtra>,
   talk: TalkSitting | null,
+  placed?: (evidenceId: string) => { pane: string; extra: CockpitPathExtra } | undefined,
 ): Array<{ target: string } & CockpitPathExtra> {
+  const seated = navigations.map((nav) => {
+    const at = nav.target === 'evidence' && nav.evidenceId ? placed?.(nav.evidenceId) : undefined;
+    return at ? { ...nav, ...at.extra, target: at.pane } : nav;
+  });
   const sitting = sittingWithField(project, talk);
-  if (!sitting) return navigations;
-  const pane = paneForTalk(sitting.kind);
-  const opened = { target: pane, ...sitting.extra };
-  const last = navigations.at(-1);
+  if (!sitting) return seated;
+  const at = sitting.kind === 'evidence' && sitting.extra.evidenceId ? placed?.(sitting.extra.evidenceId) : undefined;
+  const pane = at?.pane ?? paneForTalk(sitting.kind);
+  const opened = { target: pane, ...sitting.extra, ...at?.extra };
+  const last = seated.at(-1);
   if (!last) return [opened];
-  if (extraHasFocus(last) && last.target !== 'overview') return navigations;
-  return [...navigations.slice(0, -1), { ...last, ...opened, target: pane }];
+  if (extraHasFocus(last) && last.target !== 'overview') return seated;
+  return [...seated.slice(0, -1), { ...last, ...opened, target: pane }];
 }
 
 /* ==================================================================== */

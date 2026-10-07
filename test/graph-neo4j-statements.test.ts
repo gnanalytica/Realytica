@@ -15,12 +15,30 @@
  * number of statements, and that the writes depend on the answer. It cannot
  * prove what a statement itself does: that is Cypher, and only a database
  * runs it. `scripts/probe-neo4j.ts` runs the same statements against one.
+ *
+ * A neighbourhood is the one read asked here. Its walk is plain Cypher, and
+ * what it fetched is trimmed by the shared rule before it is handed back, so
+ * that part of the answer is code this suite can run: the driver answers the
+ * walk as a database would, and the adapter must return no more than the
+ * algorithm does.
  */
 
 import assert from 'node:assert/strict';
 import { afterEach, before, beforeEach, describe, it } from 'node:test';
 import type { Driver } from 'neo4j-driver';
-import { PROJECT_NODE_KINDS, projectLayerFor, type ProjectGraphNode } from '@realytica/shared';
+import {
+  PROJECT_NODE_KINDS,
+  addBill,
+  addContract,
+  addEvidence,
+  addWorkPackages,
+  buildProjectGraph,
+  createProject,
+  extractProjectSubgraph,
+  projectLayerFor,
+  type ProjectGraphEdge,
+  type ProjectGraphNode,
+} from '@realytica/shared';
 import type { ProjectGraphSnapshot } from '../apps/api/src/graph/types';
 import { drawingOf } from '../apps/api/src/graph/drawing';
 
@@ -41,6 +59,47 @@ interface Asked {
 let marker: { current: boolean; held: number; drawn: boolean };
 let asked: Asked[];
 let transactions: number;
+/** The graph the database holds, for the reads a test makes. Unset, every read answers nothing. */
+let stored: { nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] } | undefined;
+/** Every statement a read ran, with how many rows the database answered it with. */
+let read: Array<{ query: string; params: Record<string, unknown>; rows: number }>;
+
+/** A row as the driver hands it back: read by column, or whole. */
+const record = (row: Record<string, unknown>) => ({ get: (key: string) => row[key], toObject: () => row });
+
+/**
+ * What the database answers a neighbourhood's three reads with, worked out
+ * here the way its Cypher says: every node within the hops of a seed across
+ * any relationship either way, no alarming neighbour on these files, and the
+ * edges between the nodes kept. The walk is the plain one. It knows nothing
+ * of which relations a neighbourhood crosses only out of a seed.
+ */
+function answerRead(query: string, params: Record<string, unknown>): Array<ReturnType<typeof record>> {
+  if (!stored) return [];
+  const walk = /\*0\.\.(\d+)\]-\(n:Ryt/.exec(query);
+  if (walk) {
+    const keep = new Set((params.seeds as string[]).filter((id) => stored!.nodes.some((n) => n.id === id)));
+    let frontier = new Set(keep);
+    for (let hop = 0; hop < Number(walk[1]); hop += 1) {
+      const next = new Set<string>();
+      for (const edge of stored.edges) {
+        if (frontier.has(edge.from) && !keep.has(edge.to)) next.add(edge.to);
+        if (frontier.has(edge.to) && !keep.has(edge.from)) next.add(edge.from);
+      }
+      for (const id of next) keep.add(id);
+      frontier = next;
+    }
+    return stored.nodes
+      .filter((n) => keep.has(n.id))
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((n) => record({ id: n.id, kind: n.kind, layer: n.layer, origin: n.origin, label: n.label, detail: n.detail ?? null, key: n.key ?? null, status: n.status ?? null }));
+  }
+  if (/RETURN r\.id AS id/.test(query)) {
+    const keep = new Set(params.keep as string[]);
+    return stored.edges.filter((edge) => keep.has(edge.from) && keep.has(edge.to)).map((edge) => record({ id: edge.id, from: edge.from, to: edge.to, rel: edge.rel }));
+  }
+  return [];
+}
 let adapter: Neo4jModule['neo4jAdapter'];
 let ensureNeo4jSchema: Neo4jModule['ensureNeo4jSchema'];
 let closeNeo4j: Neo4jModule['closeNeo4j'];
@@ -58,6 +117,15 @@ function recordingDriver(): Driver {
           // The marker's is the only statement whose answer the adapter reads.
           const answers = /RETURN held/.test(query) ? [{ get: (key: string) => (marker as Record<string, unknown>)[key] }] : [];
           return { records: answers };
+        },
+      });
+    },
+    async executeRead<T>(work: (tx: { run: (query: string, params?: Record<string, unknown>) => Promise<unknown> }) => Promise<T>): Promise<T> {
+      return work({
+        run: async (query, params = {}) => {
+          const records = answerRead(query, params);
+          read.push({ query, params, rows: records.length });
+          return { records };
         },
       });
     },
@@ -87,6 +155,8 @@ before(async () => {
 // No address is configured, so an adapter left without this driver has nowhere to dial and throws.
 beforeEach(() => {
   asked = [];
+  read = [];
+  stored = undefined;
   transactions = 0;
   useNeo4jDriver(recordingDriver());
 });
@@ -208,6 +278,66 @@ describe('the Neo4j adapter syncing a project', () => {
     await adapter.appendProject(PROJECT, [note], [{ id: 'note-1>p1', from: 'note-1', to: 'p1', rel: 'cites' }]);
     assert.equal(asked.length, 2);
     assert.equal(asked.some((statement) => /GraphSync/.test(statement.query)), false, 'a note does not move the marker');
+  });
+});
+
+describe('the Neo4j adapter answering a neighbourhood', () => {
+  /** A project with one bill of 150 lines, each read off a cell of the bill's sheet and pricing the one package. */
+  function billOf150() {
+    const project = createProject({ name: 'Stored register', type: 'residential', location: 'Balagere', city: 'Bengaluru', currentStage: 'construction' }, 'RYT-N1');
+    const [pack] = addWorkPackages(project, [{ code: 'B', name: 'Structure', budget: 5_000_000 }], 'tester');
+    const contract = addContract(project, { contractor: 'Sharma Constructions', title: 'Civil works', workPackageIds: [pack!.id], value: 4_500_000 }, 'tester');
+    const sheet = addEvidence(project, { title: 'RA Bill 1.xlsx', kind: 'document', status: 'received' }, 'tester');
+    const bill = addBill(
+      project,
+      {
+        contractId: contract.id,
+        number: 'RA-1',
+        date: '2026-08-31',
+        evidenceId: sheet.id,
+        lines: Array.from({ length: 150 }, (_row, i) => ({ item: `1.${i + 1}`, description: `Item ${i + 1}`, workPackageId: pack!.id, amount: 1000 + i, source: { evidenceId: sheet.id, sheet: 'RA 1', cell: `H${i + 2}` }, readBy: 'sheet' as const })),
+      },
+      'tester',
+    );
+    return { graph: buildProjectGraph(project), bill };
+  }
+  const lines = (nodes: ProjectGraphNode[]) => nodes.filter((n) => n.kind === 'bill_line').map((n) => n.id);
+  const ids = (rows: Array<{ id: string }>) => rows.map((row) => row.id).sort();
+
+  it('trims what its walk fetched by the shared rule: a stored bill of 150 lines comes back, for one line, as that line', async () => {
+    const { graph, bill } = billOf150();
+    stored = graph;
+    const seed = bill.lines[0]!.id;
+
+    const answer = await adapter.neighbourhood(PROJECT, [seed], 2);
+
+    // The walk is the plain one it always was, and at two hops it fetches every line of the bill.
+    const walk = read.find((statement) => /\*0\.\.2\]-\(n:Ryt/.test(statement.query))!;
+    assert.match(walk.query, /MATCH \(seed\)-\[:RYT_EDGE\*0\.\.2\]-\(n:Ryt \{ projectId: \$projectId \}\)/);
+    assert.deepEqual(walk.params, { projectId: PROJECT, seeds: [seed] });
+    assert.ok(walk.rows > 150, `the database answered with ${walk.rows} nodes`);
+
+    // What the adapter hands back is what the algorithm would have, over the whole stored graph, and no more.
+    assert.ok(answer);
+    const ruled = extractProjectSubgraph(graph, [seed], 2);
+    assert.deepEqual(ids(answer.nodes), ids(ruled.nodes));
+    assert.deepEqual(ids(answer.edges), ids(ruled.edges));
+    assert.deepEqual(lines(answer.nodes), [seed], 'the one line asked about');
+    assert.ok(answer.nodes.length <= 12, `${answer.nodes.length} nodes`);
+    assert.ok(answer.nodes.some((n) => n.id === bill.id), 'with its bill');
+  });
+
+  it('still answers a bill that was asked about with its own lines', async () => {
+    const { graph, bill } = billOf150();
+    stored = graph;
+    const answer = await adapter.neighbourhood(PROJECT, [bill.id], 2);
+    assert.ok(answer);
+    assert.deepEqual(new Set(lines(answer.nodes)), new Set(bill.lines.map((row) => row.id)));
+    assert.deepEqual(ids(answer.nodes), ids(extractProjectSubgraph(graph, [bill.id], 2).nodes));
+  });
+
+  it('answers nothing for a project the store does not hold', async () => {
+    assert.equal(await adapter.neighbourhood(PROJECT, ['anything'], 2), null);
   });
 });
 

@@ -6,7 +6,7 @@
  * what a search finds.
  */
 
-import { can, chatPlaceWords, filedByReply, reachesEveryProject, type ChatSession, type ProjectChatTurn, type WaitingEntry, type WorkspaceRole } from '@realytica/shared';
+import { PLAN_SAID, PLAN_STEP, can, chatPlaceWords, filedByReply, reachesEveryProject, type ChatSession, type ProjectChatTurn, type WaitingEntry, type WorkspaceRole } from '@realytica/shared';
 
 export interface ChatRow {
   id: string;
@@ -119,6 +119,81 @@ function chance(): string {
 export function sittingKept<T extends { id: string }>(sitting: T, reply: { userTurn?: { sessionId?: string } }): T {
   const kept = reply.userTurn?.sessionId;
   return kept && kept !== sitting.id && kept.startsWith(`${sitting.id}~`) ? { ...sitting, id: kept } : sitting;
+}
+
+/**
+ * The message a send left in the thread, when it left one.
+ *
+ * A send that failed, or that the person stopped, may have been kept all the
+ * same: the server answers by rule in a moment, and goes on with a plan or a
+ * drop of papers when the page stops listening. `had` is the turns that were
+ * there before the send. What is looked for is the person's own turn that
+ * was not, in this sitting: under the id the page sent, or one the server
+ * made from it.
+ */
+export function turnKept<T extends { id: string; role: string; sessionId?: string }>(conversation: readonly T[], had: ReadonlySet<string>, sittingId: string): T | undefined {
+  return conversation.find((turn) => turn.role === 'user' && !had.has(turn.id) && (turn.sessionId === sittingId || Boolean(turn.sessionId?.startsWith(`${sittingId}~`))));
+}
+
+/**
+ * Whether the thread is still followed to its foot after a scroll. It is
+ * while the person is at the foot, it stops when they scroll up to read, and
+ * it starts again when they come back down. `fromFoot` is how far the foot
+ * is below what is in view.
+ */
+export function followsThread(was: boolean, scroll: { top: number; lastTop: number; fromFoot: number }): boolean {
+  if (scroll.fromFoot < 24) return true;
+  return scroll.top < scroll.lastTop ? false : was;
+}
+
+/** Whether a reply's own words say its plan was cancelled before any of it ran. */
+export function saysPlanCancelled(text: string): boolean {
+  return /\bplan is cancelled\. Nothing was done\./i.test(text);
+}
+
+/**
+ * The reply each plan is drawn under, by the reply's id.
+ *
+ * A plan is drawn once, under the last reply on screen that names it. One
+ * exception: the reply that says a plan was cancelled before it ran says all
+ * there is to say of it. The plan is then drawn under the reply before that
+ * one, which listed its steps, so the steps do not read as still on offer.
+ */
+export function planDrawnUnder<T extends { id: string; role: string; text: string; planId?: string }>(turns: readonly T[]): Map<string, string> {
+  const naming = new Map<string, T[]>();
+  for (const turn of turns) {
+    if (turn.role !== 'assistant' || !turn.planId) continue;
+    naming.set(turn.planId, [...(naming.get(turn.planId) ?? []), turn]);
+  }
+  const under = new Map<string, string>();
+  for (const [planId, replies] of naming) {
+    const last = replies.at(-1)!;
+    const shown = replies.length > 1 && saysPlanCancelled(last.text) ? replies.at(-2)! : last;
+    under.set(shown.id, planId);
+  }
+  return under;
+}
+
+/**
+ * The messages a plan's steps said to the chat, by id, each with the step
+ * it was.
+ *
+ * A plan carries some steps out by saying their sentence to the chat, as a
+ * person would, and the thread then holds that sentence as a message nobody
+ * typed. It is known by what follows it: its reply, and straight after that
+ * the line the plan ticks the step off with ("Step 2 of 5 done").
+ */
+export function planStepAsks<T extends { id: string; role: string; text: string; toolCalls?: { name: string }[] }>(turns: readonly T[]): Map<string, { step: number; of: number }> {
+  const asks = new Map<string, { step: number; of: number }>();
+  const plans = (turn: T | undefined): boolean => Boolean(turn?.toolCalls?.some((call) => call.name === PLAN_STEP || call.name === PLAN_SAID));
+  turns.forEach((turn, at) => {
+    const reply = turns[at + 1];
+    const tick = turns[at + 2];
+    if (turn.role !== 'user' || reply?.role !== 'assistant' || plans(reply) || tick?.role !== 'assistant') return;
+    const ticked = tick.toolCalls?.some((call) => call.name === PLAN_STEP) ? /^Step (\d+) of (\d+) /.exec(tick.text) : null;
+    if (ticked) asks.set(turn.id, { step: Number(ticked[1]), of: Number(ticked[2]) });
+  });
+  return asks;
 }
 
 /**

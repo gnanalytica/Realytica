@@ -18,9 +18,11 @@ import {
   PLAN_STEP_KINDS,
   RUN_LEDGER_LIMIT,
   describeRun,
+  draftToSendSaid,
   isPlanned,
   planAct,
   planChoices,
+  planIsNamed,
   planListedIn,
   planMayBeAsked,
   planPlaceOf,
@@ -79,6 +81,50 @@ describe('an instruction read as steps', () => {
     assert.equal(planMayBeAsked('Go through everything on file, fill what you can in the lender’s questionnaire and tell the owner where we are with a status'), true);
     assert.equal(planMayBeAsked('What do the papers say about the questionnaire?'), false, 'a question');
     assert.equal(planMayBeAsked('Tell me about the papers on this file please'), false, 'one kind of thing');
+  });
+});
+
+describe('a draft to send', () => {
+  it('is no step of a plan, whatever it is about', () => {
+    // Was a `suggest_answers` step: with a questionnaire on file it suggested answers and drafted nothing.
+    for (const said of ['Draft a reply to the lender’s questions', 'Draft a letter to the architect about the open questions', 'Write an email to the vendor answering their questions', 'Prepare a response to the questionnaire', 'Draft a letter to the bank about the red flag report']) {
+      assert.deepEqual(planWants(said), { wants: [], unread: [said], asksForPlan: false }, said);
+      assert.equal(planMayBeAsked(said), false, said);
+    }
+  });
+
+  it('is no step with a word that describes it, or a please in front', () => {
+    // Each was a `suggest_answers` step: one more word defeated the rule above.
+    for (const said of [
+      'Draft a short reply to the lender’s questions',
+      'Draft a quick email to the lender answering their questions',
+      'Draft a formal reply to the lender on the questionnaire',
+      'Write a brief covering letter to the bank about the questionnaire',
+    ]) {
+      assert.deepEqual(planWants(said), { wants: [], unread: [said], asksForPlan: false }, said);
+      assert.equal(planMayBeAsked(said), false, said);
+    }
+    assert.deepEqual(planWants('Please draft a brief letter to the bank about the open questions').wants, []);
+    assert.equal(planMayBeAsked('Please draft a brief letter to the bank about the open questions'), false);
+  });
+
+  it('is said to the reader of drafts without the words that only describe it, and an email as a letter', () => {
+    assert.equal(draftToSendSaid('Draft a short reply to the lender’s questions'), 'Draft a reply to the lender’s questions');
+    assert.equal(draftToSendSaid('Please draft a brief formal letter to the bank about the open questions'), 'Please draft a letter to the bank about the open questions');
+    assert.equal(draftToSendSaid('Draft a quick email to the lender answering their questions'), 'Draft a letter to the lender answering their questions');
+    // A word that is no description is left where it is: who it is to, what is answered, a report.
+    for (const said of ['Write the bank a letter about the wall', 'Draft answers to the letter', 'Draft the questionnaire reply', 'Write the red flag report', 'What does the letter say?']) {
+      assert.equal(draftToSendSaid(said), said, said);
+    }
+  });
+
+  it('leaves suggesting answers to a questionnaire a step', () => {
+    for (const said of ['Suggest answers to the questionnaire', 'Draft answers to the lender’s questions', 'Draft the questionnaire answers', 'Answer the questionnaire', 'Fill in the requisitions']) {
+      assert.deepEqual(planWants(said).wants.map((want) => want.kind), ['suggest_answers'], said);
+    }
+    // Beside other steps it is said back in its own words, and the steps stand.
+    const mixed = planWants('Read the filed papers, then draft a reply to the lender’s questions');
+    assert.deepEqual([mixed.wants.map((want) => want.kind), mixed.unread], [['read_filed'], ['draft a reply to the lender’s questions']]);
   });
 });
 
@@ -162,6 +208,13 @@ describe('what a sentence does to a plan', () => {
     assert.deepEqual(at('running', 'carry on', true), { act: 'carry_on' }, 'one whose run was cut short is taken up again');
     assert.deepEqual(at('stopped', 'how is the plan going'), { act: 'progress' });
     assert.equal(at('done', 'run it'), undefined);
+  });
+});
+
+describe('a yes that names no plan', () => {
+  it('is told from a sentence that names the plan', () => {
+    for (const said of ['go ahead', 'do it', 'approve it', 'run it', 'continue', 'carry on', 'ok, do it']) assert.equal(planIsNamed(said), false, said);
+    for (const said of ['run the plan', 'Go ahead with the plan', 'carry on with the plan', 'approve this plan']) assert.equal(planIsNamed(said), true, said);
   });
 });
 

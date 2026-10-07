@@ -135,11 +135,15 @@ function Frame({ jump }: { jump: { id: string; at: number } | null }) {
         {/* The container the bar measures itself by. */}
         <main aria-label="Work" className="flex min-h-0 min-w-0 flex-col [container-type:inline-size]">
           <WorkBar scrolled={scrolled} copilotOpen={drawerOpen} onCopilot={toggleCopilot} />
-          {/* Keyed by the page, so each one starts at its top. It is the container every breakpoint inside it measures. */}
+          {/*
+            Keyed by the page, so each one starts at its top. It is the container every breakpoint inside it measures.
+            And the box anything inside it is placed by: text kept for a screen reader is placed out of the flow, and
+            left to the frame it made the frame as tall as the page, so a link to a section scrolled the frame as well.
+          */}
           <div
             key={place.key}
             onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
-            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [container-type:inline-size]"
+            className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden [container-type:inline-size]"
           >
             <div className="mx-auto flex max-w-[1440px] flex-col gap-3.5 px-5 pb-14 pt-3.5">
               {!place.dept ? (

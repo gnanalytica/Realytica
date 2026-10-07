@@ -100,7 +100,8 @@ export async function fireTrigger(on: TriggerOn, event: FlowEvent): Promise<stri
   for (const flow of listening) {
     try {
       const result = await runFlow(flow, {
-        handler: handlersFor({ tenantId: event.tenantId, project: event.project, actor: event.actor }),
+        // An event's run is the firm's own, over the whole project: nothing is cut from what the graph store answers.
+        handler: handlersFor({ tenantId: event.tenantId, project: event.project, actor: event.actor, withinReach: (graph) => graph }),
         input: {
           project: { id: event.project.id, name: event.project.name, reference: event.project.reference },
           trigger: { on, at, ...(event.detail ?? {}) },

@@ -65,16 +65,28 @@ export function questionsIn(text: string): string[] {
  * wrote them in the order it wanted them answered and second-guessing that
  * order from here would need to understand the interview better than the
  * thing conducting it.
+ *
+ * A list of questions is kept whole. Its lines were set out to be answered
+ * together, and taking the questions out of them left "2." and "3." standing
+ * with nothing after them. Only questions in prose are counted and held.
  */
 function keepOneQuestion(text: string): { text: string; held: string[] } {
-  const all = questionsIn(text);
-  if (all.length <= 1) return { text, held: [] };
-  const [first, ...rest] = all;
-  let out = text;
-  for (const question of rest) out = out.replace(question, '');
+  const lines = text.split('\n');
+  const inProse = lines.flatMap((line) => (LIST_LINE.test(line) ? [] : questionsIn(line)));
+  if (inProse.length <= 1) return { text, held: [] };
+  let kept = 0;
+  const out = lines.map((line) => {
+    if (LIST_LINE.test(line)) return line;
+    let rest = line;
+    for (const question of questionsIn(line)) {
+      kept += 1;
+      if (kept > 1) rest = rest.replace(question, '');
+    }
+    return rest;
+  });
   return {
-    text: out.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim(),
-    held: [first!, ...rest].slice(1),
+    text: out.join('\n').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(),
+    held: inProse.slice(1),
   };
 }
 

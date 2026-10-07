@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Mic, Paperclip, Square, Trash2 } from 'lucide-react';
 import { Button, cn } from '../ui/kit';
+import { ApiRequestError } from '../../lib/api';
 import { isSound, noteRecorded } from '../../lib/site-capture';
+import { FILE_KINDS } from './carried-question';
 
 /** Whether a voice note can be put into words here, and where its sound is sent. */
 export interface VoiceInfo {
@@ -40,12 +42,15 @@ const KINDS: Array<[string, string]> = [
 export function AttachControls({
   disabled,
   voice,
+  onCheckVoice,
   staged,
   onAdd,
 }: {
   disabled: boolean;
-  /** Absent where this chat takes no voice notes. */
+  /** Absent where this chat takes no voice notes, and until the server has said where one goes. */
   voice?: VoiceInfo;
+  /** Ask the server where a voice note goes. Given where this chat takes them, so the microphone is there before the answer is, and after an ask that was refused. */
+  onCheckVoice?: () => Promise<VoiceInfo>;
   /** The files waiting to be sent, so the notice shows when one of them is sound. */
   staged: File[];
   onAdd: (files: File[]) => void;
@@ -77,6 +82,19 @@ export function AttachControls({
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setRefused('This browser cannot record here. Attach the voice note as a file.');
       return;
+    }
+    // Where the sound goes is said before the first note is taken. Not known yet, it is asked for now, and nothing is recorded without it.
+    if (!voice && onCheckVoice) {
+      try {
+        await onCheckVoice();
+      } catch (e) {
+        setRefused(
+          e instanceof ApiRequestError && e.status === 429
+            ? 'Too many requests just now, so recording cannot start. Try again in a minute, or attach the voice note as a file.'
+            : 'The server did not say where a voice note goes, so recording cannot start. Try again, or attach the voice note as a file.',
+        );
+        return;
+      }
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -119,7 +137,7 @@ export function AttachControls({
         type="file"
         multiple
         className="hidden"
-        accept=".pdf,.doc,.docx,.txt,.csv,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.ogg,.oga,.opus,.m4a,.mp3,.wav,.webm,.aac,.flac,audio/*,image/*"
+        accept={FILE_KINDS}
         onChange={(e) => take(e.target.files, e.target)}
       />
       {/* On a phone this opens the camera; elsewhere, the pictures on the machine. */}
@@ -128,7 +146,7 @@ export function AttachControls({
         <>
           <Button type="button" variant="ghost" size="sm" aria-label="Attach documents" title="Attach documents" disabled={disabled} icon={<Paperclip size={15} />} onClick={() => fileRef.current?.click()} />
           <Button type="button" variant="ghost" size="sm" aria-label="Take a photograph" title="Take a photograph" disabled={disabled} icon={<Camera size={15} />} onClick={() => cameraRef.current?.click()} />
-          {voice ? (
+          {voice || onCheckVoice ? (
             <Button type="button" variant="ghost" size="sm" aria-label="Record a voice note" title="Record a voice note" disabled={disabled} icon={<Mic size={15} />} onClick={() => void record()} />
           ) : null}
         </>

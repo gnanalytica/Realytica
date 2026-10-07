@@ -21,8 +21,8 @@ function shown(def: CheckFieldDef | undefined, value: unknown): string {
   return formatFieldValue(def, { value } as CheckFieldValue);
 }
 
-/** Where a value was read, as a way to the page. */
-function SourceChip({ value, onShow }: { value: WaitingCheckValue; onShow?: (evidenceId: string) => void }) {
+/** Where a value was read, as a way to the page. It says which value it stands for, so two of one paper each show their own words. */
+function SourceChip({ value, onShow }: { value: WaitingCheckValue; onShow?: (evidenceId: string, value?: WaitingCheckValue) => void }) {
   const text = `${value.source ?? 'Document'}${value.page ? ` · p.${value.page}` : ''}`;
   if (!value.sourceEvidenceId || !onShow) {
     return <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-micro text-ink-secondary">{text}</span>;
@@ -30,7 +30,7 @@ function SourceChip({ value, onShow }: { value: WaitingCheckValue; onShow?: (evi
   return (
     <button
       type="button"
-      onClick={() => onShow(value.sourceEvidenceId!)}
+      onClick={() => onShow(value.sourceEvidenceId!, value)}
       title="Show it on the page"
       className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-micro text-ink-secondary hover:bg-provenance/10 hover:text-provenance-ink"
     >
@@ -87,8 +87,8 @@ export function CheckWaiting({
   /** Accept a waiting card where it sits — a suggested result, a request. */
   onAccept?: (id: string, payload?: Record<string, unknown>) => void;
   onSetAside?: (id: string) => void;
-  /** Open the document a value was read from. */
-  onShowSource?: (evidenceId: string) => void;
+  /** Open the document a value was read from, at that value. */
+  onShowSource?: (evidenceId: string, value?: WaitingCheckValue) => void;
 }) {
   const toast = useToast();
   const [working, setWorking] = useState(false);

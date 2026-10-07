@@ -13,10 +13,13 @@
  * is for the day one paper can be deleted on its own.
  *
  * Read back two ways: one paper's pages, and a search of a project's papers
- * for words.
+ * for words. The chat searches them where no value on the file answers a
+ * question (`paperPassages`), and a model in the chat has the same search as
+ * a tool: this file hands it to the tool, because the pages are in storage.
  */
 
-import type { ChatIngestFile, DdProject } from '@realytica/shared';
+import { setPaperSearch } from '@realytica/agents';
+import { papersAsked, type ChatIngestFile, type DdProject, type PaperPassage, type PaperWordsAsked } from '@realytica/shared';
 import { storageAdapter } from '../storage';
 import { pagesOf, type PaperPages } from './intake';
 
@@ -100,10 +103,75 @@ function plain(text: string): string {
 
 const SNIPPET_CHARS = 180;
 
-/** The page's own words around `word`, cut at word boundaries. */
-function snippetAround(text: string, word: string): string {
+/** A line that says it numbers the page ("Page 3", "Page 3 of 3"), or a number set between dashes as a printer centres one ("- 3 -"). */
+const PAGE_NUMBER_LINE = /^\W*page\s+\d+(?:\s*(?:of|\/)\s*\d+)?\W*$|^\s*[-–—]\s*\d{1,4}\s*[-–—]\s*$/i;
+/** "3 of 3", which numbers the page only where it is this page of this paper's count. */
+const N_OF_M = /^\W*(\d+)\s+of\s+(\d+)\W*$/i;
+
+/**
+ * A page's words without the line that numbers it, at its head or its foot.
+ * The line is the printer's and not the paper's: quoted, it reads as the end
+ * of the passage ("…Bengaluru Page 3 of 3").
+ *
+ * Only a line that is unmistakably the page's own number is left out. A
+ * survey number ("118/2"), a door number or a date alone on a line is the
+ * paper's, and stays. `page` and `pagesInFile` are this page's number and how
+ * many the paper has.
+ */
+function withoutPageNumber(text: string, page: number, pagesInFile: number): string {
+  const numbers = (line: string): boolean => {
+    if (PAGE_NUMBER_LINE.test(line)) return true;
+    const count = N_OF_M.exec(line);
+    return Boolean(count) && Number(count![1]) === page && Number(count![2]) === pagesInFile;
+  };
+  const lines = text.trim().split('\n');
+  if (lines.length > 1 && numbers(lines[lines.length - 1]!)) lines.pop();
+  if (lines.length > 1 && numbers(lines[0]!)) lines.shift();
+  return lines.join('\n');
+}
+
+/**
+ * A word without its ending, so that one asked for in one form is found in
+ * another: witness and witnesses, inherited and inheritance, charge and
+ * charged. English endings only. A word in another script is itself.
+ */
+function stem(word: string): string {
+  if (!/^[a-z]{4,}$/.test(word)) return word;
+  let out = word;
+  if (out.endsWith('ies')) out = `${out.slice(0, -3)}y`;
+  else if (/(?:s|x|z|ch|sh)es$/.test(out)) out = out.slice(0, -2);
+  else if (/[^su]s$/.test(out)) out = out.slice(0, -1);
+  for (const ending of ['ance', 'ence', 'ment', 'ing', 'ed']) {
+    if (out.endsWith(ending) && out.length - ending.length >= 4) {
+      out = out.slice(0, -ending.length);
+      break;
+    }
+  }
+  return out.length > 4 && out.endsWith('e') ? out.slice(0, -1) : out;
+}
+
+/**
+ * The page's own words around what was looked for, cut at word boundaries:
+ * from where the most of the words stand together, and among such places the
+ * one that writes the most of them as they were asked for, the first of
+ * those. `text` is the page without the line that numbers it, `asked` the
+ * words as asked, and `form` the form they are compared in.
+ */
+function snippetAround(text: string, asked: readonly string[], form: (word: string) => string): string {
   const flat = text.replace(/\s+/g, ' ').trim();
-  const at = Math.max(0, flat.toLowerCase().indexOf(word));
+  const wanted = asked.map(form);
+  const found = [...flat.matchAll(/[\p{L}\p{M}\p{N}]+/gu)].flatMap((word) => {
+    const written = plain(word[0]);
+    return wanted.includes(form(written)) ? [{ at: word.index, said: form(written), asAsked: asked.includes(written) }] : [];
+  });
+  let at = found[0]?.at ?? 0;
+  let most = 0;
+  for (const first of found) {
+    const near = found.filter((other) => other.at >= first.at && other.at < first.at + (SNIPPET_CHARS * 2) / 3);
+    // Every word together counts for more than any number written as asked.
+    const score = new Set(near.map((other) => other.said)).size * (asked.length + 1) + new Set(near.filter((other) => other.asAsked).map((other) => other.said)).size;
+    if (score > most) [most, at] = [score, first.at];
+  }
   const from = Math.max(0, at - SNIPPET_CHARS / 3);
   const start = from === 0 ? 0 : flat.indexOf(' ', from) + 1;
   const cut = flat.slice(start, start + SNIPPET_CHARS);
@@ -118,41 +186,62 @@ function snippetAround(text: string, word: string): string {
  * project is what is searched. It opens the latest file on each row, newest
  * row first, and stops at `maxFiles` of them; `notOpened` says how many it
  * left, so an answer can say it did not look everywhere. Words are matched
- * whole, in any script, whatever their case or punctuation.
+ * whole, in any script, whatever their case or punctuation. `loose` matches
+ * a word in any of its forms (`stem`): for a person's question, which is in
+ * their words and not the paper's. `together` takes a page only where the
+ * passage quoted from it holds every word: for a question's own words, two
+ * of which are somewhere on most pages.
  */
 export async function searchPageTexts(
   project: Pick<DdProject, 'id' | 'evidence'>,
   words: string,
-  opts: { maxFiles?: number; maxHits?: number } = {},
+  opts: { maxFiles?: number; maxHits?: number; loose?: boolean; together?: boolean } = {},
 ): Promise<PageTextSearch> {
   const maxFiles = opts.maxFiles ?? 40;
   const maxHits = opts.maxHits ?? 20;
-  const wanted = [...new Set(plain(words).split(' ').filter(Boolean))];
+  const form = opts.loose ? stem : (word: string): string => word;
+  const asked = [...new Set(plain(words).split(' ').filter(Boolean))];
+  const wanted = [...new Set(asked.map(form))];
   const rows = project.evidence
     .filter((row) => row.attachments.length > 0)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const hits: PageTextHit[] = [];
   let opened = 0;
   if (!wanted.length) return { hits, opened, notOpened: rows.length };
+  const holds = (text: string): boolean => {
+    const held = new Set(plain(text).split(' ').map(form));
+    return wanted.every((word) => held.has(word));
+  };
   for (const row of rows) {
     if (opened >= maxFiles || hits.length >= maxHits) break;
     const file = row.attachments[row.attachments.length - 1]!;
     opened += 1;
     const kept = await loadPageTexts(project.id, file.storageKey);
-    for (const page of kept?.pages ?? []) {
+    if (!kept) continue;
+    for (const page of kept.pages) {
       if (hits.length >= maxHits) break;
-      const held = new Set(plain(page.text).split(' '));
-      if (!wanted.every((word) => held.has(word))) continue;
-      hits.push({
-        evidenceId: row.id,
-        title: row.title,
-        fileName: file.fileName,
-        storageKey: file.storageKey,
-        page: page.page,
-        reader: page.reader,
-        snippet: snippetAround(page.text, wanted[0]!),
-      });
+      if (!holds(page.text)) continue;
+      const snippet = snippetAround(withoutPageNumber(page.text, page.page, kept.pagesInFile), asked, form);
+      if (opts.together && !holds(snippet)) continue;
+      hits.push({ evidenceId: row.id, title: row.title, fileName: file.fileName, storageKey: file.storageKey, page: page.page, reader: page.reader, snippet });
     }
   }
   return { hits, opened, notOpened: Math.max(0, rows.length - opened) };
 }
+
+/**
+ * The passages that answer a question put to the papers' own words: the
+ * pages of the papers it is about that hold every word it asks for, in
+ * whatever form the paper writes them, and in one passage where the question
+ * says so (`together`). `project` is the record as the person asking may see
+ * it, so only the papers on their copy are searched.
+ */
+export async function paperPassages(project: Pick<DdProject, 'id' | 'evidence'>, asked: PaperWordsAsked): Promise<{ passages: PaperPassage[]; notOpened: number }> {
+  const papers = papersAsked(project, asked);
+  if (!papers.length) return { passages: [], notOpened: 0 };
+  const found = await searchPageTexts({ id: project.id, evidence: papers }, asked.words, { loose: true, together: asked.together });
+  return { passages: found.hits.map((hit) => ({ evidenceId: hit.evidenceId, page: hit.page, snippet: hit.snippet, reader: hit.reader })), notOpened: found.notOpened };
+}
+
+// A model in the chat searches the same pages, through the tool the agents package gives it.
+setPaperSearch((project, words) => searchPageTexts(project, words, { loose: true, maxHits: 8 }));

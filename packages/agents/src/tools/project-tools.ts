@@ -27,6 +27,7 @@ import {
   MENU_DEPARTMENTS,
   PROJECT_COCKPIT_PANES,
   chatPlaceLabel,
+  papersAsked,
   placeOfRecord,
   placeOfWords,
   ANSWER_SOURCES,
@@ -121,6 +122,36 @@ export interface ProjectGraphRagPort {
     seedIds: string[],
     hops: number,
   ): Promise<{ nodes: { id: string }[]; edges: unknown[] } | null>;
+}
+
+/** One page of a paper that holds the words looked for. */
+export interface PaperTextHit {
+  evidenceId: string;
+  /** The paper's title on the register, and the file the words were found in. */
+  title: string;
+  fileName: string;
+  /** 1-based. */
+  page: number;
+  /** Whose words they are: the file's text, OCR's reading of it, or what a model quoted from it. */
+  reader: 'text' | 'ocr' | 'model';
+  /** The page's own words around what was looked for. */
+  snippet: string;
+}
+
+/** A search of the pages kept beside a project's papers: only the papers on the project it is handed. */
+export type PaperSearch = (project: Pick<DdProject, 'id' | 'evidence'>, words: string) => Promise<{ hits: PaperTextHit[]; opened: number; notOpened: number }>;
+
+/**
+ * How the pages of a project's papers are searched.
+ *
+ * Installed by the app and not imported, as the telemetry sink is: the pages
+ * are kept in the app's storage, and this package does not know it exists.
+ * Where none is installed the tool says the pages are not kept.
+ */
+let paperSearch: PaperSearch | null = null;
+
+export function setPaperSearch(next: PaperSearch | null): void {
+  paperSearch = next;
 }
 
 export interface ProjectAgentCollectors {
@@ -1190,7 +1221,9 @@ export function createProjectTools(
     } as const,
     run: async ({ query, hops }) => {
       const live = projectGraphOf(project);
-      const seeds = findProjectNodes(live, String(query ?? '')).slice(0, 5);
+      // The first five records the term finds are the seeds. How many it found in all goes out with the answer.
+      const found = findProjectNodes(live, String(query ?? ''));
+      const seeds = found.slice(0, 5);
       if (seeds.length === 0) {
         return JSON.stringify({ error: `Nothing in this file's graph matches "${query}". Try a check title, a finding, or an id.` });
       }
@@ -1212,7 +1245,7 @@ export function createProjectTools(
       const seed = seeds[0];
       if (seed) openTalk(bag, sittingFromCitedId(project, seed.id));
       bag.toolCalls.push({ name: 'get_subgraph', summary: `${seed?.label ?? query} · ${source}` });
-      return serializeProjectSubgraph(sub, source);
+      return serializeProjectSubgraph(sub, source, { seeds: seeds.length, matches: found.length });
     },
   });
 
@@ -1342,6 +1375,48 @@ export function createProjectTools(
         queuedAsCards: cards.length,
         hits: pull.hits.slice(0, 6).map((hit) => ({ title: hit.title, claim: hit.claim, url: hit.url })),
         note: 'Queued as cards for approval. These are commercial signals, not records on this file — do not state their figures as facts about the property.',
+      });
+    },
+  });
+
+  /**
+   * The words of the papers themselves.
+   *
+   * A reading keeps the values it understood, and every other tool here
+   * reads those. What the rules had no pattern for is still on the page: a
+   * right of way, a covenant, who witnessed a deed. Each page's words are
+   * kept beside its file, and this searches them. It reads and changes
+   * nothing. It searches the papers of the project it was handed and no
+   * other, which for an outside collaborator is their copy of it.
+   */
+  const searchPapers = betaTool({
+    name: 'search_papers',
+    description:
+      'Search the words of this project\'s filed papers, page by page, for what no register holds: a clause, a right of way, a name, who witnessed a deed. Give the few words to find; a page is a hit when it holds all of them, in whatever form it writes them. Returns each passage with its paper and page. Quote the passage as the paper\'s own words and cite it as [ev:<evidenceId>:p<page>]. A passage is what the page says and not a value on the file: do not state it as one, and say so when nothing is found.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['words'],
+      properties: {
+        words: { type: 'string', description: 'The words to find together on one page, as few as will do: "right of way", "witnesses".' },
+        paper: { type: 'string', description: 'Optional. The paper to search, by its title or kind: "sale deed", "EC". Leave out to search every paper.' },
+      },
+    } as const,
+    run: async ({ words, paper }) => {
+      if (!paperSearch) return JSON.stringify({ searched: false, note: 'The pages of the papers are not kept on this deployment.' });
+      const papers = papersAsked(project, { words: String(words ?? ''), ...(paper ? { paper: String(paper) } : {}) });
+      const found = papers.length ? await paperSearch({ id: project.id, evidence: papers }, String(words ?? '')) : { hits: [], opened: 0, notOpened: 0 };
+      bag.toolCalls.push({ name: 'search_papers', summary: found.hits.length ? `Searched the papers: ${found.hits.length === 1 ? '1 page' : `${found.hits.length} pages`}` : 'Searched the papers: nothing found' });
+      return JSON.stringify({
+        searched: true,
+        hits: found.hits.map((hit) => ({ evidenceId: hit.evidenceId, paper: hit.title, fileName: hit.fileName, page: hit.page, readBy: hit.reader, passage: hit.snippet, cite: `[ev:${hit.evidenceId}:p${hit.page}]` })),
+        papersSearched: found.opened,
+        papersNotSearched: found.notOpened,
+        note: found.hits.length
+          ? 'These are the papers\' own words. Quote them as that, each with its cite, and state none as a value on the file.'
+          : papers.length
+            ? 'No page of the papers searched holds all of those words. Try fewer words, or say that the papers do not mention it.'
+            : 'No paper on this project goes by that name.',
       });
     },
   });
@@ -1485,6 +1560,7 @@ export function createProjectTools(
     traceConclusion,
     lookupReference,
     getSiteContext,
+    searchPapers,
     searchWeb,
     getPortalRoute,
     comparePlanning,

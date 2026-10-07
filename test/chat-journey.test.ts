@@ -11,6 +11,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  addAction,
   addEvidence,
   addFinding,
   answerFromFile,
@@ -20,10 +21,15 @@ import {
   findingSeverityRequested,
   looksLikeFileQuestion,
   reportKindRequested,
+  seedDemoProject,
   wantsDeterministicProjectChat,
   type DdProject,
+  type DecisionRecord,
   type DocumentFact,
 } from '@realytica/shared';
+
+/** A decision as the record keeps one, to be given a title of the test's own. */
+const seedDecision = (): DecisionRecord => seedDemoProject().decisions[0]!;
 
 function fact(key: string, label: string, value: string | number | boolean, display: string, page: number, quote: string): DocumentFact {
   return { key, label, value, display, page, quote };
@@ -72,7 +78,8 @@ describe('answering from the file', () => {
     const out = applyProjectChat(readFile(), 'who owns the property?');
     assert.deepEqual(tools(out), ['answer_from_file']);
     assert.match(out.assistantTurn.text, /Whitefield Tech Parks LLP/);
-    assert.match(out.assistantTurn.text, /p\.1/);
+    // The page is cited either in words ("p.1") or as the mark the thread draws as a chip ("[ev:…:p1]").
+    assert.match(out.assistantTurn.text, /\bp\.?1\b/);
     assert.match(out.assistantTurn.text, /same name/);
   });
 
@@ -128,7 +135,7 @@ describe('answering from the file', () => {
     const lines = answerFromFile(project, 'who owns the property?')!.text.split('\n');
     assert.equal(lines.length, 4, lines.join(' | '));
     assert.match(lines[3]!, /^⚑ The names differ/, 'the flag still opens its line, so it is drawn as a row');
-    assert.match(lines[2]!, /names Sunrise Estates Private Limited \(p\.1\)\. The .+ names Sunrise Estates Private Limited/, 'the plain lines past the room are folded into the one before');
+    assert.match(lines[2]!, /Sunrise Estates Private Limited.+\bp\.?1\b.+ .*Sunrise Estates Private Limited/, 'the plain lines past the room are folded into the one before');
   });
 
   it('is answered here, not handed to a model', () => {
@@ -231,5 +238,170 @@ describe('commands that used to land in the wrong place', () => {
   it('applies without printing record ids', () => {
     const out = applyProjectChat(readFile(), 'set owner to Asha Menon');
     assert.ok(!/\b(?:prj|ast|rsk|ev)_[0-9a-f]/.test(out.assistantTurn.text), out.assistantTurn.text);
+  });
+});
+
+describe('a value compared across the papers', () => {
+  it('is answered as "what is the extent?" is: every paper that states one, side by side', () => {
+    const project = readFile();
+    const asked = applyProjectChat(project, 'what is the extent?').assistantTurn.text;
+    assert.match(asked, /12,000 sqm.+11,850 sqm/);
+    for (const said of [
+      'compare the extent on the deed and the khata',
+      'reconcile the extent across the papers',
+      'check the extent on the khata against the deed',
+      'Please cross-check the site area between the deed and the khata',
+      'how does the extent compare across the deed and the khata?',
+    ]) {
+      const out = applyProjectChat(project, said);
+      assert.deepEqual(tools(out), ['answer_from_file'], said);
+      assert.equal(out.assistantTurn.text, asked, said);
+      assert.equal(out.proposals.length, 0, `${said}: no card to fetch a khata`);
+      assert.ok(wantsDeterministicProjectChat(project, said), said);
+    }
+  });
+
+  it('reads the owner and the survey number the same way', () => {
+    assert.match(applyProjectChat(readFile(), 'compare the owner on the deed and the khata').assistantTurn.text, /Whitefield Tech Parks LLP.+same name/s);
+    assert.match(applyProjectChat(readFile(), 'reconcile the survey numbers across the documents').assistantTurn.text, /118\/2/);
+  });
+
+  it('asks which value when papers are named and no value is, and each answer is one the file gives', () => {
+    const project = readFile();
+    const out = applyProjectChat(project, 'compare the deed and the khata');
+    assert.equal(out.assistantTurn.text, 'Compare which value?');
+    assert.deepEqual(out.assistantTurn.choices?.map((choice) => choice.label), ['Extent', 'Owner', 'Survey number']);
+    assert.equal(out.proposals.length, 0);
+    for (const choice of out.assistantTurn.choices ?? []) assert.deepEqual(tools(applyProjectChat(readFile(), choice.send)), ['answer_from_file'], choice.send);
+  });
+
+  it('opens a check or an action named by its own title after verify or confirm, and compares nothing', () => {
+    const project = readFile();
+    createAssessment(project, { ddType: 'acquisition', name: 'Acquisition', owner: 'tester', targetType: 'project' });
+    const check = project.assessments[0]!.scopes.flatMap((scope) => scope.checks).find((c) => c.title === 'Parcel identification matches title and survey');
+    assert.ok(check, 'the due diligence has the check');
+    const action = addAction(project, { title: 'Verify parcel identity against the registry', kind: 'clarification', owner: 'tester', priority: 'medium' });
+    // Each was answered "Survey No. 118/2. …", with the sale deed opened.
+    const onCheck = applyProjectChat(project, 'confirm Parcel identification matches title and survey');
+    assert.deepEqual(tools(onCheck), ['open_sitting']);
+    assert.equal(onCheck.navigations.at(-1)?.checkId, check.id);
+    const onAction = applyProjectChat(project, 'Verify parcel identity against the registry');
+    assert.deepEqual(tools(onAction), ['open_sitting']);
+    assert.equal(onAction.navigations.at(-1)?.actionId, action.id);
+    // Both are read by the rules, with or without a model. A question that holds a title is not the title.
+    for (const said of ['Verify parcel identity against the registry', 'confirm Parcel identification matches title and survey']) assert.ok(wantsDeterministicProjectChat(project, said), said);
+    assert.equal(wantsDeterministicProjectChat(project, 'Why should we verify parcel identity against the registry before the sale agreement is signed by both sides?'), false);
+  });
+
+  it('takes a check of a value for a comparison only with a paper named to hold it against', () => {
+    const project = readFile();
+    for (const said of ['check the extent against the khata', 'confirm the extent matches the khata', 'verify the survey number across the deed and the EC']) {
+      assert.deepEqual(tools(applyProjectChat(project, said)), ['answer_from_file'], said);
+    }
+    // Each names no paper. They were answered with the extent and the owner.
+    for (const said of ['confirm the area matches', 'check the owner name against the PAN card', 'tally the names of the attendees']) {
+      assert.ok(!tools(applyProjectChat(readFile(), said)).includes('answer_from_file'), said);
+    }
+    assert.deepEqual(tools(applyProjectChat(project, 'compare the names on the deed and the khata')), ['answer_from_file'], 'a name on a paper is the owner');
+  });
+
+  it('leaves the portal reply to a question about fetching a record', () => {
+    const fetched = applyProjectChat(readFile(), 'How do I get the RTC from Bhoomi?');
+    assert.ok(tools(fetched).includes('connectors'));
+    assert.ok(fetched.proposals.some((card) => card.kind === 'open_connector'));
+    // A comparison of something that is not a value on the papers is not taken for one.
+    assert.ok(!tools(applyProjectChat(readFile(), 'compare the two valuations')).includes('answer_from_file'));
+  });
+});
+
+describe('a record asked for by its own words', () => {
+  it('opens the finding the words name', () => {
+    for (const said of ['show me the mortgage on the EC', 'open the mortgage finding', 'show me the subsisting mortgage', 'Open "Subsisting mortgage on the EC"']) {
+      const project = readFile();
+      const finding = project.findings.find((f) => f.title === 'Subsisting mortgage on the EC')!;
+      const out = applyProjectChat(project, said);
+      // Was: "Nothing on this project is called “mortgage on the EC”. Nothing moved."
+      assert.deepEqual(out.navigations.at(-1), { target: 'findings', findingId: finding.id }, said);
+      assert.match(out.assistantTurn.text, /^“Subsisting mortgage on the EC” is on the right — critical/, said);
+      assert.ok(wantsDeterministicProjectChat(readFile(), said), said);
+    }
+  });
+
+  it('finds the paper on file by the short name of its kind', () => {
+    const project = readFile();
+    const ec = project.evidence.find((e) => e.documentType === 'Encumbrance certificate')!;
+    // A row that still waits for its paper, titled with the same letters.
+    const expected = addEvidence(project, { title: 'EC', kind: 'document' });
+    assert.equal(expected.attachments.length, 0);
+    // Was: "Two records match “EC”. Which one?" between that row and the mortgage finding, and the certificate on file was not offered.
+    for (const said of ['show me the EC', 'open the EC']) {
+      const out = applyProjectChat(project, said);
+      assert.equal(out.navigations.at(-1)?.evidenceId, ec.id, said);
+      assert.equal(out.assistantTurn.choices, undefined, said);
+    }
+    // The finding is still found by its kind or its words, and the waiting row by its title in quotes.
+    assert.equal(applyProjectChat(project, 'show me the EC finding').navigations.at(-1)?.target, 'findings');
+    assert.equal(applyProjectChat(project, 'show me the mortgage on the EC').navigations.at(-1)?.target, 'findings');
+    assert.deepEqual(applyProjectChat(project, 'Open "EC"').assistantTurn.choices?.map((choice) => choice.label), ['EC', 'Subsisting mortgage on the EC']);
+  });
+
+  it('opens a paper by its title or by the kind of paper it is, on the page of the function that holds it', () => {
+    const project = readFile();
+    const ec = project.evidence.find((e) => e.documentType === 'Encumbrance certificate')!;
+    for (const said of ['open the encumbrance certificate', 'show me the encumbrance certificate (Form 15/16, 30-year)']) {
+      const nav = applyProjectChat(project, said).navigations.at(-1)!;
+      assert.deepEqual([nav.target, nav.workstream, nav.section, nav.evidenceId], ['workstream', 'legal.title', 'documents', ec.id], said);
+    }
+  });
+
+  it('opens a risk, an action and a decision the same way', () => {
+    const project = readFile();
+    applyProjectChat(project, 'Add a risk: boundary wall encroachment on the north edge');
+    const risk = project.risks.find((r) => /boundary wall/.test(r.title))!;
+    assert.equal(applyProjectChat(project, 'open the boundary wall risk').navigations.at(-1)?.riskId, risk.id);
+    project.decisions.push({ ...structuredClone(seedDecision()), id: 'dec_1', title: 'The lender will be given the 30-year encumbrance certificate.', status: 'approved' });
+    const out = applyProjectChat(project, 'show me the lender decision');
+    assert.deepEqual(out.navigations.at(-1), { target: 'decisions', item: 'dec_1' });
+    assert.equal(out.assistantTurn.text, '“The lender will be given the 30-year encumbrance certificate.” is open in Decisions — approved.');
+  });
+
+  it('asks which when several records hold the words, and moves nowhere', () => {
+    const project = readFile();
+    addFinding(project, { title: 'Khata extent is short of the deed', description: 'x', severity: 'high', discipline: 'legal' });
+    const out = applyProjectChat(project, 'open the khata');
+    assert.equal(out.navigations.length, 0);
+    assert.equal(out.assistantTurn.text, 'Two records match “khata”. Which one?');
+    assert.deepEqual(out.assistantTurn.choices?.map((choice) => choice.kind), ['document', 'finding']);
+    assert.ok(!tools(out).includes('connectors'), 'a paper on file is not answered with where to fetch one');
+    // Each choice opens its own record.
+    const [paper, finding] = out.assistantTurn.choices!;
+    assert.ok(applyProjectChat(project, paper!.send, { sitting: paper!.sitting }).navigations.at(-1)?.evidenceId);
+    assert.ok(applyProjectChat(project, finding!.send, { sitting: finding!.sitting }).navigations.at(-1)?.findingId);
+  });
+
+  it('means a paper still expected only by its whole name', () => {
+    const project = readFile();
+    const expected = addEvidence(project, { title: 'Survey sketch', kind: 'document', status: 'expected' });
+    // Its whole name is the row.
+    assert.equal(applyProjectChat(project, 'open the survey sketch').navigations.at(-1)?.evidenceId, expected.id);
+    // A word of its name is not: a file holds dozens of such rows, each a word or two long.
+    assert.ok(!applyProjectChat(project, 'show me the sketch').navigations.some((nav) => nav.evidenceId === expected.id));
+  });
+
+  it('opens a paper on file asked for with its kind beside it, and never says where to fetch one', () => {
+    const project = readFile();
+    const khata = project.evidence.find((e) => e.documentType === 'Khata certificate and extract')!;
+    for (const said of ['show me the khata document', 'show me the khata documents', 'open the khata paper']) {
+      const out = applyProjectChat(project, said);
+      assert.equal(out.navigations.at(-1)?.evidenceId, khata.id, said);
+      assert.ok(!tools(out).includes('connectors'), said);
+    }
+  });
+
+  it('leaves a question a question, and a name nothing answers to a name nothing answers to', () => {
+    assert.deepEqual(tools(applyProjectChat(readFile(), 'show me the mortgage on the EC?')), ['answer_from_file']);
+    assert.equal(applyProjectChat(readFile(), 'open Zorblax').assistantTurn.text, 'Nothing on this project is called “Zorblax”. Nothing moved.');
+    // A page by that name is the page: the reader of places comes first.
+    assert.equal(applyProjectChat(readFile(), 'open findings').navigations.at(-1)?.target, 'findings');
   });
 });

@@ -13,7 +13,8 @@ import {
 import { workspaceApi, type FileCertifiedBody } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
 import { money } from '../../lib/format';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, Textarea, useToast } from '../ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, Textarea, cn, useToast } from '../ui/kit';
+import { MARKED_ROW } from '../workspace/marked';
 import { VERDICT_TONE } from './QuickAssessmentCard';
 
 function day(iso?: string): string {
@@ -30,8 +31,22 @@ function figureText(project: DdProject, figure?: { value: number; unit: 'INR' | 
  * record, with who signed it, their registration, the date and scope. When the
  * quick assessment has moved far enough since, it is flagged for revisiting,
  * and its lead or signer says they have seen it.
+ *
+ * A link can name one of them. That report is lit, and an earlier one is
+ * shown with the list it sits in opened; the page it is on brings it into view.
  */
-export function CertifiedPanel({ project, workstream, onChanged }: { project: DdProject; workstream: string; onChanged: (p: DdProject) => void }) {
+export function CertifiedPanel({
+  project,
+  workstream,
+  onChanged,
+  marked,
+}: {
+  project: DdProject;
+  workstream: string;
+  onChanged: (p: DdProject) => void;
+  /** A report a link named, by its id. */
+  marked?: string | null;
+}) {
   const me = useMe();
   const toast = useToast();
   const [filing, setFiling] = useState(false);
@@ -73,7 +88,7 @@ export function CertifiedPanel({ project, workstream, onChanged }: { project: Dd
       />
       <CardBody className="space-y-3">
         {current ? (
-          <div className="space-y-2">
+          <div data-marked={current.id === marked ? '' : undefined} className={cn('space-y-2', current.id === marked && cn(MARKED_ROW, '-mx-2 rounded-lg px-2 py-1.5'))}>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <p className="text-[15px] font-semibold text-ink">{current.title}</p>
               {current.verdict ? <Badge tone={VERDICT_TONE[current.verdict]}>{QUICK_VERDICT_LABEL[current.verdict]}</Badge> : null}
@@ -117,11 +132,11 @@ export function CertifiedPanel({ project, workstream, onChanged }: { project: Dd
           </p>
         )}
         {earlier.length ? (
-          <details className="text-[12px] text-ink-secondary">
+          <details open={earlier.some((r) => r.id === marked) || undefined} className="text-[12px] text-ink-secondary">
             <summary className="cursor-pointer select-none">Earlier reports · {earlier.length}</summary>
             <ul className="mt-1 space-y-0.5">
               {earlier.map((r) => (
-                <li key={r.id}>
+                <li key={r.id} data-marked={r.id === marked ? '' : undefined} className={cn(r.id === marked && cn(MARKED_ROW, '-mx-1 rounded px-1 py-0.5'))}>
                   {r.title} — {r.signer.name}
                   {r.issuedOn ? `, ${day(r.issuedOn)}` : ''}
                   {figureText(project, r.figure) ? ` · ${figureText(project, r.figure)}` : ''}

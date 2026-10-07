@@ -150,6 +150,10 @@ Write covers everything on a file: checks, evidence, findings, risks, reports.
 Manager adds creating and deleting projects and running the people list. Owner
 adds transferring the workspace.
 
+Writing is not deciding. Whether a value read off a document is accepted is a
+department's call on each project, and staff do not hold it by default: see
+[Departments](#departments).
+
 A workspace always keeps at least one owner. The last one cannot demote or
 remove themselves — there is no way back into a workspace that has nobody who
 can administer it.
@@ -179,6 +183,12 @@ Three things follow from the grant rather than being written per route:
   including the chat, the search index and the graph — is a copy with the
   withheld parts absent. A model told to withhold the valuation mentions it; a
   model handed a file that has no valuation on it cannot.
+  The stored graph is the one thing kept whole. What it answers is cut to the
+  caller's reach before it is handed on: to the page
+  (`GET /graph/neighbourhood`), to the model answering in their chat, and to a
+  flow they run. What a change reaches (`GET /graph/impact`) is not asked of
+  the store at all for somebody working from a grant. It is worked out on
+  their own copy, and a record that is not on it is not found.
 - **Writes are gated separately.** The API mutates the real project, not the
   copy, so a request naming a record that exists but is not in the caller's
   projection is refused — whether the id came from the path or the body.
@@ -265,6 +275,161 @@ needs to. Someone from outside the firm reaches only the departments given to
 them; that is written as a project grant (the scopes whose checks those
 departments hold, and the matching areas), so the response redaction described
 above applies to them unchanged.
+
+| | Edits the department's records | Decides |
+|---|---|---|
+| **Lead** | ✓ | ✓ |
+| **Signer** | ✓ | ✓ |
+| **Contributor** | ✓ | |
+| **Viewer** | | |
+
+### Who decides what a document states
+
+Reading a document proposes values; a person decides where each one stands.
+Accepting a value, setting it aside, reopening it, and picking one of two that
+disagree are all decisions, and a decision is for **a lead or a signer of the
+department the value belongs to**. A contributor files documents and records
+what they find. They decide nothing that was read.
+
+| What is decided | Whose it is |
+|---|---|
+| What a document states, on its own row | The department whose function holds the document. While no function holds it: a lead or signer of any department the project uses. |
+| A value waiting on a check | The check's department |
+| A value offered to the valuation, and which comparables count | Finance |
+| Moving a document out of the function that holds it | The department that holds it now |
+| Saying what kind of document a row is, once a value on it has been decided | The department that holds it |
+
+The server checks this. What it checks, by the way a decision arrives:
+
+| Way in | Routes, under `/projects/:id` |
+|---|---|
+| The document's row | `POST /evidence/:evidenceId/facts/review` |
+| The check | `POST /proposals/:proposalId/fields`, `/proposals/:proposalId/accept`, `/proposals/:proposalId/set-aside`, `/checks/:checkId/fields/:key/pick` |
+| The Value tab | `POST /value/accept`, `/value/set-aside`, `/comparables/decide` |
+| The chat | An approval typed or pressed: `POST /chat`, `/chat/proposals/:proposalId/commit`, `/chat/proposals/:proposalId/reject`. The firm's own chat and a collaborator's. |
+| A plan | A step that accepts, run from the chat |
+| Where a document is held | `PUT /evidence/:evidenceId/workstream` and its `null`, "File … under …" in the chat, a card that files a document under a function, `POST /certified`, `POST /evidence/:evidenceId/document-type/confirm` and `/correct` |
+
+Each route hands the shared function that does the deciding the caller's
+standing (`decidesFor`), and that function refuses before anything changes.
+Two routes also ask for themselves, because they write a correction onto a
+card before the card is decided: `POST /proposals/:proposalId/accept` and
+`POST /chat/proposals/:proposalId/commit` take a corrected value only from
+somebody who may decide that card. Whatever the card, the correction belongs
+to that one commit: where the commit is refused, fails, or leaves the card
+waiting, the card is put back exactly as it was raised. And where a card
+would file a document is the card's own, like the document it names, and
+cannot be sent with an accept.
+
+Handed nobody, a shared function takes the work for the server's own and
+refuses nothing. A call that left the caller out would let anybody through,
+so a test reads the source for one (`test/decide-gate.test.ts`). Every such
+call in the API passes the caller in the code of the call, not in a comment or
+a string and not as `undefined`; none of these functions is handed on under
+another name; and the two calls in the shared package that pass nobody are
+listed there, each with why nobody is asking.
+
+What the rule does not cover. Each of these is as it was before the rule, and
+each lets somebody without the role change what is decided or who decides it:
+
+- **A document held only because a check lists it.** A document of no kind,
+  with no function given to it, is held by the first check that lists it.
+  Listing it on a check, or taking it off one, changes who holds it, and is
+  not held to the rule for a move or written as one
+  (`recordCheckResult` in `operations.ts`). So is the first reading of such a
+  document: a row with no kind yet is named by the reading, and its kind then
+  says who holds it.
+- **Undo.** A person takes back their own chat message, and what it changed
+  goes back as it was: a document it moved, a value it accepted or set aside.
+  Nobody is asked for the role, at the time of the undo or for what it puts
+  back (`undoTurn` in `chat-changes.ts`).
+- **Marking a document's row.** Setting a row to rejected or superseded takes
+  what was accepted on it out of force, and setting it back to received puts
+  it back in force. Anybody who may write to the row may do either
+  (`PATCH /evidence/:evidenceId`, `POST /evidence/status`).
+- **Comparables other than deciding them.** One added by hand counts from the
+  moment it is added, and changing a comparable's adjustments or weight needs
+  no role (`POST /comparables`, `PATCH /comparables/:comparableId`).
+- A value typed onto a check by hand (`PUT /checks/:checkId/fields`), and the
+  valuation's own fields. It goes on the record under the name of whoever typed
+  it, and settles nothing that was read.
+- A card that is not a read value: a finding, a request, a DD to start, a
+  result suggested for a check, a suggested answer on a questionnaire. And a
+  card that writes what a document says about the project itself onto the
+  project's own record, its survey number or its address. Anybody who may
+  write accepts these.
+- A card on a check, for a lead or signer from outside the firm. The cards are
+  not on their copy of the project, so the write gate answers 404 before this
+  rule is asked. They decide on the document's row and in the chat.
+
+What follows from the rule:
+
+- **A decision stops at the department's edge.** A Legal lead who accepts what
+  a sale deed states records it on Legal's checks. A rate the same deed states
+  stays waiting on Finance's check, for Finance. The other way round too:
+  Finance accepting that rate on its own check does not accept it on Legal's
+  document.
+- **A check takes what the document was accepted as stating.** A figure
+  corrected on the document, or the other reader's value kept there, is what
+  another department's check records when its own lead accepts it, never the
+  figure its card was raised with. A value set aside on the document is taken
+  by no check from there until it is reopened, however the document is read
+  afterwards. A figure the check's own lead types, on the check or on the card
+  as they accept it, is theirs and is recorded as typed.
+- **Moving a document is a decision too.** Which function holds a document
+  says whose its values are, so whoever could move one could decide it. A lead
+  of Engineering cannot take Finance's valuation report: not by filing it
+  under Site, not by handing back to its own kind a document somebody gave to
+  Finance, not by accepting a card that files it elsewhere, not by filing it
+  as a signed report of their own, and not by saying it is another kind of
+  document. A document no function holds yet is given its first home by
+  anybody who may file. Between the design workstreams, which are one
+  function, nothing has moved. Each of these moves is on the trail when it is
+  made: from where, to where, by whom. The moves the rule does not cover are
+  listed above, and are not written as moves.
+- **A file never renames a row.** Putting a file on a row that already has a
+  kind leaves the kind as it is, whatever the file reads as: by upload, in
+  parts, from the chat, or by a plan that reads the filed documents. What the
+  file reads as is kept beside the row's kind as an offer, and taking the
+  offer is saying what the document is, which is held to the rule for a move.
+  A row with no kind yet is named by the first reading put on it.
+- **Saying what a document is can be a decision on its values.** A row's kind
+  says which of its values stand. Once a value on the row has been accepted or
+  set aside, confirming or correcting its kind takes a lead or signer of the
+  department that holds it, even where the document would stay in the same
+  function. Setting an offer aside renames nothing, and is anybody's.
+- **Reading a document again undoes nobody's decision.** A value a person
+  accepted or corrected stays in force. A value a person set aside stays set
+  aside whatever is read afterwards: the same value read again brings nothing
+  new, and a different value waits beside it as a new proposal. No number of
+  files put on the row brings back what somebody set aside; only reopening it
+  does, and that takes the role.
+- **A collaborator is judged on the whole project.** Their chat runs on their
+  copy, and a copy with Legal's checks taken out cannot say that Legal holds a
+  document. Where a document is held, and where a check sits, are worked out on
+  the real project. What their chat accepts is written on the real trail, and
+  only that: a line is carried back where the record it names is on the real
+  project.
+- **A refusal is a 403 that names the department**, by the menu's word for it:
+  *"Deciding what was read on this paper needs a lead or signer in Legal."* The
+  caller can already see the document, so there is nothing a 404 would protect.
+  Where the project's team list is why, because it gives somebody less than
+  their firm role would, the refusal says so: *"On this project the team list
+  makes you a viewer there."* The chat refuses nothing outright. It takes what
+  the person may decide and says how many values wait, and for which
+  department; a value is counted once, however many places it waits in.
+- **Owners and managers lose nothing. Staff and collaborators do.** Staff
+  contribute by default and a collaborator holds nothing by default, so either
+  has to be made a lead or a signer of a department on the project's team list
+  before they decide there.
+
+Saying what a document is, where a reading only offered a kind, is for
+anybody who may write while no function holds the document and nothing on it
+has been decided. Where a function holds it and the kind would move it, or a
+value on it has been decided, it is that department's. The values that kind of
+document cannot carry are set aside with it only when the person may decide
+the document. From anybody else they stay waiting, where nobody can accept
+them, for somebody who may.
 
 ## Deploying behind this
 

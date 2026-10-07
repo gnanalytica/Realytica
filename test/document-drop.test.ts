@@ -7,7 +7,11 @@
  * its values go to which function's checks, what it states that differs from
  * what the file already holds, and what else that reaches. The canvas opens
  * on the function's documents with the new row lit, and one chip under the
- * reply opens the paper in the graph.
+ * reply opens the paper in the graph. What a drop took in that is no paper
+ * read (a questionnaire, a photograph of the site, a voice note kept as it
+ * is) has a chip of its own, which opens it. What a chip counts as waiting is
+ * what "approve all" under the reply would take, and it says the page it
+ * waits on.
  *
  * Each of those is asked here of the seeded projects. A paper is given as the
  * reader hands it on: what it is comes from the reader's own profile of that
@@ -24,6 +28,7 @@ import { after, before, describe, it } from 'node:test';
 import {
   acceptedFacts,
   addEvidence,
+  addQuestionnaire,
   applyProjectChat,
   asksToFileUnder,
   attachEvidenceFile,
@@ -32,6 +37,7 @@ import {
   classifyIngestFile,
   cockpitPath,
   contestedKeys,
+  createChatProposal,
   disagreementSentence,
   documentDisagreements,
   fileCertifiedReport,
@@ -55,6 +61,7 @@ import {
   turnChips,
   waitingOnCanvas,
   waitingOnCheck,
+  waitingSentence,
   wantsDeterministicProjectChat,
   type ChatIngestFile,
   type CheckInstance,
@@ -62,8 +69,10 @@ import {
   type DocumentFact,
   type EvidenceRecord,
   type ProjectChatResult,
+  type ProjectChatTurn,
   type ProjectCockpitPane,
 } from '@realytica/shared';
+import { notReadYetCard } from '../apps/api/src/documents/dropped';
 import { readIngestLocally } from '../apps/api/src/documents/intake';
 import { releaseOcr } from '../apps/api/src/documents/read-text';
 
@@ -891,6 +900,89 @@ describe('a dropped paper in the graph', () => {
     drop(p, paper('Khata.pdf', 'khata', fact('extent_khata', 'Extent per khata', 1850, '1,850 sqm')));
     const asked = applyProjectChat(p, 'What is waiting?');
     assert.ok(!chipsOf(p, asked).some((c) => c.kind === 'graph' || c.kind === 'filed'));
+  });
+});
+
+describe('what a drop took in that is no paper read', () => {
+  /** The reply to a drop of a questionnaire, a photograph of the site and a voice note nothing could put into words, as the server writes it. */
+  function sorted(p: DdProject) {
+    const sheet = addQuestionnaire(p, { title: 'Queries on title', department: 'legal', fileName: 'Queries on title.xlsx', parsed: { header: [], questions: [{ text: 'Who holds the original deed?' }] } }, 'tester');
+    const photo = addEvidence(p, { title: 'Site photograph, 2 Oct 2026', kind: 'photograph', status: 'received', source: 'chat_upload' }, 'tester');
+    attachEvidenceFile(p, photo.id, { fileName: 'IMG_2041.jpg', mimeType: 'image/jpeg', sizeBytes: 9, storageKey: 's3://IMG_2041.jpg', capture: { purpose: 'progress' } }, 'tester');
+    photo.workstream = 'construction.progress';
+    const note = notReadYetCard({ fileName: 'voice-note.wav', mimeType: 'audio/wav', sizeBytes: 9, storageKey: 's3://voice-note.wav' }, 'tester');
+    p.chatProposals.push(note);
+    const turn = { toolCalls: [{ name: 'ingest' }], citedEvidenceIds: [photo.id], citedNodeIds: [sheet.id, note.id], proposalIds: [] };
+    return { sheet, photo, note, turn };
+  }
+  const address = (p: DdProject, chip: { open?: { pane: ProjectCockpitPane; extra: Parameters<typeof cockpitPath>[2] } }) => cockpitPath(p.id, chip.open!.pane, chip.open!.extra);
+
+  it('has a chip for each: the questionnaire and the photograph on their pages, the note where it waits to be filed', () => {
+    const p = seedBdaReferenceProject();
+    const { sheet, photo, note, turn } = sorted(p);
+    const chips = turnChips(p, turn, waitingOnCanvas(p), {});
+    assert.deepEqual(chips.map((chip) => [chip.kind, chip.count, chip.words]), [
+      ['filed', undefined, 'The questionnaire'],
+      ['filed', undefined, 'The photograph'],
+      ['filed', undefined, 'The voice note'],
+    ]);
+    const [questions, picture, voice] = chips;
+    assert.deepEqual([questions!.ids, address(p, questions!)], [[sheet.id], `/projects/${p.id}/d/legal?stage=land`], 'the page the questionnaire is on');
+    assert.deepEqual(picture!.ids, [photo.id]);
+    assert.match(address(p, picture!), new RegExp(`^/projects/${p.id}/w/construction\\.progress\\?.*part=documents`), 'Progress, at its documents, with the photograph lit');
+    assert.deepEqual([voice!.ids, address(p, voice!)], [[note.id], `/projects/${p.id}/evidence`], 'the voice note by the card it waits on, at the documents, where it waits');
+    assert.ok(!chips.some((chip) => chip.kind === 'graph'), 'and no paper to open in the graph');
+  });
+
+  it('counts as waiting only what “approve all” under the reply would take, and a voice note kept unread is none of it', () => {
+    const p = seedBdaReferenceProject();
+    const { note, turn } = sorted(p);
+    // The reply as the thread holds it: the last thing the chat said.
+    const reply: ProjectChatTurn = { id: 'cht_drop', role: 'assistant', text: 'A questionnaire, a photograph and a voice note.', at: new Date().toISOString(), ...turn, toolCalls: [{ name: 'ingest', summary: 'Sorted what was dropped' }] };
+    p.conversation.push(reply);
+    assert.ok(waitingOnCanvas(p).entries.some((entry) => entry.proposalId === note.id), 'the note’s card does wait, on the documents');
+    assert.deepEqual(turnChips(p, turn, waitingOnCanvas(p), {}).filter((chip) => chip.kind === 'waiting'), [], 'and is not counted as what this reply left');
+    assert.match(applyProjectChat(p, 'approve all').assistantTurn.text, /^Nothing from the last reply is left to accept\./, 'which is what the instruction finds');
+    // Two notes are told apart by their files' names.
+    const second = notReadYetCard({ fileName: 'voice-note-2.wav', mimeType: 'audio/wav', sizeBytes: 9, storageKey: 's3://voice-note-2.wav' }, 'tester');
+    p.chatProposals.push(second);
+    const words = turnChips(p, { ...turn, citedNodeIds: [...turn.citedNodeIds, second.id] }, waitingOnCanvas(p), {}).map((chip) => chip.words);
+    assert.deepEqual(words.slice(-2), ['voice-note.wav', 'voice-note-2.wav']);
+  });
+
+  it('says a card that waits on a function’s own page waits under that page: a site entry, under Progress', () => {
+    const p = seedDemoProject();
+    const card = createChatProposal('log_site_entry', 'Site entry, 5 Oct 2026', 'From a voice note.', 'Adds an entry to the site log.', {}, 'tester');
+    p.chatProposals.push(card);
+    const waiting = waitingOnCanvas(p);
+    const [chip] = turnChips(p, { proposalIds: [card.id] }, waiting, {});
+    assert.deepEqual([chip!.kind, chip!.count, chip!.words, chip!.entry?.fn], ['waiting', 1, 'waiting under Progress', 'construction.progress'], 'the page the chip opens is the page it names');
+    assert.equal(waitingSentence(p, { entries: waiting.entries.filter((entry) => entry.proposalId === card.id) }, {}, false), '1 is waiting: 1 under Progress.');
+    // With no Progress page on the project the card waits on Overview, and is said to.
+    setProjectDepartments(p, ['legal'], 'tester');
+    assert.equal(turnChips(p, { proposalIds: [card.id] }, waitingOnCanvas(p), {})[0]!.words, 'waiting under Overview');
+  });
+
+  it('counts photographs on one chip, tells two questionnaires apart by title, and still names where the papers went', () => {
+    const p = seedBdaReferenceProject();
+    const out = drop(p, paper('Khata.pdf', 'khata', fact('extent_khata', 'Extent per khata', 1850, '1,850 sqm')));
+    const { sheet, photo, note } = sorted(p);
+    const second = addQuestionnaire(p, { title: 'Queries on approvals', department: 'legal', fileName: 'Queries on approvals.xlsx', parsed: { header: [], questions: [{ text: 'Is the plan sanction in hand?' }] } }, 'tester');
+    const other = addEvidence(p, { title: 'Site photograph, 3 Oct 2026', kind: 'photograph', status: 'received', source: 'chat_upload' }, 'tester');
+    attachEvidenceFile(p, other.id, { fileName: 'IMG_2042.jpg', mimeType: 'image/jpeg', sizeBytes: 9, storageKey: 's3://IMG_2042.jpg', capture: { purpose: 'progress' } }, 'tester');
+    other.workstream = 'construction.progress';
+    // The reply to a drop that held a paper as well: what the rules cite, with what the server adds for the rest.
+    const turn = { ...out.assistantTurn, citedEvidenceIds: [...out.assistantTurn.citedEvidenceIds, photo.id, other.id], citedNodeIds: [...(out.assistantTurn.citedNodeIds ?? []), sheet.id, second.id, note.id] };
+    const words = turnChips(p, turn, waitingOnCanvas(p), {}).map((chip) => chip.words);
+    assert.deepEqual(words.filter((said) => /questionnaire|Queries|photograph/.test(said)), ['Queries on title', 'Queries on approvals', 'The 2 photographs']);
+    assert.equal(words.at(-1), 'In the graph', 'the paper is still the one opened in the graph');
+    assert.ok(!words.includes('Progress documents'), 'the photographs are not said a second time as papers');
+  });
+
+  it('is named only by a drop’s reply: another reply that cites the same things has no such chip', () => {
+    const p = seedBdaReferenceProject();
+    const { turn } = sorted(p);
+    assert.deepEqual(turnChips(p, { ...turn, toolCalls: [{ name: 'answer_from_file' }] }, waitingOnCanvas(p), {}), []);
   });
 });
 

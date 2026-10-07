@@ -7,15 +7,17 @@
  * Model conclusions stay propose-and-review.
  */
 
-import { CHECK_RESULT_LABEL, REPORT_KIND_LABEL } from './catalogs';
-import { chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, type ChatPlace } from './chat-places';
-import { STAGES, STAGE_WORD, functionKey, stageAndStep, workstreamOfCheck } from './departments';
+import { CHECK_RESULT_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { FIRM_ONLY_PANES, chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, paneOfFunction, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, titleWords, type ChatPlace } from './chat-places';
+import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, STAGES, STAGE_WORD, functionKey, stageAndStep, workstreamOfCheck, type DepartmentKey } from './departments';
 import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingChoices, waitingSentence } from './document-filing';
-import { readInstruction, sameTitle, type Instruction, type InstructionVerb } from './instruction';
+import { readInstruction, sameTitle, wordsOf, type Instruction, type InstructionVerb } from './instruction';
 import { dropAsItStands, factsAwaitingReview, oneAtATimeSaid, proposedFacts } from './fact-review';
 import { partlyReadOnFile, partlyReadSentence } from './reading-coverage';
-import { contestedKeys, decideCheckFields, fromWaitingReading, reviewFacts, waitingFieldKeys } from './review';
+import { DecisionRefused, contestedKeys, decideCheckFields, departmentOfCheck, departmentOfPaper, fromSetAsideReading, fromWaitingReading, mayDecidePaper, paperOfCard, reviewFacts, waitingFieldKeys } from './review';
+import type { MayDecide } from './team';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
+import { moneySaid } from './cost';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import {
   detachReportBlock,
@@ -54,6 +56,7 @@ import type {
   ProjectChatTurn,
   ReportKind,
   RiskRecord,
+  ValuationRun,
 } from './types';
 import {
   buildWizardProposals,
@@ -107,6 +110,7 @@ import {
   paneForTalk,
   sittingBrief,
   sittingCheckOf,
+  sittingFromCitedId,
   sittingFromCitedIds,
   sittingWithField,
   talkSittingFromText,
@@ -143,6 +147,8 @@ import {
 } from './meetings';
 import { asksForStatusReport, statusDraftBroughtTo, statusDraftFor, statusNothingSaid, statusPeriodAsked, statusReport, statusSaid } from './status-report';
 import { asksForOutgoing, outgoingAsked } from './outgoing';
+import { draftToSendSaid } from './plans';
+import { valueSummary } from './value-standing';
 
 export const PROJECT_COCKPIT_PANES = [
   'overview',
@@ -169,6 +175,9 @@ export const PROJECT_COCKPIT_PANES = [
 
 export type ProjectCockpitPane = (typeof PROJECT_COCKPIT_PANES)[number];
 
+/** Where the site log is: the function whose page holds it, and the part of the page it is. */
+const SITE_LOG = { fn: 'construction.progress', section: 'progress' } as const;
+
 export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane {
   if (kind === 'file_evidence' || kind === 'assign_document') return 'evidence';
   if (kind === 'request_documents') return 'evidence';
@@ -186,7 +195,21 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'add_risk') return 'risks';
   if (kind === 'add_decision') return 'decisions';
   if (kind === 'generate_report' || kind === 'edit_report') return 'reports';
+  // An entry read from a voice note is filed on the site log, which is a part of the Progress page.
+  if (kind === 'log_site_entry') return paneOfFunction(SITE_LOG.fn);
   return 'overview';
+}
+
+/**
+ * What a card says, to tell two that say the same thing: one card a value.
+ * Check values are the same card when they carry the same values for the
+ * same check — not when their titles match: two deeds stating different
+ * extents both read "Record extent per title on …", and offering only the
+ * first would settle the disagreement for the person. Any other card is said
+ * by its title.
+ */
+export function cardSays(card: ChatProposal): string {
+  return card.kind === 'record_check_fields' ? `${card.kind}:${String(card.payload.checkId)}:${JSON.stringify(card.payload.values ?? {})}` : card.title;
 }
 
 /** One thing waiting for a person on the canvas, and where it waits. */
@@ -206,7 +229,7 @@ export interface WaitingEntry {
 
 /** The order a review moves through the file: documents first, then what they answer, then everything else. */
 const REVIEW_ORDER: ProjectCockpitPane[] = [
-  'evidence', 'scope', 'dd', 'findings', 'risks', 'actions', 'decisions', 'assets', 'overview', 'visits', 'valuation', 'reports', 'drafts', 'orchestrate', 'people', 'graph',
+  'evidence', 'scope', 'dd', 'findings', 'risks', 'actions', 'decisions', 'assets', 'overview', 'workstream', 'visits', 'valuation', 'reports', 'drafts', 'orchestrate', 'people', 'graph',
 ];
 
 function extraForCard(project: DdProject, card: ChatProposal): CockpitPathExtra | undefined {
@@ -223,6 +246,8 @@ function extraForCard(project: DdProject, card: ChatProposal): CockpitPathExtra 
     ...(checkId ? { checkId } : {}),
     ...(str(p.evidenceId) ? { evidenceId: str(p.evidenceId) } : {}),
     ...(str(p.assetId) ? { assetId: str(p.assetId) } : {}),
+    // A site entry waits where it would be filed: on the Progress page, at the site log. With Engineering switched off there is no such page.
+    ...(card.kind === 'log_site_entry' && openPlace(project, { fn: SITE_LOG.fn }, undefined).kind === 'go' ? { workstream: SITE_LOG.fn, section: SITE_LOG.section } : {}),
   };
   return Object.keys(extra).length ? extra : undefined;
 }
@@ -246,11 +271,14 @@ export function waitingOnCanvas(project: DdProject): { total: number; byPane: Pa
     if (card.status !== 'proposed') continue;
     const count = card.kind === 'record_check_fields' ? waitingFieldKeys(card).length : 1;
     if (!count) continue;
-    const pane = card.kind === 'change_stage' && card.payload.subject === 'asset' ? 'assets' : paneForProposalKind(card.kind);
     const extra = extraForCard(project, card);
+    // A card whose function has no page on this project waits on Overview, as every card with no register of its own does.
+    const placed = card.kind === 'change_stage' && card.payload.subject === 'asset' ? 'assets' : paneForProposalKind(card.kind);
+    const pane = placed === 'workstream' && !extra?.workstream ? 'overview' : placed;
     // A value waiting on a check waits in the function the check sits in.
     const definition = pane === 'scope' && extra?.checkId ? definitions.get(extra.checkId) : undefined;
-    entries.push({ kind: card.kind, pane, count, title: card.title, proposalId: card.id, extra, ...(definition ? { fn: functionKey(workstreamOfCheck(definition)) } : {}) });
+    const fn = definition ? functionKey(workstreamOfCheck(definition)) : extra?.workstream;
+    entries.push({ kind: card.kind, pane, count, title: card.title, proposalId: card.id, extra, ...(fn ? { fn } : {}) });
   }
   // The documents are walked a function at a time, in the menu's order, so a review opens on one function's papers
   // and goes on to the next. Those no function holds come last.
@@ -328,7 +356,7 @@ function panePath(projectId: string, pane: ProjectCockpitPane, extra?: CockpitPa
         ['page', extra?.page],
       ]);
     case 'visits':
-      return `${base}/visits`;
+      return withQuery(`${base}/visits`, [['item', extra?.item]]);
     case 'findings':
       return withQuery(`${base}/findings`, [['finding', extra?.findingId]]);
     case 'risks':
@@ -482,6 +510,14 @@ function wantsNavigate(q: string): boolean {
   return /^(open|show|go to|switch to|take me|see|view)\b/.test(q) || /\b(pane|register|canvas)\b/.test(q);
 }
 
+/** What a sentence asks to be shown, as it was typed: what is left of "open the sale deed" once the verb is gone. */
+function shownAs(q: string): string | undefined {
+  return /^(?:please\s+)?(?:open|show(?:\s+me)?|go\s+to|switch\s+to|take\s+me(?:\s+to)?|see|view)\s+(?:the\s+)?(.+?)[\s.!?]*$/i.exec(q.trim())?.[1];
+}
+
+/** Words that point at something and name nothing. */
+const POINTING = /^(?:where|what|how|why|who|which|when|whether|if|it|this|that|these|those|here|there|me|us|we|i|you|all|everything|anything|something|more)$/i;
+
 /**
  * The name a sentence asked to be shown, when it asked for one thing by a
  * name: what is left of "open Zorblax" once the verb is gone. A sentence that
@@ -489,11 +525,183 @@ function wantsNavigate(q: string): boolean {
  * names nothing, and gets none.
  */
 function unknownName(q: string): string | undefined {
-  const rest = /^(?:please\s+)?(?:open|show(?:\s+me)?|go\s+to|switch\s+to|take\s+me(?:\s+to)?|see|view)\s+(?:the\s+)?(.+?)[\s.!?]*$/i.exec(q.trim())?.[1];
+  const rest = shownAs(q);
   if (!rest) return undefined;
   const words = rest.split(/\s+/);
-  const pointing = /^(?:where|what|how|why|who|which|when|whether|if|it|this|that|these|those|here|there|me|us|we|i|you|all|everything|anything|something|more)$/i;
-  return words.length <= 4 && !words.some((w) => pointing.test(w)) ? rest : undefined;
+  return words.length <= 4 && !words.some((w) => POINTING.test(w)) ? rest : undefined;
+}
+
+/* ==================================================================== */
+/* A record asked for by its own words                                   */
+/* ==================================================================== */
+
+type CalledKind = 'document' | 'check' | 'finding' | 'risk' | 'action' | 'decision';
+
+/** A record a sentence may name by its own words, and what a choice between several says of it. */
+interface Called {
+  kind: CalledKind;
+  id: string;
+  title: string;
+  /** What tells it from another of its kind: a paper's file, where a check sits, how a finding or a decision stands. The kind is said beside it. */
+  detail: string;
+  /** What a choice for it carries, where a choice can pin its record: two checks can share a title, and so can two papers. */
+  pin?: ChoicePin;
+}
+
+/** The kinds, by the word a sentence says them in. */
+const KIND_SAID: Array<[CalledKind, RegExp]> = [
+  ['document', /^(?:document|paper|file)$/],
+  ['check', /^check$/],
+  ['finding', /^finding$/],
+  ['risk', /^risk$/],
+  ['action', /^action$/],
+  ['decision', /^decision$/],
+];
+
+/** Words of a name that join its other words and say nothing of which record. */
+const GLUE = new Set('a an of on in for to at by with from per is are'.split(' '));
+
+/** How many records a choice between several offers. */
+const CALLED_OFFERED = 5;
+
+/** The short names people use for a kind of paper, by the words the register writes the kind in. */
+const PAPER_SHORT: Record<string, string> = { 'encumbrance certificate': 'EC', 'occupancy certificate': 'OC', 'commencement certificate': 'CC' };
+
+/** A title as its words, each without its plural: "mortgages" names "mortgage". */
+function wordsCalled(text: string): string[] {
+  return titleWords(text)
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => (word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word));
+}
+
+/**
+ * The records a sentence asks to be shown by their own words, with the name
+ * it gave: "show me the mortgage on the EC" is the finding "Subsisting
+ * mortgage on the EC", and "open the sale deed" is every paper called that.
+ *
+ * Read only from a sentence that opens with a verb of showing and is no
+ * question. A record is meant when its title holds every word of the name,
+ * and a paper also by the kind of paper it is. A name that is the whole of a
+ * title means the records titled so, and not every record with those words
+ * in it. A paper on file is also called by the short name of its kind: "the
+ * EC" is the encumbrance certificate in hand, before a row titled "EC" that
+ * still waits for its paper and a finding with "EC" in its title.
+ * A paper still expected is a row with a short name of its own
+ * ("Survey", "Programme") and no file: it is meant only by its whole name.
+ * The kind may be said beside the name ("the mortgage finding", the finding
+ * "…"), and then only that kind is looked at.
+ *
+ * A finding, a risk, an action, a decision, a paper that has not been
+ * replaced, and a check. A page or a stage by that name has been read already
+ * (`placeFromText`), and a scope or a due diligence is left to the reader of
+ * those.
+ *
+ * One record is opened. Several are put to the person, and none is picked for
+ * them: that used to be the first whose title shared two words, which for
+ * "the sale deed" was a finding about the mother deed.
+ */
+function recordsCalled(project: DdProject, q: string): { name: string; found: Called[]; quoted: boolean } {
+  const said = shownAs(q);
+  if (!said || /\?\s*$/.test(q.trim())) return { name: '', found: [], quoted: false };
+  const quoted = /["“](.*)["”]/.exec(said);
+  const name = (quoted ? quoted[1]! : said).trim();
+  const named = wordsCalled(name);
+  const telling = named.filter((word) => !GLUE.has(word));
+  if (!telling.length || (!quoted && named.some((word) => POINTING.test(word)))) return { name, found: [], quoted: Boolean(quoted) };
+  // "The legal scope" and "the acquisition DD" name a scope and a due diligence, which are found by their own reader.
+  if (!quoted && /^(?:scope|dd|assessment|diligence)$/.test(named.at(-1)!)) return { name, found: [], quoted: false };
+  const kindOf = (word: string | undefined): CalledKind | undefined => KIND_SAID.find(([, form]) => word !== undefined && form.test(word))?.[0];
+
+  // What a record is called in full: its title, and for a paper the kind of paper it is. `inHand` is false for a paper still expected.
+  const rows: Array<Called & { words: string[]; whole: string[]; inHand: boolean }> = [];
+  const add = (row: Called, more = '', inHand = true): void => {
+    // A name in quotes is a title word for word, and a short name is not one.
+    const short = !quoted && row.kind === 'document' && inHand ? Object.entries(PAPER_SHORT).find(([kind]) => `${row.title} ${more}`.toLowerCase().includes(kind))?.[1] : undefined;
+    rows.push({ ...row, words: wordsCalled(`${row.title} ${more} ${short ?? ''}`), whole: [row.title, more, short ?? ''].filter(Boolean).map((words) => wordsCalled(words).join(' ')), inHand });
+  };
+  const stands = (status: string): string => status.replaceAll('_', ' ');
+  // Papers in hand first: a paper is more often meant than the row that still waits for one.
+  for (const e of [...project.evidence].sort((a, b) => Number(b.attachments.length > 0) - Number(a.attachments.length > 0))) {
+    if (e.status === 'superseded' || e.status === 'rejected') continue;
+    add({ kind: 'document', id: e.id, title: e.title, detail: e.attachments.at(-1)?.fileName ?? stands(e.status), pin: { evidenceId: e.id } }, e.documentType, e.attachments.length > 0);
+  }
+  for (const a of project.assessments) {
+    for (const scope of a.scopes) {
+      for (const c of scope.checks) add({ kind: 'check', id: c.id, title: c.title, detail: `${a.name} · ${SCOPE_LABEL[scope.scopeKey]} · ${CHECK_RESULT_LABEL[c.result]}`, pin: { ddId: a.id, scopeId: scope.id, checkId: c.id } });
+    }
+  }
+  for (const f of project.findings) add({ kind: 'finding', id: f.id, title: f.title, detail: `${f.severity} · ${stands(f.status)}` });
+  for (const r of project.risks) add({ kind: 'risk', id: r.id, title: r.title, detail: stands(r.status) });
+  for (const a of project.actions) add({ kind: 'action', id: a.id, title: a.title, detail: stands(a.status) });
+  for (const d of project.decisions) add({ kind: 'decision', id: d.id, title: d.title, detail: stands(d.status) });
+
+  const holding = (words: string[], whole: string, kind?: CalledKind) =>
+    rows.filter((row) => (!kind || row.kind === kind) && words.every((word) => row.words.includes(word)) && (row.inHand || row.whole.includes(whole)));
+  // The kind said outside the quotes narrows the name inside them.
+  let wanted = named.join(' ');
+  let found = holding(telling, wanted, quoted ? wordsCalled(said.replace(quoted[0], ' ')).map(kindOf).find(Boolean) : undefined);
+  // With no quotes the kind is the name's last word, tried when the whole name is nobody's: "the mortgage finding", "the khata documents".
+  const last = quoted ? undefined : kindOf(named.at(-1));
+  const rest = telling.slice(0, -1);
+  if (!found.length && last && rest.some((word) => !kindOf(word))) {
+    wanted = named.slice(0, -1).join(' ');
+    found = holding(rest, wanted, last);
+  }
+  const whole = found.filter((row) => row.inHand && row.whole.includes(wanted));
+  return { name, found: (whole.length ? whole : found).map(({ words: _words, whole: _whole, inHand: _inHand, ...row }) => row), quoted: Boolean(quoted) };
+}
+
+/* ==================================================================== */
+/* A value set against itself across the papers                          */
+/* ==================================================================== */
+
+/** Words that ask for things to be set side by side. */
+const SETS_SIDE_BY_SIDE = /\b(?:compare[sd]?|comparison|reconcile[sd]?|reconciliation|cross[\s-]?check(?:s|ed)?|tall(?:y|ies))\b/i;
+/** "Check the extent against the khata": a check that names what to hold the value against. */
+const CHECKS_AGAINST = /^(?:(?:please|can you|could you|would you)\s+)*(?:check|verify|confirm)\b.*\b(?:against|across|between|match(?:es)?|agrees?|tall(?:y|ies))\b/i;
+/** A comparison of what the market gives. That is a valuer's, and is not a value the papers state. */
+const OF_THE_MARKET = /\b(?:comparables?|comps|listings?|market|prices?|rates?|valuations?|worth)\b/i;
+
+/** A paper named as somewhere to read a value ("the deed", "the khata", "the EC"), or the papers as a whole. A khata number is a value. */
+const PAPER_NAMED = /\b(?:deeds?|khatas?(?!\s+(?:no|number))|ecs?|encumbrance certificates?|sketch(?:es)?|survey plans?|receipts?|rtcs?|pahanis?|pattas?|conversion orders?|sanction(?:ed)? (?:plans?|layouts?)|zoning certificates?|papers|documents|docs|records|file)\b/i;
+
+/** The values more than one paper states, by the words a person names them in, each with the question the file already answers about it. */
+const STATED_ACROSS: Array<{ label: string; named: RegExp; question: string }> = [
+  { label: 'Extent', named: /\b(?:extents?|(?<!built[\s-]up\s)areas?|plot size|measurements?)\b/i, question: 'What is the extent?' },
+  { label: 'Owner', named: /\b(?:owners?|ownership|names? (?:on|in|across|between)|vendors?|purchasers?|sellers?|buyers?|title holders?)\b/i, question: 'Who is the owner?' },
+  { label: 'Survey number', named: /\b(?:survey (?:no|number)s?|sy\.?\s*nos?|khata (?:no|number)s?|pids?|parcels?)\b/i, question: 'What is the survey number?' },
+];
+
+/**
+ * A sentence that asks for a value to be compared, reconciled or checked
+ * across the papers ("compare the extent on the deed and the khata"), as the
+ * question the file already answers about that value.
+ *
+ * "What is the extent?" sets every paper that states one side by side and
+ * says how far apart they are, which is what the instruction asks for. Said
+ * as an instruction it names a khata or an EC, and used to be answered with
+ * where to fetch one.
+ *
+ * A check of a value is a comparison only with a paper named to hold it
+ * against: "confirm the area matches" names none. And a sentence that holds
+ * the whole title of a check, an action, a finding or a risk ("Verify parcel
+ * identity against the registry") names that record, and compares nothing.
+ */
+function acrossPapers(project: DdProject, q: string): string | undefined {
+  const compares = SETS_SIDE_BY_SIDE.test(q);
+  if (OF_THE_MARKET.test(q) || !(compares || (CHECKS_AGAINST.test(q) && PAPER_NAMED.test(q)))) return undefined;
+  if (titlesHeld(project, q).length) return undefined;
+  return STATED_ACROSS.find((stated) => stated.named.test(q))?.question;
+}
+
+/** The checks, actions, findings and risks whose whole title a sentence holds, each as its words. A title of a word or two is too little to tell. */
+function titlesHeld(project: DdProject, q: string): string[] {
+  const said = ` ${wordsOf(q).join(' ')} `;
+  return [...project.assessments.flatMap((a) => a.scopes.flatMap((scope) => scope.checks)), ...project.actions, ...project.findings, ...project.risks]
+    .map((row) => wordsOf(row.title))
+    .filter((words) => words.length > 2 && said.includes(` ${words.join(' ')} `))
+    .map((words) => words.join(' '));
 }
 
 function wantsPersonCapability(q: string): boolean {
@@ -533,13 +741,18 @@ function approvalReceipt(cards: ChatProposal[]): string {
   if (count('record_check')) parts.push(`recorded ${plural(count('record_check'), 'check result')}`);
   if (count('add_finding')) parts.push(`raised ${plural(count('add_finding'), 'finding')}`);
   if (count('add_risk')) parts.push(`logged ${plural(count('add_risk'), 'risk')}`);
+  // What a meeting's notes decided, and what they left open: a point left open is a decision nobody has made yet.
+  const leftOpen = cards.filter((c) => c.kind === 'add_decision' && c.payload.status === 'pending').length;
+  if (count('add_decision') - leftOpen) parts.push(`recorded ${plural(count('add_decision') - leftOpen, 'decision')}`);
+  if (leftOpen) parts.push(`noted ${plural(leftOpen, 'open point')}`);
   if (count('add_action') + count('request_evidence')) parts.push(`opened ${plural(count('add_action') + count('request_evidence'), 'action')}`);
+  if (count('log_site_entry')) parts.push(`added ${plural(count('log_site_entry'), 'entry', 'entries')} to the site log`);
   if (count('patch_project')) parts.push('updated the project record');
   if (count('add_asset')) parts.push(`added ${plural(count('add_asset'), 'asset')}`);
   if (count('generate_report')) parts.push(`generated ${plural(count('generate_report'), 'report')}`);
   if (count('run_screen')) parts.push('ran the property screen');
   if (count('run_valuation')) parts.push('ran the valuation');
-  const known = new Set<ChatProposalKind>(['file_evidence', 'start_dd', 'record_check_fields', 'record_check', 'add_finding', 'add_risk', 'add_action', 'request_evidence', 'patch_project', 'add_asset', 'generate_report', 'run_screen', 'run_valuation']);
+  const known = new Set<ChatProposalKind>(['file_evidence', 'start_dd', 'record_check_fields', 'record_check', 'add_finding', 'add_risk', 'add_action', 'request_evidence', 'add_decision', 'log_site_entry', 'patch_project', 'add_asset', 'generate_report', 'run_screen', 'run_valuation']);
   const other = cards.filter((c) => !known.has(c.kind)).length;
   if (other) parts.push(`applied ${plural(other, 'other change')}`);
   if (!parts.length) return `Done — ${plural(cards.length, 'suggestion')} accepted.`;
@@ -547,7 +760,41 @@ function approvalReceipt(cards: ChatProposal[]): string {
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
 }
 
-/** What just opened, and the one figure worth knowing about it. */
+/**
+ * What an approval left because the person may not decide it, and for whom:
+ * "3 values wait for a lead or signer in Finance", and with more than one
+ * department "2 values wait for a lead or signer in Finance, and 1 in Legal."
+ *
+ * Counted in values, by the department whose lead or signer decides each. A
+ * value is one reading on one paper, and is given here by a name of its own
+ * (`valueName`), so the reading that waits on its paper and the same reading
+ * waiting on that department's check are one value and not two. No total is
+ * said across departments: a value two departments each have to decide is
+ * one in each. Values on a paper no function holds yet are kept under no
+ * department, and are any of the project's to decide. Empty when nothing was
+ * left.
+ */
+function waitsForRoleSaid(left: ReadonlyMap<DepartmentKey | undefined, ReadonlySet<string>>): string {
+  const held = [...DEPARTMENT_KEYS, undefined]
+    .map((department) => ({ values: left.get(department)?.size ?? 0, where: department ? DEPARTMENT_SHORT[department] : 'one of this project’s departments' }))
+    .filter((part) => part.values > 0);
+  const first = held[0];
+  if (!first) return '';
+  const said = `${plural(first.values, 'value')} ${first.values === 1 ? 'waits' : 'wait'} for a lead or signer in ${first.where}`;
+  const others = held.slice(1).map((part) => `${part.values} in ${part.where}`);
+  if (!others.length) return `${said}.`;
+  return `${said}, ${others.length === 1 ? `and ${others[0]}` : `${others.slice(0, -1).join(', ')} and ${others[others.length - 1]}`}.`;
+}
+
+/** A read value's own name: the paper it was read on and its key. A value on a card with no paper behind it is named by the card. */
+const valueName = (heldOn: string, key: string): string => `${heldOn}|${key}`;
+
+/**
+ * What just opened, and the one figure worth knowing about it. The place is
+ * said by the word on its tab, so the reply, the chip under it and the toast
+ * name it the same way: "Checks", never "DDs", and "Auto-run", never the key
+ * the code knows it by.
+ */
 function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
   const openF = project.findings.filter((f) => !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status));
   const material = openF.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
@@ -556,33 +803,39 @@ function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
   const today = new Date().toISOString().slice(0, 10);
   const openA = project.actions.filter((a) => a.status !== 'closed');
   const overdue = openA.filter((a) => a.status === 'overdue' || (a.dueDate && a.dueDate < today)).length;
+  const name = chatPlaceLabel({ pane });
   switch (pane) {
     case 'evidence':
-      return `Documents are open — ${filed} filed, ${gapCount} outstanding.`;
+      return `${name} are open — ${filed} filed, ${gapCount} outstanding.`;
     case 'findings':
-      return `Findings are open — ${plural(openF.length, 'open finding')}${material ? `, ${material} material` : ''}.`;
+      return `${name} are open — ${plural(openF.length, 'open finding')}${material ? `, ${material} material` : ''}.`;
     case 'risks':
-      return `Risks are open — ${plural(project.risks.filter((r) => r.status !== 'closed').length, 'open risk')}.`;
+      return `${name} are open — ${plural(project.risks.filter((r) => r.status !== 'closed').length, 'open risk')}.`;
     case 'actions':
-      return `Actions are open — ${plural(openA.length, 'open action')}${overdue ? `, ${overdue} overdue` : ''}.`;
+      return `${name} are open — ${plural(openA.length, 'open action')}${overdue ? `, ${overdue} overdue` : ''}.`;
     case 'reports':
-      return project.reports.length ? `Reports are open — ${plural(project.reports.length, 'report')}.` : 'Reports are open. None yet — say “generate the executive DD report”.';
+      return project.reports.length ? `${name} are open — ${plural(project.reports.length, 'report')}.` : `${name} are open. None yet — say “generate the executive DD report”.`;
     case 'graph':
-      return 'The knowledge graph is open — click a node to see what it touches.';
+      return 'The graph is open — click a node to see what it touches.';
     case 'valuation':
-      return 'Value is open. “Value this property” fills every input the file holds, checks it the way a lender would, and shows the figure.';
+      return `${name} is open. “Value this property” fills every input the file holds, checks it the way a lender would, and shows the figure.`;
     case 'assets':
-      return `Assets are open — ${plural(project.assets.length, 'asset')}.`;
+      return `${name} are open — ${plural(project.assets.length, 'asset')}.`;
     case 'dd':
-      return project.assessments.length ? `DDs are open — ${plural(project.assessments.length, 'DD')}.` : 'DDs are open. None started yet.';
+    case 'scope':
+      return project.assessments.length ? `${name} are open — ${plural(project.assessments.length, 'due diligence', 'due diligences')}.` : `${name} are open. No due diligence is started yet.`;
     case 'decisions':
-      return `Decisions are open — ${plural(project.decisions.length, 'decision')}.`;
+      return `${name} are open — ${plural(project.decisions.length, 'decision')}.`;
+    case 'drafts': {
+      const pending = project.aiDrafts.filter((d) => d.status === 'draft' || d.status === 'in_review' || d.status === 'accepted').length;
+      return pending ? `${name} are open — ${plural(pending, 'draft')} to review.` : `${name} are open. None to review.`;
+    }
     case 'visits':
       return 'The site is open — the map, what is nearby, and the visits.';
     case 'overview':
       return 'The overview is open — where the file stands, and the map.';
     default:
-      return `${pane.charAt(0).toUpperCase()}${pane.slice(1)} is open.`;
+      return `${name} is open.`;
   }
 }
 
@@ -599,6 +852,35 @@ function asksForPane(ql: string): boolean {
   return /^(?:please\s+)?(?:open|show(?:\s+me)?|go\s+to|switch\s+to|take\s+me\s+to|see|view)\b/.test(ql)
     && /\b(?:register|pane|tab|list|page|graph|canvas)\b/.test(ql)
     && NAV_RULES.some((r) => r.test(ql));
+}
+
+/** An amount as the Valuation page writes it: rupees in crores and lakhs. */
+function amountSaid(amount: number, currency: ValuationRun['currency']): string {
+  if (currency !== 'INR') return moneySaid(Math.round(amount), currency);
+  if (amount >= 1e7) return `₹${(amount / 1e7).toLocaleString('en-IN', { maximumFractionDigits: 2 })} Cr`;
+  if (amount >= 1e5) return `₹${(amount / 1e5).toLocaleString('en-IN', { maximumFractionDigits: 1 })} L`;
+  return moneySaid(Math.round(amount));
+}
+
+/**
+ * What a valuation run came to, as the Valuation page says it of the same
+ * working: the figure and each approach that gave one with its share, or
+ * that there is no figure yet and what the first approaches still need. The
+ * approach named is the one the run used. The premise of value ("residual")
+ * is no approach, and a run that could work nothing out has no figure: it is
+ * never said as nought.
+ */
+function valuationSaid(project: DdProject, run: ValuationRun): { figure?: string; text: string; tag: string } {
+  const value = run.working ? valueSummary(project, run.working) : undefined;
+  const amount = value ? value.fairMarket : run.indicatedValue > 0 ? run.indicatedValue : null;
+  if (amount === null) {
+    if (value?.outcome === 'approaches_disagree') return { text: `No figure: the approaches disagree. ${run.working!.reconciliation.spreadBasis}`, tag: 'No figure' };
+    const needs = (value?.approaches ?? []).filter((a) => a.amount === null && a.missing.length).slice(0, 2).map((a) => `${a.label} needs ${a.missing.slice(0, 2).join(' and ').toLowerCase()}.`);
+    return { text: ['No figure yet.', ...needs].join(' '), tag: 'No figure yet' };
+  }
+  const figure = amountSaid(amount, run.currency);
+  const by = (value?.approaches ?? []).filter((a) => a.amount !== null && a.share > 0).map((a) => `${a.label}: ${amountSaid(a.amount!, run.currency)} (${Math.round(a.share * 100)}%)`);
+  return { figure, text: `Indicative value ${figure}.${by.length ? ` ${by.join('; ')}.` : ''}`, tag: `Indicative ${figure}` };
 }
 
 /**
@@ -687,11 +969,15 @@ export function wantsDeterministicProjectChat(
   // A status report is written by code from the record.
   if (asksForStatusReport(q)) return true;
   // So is a letter, a reply, a request for information or minutes asked for by name: a draft is made, and no model answers in its place.
-  if (asksForOutgoing(q)) return true;
+  if (asksForOutgoing(draftToSendSaid(q))) return true;
   // A pressed choice that accepts or sets aside acts on the ids it carries. Its sentence is not for anything to read.
   if (options.sitting?.decision) return true;
   // A page or a stage asked for by name is a place to go, and needs no model to find.
   if (placeFromText(project, q, options.place)) return true;
+  // Nor does a record asked for by its own words, or a value the papers state set side by side.
+  if (recordsCalled(project, q).found.length || acrossPapers(project, q)) return true;
+  // A sentence that is nothing but a record's own title names that record, and it is opened.
+  if (titlesHeld(project, q).includes(wordsOf(q).join(' '))) return true;
   // A document given to a function by name is the person's own instruction.
   if (asksToFileUnder(project, q)) return true;
   // So is accepting or setting aside in one of its typed forms. It is carried out as said, or answered with what can be pressed, and no model reads it.
@@ -797,7 +1083,14 @@ export function applyProjectAgentTurn(
     talkSittingFromText(project, question)
       ?? sittingFromCitedIds(project, [...(agent.citedNodeIds ?? []), ...(agent.citedEvidenceIds ?? []), ...highlightIds]),
   );
-  const navigations = withTalkNavigation(project, agent.navigations, talk);
+  // A document the reply cites opens where a typed sentence and a pressed chip open it: on the page of the function that holds it.
+  // The reply was not told which stage is on screen, so it names none and the one in view stays.
+  const navigations = withTalkNavigation(project, agent.navigations, talk, (evidenceId) => {
+    const at = placeOfRecord(project, evidenceId);
+    if (!at) return undefined;
+    const { stage: _stage, ...extra } = at.open.extra;
+    return { pane: at.open.pane, extra };
+  });
   if (talk) highlightIds.push(...talk.highlightIds);
   return {
     userTurn,
@@ -880,9 +1173,11 @@ export function projectRegisterBriefing(project: DdProject, viewContext?: string
     openActions.length
       ? `Open actions: ${openActions.length} (${overdue.length} overdue).`
       : 'No open actions.',
-    latestVal
-      ? `Latest indicative valuation: ${project.currency} ${Math.round(latestVal.indicatedValue).toLocaleString()} (${latestVal.ibbi.premise}, ${latestVal.signOff.replaceAll('_', ' ')}). Not a certified IBBI certificate.`
-      : 'No valuation run yet.',
+    !latestVal
+      ? 'No valuation run yet.'
+      : valuationSaid(project, latestVal).figure
+        ? `Latest indicative valuation: ${valuationSaid(project, latestVal).figure} (${latestVal.signOff.replaceAll('_', ' ')}). Not a certified IBBI certificate.`
+        : 'The latest valuation run gave no figure.',
     pendingDrafts.length
       ? `${pendingDrafts.length} AI draft(s) awaiting review/commit. Nothing lands in a register until a person commits.`
       : null,
@@ -1029,6 +1324,13 @@ export function applyProjectChat(
      */
     outside?: boolean;
     /**
+     * Where the person asking leads or signs. An approval, typed or pressed,
+     * takes the read values of those departments and no other: the rest stay
+     * where they wait, and the reply says how many and for whom. Absent,
+     * nobody is asking and everything named is taken, as it always was.
+     */
+    mayDecide?: MayDecide;
+    /**
      * The chat the question was asked in. An approval answers the last reply
      * of this chat, and a caller that keeps no sittings is read against the
      * last reply on the thread.
@@ -1102,6 +1404,8 @@ export function applyProjectChat(
     navigations.push({ target: pane, ...extra });
     if (label) commands.push(label);
   };
+  /** What the toast says of a page that opened: the word on its tab, as the reply and the chip under it say it. */
+  const opened = (pane: ProjectCockpitPane): string => `Opened ${chatPlaceLabel({ pane })}`;
 
   /**
    * A record named in the sentence, opened where it lives. A document in hand
@@ -1124,20 +1428,14 @@ export function applyProjectChat(
       checkId: typeof payload.checkId === 'string' ? payload.checkId : checkFromList,
     };
     if (!extra.ddId && !extra.scopeId && !extra.checkId) return undefined;
-    return extra;
+    // A card of values read onto a check names the check alone. Its due diligence and scope are where it sits, and the address needs both to open it.
+    const seat = extra.checkId && !(extra.ddId && extra.scopeId) ? sittingCheckOf(project, { checkId: extra.checkId }) : undefined;
+    return seat ? { ddId: seat.assessment.id, scopeId: seat.scope.id, checkId: seat.check.id } : extra;
   };
 
   /*
-   * The same card is not offered twice. Check values are the same card when
-   * they carry the same values for the same check — not when their titles
-   * match: two deeds stating different extents both read "Record extent per
-   * title on …", and offering only the first would settle the disagreement
-   * for the person.
-   */
-  const sameAs = (p: ChatProposal) =>
-    p.kind === 'record_check_fields' ? `${p.kind}:${String(p.payload.checkId)}:${JSON.stringify(p.payload.values ?? {})}` : p.title;
-  /*
-   * A card already waiting is not raised a second time, and the reply still
+   * The same card is not offered twice (`cardSays`). A card already waiting
+   * is not raised a second time, and the reply still
    * points at it ("accept the request waiting beside it"), so it is listed
    * with the reply's own. Left off, an "ok" typed under that reply answered a
    * reply that had no card. The fresh ones are what comes back: they are what
@@ -1145,8 +1443,8 @@ export function applyProjectChat(
    */
   const offer = (rows: ChatProposal[]) => {
     const open = project.chatProposals.filter((p) => p.status === 'proposed');
-    const fresh = rows.filter((p) => !open.some((held) => sameAs(held) === sameAs(p)));
-    const waiting = open.filter((held) => rows.some((p) => sameAs(p) === sameAs(held)));
+    const fresh = rows.filter((p) => !open.some((held) => cardSays(held) === cardSays(p)));
+    const waiting = open.filter((held) => rows.some((p) => cardSays(p) === cardSays(held)));
     for (const p of fresh) project.chatProposals.push(p);
     offered = [...fresh, ...waiting];
     return fresh;
@@ -1185,8 +1483,12 @@ export function applyProjectChat(
    * names a portal, a scope and a result, and only one of those is what they
    * asked for.
    */
+  // A value compared across the papers is the question the file answers about it, said as an instruction. "Cross-check
+  // the extent against the khata" is one of those, and no check to cross.
+  const across = acrossPapers(project, q);
   const checkRecordCommand =
     !registerRecordCommand
+    && !across
     && (looksLikeCheckRecord(q)
       || looksLikeCheckAssign(q)
       // "mark it compliant" while a check is open. "It" is the check on
@@ -1240,6 +1542,20 @@ export function applyProjectChat(
   // A choice that was pressed, or failing that a typed instruction. Read before this request adds its own turns to the thread.
   const pressed = !ingest.length && options.sitting?.decision ? options.sitting : undefined;
   const typed = ingest.length || pressed ? undefined : instructionSaid(project, q, chat);
+  /*
+   * A record asked for by its own words: one is opened, several are put to
+   * the person. A choice offered for one of them carries which, and it is
+   * that one when it is among the records the words name. A choice sends its
+   * record's title in quotes, and only a quoted name is settled so: the page
+   * sends the check a person is on in the same place, and being on a check
+   * does not make it the answer to "open the survey". Of two findings,
+   * risks, actions or decisions with one title nothing a choice carries
+   * tells them apart, and the first is opened.
+   */
+  const called = ingest.length || pressed ? { name: '', found: [], quoted: false } : recordsCalled(project, q);
+  const calledOne =
+    (called.quoted ? called.found.find((hit) => hit.id === options.sitting?.checkId || hit.id === options.sitting?.evidenceId) : undefined)
+    ?? (called.found.length === 1 || called.found.every((hit) => !hit.pin && hit.kind === called.found[0]!.kind && sameTitle(hit.title, called.found[0]!.title)) ? called.found[0] : undefined);
 
   /*
    * Accepting and setting aside, by a typed form or by a pressed choice.
@@ -1258,12 +1574,52 @@ export function applyProjectChat(
    */
   const openCards = () => project.chatProposals.filter((p) => p.status === 'proposed');
 
+  /*
+   * Who may decide a read value. What a paper states, on its own row or
+   * waiting on a check, is accepted or set aside by a lead or signer of the
+   * department it belongs to. What the person asking may not decide stays
+   * where it waits, counted here by that department, and the reply says how
+   * much was left and for whom. A card that is no read value (a finding, a
+   * request, a DD to start) is anybody's who may write.
+   */
+  const { mayDecide } = options;
+  const awaitingRole = new Map<DepartmentKey | undefined, Set<string>>();
+  const leave = (department: DepartmentKey | undefined, values: string[]): void => {
+    const waiting = awaitingRole.get(department) ?? new Set<string>();
+    for (const value of values) waiting.add(value);
+    awaitingRole.set(department, waiting);
+  };
+  /** The cards among these that are this person's to decide. A check's values that are not are left, and counted. */
+  const theirsToDecide = (cards: ChatProposal[]): ChatProposal[] =>
+    cards.filter((card) => {
+      if (!mayDecide || card.kind !== 'record_check_fields' || card.status !== 'proposed') return true;
+      // Where the check sits is read off the whole record the answer was built on, never off a collaborator's copy.
+      const department = departmentOfCheck(project, String(card.payload.checkId), mayDecide);
+      if (mayDecide(department)) return true;
+      const heldOn = paperOfCard(project, card)?.id ?? card.id;
+      leave(department, waitingFieldKeys(card).map((key) => valueName(heldOn, key)));
+      return false;
+    });
+  /** What an approval could not move, and why: a card that would take a paper out of a function this person neither leads nor signs in. */
+  const notMoved: string[] = [];
+
   /** Accept these cards, and the values waiting on these papers. */
   const acceptThese = (targets: ChatProposal[], factRows: EvidenceRecord[]) => {
     const before = fileStanding(project);
+    const rows = factRows.filter((row) => {
+      if (!mayDecide || mayDecidePaper(project, row, mayDecide)) return true;
+      leave(departmentOfPaper(project, row, mayDecide), proposedFacts(row).map((fact) => valueName(row.id, fact.key)));
+      return false;
+    });
+    const cards = theirsToDecide(targets);
+    // Nothing named is this person's to decide: said, and nothing is written.
+    if (awaitingRole.size && !rows.length && !cards.length) {
+      refused('accept', `Nothing was accepted. ${waitsForRoleSaid(awaitingRole)}`);
+      return;
+    }
     let valuesAccepted = 0;
-    for (const row of factRows) {
-      valuesAccepted += reviewFacts(project, row.id, 'all', 'accept', actor).changed.length;
+    for (const row of rows) {
+      valuesAccepted += reviewFacts(project, row.id, 'all', 'accept', actor, undefined, { mayDecide }).changed.length;
       highlightIds.push(row.id);
     }
     const done: string[] = [];
@@ -1273,17 +1629,22 @@ export function applyProjectChat(
      * the person picks one; everything else is accepted.
      */
     let toPick = 0;
-    for (const item of targets) {
+    /** Values left on their checks because they were set aside on their papers since. Each named once, however many checks it waits on. */
+    const goneFromPaper = new Set<string>();
+    for (const item of cards) {
       if (item.status !== 'proposed') continue;
       if (item.kind === 'record_check_fields') {
         // A value read from a reading that still waits on its paper is decided there, by a person who names it.
-        const there = waitingFieldKeys(item).filter((key) => fromWaitingReading(project, item, key));
+        // So is one since set aside on its paper: the document no longer states it, and "all" does not put it on a check.
+        const gone = waitingFieldKeys(item).filter((key) => fromSetAsideReading(project, item, key));
+        for (const key of gone) goneFromPaper.add(valueName(paperOfCard(project, item)?.id ?? item.id, key));
+        const there = waitingFieldKeys(item).filter((key) => gone.includes(key) || fromWaitingReading(project, item, key));
         const left = contestedKeys(project, item).filter((key) => !there.includes(key));
         const open = waitingFieldKeys(item).filter((key) => !left.includes(key) && !there.includes(key));
         toPick += left.length;
         if (!open.length) continue;
         try {
-          decideCheckFields(project, item.id, open, 'accept', actor);
+          decideCheckFields(project, item.id, open, 'accept', actor, undefined, { mayDecide });
         } catch {
           continue;
         }
@@ -1291,9 +1652,22 @@ export function applyProjectChat(
         highlightIds.push(String(item.payload.checkId));
         continue;
       }
-      const result = commitChatProposal(project, item.id, actor);
+      let result: ReturnType<typeof commitChatProposal>;
+      try {
+        result = commitChatProposal(project, item.id, actor, { mayDecide });
+      } catch (err) {
+        // A card that would move a paper out of a function this person neither leads nor signs in stays waiting, and the reply says whose it is to move.
+        if (!(err instanceof DecisionRefused)) throw err;
+        notMoved.push(`“${item.title}” stays waiting. ${err.message}`);
+        continue;
+      }
       done.push(`${item.title}${result.recordId ? ` → ${result.recordId}` : ''}`);
       if (result.recordId) highlightIds.push(result.recordId);
+    }
+    // Nothing was taken, and a paper that was not this person's to move is why: said as a refusal, so the next instruction still answers the reply before it.
+    if (notMoved.length && !rows.length && !done.length && !toPick) {
+      refused('accept', ['Nothing was accepted.', ...notMoved, waitsForRoleSaid(awaitingRole)].filter(Boolean).join(' '));
+      return;
     }
     const accepted = [valuesAccepted ? plural(valuesAccepted, 'value') : '', done.length ? plural(done.length, 'suggestion') : ''].filter(Boolean).join(' and ');
     commands.push(accepted ? `Accepted ${accepted}` : 'Nothing left to accept');
@@ -1309,11 +1683,20 @@ export function applyProjectChat(
      * in front of somebody who has just spent a minute approving cards.
      */
     assistantText = [
-      valuesAccepted ? `Accepted ${plural(valuesAccepted, 'value')} on ${plural(factRows.length, 'document')}.` : '',
+      valuesAccepted ? `Accepted ${plural(valuesAccepted, 'value')} on ${plural(rows.length, 'document')}.` : '',
       done.length ? approvalReceipt(targets.filter((t) => t.status === 'committed')) : '',
       toPick ? `${toPick === 1 ? 'One value the documents disagree on waits' : `${toPick} values the documents disagree on wait`} on the checks for you to pick.` : '',
+      // Left where it was, and said: a check takes nothing its document no longer states.
+      goneFromPaper.size
+        ? goneFromPaper.size === 1
+          ? 'One value was set aside on its document, so it waits on its check: reopen it on the document, or set it aside on the check.'
+          : `${goneFromPaper.size} values were set aside on their documents, so they wait on their checks: reopen each on its document, or set it aside on its check.`
+        : '',
       // "All" is not looking at each: a value two readers differ on, a model's yes or no, and an exact value only a second model stands behind stay.
-      oneAtATimeSaid(factRows.flatMap((row) => proposedFacts(row))),
+      oneAtATimeSaid(rows.flatMap((row) => proposedFacts(row))),
+      // What was named and is not this person's to decide, and whose it is.
+      waitsForRoleSaid(awaitingRole),
+      ...notMoved,
     ].filter(Boolean).join(' ');
     /*
      * What still waits, said before anything this reply offers of its own.
@@ -1321,29 +1704,34 @@ export function applyProjectChat(
      * earlier paper also states can be left waiting with its card, and a
      * receipt that said only what was accepted read as if nothing were.
      * A check this approval left for a person to pick is in the line above
-     * and is not counted twice.
+     * and is not counted twice. Nor is a paper left for a lead or signer.
      */
     const forPicking = new Set(targets.filter((t) => t.kind === 'record_check_fields').map((t) => t.id));
+    const forRole = new Set(factRows.filter((row) => !rows.includes(row)).map((row) => row.id));
     const rest = waitingSentence(
       project,
-      { entries: waitingOnCanvas(project).entries.filter((e) => !(e.proposalId && forPicking.has(e.proposalId))) },
+      { entries: waitingOnCanvas(project).entries.filter((e) => !(e.proposalId && forPicking.has(e.proposalId)) && !(e.evidenceId && forRole.has(e.evidenceId))) },
       here,
       Boolean(assistantText),
     );
     if (rest) assistantText = `${assistantText} ${rest}`.trim();
     metrics = standingDelta(before, fileStanding(project));
-    toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
+    // The tag under the reply says what the reply says: values and suggestions accepted, not how many cards were written.
+    toolCalls = [{ name: 'approve', summary: accepted ? `Accepted ${accepted}` : 'Nothing accepted' }];
     /*
      * One card approved opens exactly what it wrote — a filed deed opens at
      * its page. A batch opens the register it mostly wrote to, and nothing
      * more: auto-opening the first document's viewer over a batch put a
      * modal over the chat just as it offered the next step.
      */
-    const lead = targets[0];
-    const extra = targets.length === 1 && lead ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
+    const lead = cards[0];
+    const extra = cards.length === 1 && lead ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
     // Only document values accepted: the register they are on.
-    const pane = !targets.length ? 'evidence' : extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(targets));
-    navigate(pane, `Opened ${pane}`, extra);
+    const pane = !cards.length ? 'evidence' : extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(cards));
+    // Site entries were filed on the site log, a part of the Progress page: the one entry accepted is marked there.
+    const siteLog = pane === 'workstream' ? openPlace(project, SITE_LOG, undefined, here) : undefined;
+    if (siteLog?.kind === 'go') navigate(siteLog.open.pane, `Opened ${chatPlaceLabel(siteLog.place)}`, { ...siteLog.open.extra, ...(cards.length === 1 && lead?.committedRecordId ? { item: lead.committedRecordId } : {}) });
+    else navigate(siteLog ? 'overview' : pane, opened(siteLog ? 'overview' : pane), extra);
     /*
      * One suggestion, and only one.
      *
@@ -1374,11 +1762,17 @@ export function applyProjectChat(
     if (next.kind !== 'idle' && next.proposals.length && !fills.length && !startDd) offer([next.proposals[0]!]);
   };
 
-  /** Set these cards aside. */
-  const setAsideThese = (cards: ChatProposal[]) => {
+  /** Set these cards aside. A check's values are set aside by whoever may accept them: the rest of those stay, and the reply says for whom. */
+  const setAsideThese = (named: ChatProposal[]) => {
+    const cards = theirsToDecide(named);
+    const left = waitsForRoleSaid(awaitingRole);
+    if (!cards.length) {
+      refused('aside', `Nothing was set aside. ${left}`);
+      return;
+    }
     for (const card of cards) rejectChatProposal(project, card.id);
     commands.push(cards.length === 1 ? `Rejected “${cards[0]!.title}”` : `Rejected ${cards.length}`);
-    assistantText = cards.length === 1 ? `Skipped “${cards[0]!.title}”.` : `Skipped ${cards.length}.`;
+    assistantText = [cards.length === 1 ? `Skipped “${cards[0]!.title}”.` : `Skipped ${cards.length}.`, left].filter(Boolean).join(' ');
   };
 
   /**
@@ -1418,6 +1812,35 @@ export function applyProjectChat(
   const refused = (verb: InstructionVerb, text: string) => {
     assistantText = text;
     toolCalls = [{ name: verb === 'accept' ? NOTHING_ACCEPTED : NOTHING_SET_ASIDE, summary: verb === 'accept' ? 'Nothing accepted' : 'Nothing set aside' }];
+  };
+
+  /** Open the one record a sentence named by its own words, where it lives. A decision has no sitting and opens in its register. */
+  const openCalled = (hit: Called) => {
+    const talk = sittingFromCitedId(project, hit.id);
+    if (talk) {
+      openTalk(talk, `Opened ${talk.label}`);
+      assistantText = sittingBrief(project, talk);
+      citedNodeIds = talk.highlightIds;
+      highlightIds.push(...talk.highlightIds);
+      if (talk.extra.evidenceId) citedEvidenceIds = [talk.extra.evidenceId];
+      toolCalls = [{ name: talk.kind === 'check' ? 'open_sitting' : 'navigate', summary: talk.label }];
+      return;
+    }
+    const at = placeOfRecord(project, hit.id, here)?.open ?? { pane: 'decisions' as const, extra: {} };
+    navigate(at.pane, `Opened ${hit.title}`, at.extra);
+    assistantText = `“${hit.title}” is open in ${chatPlaceLabel({ pane: at.pane })} — ${hit.detail}.`;
+    citedNodeIds = [hit.id];
+    highlightIds.push(hit.id);
+    toolCalls = [{ name: 'navigate', summary: hit.title }];
+  };
+
+  /** Put the records a name could mean to the person, each on a choice that opens exactly it. Nothing moves. */
+  const askCalled = (name: string, found: Called[]) => {
+    const shown = found.slice(0, CALLED_OFFERED);
+    assistantText = `${found.length === 2 ? 'Two' : found.length} records match “${name}”. Which one?${found.length > shown.length ? ` The first ${shown.length} are below. Say more of the name for another.` : ''}`;
+    // A choice that can pin its record opens it by the pin. One that cannot says its kind, which is what tells a finding from a risk of the same title.
+    choices = shown.map((hit, i) => ({ id: `rec_${i}`, label: hit.title, detail: hit.detail, send: hit.pin ? `Open "${hit.title}"` : `Open the ${hit.kind} "${hit.title}"`, kind: hit.kind, ...(hit.pin ? { sitting: hit.pin } : {}) }));
+    toolCalls = [{ name: 'clarify', summary: `${found.length} records by that name` }];
   };
 
   /**
@@ -1537,7 +1960,7 @@ export function applyProjectChat(
     const before = fileStanding(project);
     const filedIds: string[] = [];
     for (const card of rows.filter((r) => r.kind === 'file_evidence')) {
-      const filed = commitChatProposal(project, card.id, actor);
+      const filed = commitChatProposal(project, card.id, actor, { mayDecide });
       if (filed.recordId) filedIds.push(filed.recordId);
     }
     const valuesWaiting = filedIds.reduce((n, evId) => n + proposedFacts(project.evidence.find((e) => e.id === evId) ?? {}).length, 0);
@@ -1668,7 +2091,7 @@ export function applyProjectChat(
      */
     const first = groups[0];
     if (first?.fn && first.open.pane !== 'evidence') navigate(first.open.pane, `Opened ${chatPlaceLabel({ fn: first.fn })} documents`, first.open.extra);
-    else navigate('evidence', 'Opened documents');
+    else navigate('evidence', opened('evidence'));
     // Notes of a meeting dropped with the papers are kept beside them, and said after them. So is a question still waiting for its answer.
     if (meetingGiven || (!options.outside && meetingAskedNow(project))) {
       const notes = keepNotesGiven();
@@ -1726,7 +2149,7 @@ export function applyProjectChat(
       citedNodeIds = [report.id];
       navigate('reports', draft ? '' : 'Wrote a status report', { item: report.id });
     }
-  } else if (!options.outside && asksForOutgoing(q)) { ({ assistantText, toolCalls, choices, citedNodeIds } = outgoingAsked(project, q, actor, navigate)); // A draft to send, asked for by name: made and opened by `outgoing.ts`.
+  } else if (!options.outside && asksForOutgoing(draftToSendSaid(q))) { ({ assistantText, toolCalls, choices, citedNodeIds } = outgoingAsked(project, draftToSendSaid(q), actor, navigate)); // A draft to send, asked for by name: made and opened by `outgoing.ts`.
   } else if (pressed) {
     /*
      * A choice that was pressed. It acts on the cards and papers it names and
@@ -1757,7 +2180,7 @@ export function applyProjectChat(
      */
     const filing = options.outside
       ? ({ kind: 'refused', text: 'Only the firm’s own people can file a document under a function. Nothing moved.' } as const)
-      : fileUnderFromText(project, q, actor, options.sitting?.evidenceId);
+      : fileUnderFromText(project, q, actor, options.sitting?.evidenceId, mayDecide);
     if (filing?.kind === 'filed') {
       const at = placeOfRecord(project, filing.evidence.id, here);
       const { evidenceId: _viewer, ...extra } = at?.open.extra ?? {};
@@ -1779,7 +2202,11 @@ export function applyProjectChat(
      * A name two pages share, or a page with no work at the stage asked for,
      * is put back to the person as a choice, and nothing moves.
      */
-    if (went.kind === 'go') {
+    if (went.kind === 'go' && options.outside && FIRM_ONLY_PANES.has(went.open.pane)) {
+      // The review table, what the firm sends and who is on the project are the firm's own people's. Somebody working from a grant is told so, and stays where they are.
+      assistantText = `${chatPlaceLabel(went.place)} is the firm’s own page. Nothing moved.`;
+      toolCalls = [{ name: 'clarify', summary: 'The firm’s own page' }];
+    } else if (went.kind === 'go') {
       // A stage looked at is said by the stage, a page opened by the page.
       const stage = went.stageOnly ? STAGES.find((s) => s.key === went.place.stage) : undefined;
       const name = stage ? stage.label : chatPlaceLabel(went.place);
@@ -1825,11 +2252,11 @@ export function applyProjectChat(
     assistantText = critic.text;
     citedNodeIds = critic.citedNodeIds;
     toolCalls = [{ name: 'critic', summary: cards.length ? plural(cards.length, 'unevidenced finding') : 'No unevidenced material findings' }];
-    navigate(critic.pane, 'Opened findings');
+    navigate(critic.pane, opened(critic.pane));
   } else if (runOrchestrate) {
     const run = runProjectOrchestrator(project, actor);
     navigate('orchestrate', 'Ran orchestrator');
-    navigate('drafts', 'Opened drafts');
+    navigate('drafts', opened('drafts'));
     assistantText = [
       run.summary,
       `${run.draftIds.length} draft(s) proposed from registers — review and commit before they write findings, risks or actions.`,
@@ -1878,7 +2305,7 @@ export function applyProjectChat(
       assistantText = asked.text;
       choices = asked.choices;
       toolCalls = [{ name: 'clarify', summary: asked.summary }];
-      navigate('findings', 'Opened findings');
+      navigate('findings', opened('findings'));
     }
   } else if (evidenceOnFile) {
     const held = evidenceOnFile.attachments.length > 0;
@@ -1966,6 +2393,11 @@ export function applyProjectChat(
       }
     }
     navigate('reports', 'Opened the report');
+  } else if (calledOne) {
+    // Ahead of the reader of check results: a title in quotes can hold "record" or "close", and opening it records nothing.
+    openCalled(calledOne);
+  } else if (called.found.length) {
+    askCalled(called.name, called.found);
   } else if (checkRecordCommand) {
     /*
      * The person recording a check, through chat.
@@ -2075,9 +2507,10 @@ export function applyProjectChat(
     const startDd = startDdFromQuestion(project, q, actor);
     if (startDd) {
       offer([startDd]);
-      const committed = commitChatProposal(project, startDd.id, actor);
+      // A card that says the same may already be waiting, and then this one was not added: the waiting one is the card to start.
+      const committed = commitChatProposal(project, (offered[0] ?? startDd).id, actor, { mayDecide });
       commands.push(`Started ${startDd.title}`);
-      navigate('dd', 'Opened assessments');
+      navigate('dd', opened('dd'));
       assistantText = `${startDd.title} is now on the project.\n${startDd.impact}\nScopes and expected evidence have been instantiated.`;
       citedNodeIds = committed.recordId ? [committed.recordId] : undefined;
       if (committed.recordId) highlightIds.push(committed.recordId);
@@ -2095,7 +2528,7 @@ export function applyProjectChat(
        * the encumbrances check, and used to open it and describe the check —
        * when the person asked what the EC says, and the EC was on file.
        */
-      const fileAnswer = answerFromFile(project, q, here, { outside: options.outside });
+      const fileAnswer = answerFromFile(project, across ?? q, here, { outside: options.outside });
       if (fileAnswer) {
         assistantText = fileAnswer.text;
         citedEvidenceIds = fileAnswer.citedEvidenceIds;
@@ -2114,6 +2547,10 @@ export function applyProjectChat(
           else navigate(to.pane, '', to.evidenceId ? { evidenceId: to.evidenceId, page: to.page } : undefined);
         }
         if (fileAnswer.choices?.length) choices = fileAnswer.choices;
+      } else if (across) {
+        // A value no paper states yet: said, and never answered with where to fetch a record.
+        assistantText = 'No paper on file states that yet, so there is nothing to compare.';
+        toolCalls = [{ name: 'clarify', summary: 'Nothing to compare' }];
       } else if (namedSitting && !rewrite) {
         const pane = paneForTalk(named.kind);
         navigate(pane, `Opened ${named.label}`, named.extra);
@@ -2129,7 +2566,7 @@ export function applyProjectChat(
           const done: string[] = [];
           for (const item of interpreted.proposals) {
             project.chatProposals.push(item);
-            const committed = commitChatProposal(project, item.id, actor);
+            const committed = commitChatProposal(project, item.id, actor, { mayDecide });
             // The record's title, never its id: "→ ast_1a0cfb…" named nothing
             // a person recognises and read like a stack trace in the chat.
             done.push(item.title);
@@ -2141,7 +2578,7 @@ export function applyProjectChat(
               ? `Done — ${done[0]!.charAt(0).toLowerCase()}${done[0]!.slice(1)}. It’s open on the right.`
               : `Done:\n${done.map((d) => `• ${d}`).join('\n')}\nOpen on the right.`;
           toolCalls = [{ name: 'apply', summary: `${done.length} applied` }];
-          navigate(paneForProposalKind(interpreted.proposals[0]!.kind), `Opened ${paneForProposalKind(interpreted.proposals[0]!.kind)}`);
+          navigate(paneForProposalKind(interpreted.proposals[0]!.kind), opened(paneForProposalKind(interpreted.proposals[0]!.kind)));
           citedNodeIds = highlightIds;
         } else {
           const cards = offer(interpreted.proposals);
@@ -2150,24 +2587,31 @@ export function applyProjectChat(
             toolCalls = [{ name: 'advise', summary: 'Already proposed' }];
           } else {
           assistantText = [
-            'I can apply these updates from what you just said. They are waiting on the right; nothing is written until you accept them there.',
+            cards.length === 1
+              ? 'I can apply this update from what you just said. It is waiting on the right; nothing is written until you accept it there.'
+              : 'I can apply these updates from what you just said. They are waiting on the right; nothing is written until you accept them there.',
             cards.map((p) => `• ${p.title}\n  ${p.rationale}`).join('\n'),
           ].join('\n\n');
           toolCalls = [{ name: 'advise', summary: `${cards.length} update(s)` }];
-          navigate(paneForProposalKind(cards[0]?.kind ?? interpreted.proposals[0]!.kind), `Opened ${paneForProposalKind(cards[0]?.kind ?? 'patch_project')}`);
+          navigate(paneForProposalKind(cards[0]?.kind ?? interpreted.proposals[0]!.kind), opened(paneForProposalKind(cards[0]?.kind ?? interpreted.proposals[0]!.kind)));
           citedNodeIds = cards.flatMap((p) => p.citedNodeIds ?? []);
           citedEvidenceIds = cards.flatMap((p) => p.citedEvidenceIds ?? []);
           }
         }
       } else {
       const side = recordCommand ? null : handleChatSides(project, q, actor, options.sides, options.sitting);
-      if (side) {
+      // A comparison names a khata or an EC to set papers side by side, and is no request to fetch one. Which value is asked.
+      if (side && SETS_SIDE_BY_SIDE.test(q) && side.toolCalls.every((call) => call.name === 'connectors')) {
+        assistantText = 'Compare which value?';
+        choices = STATED_ACROSS.map((stated, i) => ({ id: `across_${i}`, label: stated.label, send: `Compare the ${stated.label.toLowerCase()} across the papers` }));
+        toolCalls = [{ name: 'clarify', summary: 'Which value' }];
+      } else if (side) {
         const cards = offer(side.proposals);
         assistantText = side.text;
         toolCalls = side.toolCalls;
         citedEvidenceIds = side.citedEvidenceIds;
         citedNodeIds = side.citedNodeIds;
-        navigate(side.pane, `Opened ${side.pane}`);
+        navigate(side.pane, opened(side.pane));
         /*
          * Everything it would have offered is already waiting.
          *
@@ -2195,9 +2639,11 @@ export function applyProjectChat(
     navigate('valuation', 'Opened Value');
   } else if (runValuation) {
     const val = createValuationRun(project, actor);
-    navigate('valuation', 'Ran indicative valuation');
-    assistantText = `Indicative value ${project.currency} ${Math.round(val.indicatedValue).toLocaleString()} (${val.ibbi.premise}). This is not a certified IBBI certificate. Sign-off stays ${val.signOff.replaceAll('_', ' ')}.`;
-    toolCalls = [{ name: 'run_valuation', summary: `Indicative ${project.currency} ${Math.round(val.indicatedValue).toLocaleString()}` }];
+    const said = valuationSaid(project, val);
+    navigate('valuation', 'Ran the valuation');
+    // A figure is said with what it is not. No figure needs no such word.
+    assistantText = said.figure ? `${said.text} This is not a certified IBBI certificate. Sign-off stays ${val.signOff.replaceAll('_', ' ')}.` : said.text;
+    toolCalls = [{ name: 'run_valuation', summary: said.tag }];
     highlightIds.push(val.id);
   } else if (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql)) {
     const hit = matchTitle(openActions(), q) as ActionRecord | undefined;
@@ -2213,7 +2659,7 @@ export function applyProjectChat(
       assistantText = asked.text;
       choices = asked.choices;
       toolCalls = [{ name: 'clarify', summary: asked.summary }];
-      navigate('actions', 'Opened actions');
+      navigate('actions', opened('actions'));
     }
   } else if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) {
     const hit = matchTitle(openFindings(), q) as FindingRecord | undefined;
@@ -2229,7 +2675,7 @@ export function applyProjectChat(
       assistantText = asked.text;
       choices = asked.choices;
       toolCalls = [{ name: 'clarify', summary: asked.summary }];
-      navigate('findings', 'Opened findings');
+      navigate('findings', opened('findings'));
     }
   } else if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql)) {
     const hit = matchTitle(openRisks(), q) as RiskRecord | undefined;
@@ -2246,7 +2692,7 @@ export function applyProjectChat(
       assistantText = asked.text;
       choices = asked.choices;
       toolCalls = [{ name: 'clarify', summary: asked.summary }];
-      navigate('risks', 'Opened risks');
+      navigate('risks', opened('risks'));
     }
   } else if (isShow || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
     const talk = asksForPane(ql) ? undefined : sittingWithField(project, talkSittingFromText(project, q));
@@ -2286,11 +2732,11 @@ export function applyProjectChat(
         toolCalls = [{ name: 'clarify', summary: 'No page by that name' }];
       } else {
       const pane = rule?.pane ?? 'overview';
-      navigate(pane, `Opened ${pane}`);
+      navigate(pane, opened(pane));
       // One line: what opened and the figure that matters there. The full
       // register briefing used to follow — ten lines under "open the graph".
       assistantText = paneLine(project, pane);
-      toolCalls = [{ name: 'navigate', summary: pane }];
+      toolCalls = [{ name: 'navigate', summary: chatPlaceLabel({ pane }) }];
       }
       }
     }
@@ -2340,7 +2786,7 @@ export function applyProjectChat(
        * and "0 proposal(s)" reported that as though it were a result.
        */
       toolCalls = cards.length ? [{ name: 'wizard', summary: plural(cards.length, 'card') }] : undefined;
-      if (wantsReport(ql)) navigate('reports', 'Opened reports');
+      if (wantsReport(ql)) navigate('reports', opened('reports'));
       else if (wantsAssets(ql)) navigate('assets', '');
       else if (wantsDdTypes(ql)) navigate('dd', '');
       else navigate(next.pane, '', next.extra);

@@ -30,7 +30,7 @@ Writes on a project need a role that allows them: workspace `write` capability f
 | Method | Path | |
 |---|---|---|
 | POST | `/projects/:id/certified/read` | `{ evidenceId }` → `{ readout }`: title, signer, registration, date, scope, figure, conclusion and conditions read off the document, with the page each came from |
-| POST | `/projects/:id/certified` | File it as the figure of record: `{ workstream, title, evidenceId, signer, issuedOn?, scope?, figure?, verdict?, conditions? }`. Needs a lead or signer in that department. |
+| POST | `/projects/:id/certified` | File it as the figure of record: `{ workstream, title, evidenceId, signer, issuedOn?, scope?, figure?, verdict?, conditions? }`. Needs a lead or signer in that department, and in the department that holds the document where filing it would move it. |
 | POST | `/projects/:id/certified/:reportId/acknowledge` | The lead or signer has seen the revisit flag |
 
 ## Construction › Progress and the site app
@@ -63,19 +63,35 @@ A device token reaches only `GET /projects`, `GET /projects/:id/site`, the site 
 |---|---|---|
 | POST | `/projects/:id/alerts/read` | `{ ids: [...] }` or `{ ids: "all" }` |
 | POST, DELETE | `/projects/:id/links`, `/projects/:id/links/:linkId` | A link a person draws: `{ from: { kind, id }, to: { kind, id }, type, note? }` |
-| PUT | `/projects/:id/evidence/:evidenceId/workstream` | `{ workstream }`, or `null` to read it from the document again |
+| PUT | `/projects/:id/evidence/:evidenceId/workstream` | `{ workstream }`, or `null` to read it from the document again. Moving a document a function already holds needs a lead or signer in the department that holds it now. |
 | POST | `/projects/:id/uploads` | Start a large upload: `{ fileName, contentType, size }` → `{ uploadId, partBytes, parts }` |
 | PUT | `/projects/:id/uploads/:uploadId/parts/:n` | One part's bytes as the body (4 MB) |
 | POST | `/projects/:id/uploads/:uploadId/complete` | `{ evidenceId?, title? }` → files it in the vault and reads it |
-| POST | `/projects/:id/evidence/files` | Small documents against register rows, one request |
+| POST | `/projects/:id/evidence/files` | Small documents against register rows, one request. A file put on a row that already has a kind never renames it: what the file reads as is left as an offer to confirm or correct. |
 | GET | `/projects/:id/graph` | The projection |
 | GET | `/projects/:id/graph/stored` | What the graph store holds, optionally `?asOf=` |
-| GET | `/projects/:id/graph/impact?node=` | What a change to one record reaches — answered by Neo4j, with the projection as fallback |
-| GET | `/projects/:id/graph/neighbourhood?query=&hops=` | The neighbourhood the chat reads |
+| GET | `/projects/:id/graph/impact?node=` | What a change to one record reaches — answered by Neo4j, with the projection as fallback. For somebody working from a grant: from their own copy of the project only, and 404 for a record that is not on it. |
+| GET | `/projects/:id/graph/neighbourhood?query=&hops=` | The neighbourhood the chat reads, cut to what the caller can reach |
 
 ## The rest of a project
 
 Checks and their fields (`/checks/:checkId`, `/checks/:checkId/fields`), assessments (`/assessments`), the registers (`/evidence`, `/findings`, `/risks`, `/actions`, `/decisions`, `/requests`), site visits and placed sheets (`/visits`, `/sheets`), the Value tab (`/value`, `/value/accept`, `/value/set-aside`, `/valuation`, `/comparables`, `/screen`), reports and their blocks (`/reports`), the chat (`/chat`, `/chat/files`, proposals, undo), AI drafts and the orchestrator, the map (`/site-context`, `/gis-overlay`) and people on the project (`/people`). Each route file names its endpoints at the top: `apps/api/src/routes/`.
+
+Deciding where a value read off a document stands needs a lead or signer in the department the value belongs to, and answers **403** with the department's name for anybody else, with nothing changed:
+
+| Method | Path | |
+|---|---|---|
+| POST | `/projects/:id/evidence/:evidenceId/facts/review` | `{ keys, decision: "accept" \| "reject" \| "reopen", edit?, take? }`. The department whose function holds the document. |
+| POST | `/projects/:id/proposals/:proposalId/fields` | `{ keys, decision: "accept" \| "reject", values? }` on a card of check values. The check's department. |
+| POST | `/projects/:id/checks/:checkId/fields/:key/pick` | `{ proposalId }`, or `null` to keep what the check holds. The check's department. |
+| POST | `/projects/:id/proposals/:proposalId/accept`, `/set-aside` | The check's department when the card is check values. Any other card: anybody who may write. |
+| POST | `/projects/:id/value/accept`, `/value/set-aside` | `{ ids, record? }`. Finance. |
+| POST | `/projects/:id/comparables/decide` | `{ ids, decision: "accept" \| "reject" }`. Finance. |
+| PUT | `/projects/:id/evidence/:evidenceId/workstream` | `{ workstream }` or `null`, where it moves a document out of the function that holds it. The department that holds it now. |
+| POST | `/projects/:id/evidence/:evidenceId/document-type/confirm`, `/correct` | Where the kind would move a document a function already holds, or the row holds a value somebody has decided. The department that holds it now. |
+| POST | `/projects/:id/certified` | Where it files a document another function holds. The department that holds it now. |
+
+The chat takes only what the caller may decide and says in its reply what it left, and for which department; it does not answer 403. That holds for an approval typed or pressed, for a step of a plan that accepts, and for "File … under …". What is covered and what is not: [auth.md](auth.md#who-decides-what-a-document-states).
 
 ## Workspace
 

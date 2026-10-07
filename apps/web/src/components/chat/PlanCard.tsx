@@ -4,6 +4,7 @@ import { PLAN_SENTENCE, planCountSaid, planListedIn, planStepsIn } from '@realyt
 import type { ChatChoice, ChatPlan, ChoicePin, PlanStep } from '@realytica/shared';
 import { ApiRequestError, request } from '../../lib/api';
 import { Button, cn } from '../ui/kit';
+import { saysPlanCancelled } from './chat-list';
 
 /**
  * A plan as it stands now, drawn in the chat.
@@ -11,9 +12,9 @@ import { Button, cn } from '../ui/kit';
  * A reply that shows a plan says it in words, and those words are what was
  * said then. This card is the plan as the run ledger has it now: which steps
  * are done and what each did, which one is running, what is left. It is
- * drawn under the last reply on screen that names the plan, and at the top
- * of a chat opened after the plan was made, so a page closed part way
- * through a run comes back to "3 of 5 steps done" with what is left.
+ * drawn under the last reply on screen that names the plan (`planDrawnUnder`),
+ * and at the top of a chat opened after the plan was made, so a page closed
+ * part way through a run comes back to "3 of 5 steps done" with what is left.
  *
  * Its buttons are the plan's own, read from the server with the plan: run it
  * or cancel it before it starts, stop it while it runs, carry on or leave
@@ -178,8 +179,8 @@ export function PlanCard({
   if (listed && shown.over) return null;
   // One cancelled before any of it ran, under the reply that showed it: one line, so the steps over it do not read as still on offer.
   if (plan.status === 'cancelled' && !steps.some((step) => step.state === 'done' || step.said)) {
-    // At the top of a chat it is not under anything: it goes.
-    if (lead) return null;
+    // At the top of a chat it is not under anything: it goes. So it does under a reply that says as much itself.
+    if (lead || (said && saysPlanCancelled(said))) return null;
     return (
       <p className="mt-2 rounded-lg bg-sunken px-3 py-1.5 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]" role="status">
         This plan was cancelled. Nothing of it was done.

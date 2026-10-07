@@ -37,13 +37,13 @@ import {
 } from './departments';
 import { decidedOnACheck, differsOnCheck, statesTheSame, surveyNumbersIn } from './document-intake';
 import { acceptedFacts, standingFacts } from './fact-review';
-import { waitingFieldKeys } from './review';
+import { DecisionRefused, waitingFieldKeys } from './review';
 import { WAITING_FROM_EARLIER, filedByReply } from './sitting';
 import { graphImpact } from './graph-impact';
 import { CHECK_DEFINITIONS } from './libraries';
-import { checkSchema, recordAuditEvent } from './operations';
+import { checkSchema } from './operations';
 import { buildProjectGraph } from './project-graph';
-import { projectDepartments } from './team';
+import { projectDepartments, type MayDecide } from './team';
 import type { ChatChoice, ChatProposal, DdProject, EvidenceRecord } from './types';
 import { setDocumentWorkstream } from './vault';
 import { plainWords, stageNamed } from './wizard';
@@ -243,8 +243,12 @@ export type FilingOutcome =
  * `pinned` is the paper a pressed choice carried. It is taken only when it is
  * one of the papers the sentence names, so a pick cannot be turned to another
  * paper by changing the id beside it.
+ *
+ * A paper a function already holds is moved by a lead or a signer of the
+ * department that holds it now (`mayDecide`, see `moveDocument`). Asked by
+ * anybody else, the reply says whose it is to move, and nothing moves.
  */
-export function fileUnderFromText(project: DdProject, text: string, actor: string, pinned?: string): FilingOutcome | null {
+export function fileUnderFromText(project: DdProject, text: string, actor: string, pinned?: string, mayDecide?: MayDecide): FilingOutcome | null {
   const ask = filingAsk(project, text);
   if (!ask) return null;
   const rows = documentsCalled(project, ask.name);
@@ -285,9 +289,13 @@ export function fileUnderFromText(project: DdProject, text: string, actor: strin
   const fn = on[0]!;
   // Design is four workstreams on the record and one function in the menu: a paper given to it goes to its drawings.
   const workstream = workstreamDefinition(fn.key) ? fn.key : fn.workstreams[0]!;
-  const was = functionOfDocument(project, row);
-  setDocumentWorkstream(project, row.id, workstream);
-  recordAuditEvent(project, { actor, action: 'assign_document', entityType: 'evidence', entityId: row.id, oldValue: was ? inFull(was) : undefined, newValue: withDepartment(fn.key, fn.label) });
+  try {
+    // Written on the trail where it moves the paper: from where, to where, by whom.
+    setDocumentWorkstream(project, row.id, workstream, actor, { mayDecide });
+  } catch (err) {
+    if (!(err instanceof DecisionRefused)) throw err;
+    return { kind: 'refused', text: `${err.message} Nothing moved.` };
+  }
   return { kind: 'filed', evidence: row, fn: fn.key, label: withDepartment(fn.key, fn.label) };
 }
 
@@ -546,20 +554,24 @@ function checksPart(project: DdProject, fn: string | undefined, here: ChatPlace)
   return page.kind === 'go' ? page.open : undefined;
 }
 
-/** What waits, grouped by where it waits: the documents and the checks a function at a time, anything else by its register. */
+/**
+ * What waits, grouped by where it waits: the documents and the checks a
+ * function at a time, anything else by its register or, where it waits on a
+ * function's own page (a site entry, on Progress), by that page.
+ */
 function waitingChips(project: DdProject, entries: readonly WaitingEntry[], here: ChatPlace): TurnChip[] {
   const chips: TurnChip[] = [];
   const byKey = new Map<string, TurnChip>();
   for (const entry of entries) {
     const byFunction = entry.pane === 'evidence' || entry.pane === 'scope';
-    const key = `${entry.pane}|${byFunction ? (entry.fn ?? '') : ''}`;
+    const key = `${entry.pane}|${entry.fn ?? ''}`;
     const held = byKey.get(key);
     if (held) {
       held.count = (held.count ?? 0) + entry.count;
       continue;
     }
     const what = entry.pane === 'evidence' ? 'documents' : 'checks';
-    const words = byFunction ? `waiting on the ${entry.fn ? `${chatPlaceLabel({ fn: entry.fn })} ` : ''}${what}` : `waiting under ${chatPlaceLabel({ pane: entry.pane })}`;
+    const words = byFunction ? `waiting on the ${entry.fn ? `${chatPlaceLabel({ fn: entry.fn })} ` : ''}${what}` : `waiting under ${chatPlaceLabel({ pane: entry.pane, fn: entry.fn })}`;
     const open = entry.pane === 'scope' ? checksPart(project, entry.fn, here) : undefined;
     const chip: TurnChip = { key, kind: 'waiting', count: entry.count, words, entry, ...(open ? { open } : {}) };
     byKey.set(key, chip);
@@ -675,6 +687,39 @@ export function waitingChoices(
   return { choices, more: past.length ? `and ${past.length} more waiting ${andList(places)}` : '' };
 }
 
+/** A photograph of the site on the register: a row a drop filed, which is no paper read. */
+const isPhotograph = (row: EvidenceRecord): boolean => row.kind === 'photograph' && row.attachments.length > 0;
+
+/**
+ * What a drop took in that is no paper read, each with the page it is on: a
+ * questionnaire, the photographs of the site, and a voice note kept and not
+ * put into words. The canvas did not open on any of them, so each is a chip,
+ * whatever else the drop held.
+ *
+ * `unheard` is the voice notes, each by the card it waits on. Such a card is
+ * none of what the reply left to accept ("approve all" takes the reply's own
+ * cards and the values on its papers), so it is not counted with what waits:
+ * its chip opens where it waits to be read or filed as it is.
+ */
+function takenInChips(project: DdProject, turn: { citedEvidenceIds?: string[]; citedNodeIds?: string[] }, unheard: readonly WaitingEntry[], here: ChatPlace): TurnChip[] {
+  const chips: TurnChip[] = [];
+  const sheets = (project.questionnaires ?? []).filter((sheet) => turn.citedNodeIds?.includes(sheet.id));
+  for (const sheet of sheets) {
+    const at = placeOfRecord(project, sheet.id, here);
+    // One questionnaire is "the questionnaire". Two are told apart by their titles.
+    if (at) chips.push({ key: `taken|${sheet.id}`, kind: 'filed', words: sheets.length === 1 ? 'The questionnaire' : sheet.title, open: at.open, ids: [sheet.id] });
+  }
+  const photographs = (turn.citedEvidenceIds ?? []).filter((id) => project.evidence.some((e) => e.id === id && isPhotograph(e)));
+  for (const group of filedGroups(project, photographs, here)) {
+    chips.push({ key: `photographs|${group.fn ?? ''}`, kind: 'filed', words: group.ids.length === 1 ? 'The photograph' : `The ${group.ids.length} photographs`, open: group.open, ids: group.ids });
+  }
+  // One voice note is "the voice note". Two are told apart by their files' names.
+  for (const entry of unheard) {
+    chips.push({ key: `taken|${entry.proposalId}`, kind: 'filed', words: unheard.length === 1 ? 'The voice note' : entry.title, open: { pane: entry.pane, extra: entry.extra ?? {} }, ids: [entry.proposalId!] });
+  }
+  return chips;
+}
+
 /**
  * The chips under one reply.
  *
@@ -682,12 +727,24 @@ export function waitingChoices(
  * the checks a function at a time, anything else by its register. A chip for
  * a function's documents opens their review; one for its checks opens the
  * function's page at its checks, where each row says what waits on it. After
- * a drop, the functions its other papers went to follow (the page already
- * opened on the first), and last the first paper in the graph.
+ * a drop, what it took in that is no paper read (a questionnaire, the
+ * photographs of the site, a voice note kept unread), then the functions its
+ * other papers went to (the page already opened on the first), and last the
+ * first paper in the graph.
+ *
+ * What a reply left waiting is what "approve all" under it would take: the
+ * cards it listed and the values on the papers it filed. The count on a
+ * waiting chip is of those and nothing else.
+ *
+ * A drop's reply names what it took in beside the records it cites
+ * (`citedNodeIds`): a questionnaire by its id, and a file it kept and could
+ * not read (a voice note, where nothing is set up to put it into words) by
+ * the card it waits on. That card is a chip of its own and not among what
+ * waits (`takenInChips`).
  */
 export function turnChips(
   project: DdProject,
-  turn: { proposalIds?: string[]; citedEvidenceIds?: string[]; toolCalls?: Array<{ name: string }> },
+  turn: { proposalIds?: string[]; citedEvidenceIds?: string[]; citedNodeIds?: string[]; toolCalls?: Array<{ name: string }> },
   waiting: { entries: WaitingEntry[] },
   here: ChatPlace = {},
 ): TurnChip[] {
@@ -695,11 +752,16 @@ export function turnChips(
   // The values a reply left waiting are on the papers it filed. An answer that quotes a paper left nothing on it.
   const listsEarlier = (turn.toolCalls ?? []).some((call) => call.name === WAITING_FROM_EARLIER);
   const papers = new Set(listsEarlier ? turn.citedEvidenceIds : filedByReply(turn));
+  const dropped = (turn.toolCalls ?? []).some((call) => call.name === 'ingest');
   const mine = waiting.entries.filter((e) => (e.proposalId && cards.has(e.proposalId)) || (e.kind === 'facts' && e.evidenceId && papers.has(e.evidenceId)));
   const chips = waitingChips(project, mine, here);
   const byKey = new Map(chips.map((chip) => [chip.key, chip]));
-  if (!(turn.toolCalls ?? []).some((call) => call.name === 'ingest')) return chips;
-  const filed = (turn.citedEvidenceIds ?? []).filter((id) => project.evidence.some((e) => e.id === id && e.attachments.length > 0));
+  if (!dropped) return chips;
+  const kept = new Set(turn.citedNodeIds ?? []);
+  // The card a kept file waits on is one that files it as it is.
+  const unheard = waiting.entries.filter((e) => e.kind === 'file_evidence' && e.proposalId && kept.has(e.proposalId) && !cards.has(e.proposalId));
+  chips.push(...takenInChips(project, turn, unheard, here));
+  const filed = (turn.citedEvidenceIds ?? []).filter((id) => project.evidence.some((e) => e.id === id && e.attachments.length > 0 && !isPhotograph(e)));
   if (!filed.length) return chips;
   for (const group of filedGroups(project, filed, here).slice(1)) {
     // A function whose documents already have a waiting chip needs no second way to them.

@@ -223,7 +223,7 @@ describe('a flow reading the graph', () => {
         dryRun: false,
         note: () => {},
       };
-      const out = await handlersFor({ tenantId: 'tenant', project, actor: 'tester' })(input);
+      const out = await handlersFor({ tenantId: 'tenant', project, actor: 'tester', withinReach: (graph) => graph })(input);
 
       assert.equal(down.mock.callCount(), 1, 'the store was asked first');
       const retrieved = out.retrieved as ProjectGraphNode[];

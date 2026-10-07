@@ -1271,14 +1271,15 @@ export interface ProjectGraphNode {
    * stage (`construction`, one of the four), the department (`legal`), the
    * function (`legal.title`, or `design` for Design's workstreams together),
    * the approval (`plan_sanction`). Cypher finds "the Legal department of this
-   * project" by it rather than by an id.
+   * project" by it rather than by an id. A bill carries its own number here.
    */
   key?: string;
   /**
    * Where it stands, in the node's own vocabulary: a stage's `done`,
    * `current` or `ahead`; a function's `live` or `coming_soon`; an
    * approval's `in_force`, `expired` or `missing`; a document's `expected`,
-   * `received` or `rejected`; a quick assessment's verdict. It is what says
+   * `received` or `rejected`; a quick assessment's verdict; a bill's
+   * `claimed`, `in_review`, `certified` or `paid`. It is what says
    * whether a paper an edge reaches is in hand, still awaited or set aside
    * (`projectNodeAwaited`, `projectNodeSetAside`).
    */
@@ -2173,6 +2174,8 @@ export interface DdProject {
   milestones?: import('./progress').Milestone[];
   /** Construction › Progress: the daily site log, mostly from the phone. */
   siteLog?: import('./progress').SiteLogEntry[];
+  /** Finance › Budget: the cost register. The budget's work packages, the contracts that cover them, each contractor's bills line by line, and what was certified and paid against them. See `cost.ts`. */
+  cost?: import('./cost').CostRegister;
   /** What the team should hear about; raised and resolved from the project's state. */
   alerts?: import('./alerts').ProjectAlert[];
   /** Meetings whose notes were kept: the day, who was there, where the words are stored and what was proposed from them. Never the words. See `meetings.ts`. */

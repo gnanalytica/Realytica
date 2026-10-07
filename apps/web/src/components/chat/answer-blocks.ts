@@ -20,14 +20,17 @@
  * closed: headings, bullets, numbers, tables, flags, and inline emphasis/code.
  */
 
-import { memTagPrinted, projectFrameNames, type MemTagWords } from '@realytica/shared';
+import { memTagPrinted, projectFrameNames, type DdProject, type MemTagWords, type ProjectChatTurn, type ScreenResult, type ValuationRun } from '@realytica/shared';
 
 export type Inline =
   | { kind: 'text'; text: string }
   | { kind: 'bold'; text: string }
   | { kind: 'code'; text: string }
-  /** `[ev:xyz]` — an evidence id the answer cited in the flow of a sentence. */
-  | { kind: 'evidence'; id: string }
+  /**
+   * `[ev:xyz]` — an evidence id the answer cited in the flow of a sentence.
+   * `[ev:xyz:p3]` cites page 3 of that paper, and the chip opens it there.
+   */
+  | { kind: 'evidence'; id: string; page?: number }
   /** `[dd-risk-…]` — a graph node id, rendered with its real label. */
   | { kind: 'node'; id: string }
   /**
@@ -43,7 +46,8 @@ export type Inline =
    */
   | { kind: 'notes'; meetingId: string; itemId?: string }
   /**
-   * A bracketed token that is plainly one of our ids and resolves to nothing.
+   * A bracketed token that is plainly one of our ids, of a kind the chat can
+   * open, and resolves to nothing.
    *
    * Observed in real answers: `[dd-check-…bda_bmrda_acquisition]`, where the
    * model abbreviated the id it was quoting. Left as prose it prints an
@@ -58,15 +62,37 @@ export type Block =
   | { kind: 'paragraph'; spans: Inline[] }
   | { kind: 'heading'; spans: Inline[] }
   | { kind: 'bullets'; items: Inline[][] }
-  | { kind: 'numbers'; items: Inline[][] }
+  /**
+   * `start` is the number the first item was written with, kept when it is
+   * not 1, so a list picked up again after a paragraph counts on from where
+   * it was. `details` are the dashed lines written under each item, by the
+   * item's place, and are absent when no item has any.
+   */
+  | { kind: 'numbers'; items: Inline[][]; start?: number; details?: Inline[][][] }
   | { kind: 'table'; head: Inline[][]; rows: Inline[][][] }
   /** A line that opens with the flag mark: something that differs, falls short or is at risk. */
   | { kind: 'flag'; spans: Inline[] }
   | { kind: 'rule' };
 
+/**
+ * A citation: `[ev:<paper's id>]`, or `[ev:<paper's id>:p<page>]` for one
+ * page of it, as in `[ev:ev_1a2b-3c4d:p3]`. The page is a whole number from
+ * 1, written with no space and no full stop. Each token is one chip that
+ * opens its own paper, so a sentence resting on two papers carries two.
+ */
 const EVIDENCE_TOKEN = /\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
+/** The page at the end of a citation's id. No id this product mints holds a colon. */
+const CITED_PAGE = /^(.+):p([1-9]\d{0,3})$/;
+
+/** The span a citation becomes: the paper, and the page when one is named. */
+function cited(token: string): Inline {
+  const paged = CITED_PAGE.exec(token);
+  return paged ? { kind: 'evidence', id: paged[1], page: Number(paged[2]) } : { kind: 'evidence', id: token };
+}
+
 const NOTES_TOKEN = /\[notes:([A-Za-z0-9_]{4,80})(?::([A-Za-z0-9_]{4,80}))?\]/;
-const NODE_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
+/** Every bracketed token on a line. The ellipsis is let in so that an id a model cut short is still read as one. */
+const NODE_TOKENS = /\[([A-Za-z0-9][A-Za-z0-9_.:…-]*)\]/g;
 
 /**
  * The facts a turn rests on, as the turn keeps them: each with its tag and
@@ -147,6 +173,10 @@ const CODE = /`([^`]+)`/;
  * record's id is a reference the answer made, and hiding one we cannot follow
  * would present an unsupported claim as a clean one. A frame id supports
  * nothing: it says where in the project the sentence is talking about.
+ *
+ * One nothing can name is taken out wherever it stands, inside bold or code
+ * as much as in plain words. It is marked only when the whole line has no
+ * word left without it.
  */
 const FRAME_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_-]*::(?:stage|dept|ws)::[A-Za-z0-9_.-]+)\]/;
 
@@ -215,8 +245,34 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
 
 /** `tags` is the tag each anchor in the text is for; see `anchored`. */
 function inline(text: string, isNode: (id: string) => boolean, tags: readonly MemTagWords[]): Inline[] {
+  const { spans, unnamed } = read(text, isNode, tags, true);
+  // A line that was nothing but ids no one can name has no word left on it,
+  // and a bullet would show as a dot beside nothing. There the id is marked,
+  // as a record's is: the answer pointed at something and this is all it said.
+  const hasWords = spans.some((span) => span.kind !== 'text' || /[\p{L}\p{N}]/u.test(span.text));
+  if (!hasWords && unnamed.length > 0) return unnamed.map((id) => ({ kind: 'dangling', id }));
+  return spans;
+}
+
+/**
+ * The spans of a line, and the frame ids taken out of it because nothing
+ * could name them. `marks` is off for the words inside bold or code, where no
+ * second mark is read.
+ */
+function read(text: string, isNode: (id: string) => boolean, tags: readonly MemTagWords[], marks: boolean): { spans: Inline[]; unnamed: string[] } {
   // An anchor caught inside bold or code is said there in words: a tag is not drawn inside another mark.
   const worded = (words: string): string => words.replace(ANCHORS, (_whole, n: string) => `[${tags[Number(n)] ?? ''}]`);
+  /*
+   * A record named inside bold or code is still its chip, and the words
+   * around it keep the mark. The server puts brackets round an id wherever a
+   * model wrote it, and a model writes an id in backticks more often than
+   * not. Taken as one run of words, that printed the id the brackets were
+   * there to replace.
+   */
+  const within = (kind: 'bold' | 'code', words: string): { spans: Inline[]; unnamed: string[] } => {
+    const inner = read(worded(words), isNode, [], false);
+    return { spans: inner.spans.map((span) => (span.kind === 'text' ? { kind, text: span.text } : span)), unnamed: inner.unnamed };
+  };
   const out: Inline[] = [];
   let rest = text;
   // The frame ids taken out because nothing could name them.
@@ -230,23 +286,32 @@ function inline(text: string, isNode: (id: string) => boolean, tags: readonly Me
   };
 
   while (rest.length > 0) {
-    const candidates: { at: number; len: number; span: Inline | null; unnamed?: string }[] = [];
+    // What is found next on the line and the spans it becomes: none when it is taken out.
+    const candidates: { at: number; len: number; spans: Inline[]; unnamed?: string[] }[] = [];
+    // `rest` is always the end of `text`, so what was read is the start.
+    const done = text.length - rest.length;
+    // Bold or code that held nothing but ids taken out goes with them, as a bare id does.
+    const marked = (kind: 'bold' | 'code', found: RegExpExecArray): void => {
+      const inner = within(kind, found[1]);
+      const place = inner.spans.length ? { at: found.index, len: found[0].length } : stretchOf(rest, found.index, found[0].length, done === 0);
+      candidates.push({ ...place, spans: inner.spans, unnamed: inner.unnamed });
+    };
 
     const ev = EVIDENCE_TOKEN.exec(rest);
-    if (ev) candidates.push({ at: ev.index, len: ev[0].length, span: { kind: 'evidence', id: ev[1] } });
+    if (ev) candidates.push({ at: ev.index, len: ev[0].length, spans: [cited(ev[1])] });
 
     const notes = NOTES_TOKEN.exec(rest);
-    if (notes) candidates.push({ at: notes.index, len: notes[0].length, span: { kind: 'notes', meetingId: notes[1], ...(notes[2] ? { itemId: notes[2] } : {}) } });
+    if (notes) candidates.push({ at: notes.index, len: notes[0].length, spans: [{ kind: 'notes', meetingId: notes[1], ...(notes[2] ? { itemId: notes[2] } : {}) }] });
 
     const anchor = tags.length ? ANCHOR.exec(rest) : null;
     const tag = anchor ? tags[Number(anchor[1])] : undefined;
-    if (anchor && tag) candidates.push({ at: anchor.index, len: anchor[0].length, span: { kind: 'memory', tag } });
+    if (anchor && tag) candidates.push({ at: anchor.index, len: anchor[0].length, spans: [{ kind: 'memory', tag }] });
 
-    const bold = BOLD.exec(rest);
-    if (bold) candidates.push({ at: bold.index, len: bold[0].length, span: { kind: 'bold', text: worded(bold[1]) } });
+    const bold = marks ? BOLD.exec(rest) : null;
+    if (bold) marked('bold', bold);
 
-    const code = CODE.exec(rest);
-    if (code) candidates.push({ at: code.index, len: code[0].length, span: { kind: 'code', text: worded(code[1]) } });
+    const code = marks ? CODE.exec(rest) : null;
+    if (code) marked('code', code);
 
     // A frame id is looked for by its own shape, wherever it stands on the
     // line. One the graph has is a node like any other. One it does not have
@@ -258,62 +323,71 @@ function inline(text: string, isNode: (id: string) => boolean, tags: readonly Me
       const at = frame.index;
       const len = frame[0].length;
       if (isNode(id)) {
-        candidates.push({ at, len, span: { kind: 'node', id } });
+        candidates.push({ at, len, spans: [{ kind: 'node', id }] });
       } else {
-        // `rest` is always the end of `text`, so what was read is the start.
-        const read = text.length - rest.length;
         const names = projectFrameNames(id);
-        if (names.length > 0 && !saidJustBefore(text.slice(0, read + at), names)) {
-          candidates.push({ at, len, span: { kind: 'text', text: names[0] } });
+        if (names.length > 0 && !saidJustBefore(text.slice(0, done + at), names)) {
+          candidates.push({ at, len, spans: [{ kind: 'text', text: names[0] }] });
         } else {
-          candidates.push({ ...stretchOf(rest, at, len, read === 0), span: null, ...(names.length === 0 ? { unnamed: id } : {}) });
+          candidates.push({ ...stretchOf(rest, at, len, done === 0), spans: [], ...(names.length === 0 ? { unnamed: [id] } : {}) });
         }
       }
     }
 
     // Checked last and gated on the graph, so `[ev:…]` is never also read as a
     // node — one citation rendering as two chips was a real bug in the
-    // server-side extractor and the same trap exists here.
-    const node = NODE_TOKEN.exec(rest);
-    if (node && !node[0].startsWith('[ev:') && !FRAME_TOKEN.test(node[0])) {
-      if (isNode(node[1])) {
-        candidates.push({ at: node.index, len: node[0].length, span: { kind: 'node', id: node[1] } });
-      } else if (looksLikeOurId(node[1])) {
-        candidates.push({ at: node.index, len: node[0].length, span: { kind: 'dangling', id: node[1] } });
-      }
+    // server-side extractor and the same trap exists here. Every bracketed
+    // word is tried until one is a record: stopping at the first let "[1]" or
+    // "[see above]" hide the ids written after it on the line.
+    for (const node of rest.matchAll(NODE_TOKENS)) {
+      if (node[0].startsWith('[ev:') || FRAME_TOKEN.test(node[0])) continue;
+      const id = node[1];
+      // An id of a kind with no page is the id as words, without the brackets: nothing here can say whether the project has it.
+      const span: Inline | null = isNode(id) ? { kind: 'node', id } : LINKED_ID.test(id) ? { kind: 'dangling', id } : PAGELESS_ID.test(id) ? { kind: 'text', text: id } : null;
+      if (!span) continue;
+      candidates.push({ at: node.index, len: node[0].length, spans: [span] });
+      break;
     }
 
     if (candidates.length === 0) break;
     candidates.sort((a, b) => a.at - b.at);
     const first = candidates[0];
     if (first.at > 0) say(rest.slice(0, first.at));
-    if (first.span?.kind === 'text') say(first.span.text);
-    else if (first.span) out.push(first.span);
-    if (first.unnamed) unnamed.push(first.unnamed);
+    for (const span of first.spans) {
+      if (span.kind === 'text') say(span.text);
+      else out.push(span);
+    }
+    if (first.unnamed) unnamed.push(...first.unnamed);
     rest = rest.slice(first.at + first.len);
   }
 
   if (rest.length > 0) say(rest);
-
-  // A line that was nothing but ids no one can name has no word left on it,
-  // and a bullet would show as a dot beside nothing. There the id is marked,
-  // as a record's is: the answer pointed at something and this is all it said.
-  const hasWords = out.some((span) => span.kind !== 'text' || /[\p{L}\p{N}]/u.test(span.text));
-  if (!hasWords && unnamed.length > 0) return unnamed.map((id) => ({ kind: 'dangling', id }));
-  return out;
+  return { spans: out, unnamed };
 }
 
 /**
- * Whether a bracketed token is one of OUR ids rather than prose in brackets.
+ * Whether a bracketed token is one of OUR ids rather than prose in brackets,
+ * and which of two sorts.
  *
- * Kept to the prefixes the projection actually emits. A model writing "[see
- * above]" or "[sic]" must not produce a broken-reference chip, and the price
- * of being wrong in that direction is much higher than leaving a genuine
- * dangling id as text.
+ * Kept to the shapes this product mints. A record's id is a prefix and an
+ * underscore, and the prefixes are the ones `link-ids.ts` in the shared
+ * package links by; the graph and the screen still write the two older ones
+ * with a hyphen. An underscore id has to hold a digit, as every minted one
+ * does, because the product's own words open the same way: `run_valuation`,
+ * `log_site_entry`. A model writing "[see above]" or "[sic]" must not produce
+ * a broken-reference chip, and the price of being wrong in that direction is
+ * much higher than leaving a genuine dangling id as text.
+ *
+ * `LINKED_ID` is the kinds the chat is given a name for (`chatLinkLabels`):
+ * every record of such a kind that the project has is a chip, so one that is
+ * not names nothing, and is marked as a broken reference.
+ *
+ * `PAGELESS_ID` is the kinds with no page of their own: a card, a chat turn,
+ * a line of the history, a valuation run, a flow, a run. The chat is given no
+ * name for these whether the project has them or not, so one is never marked.
  */
-function looksLikeOurId(token: string): boolean {
-  return /^(dd|ev)-/.test(token);
-}
+const LINKED_ID = /^(?:(?:dd|ev)-|(?:prj|ast|dd|scp|chk|fnd|rsk|act|ev|dec|rep|rpt|mil|log|vis|crt|qnr)_(?=.*\d))/;
+const PAGELESS_ID = /^(?:val|prp|cht|aud|flw|run)_(?=.*\d)/;
 
 function splitRow(line: string): string[] {
   return line
@@ -340,6 +414,11 @@ const HEADING = /^([A-Z][^.!?]{0,60}):\s*$/;
  * ordering of its answer, not ours to renumber.
  */
 const ATX = /^#{1,4}\s+(.+?)\s*#*$/;
+
+const BULLET = /^[-*•]\s+(.*)$/;
+const NUMBERED = /^(\d{1,2})[.)]\s+(.*)$/;
+/** A line of three or more of the same mark and nothing else. */
+const isRule = (trimmed: string): boolean => /^([-*_])\1{2,}$/.test(trimmed.replace(/\s+/g, ''));
 
 export function parseAnswer(text: string, isNode: (id: string) => boolean, places?: TagPlaces): Block[] {
   // The places are places in the text as the turn keeps it, so the anchors go in before anything else is done to it.
@@ -394,7 +473,7 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
      * because `---` also matches `^[-*•]\s+` in spirit and a reader would
      * get an empty bullet instead of a divider.
      */
-    if (/^([-*_])\1{2,}$/.test(trimmed.replace(/\s+/g, ''))) {
+    if (isRule(trimmed)) {
       flush();
       blocks.push({ kind: 'rule' });
       continue;
@@ -417,13 +496,13 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
       continue;
     }
 
-    const bullet = /^[-*•]\s+(.*)$/.exec(trimmed);
+    const bullet = BULLET.exec(trimmed);
     if (bullet) {
       flush();
       const items: Inline[][] = [spansOf(bullet[1])];
       let j = i + 1;
       while (j < lines.length) {
-        const m = /^[-*•]\s+(.*)$/.exec(lines[j].trim());
+        const m = BULLET.exec(lines[j].trim());
         if (!m) break;
         items.push(spansOf(m[1]));
         j += 1;
@@ -433,18 +512,62 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
       continue;
     }
 
-    const numbered = /^(\d{1,2})[.)]\s+(.*)$/.exec(trimmed);
+    /*
+     * A numbered list is one list until something other than an item or its
+     * details comes.
+     *
+     * A model that sets each item apart with a blank line, or writes dashed
+     * lines under one, is still counting. Each of those used to end the list,
+     * so every item opened a list of its own and all of them read "1.". The
+     * dashed lines under an item are kept with it. After a blank line they
+     * are its details only when they are set in from the item, the list goes
+     * on after them, or an earlier item's were written the same way:
+     * otherwise they are more likely a list of their own.
+     *
+     * A number that starts again at 1 is the first item of another list. It
+     * is not when the item before it was written "1." as well: some answers
+     * number every item 1 and leave the counting to whoever draws it.
+     */
+    const numbered = NUMBERED.exec(trimmed);
     if (numbered) {
       flush();
       const items: Inline[][] = [spansOf(numbered[2])];
+      const details: Inline[][][] = [[]];
+      const skipBlank = (at: number): number => {
+        let to = at;
+        while (to < lines.length && lines[to].trim() === '') to += 1;
+        return to;
+      };
+      // The number the last item was written with, and the item at a line when it is the next of this list.
+      let written = Number(numbered[1]);
+      const nextItem = (at: number): RegExpExecArray | null => {
+        const item = NUMBERED.exec(lines[at]?.trim() ?? '');
+        return item && !(Number(item[1]) === 1 && written > 1) ? item : null;
+      };
+      // An item of this list has taken dashed lines that stood apart from it and were not set in.
+      let apartBefore = false;
       let j = i + 1;
       while (j < lines.length) {
-        const m = /^(\d{1,2})[.)]\s+(.*)$/.exec(lines[j].trim());
-        if (!m) break;
-        items.push(spansOf(m[2]));
-        j += 1;
+        const at = skipBlank(j);
+        const item = nextItem(at);
+        if (item) {
+          items.push(spansOf(item[2]));
+          details.push([]);
+          written = Number(item[1]);
+          j = at + 1;
+          continue;
+        }
+        let end = at;
+        while (end < lines.length && BULLET.test(lines[end].trim()) && !isRule(lines[end].trim())) end += 1;
+        if (end === at) break;
+        const apart = at > j && lines[at].search(/\S/) <= line.search(/\S/);
+        if (apart && !apartBefore && !nextItem(skipBlank(end))) break;
+        if (apart) apartBefore = true;
+        for (const under of lines.slice(at, end)) details[details.length - 1].push(spansOf(BULLET.exec(under.trim())![1]));
+        j = end;
       }
-      blocks.push({ kind: 'numbers', items });
+      const start = Number(numbered[1]);
+      blocks.push({ kind: 'numbers', items, ...(start === 1 ? {} : { start }), ...(details.some((under) => under.length > 0) ? { details } : {}) });
       i = j - 1;
       continue;
     }
@@ -470,4 +593,58 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, place
 
   flush();
   return blocks;
+}
+
+/** What a reply's picture is chosen from: the reply as the thread keeps it, and the project as the page holds it. */
+export type ReplyKept = Pick<ProjectChatTurn, 'role' | 'at' | 'text' | 'toolCalls' | 'changed'>;
+export type ProjectHeld = Pick<DdProject, 'lastScreenResult' | 'valuationRuns'>;
+
+/** How long after a screen or a valuation was made a reply may be stamped and still be the one that made it. */
+const MADE_JUST_BEFORE_MS = 5000;
+
+/**
+ * What a reply ran, of the things a picture is drawn from: the property
+ * screen, and a valuation that gave a figure.
+ *
+ * A picture sits under the reply that reports the thing as done, and under
+ * no other. It was keyed on the tool name `screen`, which is recorded when a
+ * screen is only proposed. So the reply that said the screen was waiting drew
+ * the chart of an earlier screen, or drew one only after a later reply had
+ * run it, and the reply that ran it drew none.
+ *
+ * Nothing on a turn names what it made, so two things have to agree. The
+ * time: the screen and a valuation run each keep when they were made, and a
+ * reply is stamped just after what it made. And the reply's own account: a
+ * line of what it changed that holds the word, or its words saying it ran
+ * the thing. Either alone is not enough. A reply sent a second after a
+ * screen is not the one that ran it, and "Ran the valuation" is quoted by
+ * the reply that undoes one.
+ *
+ * It holds after the fact too. A screen run again leaves the earlier reply
+ * with none, because the project no longer holds that reply's screen, and a
+ * reply that was undone has none.
+ *
+ * A run that could give no figure is not given: a valuation of zero and a
+ * valuation that could not be worked out are different facts. The test is
+ * the one the Valuation page puts to a run before it shows a figure, and
+ * that the figure sits inside a range.
+ */
+export function replyRan(turn: ReplyKept | undefined, project: ProjectHeld | undefined): { screen?: ScreenResult; valuation?: ValuationRun } {
+  if (!turn || !project || turn.role !== 'assistant') return {};
+  if (turn.changed?.undone || turn.toolCalls?.some((call) => call.name === 'undo')) return {};
+  const at = Date.parse(turn.at);
+  // A time that cannot be read leaves every comparison false.
+  const justBefore = (when: string | undefined): boolean => at - Date.parse(when ?? '') >= 0 && at - Date.parse(when ?? '') <= MADE_JUST_BEFORE_MS;
+  const says = (word: RegExp, ran: string): boolean => (turn.changed?.lines ?? []).some((line) => word.test(line)) || turn.text.toLowerCase().includes(ran);
+
+  const out: { screen?: ScreenResult; valuation?: ValuationRun } = {};
+  const screen = project.lastScreenResult;
+  if (screen && justBefore(screen.generatedAt) && says(/\bscreens?\b/i, 'ran the property screen')) out.screen = screen;
+  if (says(/\bvaluations?\b/i, 'ran the valuation')) {
+    // The newest: when a valuation is run twice in a few seconds, the earlier run is still within reach of the later reply.
+    const run = (project.valuationRuns ?? []).filter((made) => justBefore(made.createdAt)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    const figure = run && (!run.working || run.working.reconciliation.outcome === 'indicated') && run.low > 0 && run.low < run.high && run.low <= run.indicatedValue && run.indicatedValue <= run.high;
+    if (run && figure) out.valuation = run;
+  }
+  return out;
 }

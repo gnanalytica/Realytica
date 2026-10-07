@@ -72,6 +72,7 @@ export * from './document-filing';
 export * from './engagements';
 export * from './approvals';
 export * from './progress';
+export * from './cost';
 export * from './quick-assessments';
 export * from './certified';
 export * from './alerts';

@@ -12,8 +12,14 @@
  * a paper quoted in an answer cannot leave a note, nor a note be filed under
  * a record the answer had nothing to do with; that asking what looks wrong
  * in memory is answered in one line with no model asked; that an answer the
- * chat gives by rule says under it where its facts stand; and that a
- * question put to memory itself is answered from memory.
+ * chat gives by rule says under it where its facts stand, and a greeting has
+ * nothing under it; that a question put to memory itself is answered from
+ * memory; that a question put to a paper's own words is answered with the
+ * passage and a citation of the page, that any other question is the rules'
+ * first and then memory's, where memory holds what it names, before any
+ * page is searched, and that a reply which is no answer has nothing of
+ * memory under it; and that what a message changed is saved, signed and
+ * kept for undo when the page that sent it has gone.
  *
  * Booted with no graph database, so memory is the file beside the project
  * store. The only address the app can reach is the scripted model's.
@@ -25,8 +31,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
-import { addEvidence, createAssessment, createProject, patchProject, reviewFacts, wantsDeterministicProjectChat, type DdProject, type DocumentFact, type MemFact, type ProjectChatTurn } from '@realytica/shared';
+import { createServer, request, type Server, type ServerResponse } from 'node:http';
+import { MEETING_IS_NOTES, addEvidence, attachEvidenceFile, createAssessment, createProject, patchProject, reviewFacts, wantsDeterministicProjectChat, type DdProject, type DocumentFact, type MemFact, type ProjectChatTurn } from '@realytica/shared';
 import type { MemoryPort } from '../apps/api/src/graph/mem/types';
 import { parseAnswer, type Block } from '../apps/web/src/components/chat/answer-blocks';
 
@@ -50,6 +56,10 @@ let sent = '';
 let asked = 0;
 /** What the model answers, given what it was sent. */
 let script: (sent: string) => string;
+/** For the test of a page that goes away: told when the model is asked, what its answer waits on, and handed each response as its request arrives. */
+let modelAsked: (() => void) | undefined;
+let modelWaits: Promise<void> | undefined;
+let onResponse: ((res: ServerResponse) => void) | undefined;
 
 /** The mark memory gave the line that says this, in what the model was sent. */
 function markOf(words: string): string {
@@ -96,6 +106,8 @@ before(async () => {
     const raw = input instanceof Request ? await input.text() : String(init?.body ?? '{}');
     const body = JSON.parse(raw) as { model: string; messages: Array<{ content: unknown }> };
     asked += 1;
+    modelAsked?.();
+    if (modelWaits) await modelWaits;
     sent = body.messages.flatMap((message) => (Array.isArray(message.content) ? (message.content as Array<{ text?: string }>).map((block) => block.text ?? '') : [String(message.content)])).join('\n');
     const reply = { id: `msg_${asked}`, type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: script(sent) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 900, output_tokens: 60 } };
     return new Response(JSON.stringify(reply), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -122,7 +134,11 @@ before(async () => {
   await store.save();
   await caughtUp();
 
-  server = app.listen(0);
+  server = createServer((req, res) => {
+    onResponse?.(res);
+    app(req, res);
+  });
+  server.listen(0);
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -253,13 +269,25 @@ describe('an answer the chat gives by rule, and a question put to memory itself'
     assert.equal(asked, before, 'no model was asked');
     const [answer, under] = assistantTurn.text.split('\n\nIn this project’s memory:\n');
     assert.ok(answer && !answer.includes('1,300'), 'the rule’s own answer says nothing of the value that waits');
-    assert.match(under ?? '', /^- Land area: 1,300 sqm \[waiting\] · raised on a card · 6 Oct 2026 · “Update land”\n- Land area: 1,210 sqm \[approved\] · lead@example\.com · \d{1,2} \w{3} \d{4}$/);
+    assert.match(under ?? '', /^- Land area: 1,300 sqm \[waiting\] raised on a card, 6 Oct 2026, “Update land”\n- Land area: 1,210 sqm \[approved\] by lead@example\.com, \d{1,2} \w{3} \d{4}$/);
     assert.deepEqual(assistantTurn.restsOn?.map((rest) => [rest.tag, rest.stands]), [['proposed', false], ['approved', undefined]], 'the turn keeps the facts, as a model’s answer does');
     assert.deepEqual(drawn(assistantTurn), ['waiting', 'approved'], 'and the page draws their tags');
 
     // A reply that only opens a page has no facts to stand under it.
     const opened = await ask('Open documents');
     assert.ok(!opened.assistantTurn.text.includes('In this project’s memory') && !opened.assistantTurn.restsOn);
+
+    // Nor has a greeting or a thank-you, on a function's page whose papers hold facts: nothing in them is about the page.
+    for (const said of ['hello', 'thanks', 'hi there', 'thank you so much']) {
+      const { assistantTurn: reply } = await ask(said, { place: { department: 'legal', fn: 'legal.title' } });
+      assert.deepEqual(reply.toolCalls?.map((call) => call.name), ['answer_from_file'], said);
+      assert.ok(!reply.text.includes('In this project’s memory') && !reply.restsOn, said);
+    }
+    // Nor has a reply that is no answer about the record, though the question names a value memory holds: a report offered on a card.
+    const offered = await ask('Which reports can I run on the land area?');
+    assert.deepEqual(offered.assistantTurn.toolCalls?.map((call) => call.name), ['generate_report']);
+    assert.ok(!offered.assistantTurn.text.includes('In this project’s memory') && !offered.assistantTurn.restsOn);
+    assert.equal(asked, before, 'and no model was asked for any of these');
   });
 
   it('answers a question put to memory from memory, and no rule that reads one value off the file answers in its place', async () => {
@@ -267,7 +295,7 @@ describe('an answer the chat gives by rule, and a question put to memory itself'
     for (const question of ['What is still undecided about the land area?', 'Tell me what memory holds about the land area and whether anything about it is still undecided']) {
       const { assistantTurn } = await ask(question);
       assert.deepEqual(assistantTurn.toolCalls?.map((call) => call.name), ['memory_answer'], question);
-      assert.match(assistantTurn.text, /^Still undecided about the land area:\n- Land area: 1,300 sqm \[waiting\] · raised on a card · 6 Oct 2026 · “Update land”\n\nAgreed so far:\n- Land area: 1,210 sqm \[approved\] · lead@example\.com · /);
+      assert.match(assistantTurn.text, /^Still undecided about the land area:\n- Land area: 1,300 sqm \[waiting\] raised on a card, 6 Oct 2026, “Update land”\n\nAgreed so far:\n- Land area: 1,210 sqm \[approved\] by lead@example\.com, /);
       assert.deepEqual(drawn(assistantTurn), ['waiting', 'approved']);
     }
     const known = await ask('What do we know about the Municipal certificate of the plot?');
@@ -275,5 +303,141 @@ describe('an answer the chat gives by rule, and a question put to memory itself'
     assert.match(known.assistantTurn.text, /\n\nThe assistant’s own notes, which are not facts of the file:\n- The certificate is in the seller's own name\. \[thought\]/);
     assert.equal((await ask('What do we know about the weather?')).assistantTurn.text, 'Nothing in this project’s memory goes by “the weather”: no record has that title, and no kind of value has that name.');
     assert.equal(asked, before, 'no model was asked for any of them');
+  });
+});
+
+describe('a question put to a paper’s own words', () => {
+  const PAGE = ['KHATA CERTIFICATE', 'Khata No. 1234/56 stands in the name of the holder in the register of this office.', 'The site is bounded by a storm water drain on its eastern side, and the holder shall keep the drain clear.', 'The culvert under the lane is to be desilted by the holder every year.', '', 'Page 1 of 1'].join('\n');
+
+  before(async () => {
+    // The certificate's file, with its page kept beside it as a reading keeps it.
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const { pageTextKey } = await import('../apps/api/src/documents/page-text');
+    attachEvidenceFile(project, khataId, { fileName: 'khata.pdf', mimeType: 'application/pdf', sizeBytes: 9, storageKey: 'khata-0001.pdf', capture: {} }, LEAD);
+    await storageAdapter.putDocument(project.id, pageTextKey('khata-0001.pdf'), Buffer.from(JSON.stringify({ v: 1, fileName: 'khata.pdf', readAt: '2026-10-06T08:00:00.000Z', pagesInFile: 1, pagesRead: 1, pages: [{ page: 1, reader: 'text', text: PAGE }] })), 'application/json');
+    project.updatedAt = new Date().toISOString();
+    const { store } = await import('../apps/api/src/store');
+    await store.save();
+  });
+
+  it('is answered by rule with the passage, cited to the paper at its page, where no value on the file answers it', async () => {
+    // "The khata" makes this a question the file answers by rule. What it asks about is on no register, and is on the page.
+    const question = 'What does the khata say about the storm water drain?';
+    assert.equal(wantsDeterministicProjectChat(project, question), true);
+    const before = asked;
+    const { assistantTurn } = await ask(question);
+    assert.equal(asked, before, 'no model was asked');
+    assert.deepEqual(assistantTurn.toolCalls, [{ name: 'paper_words', summary: 'Quoted from the page' }], 'whose words they are is said once, in the reply');
+    assert.equal(assistantTurn.text, `The paper’s own words: “…in the register of this office. The site is bounded by a storm water drain on its eastern side, and the holder shall keep the drain clear. The culvert under the lane is to be…” [ev:${khataId}:p1]`);
+    assert.deepEqual([assistantTurn.citedEvidenceIds, assistantTurn.restsOn, assistantTurn.unanswered], [[khataId], undefined, undefined], 'the paper is cited, and nothing of memory is said under its words');
+    // The page draws the citation as a chip for that paper at that page.
+    const spans = parseAnswer(assistantTurn.text, () => false).flatMap((block) => ('spans' in block ? block.spans : []));
+    assert.deepEqual(spans.filter((span) => span.kind === 'evidence'), [{ kind: 'evidence', id: khataId, page: 1 }]);
+  });
+
+  it('is answered the same way when no rule and no model answered, and by the rules as before when the papers do not say it', async () => {
+    // The model is down: the question is one nothing else answers, and the page has its words.
+    script = () => {
+      throw new Error('the model is down');
+    };
+    const culvert = await ask('Who has to desilt the culvert every year?');
+    assert.match(culvert.assistantTurn.text, new RegExp(`^The paper’s own words: “.+” \\[ev:${khataId}:p1\\]$`));
+    assert.match(culvert.assistantTurn.text, /desilted by the holder every year\.”/, 'the passage ends where the page’s words do, without the line that numbers the page');
+    assert.equal(culvert.assistantTurn.unanswered, undefined, 'answered, so not said to have gone unanswered');
+    // Words on no page: the chat says the question went unanswered, as it did before, and nothing of memory is said under a reply that is no answer.
+    const lift = await ask('Who has to keep the lift shaft clear?');
+    assert.ok(lift.assistantTurn.unanswered && !lift.assistantTurn.text.includes('own words'));
+    assert.ok(!lift.assistantTurn.text.includes('In this project’s memory') && !lift.assistantTurn.restsOn, 'no memory lines under what is not an answer');
+    script = () => 'ok';
+  });
+
+  it('leaves a question to the rules first: one they ask back about is not answered with a page that shares its words', async () => {
+    script = () => {
+      throw new Error('the model is down');
+    };
+    // The page says who keeps the drain clear. A check is about drains too, and the rules ask which was meant.
+    const drain = await ask('Who has to keep the drain clear?');
+    assert.deepEqual(drain.assistantTurn.toolCalls?.map((call) => call.name), ['clarify']);
+    assert.ok(drain.assistantTurn.choices?.length && !drain.assistantTurn.text.includes('own words'), 'the question back stands, with its choice to press');
+    // One word in common is no answer either, whatever the rules say: the page says "site", and this asks where it is.
+    const site = await ask('Where is the site?');
+    assert.ok(!site.assistantTurn.text.includes('own words') && !site.assistantTurn.toolCalls?.some((call) => call.name === 'paper_words'));
+    script = () => 'ok';
+  });
+
+  it('asks the record before any page: a field the question names in full is said from memory, though a page holds its words', async () => {
+    // The deed's page has both words of the question, side by side. The project's own field is the answer.
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const { pageTextKey, paperPassages } = await import('../apps/api/src/documents/page-text');
+    attachEvidenceFile(project, deedId, { fileName: 'deed.pdf', mimeType: 'application/pdf', sizeBytes: 9, storageKey: 'deed-0001.pdf', capture: {} }, LEAD);
+    const page = 'CONVEYANCE\nThe vendor conveys the plot for a housing project of the type described in the schedule.';
+    await storageAdapter.putDocument(project.id, pageTextKey('deed-0001.pdf'), Buffer.from(JSON.stringify({ v: 1, fileName: 'deed.pdf', readAt: '2026-10-06T08:00:00.000Z', pagesInFile: 1, pagesRead: 1, pages: [{ page: 1, reader: 'text', text: page }] })), 'application/json');
+    project.updatedAt = new Date().toISOString();
+    const { store } = await import('../apps/api/src/store');
+    await store.save();
+    const question = 'What is the project type?';
+    assert.equal(wantsDeterministicProjectChat(project, question), false, 'no rule of the chat’s own answers it');
+    assert.deepEqual((await paperPassages(project, { words: 'project type', together: true })).passages.map((passage) => passage.evidenceId), [deedId], 'and a page does hold its words');
+    script = () => {
+      throw new Error('the model is down');
+    };
+    const { assistantTurn } = await ask(question);
+    assert.deepEqual(assistantTurn.toolCalls?.map((call) => call.name), ['memory_answer']);
+    assert.match(assistantTurn.text, /^In this project’s memory:\n- Project type: residential \[approved\] \d{1,2} \w{3} \d{4}$/);
+    assert.deepEqual([assistantTurn.unanswered, assistantTurn.citedEvidenceIds, drawn(assistantTurn)], [undefined, [], ['approved']], 'answered, from the record, with its tag drawn and no paper quoted');
+    script = () => 'ok';
+  });
+});
+
+describe('a message whose page has gone', () => {
+  it('is still saved, signed and kept for undo: what it changed is on the record whether or not anybody hears the reply', async () => {
+    // Marked lines under no heading: the chat holds them and asks whether they are the notes of a meeting.
+    const words = ['Decision: The compound wall will be rebuilt on the north side.', 'Action: Vikram to get the tax receipt by 20 October 2026.', 'Open: Who pays for the wall.'].join('\n');
+    const held = await ask(words, { sessionId: 'sit_page_gone' });
+    assert.equal(held.assistantTurn.choices?.[0]?.send, MEETING_IS_NOTES, 'the chat asked, and nothing is kept yet');
+    // Told they are, the notes are read by a model before the chat's rules keep them. The page goes while it reads.
+    process.env.REALYTICA_MODEL_EXTRACTION = 'reader/model';
+    let answer!: () => void;
+    modelWaits = new Promise<void>((resolve) => (answer = resolve));
+    const reading = new Promise<void>((resolve) => (modelAsked = resolve));
+    const gone = new Promise<void>((resolve) => (onResponse = (res) => res.once('close', () => resolve())));
+    script = () => 'Nothing more.';
+    const body = JSON.stringify({ question: MEETING_IS_NOTES, sessionId: 'sit_page_gone' });
+    const sent = request(`${base}/api/projects/${project.id}/chat`, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } });
+    sent.on('error', () => undefined);
+    sent.end(body);
+    await reading;
+    sent.destroy();
+    await gone;
+    [modelAsked, modelWaits, onResponse] = [undefined, undefined, undefined];
+    answer();
+    delete process.env.REALYTICA_MODEL_EXTRACTION;
+
+    // The record as it is stored, read from where the store writes it, once the request has run to its end.
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const stored = async (): Promise<DdProject | undefined> => {
+      const bytes = await storageAdapter.getDocument(project.id, 'project.json');
+      // The store writes the file in place: read while it is being written it is half a record, which is not saved yet.
+      try {
+        return bytes ? (JSON.parse(bytes.toString('utf8')) as DdProject) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const kept = (record: DdProject | undefined): boolean => Boolean(record?.meetings?.some((meeting) => meeting.items.length > 0));
+    let saved: DdProject | undefined;
+    for (let tries = 0; tries < 500 && !kept(saved); tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      saved = await stored();
+    }
+    assert.ok(kept(saved), 'the meeting the rules kept is saved');
+    const [said, reply] = saved!.conversation.slice(-2);
+    assert.deepEqual([said!.role, said!.text, reply!.role, reply!.toolCalls?.map((call) => call.name)], ['user', MEETING_IS_NOTES, 'assistant', ['meeting_notes']]);
+    assert.deepEqual([said!.actor, reply!.actor].map(Boolean), [true, true], 'both turns are signed');
+    assert.deepEqual([said!.sessionId, reply!.sessionId], ['sit_page_gone', 'sit_page_gone'], 'and in the chat they were sent from');
+    assert.equal(reply!.changed?.lines.length, 1, 'what it changed is listed under the reply');
+    assert.match(reply!.changed!.lines[0]!, /^Kept the notes of a meeting/);
+    assert.equal(reply!.changed?.kept, true, 'and can be undone');
+    assert.ok(await storageAdapter.getDocument(project.id, `changes-${reply!.id}.json`), 'with what puts it back kept beside the project');
   });
 });

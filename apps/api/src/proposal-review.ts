@@ -49,6 +49,9 @@ export const PROPOSAL_IDENTITY: ReadonlySet<string> = new Set([
   'sizeBytes',
   'storageKey',
   'subject',
+  // Where a card that files a document under a function would put it. The card was raised and titled for one place, and whoever
+  // accepts it accepts that. Sent with an accept, another place would be a move nobody was shown.
+  'workstream',
 ]);
 
 /**
@@ -68,4 +71,33 @@ export function applyReviewedPayload(
     stored[key] = value;
   }
   return stored;
+}
+
+/**
+ * Put a person's corrections on a card for the commit that is about to read
+ * it, and take them off again if that commit does not happen.
+ *
+ * The corrections are written first because the commit works from the card.
+ * But they belong to that commit. One that is refused, that fails, or that
+ * leaves the card waiting with nothing on it decided was not made with them,
+ * and left on the card they would be carried out later by whoever accepts it
+ * as it is titled. So `settle` is called once the commit has been tried,
+ * however it went: where the card still waits exactly as it was corrected, it
+ * is put back exactly as it was raised. A card the commit filed, or decided in
+ * part, keeps what went in.
+ */
+export function reviewCard(
+  card: { status: string; payload: Record<string, unknown> },
+  confirmed: Record<string, unknown> | undefined,
+): { settle: () => void } {
+  const raised = structuredClone(card.payload);
+  applyReviewedPayload(card.payload, confirmed);
+  const corrected = JSON.stringify(card.payload);
+  return {
+    settle: () => {
+      if (card.status !== 'proposed' || JSON.stringify(card.payload) !== corrected) return;
+      for (const key of Object.keys(card.payload)) delete card.payload[key];
+      Object.assign(card.payload, raised);
+    },
+  };
 }

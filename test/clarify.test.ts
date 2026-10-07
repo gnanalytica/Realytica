@@ -205,6 +205,22 @@ describe('subject resolution', () => {
     assert.equal(looksLikeCommand('show me the legal scope'), false);
   });
 
+  it('pins every offered choice to its own record: a check by where it sits, a paper as the paper', () => {
+    const project = seedDemoProject();
+    // A paper linked to a check is still the paper: pinned by the check, picking it pointed at the check.
+    const paper = project.evidence.find((row) => row.checkIds.length > 0)!;
+    const ranked = rankTalkSittings(project, `Open "${paper.title}"`).filter((row) => row.sitting.extra.evidenceId === paper.id && row.sitting.kind === 'evidence');
+    assert.deepEqual(candidateChoices(project, ranked).map((choice) => choice.sitting), [{ evidenceId: paper.id }]);
+    for (const choice of candidateChoices(project, rankTalkSittings(project, 'boundary'))) {
+      assert.ok(choice.sitting?.ddId && choice.sitting.scopeId && choice.sitting.checkId, choice.label);
+    }
+    // The checks offered when nothing was named open by their own ids too, and not by their titles alone.
+    for (const choice of ask(project, 'start the check').choices) {
+      assert.ok(choice.sitting?.ddId && choice.sitting.scopeId && choice.sitting.checkId, choice.label);
+      assert.equal(applyProjectChat(project, choice.send, { sitting: choice.sitting }).navigations.at(-1)?.checkId, choice.sitting.checkId, choice.label);
+    }
+  });
+
   it('builds a pickable message that resolves back to what was suggested', () => {
     const project = seedDemoProject();
     const ranked = rankTalkSittings(project, 'boundary');

@@ -433,23 +433,24 @@ describe('a value that waits', () => {
     assert.deepEqual(factsOnFile(p), []);
     assert.deepEqual(readingsWaitingOnFile(p).map(({ fact: f }) => f.value), ['143/2']);
     const answer = answerFromFile(p, 'What is the survey number?')!;
-    assert.equal(answer.text, 'A model read survey number 143/2 on the encumbrance certificate (p.1). Nobody has accepted it, so it is not on file.');
+    // The paper it waits on is cited after the sentence, as a mark the page draws as a chip for that paper at its page.
+    assert.equal(answer.text, `A model read survey number 143/2. Nobody has accepted it, so it is not on file. [ev:${row.id}:p1]`);
     assert.equal(answer.summary, 'A reading is waiting');
     reviewFacts(p, row.id, ['survey_numbers'], 'accept', 'tester');
-    assert.equal(answerFromFile(p, 'What is the survey number?')!.text, 'Survey No. 143/2 (encumbrance certificate, p.1).');
+    assert.equal(answerFromFile(p, 'What is the survey number?')!.text, `Survey No. 143/2. [ev:${row.id}:p1]`);
 
     // Beside an answer that stands, what waits for the same question is said after it.
     const q = project();
-    filed(q, 'Sale deed', 'Sale deed', [fact('extent_title', 'Extent per title', 2450, '2,450 sqm', { unit: 'sqm' })]);
-    filed(q, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 'Extent per khata', 1115, '1,115 sqm', { unit: 'sqm', ...byModel('second_reader') })]);
+    const deed = filed(q, 'Sale deed', 'Sale deed', [fact('extent_title', 'Extent per title', 2450, '2,450 sqm', { unit: 'sqm' })]);
+    const khata = filed(q, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 'Extent per khata', 1115, '1,115 sqm', { unit: 'sqm', ...byModel('second_reader') })]);
     assert.equal(
       answerFromFile(q, 'What is the extent?')!.text,
-      'Title 2,450 sqm (sale deed, p.1).\nA model read extent per khata 1,115 sqm on the khata certificate and extract (p.1). Nobody has accepted it, so it is not on file.',
+      `Title 2,450 sqm. [ev:${deed.id}:p1]\nA model read extent per khata 1,115 sqm. Nobody has accepted it, so it is not on file. [ev:${khata.id}:p1]`,
       'the model’s 1,115 is not set against the deed’s 2,450 as if both were on file',
     );
     const r = project();
-    filed(r, 'Sale deed', 'Sale deed', [contested()]);
-    assert.equal(answerFromFile(r, 'What is the survey number?')!.text, 'Two readers read the survey number differently on the sale deed (p.1): 73/4 and 73/1. Nobody has kept one, so it is not on file.');
+    const held = filed(r, 'Sale deed', 'Sale deed', [contested()]);
+    assert.equal(answerFromFile(r, 'What is the survey number?')!.text, `Two readers read the survey number differently: 73/4 and 73/1. Nobody has kept one, so it is not on file. [ev:${held.id}:p1]`);
   });
 
   it('raises no parcel or address card from a model’s notes or the words it quoted, nor from a paper this server was unsure of', () => {

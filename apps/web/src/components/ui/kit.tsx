@@ -415,15 +415,17 @@ export function Badge({
 }) {
   return (
     <span
-      title={title}
+      // The whole of it on hover, for the one that is cut.
+      title={title ?? (typeof children === 'string' ? children : undefined)}
       className={cn(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-mini font-medium leading-4 whitespace-nowrap',
+        'inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-mini font-medium leading-4 whitespace-nowrap',
         TONE_CHIP[tone],
         className,
       )}
     >
       {icon}
-      {children}
+      {/* A badge is one line. One longer than the room it has is cut with an ellipsis: it used to run on and push a narrow column sideways. */}
+      <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }

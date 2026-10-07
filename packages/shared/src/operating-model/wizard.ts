@@ -63,10 +63,10 @@ import type {
 import { connectorEvidenceInput } from './chat-sides';
 import { absorbAnsweredGaps, factFillProposals, flagFindingProposals, matchReadToRow } from './document-intake';
 import type { DocumentFact } from './document-parse';
-import { documentTypeOfKind, setDocumentWorkstream } from './vault';
+import { documentTypeOfKind, kindAsRead, setDocumentWorkstream } from './vault';
 import { shownWords } from './chat-places';
 import { asksAQuestion, readInstruction, wordsOf } from './instruction';
-import { setProjectDepartments } from './team';
+import { setProjectDepartments, type MayDecide } from './team';
 import { addRequest } from './project-requests';
 import { DEPARTMENT_KEYS, STAGES, stageAndStep, stageEntryStep, type DepartmentKey } from './departments';
 
@@ -658,7 +658,16 @@ export function extractReadableExcerpt(bytes: Uint8Array, mimeType: string, file
 /** Cards only a workspace admin may approve, like the controls they stand for. */
 export const ADMIN_ONLY_PROPOSALS: ReadonlySet<ChatProposalKind> = new Set<ChatProposalKind>(['set_departments']);
 
-export function commitChatProposal(project: DdProject, proposalId: string, actor = 'operator', opts: { admin?: boolean } = {}): { proposal: ChatProposal; recordId?: string } {
+export function commitChatProposal(
+  project: DdProject,
+  proposalId: string,
+  actor = 'operator',
+  opts: {
+    admin?: boolean;
+    /** Where the person accepting leads or signs. A card that gives a paper to another function moves it, and is held to the rule for a move (`moveDocument`). */
+    mayDecide?: MayDecide;
+  } = {},
+): { proposal: ChatProposal; recordId?: string } {
   ensureProjectShape(project);
   const item = project.chatProposals.find((p) => p.id === proposalId);
   if (!item) throw new Error('Proposal not found');
@@ -718,18 +727,11 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (quotes.length) evidence.quotes = mergeQuoteLists(evidence.quotes, quotes);
     const notes = proposalExtractionNotes(payload);
     if (notes) evidence.extractionNotes = notes;
-    if (typeof payload.documentType === 'string') {
-      evidence.documentType = payload.documentType;
-      // The row is typed now. What a model offered to call it before is no longer an offer waiting to be confirmed over it.
-      delete evidence.proposedDocumentType;
-    } else if (
-      typeof payload.proposedDocumentType === 'string'
-      && payload.proposedDocumentType !== evidence.documentType
-      // Not an offer a person has already refused for this paper.
-      && payload.proposedDocumentType !== evidence.refusedDocumentType
-    ) {
-      evidence.proposedDocumentType = payload.proposedDocumentType;
-    }
+    // A row with no kind takes the one the rules read. A row that has one keeps it, and what was read is offered beside it (`kindAsRead`).
+    kindAsRead(evidence, {
+      known: typeof payload.documentType === 'string' ? payload.documentType : undefined,
+      offered: typeof payload.proposedDocumentType === 'string' ? payload.proposedDocumentType : undefined,
+    });
     // What the document states travels with it onto the row, so a check
     // started later — and every chat answer — can read it with its page.
     // Each value waits on the row for a person to accept it where it sits;
@@ -913,7 +915,7 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     }
     if (!recordId) throw new Error('None of those documents is still waiting to be asked for.');
   } else if (item.kind === 'assign_document') {
-    const moved = setDocumentWorkstream(project, String(payload.evidenceId), typeof payload.workstream === 'string' ? payload.workstream : null);
+    const moved = setDocumentWorkstream(project, String(payload.evidenceId), typeof payload.workstream === 'string' ? payload.workstream : null, actor, { mayDecide: opts.mayDecide });
     recordId = moved.id;
   } else if (item.kind === 'patch_asset') {
     const record = patchAsset(project, String(payload.assetId), payload as PatchAssetInput, actor);

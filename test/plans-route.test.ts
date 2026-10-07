@@ -21,7 +21,7 @@
 
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -144,6 +144,8 @@ before(async () => {
   dataDir = mkdtempSync(path.join(tmpdir(), 'realytica-plans-'));
   process.env.REALYTICA_DATA_DIR = dataDir;
   process.env.REALYTICA_AUTH_MODE = 'off';
+  // Every case here speaks to the chat, and together they are more than one person sends in a minute.
+  process.env.REALYTICA_RATE_LIMIT_MODEL = '500';
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     if (!url.startsWith(MODEL_BASE)) throw new Error('this test has no network');
@@ -171,7 +173,7 @@ after(async () => {
   const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
   await afterReplyWorkDone();
   rmSync(dataDir, { recursive: true, force: true });
-  for (const name of ['REALYTICA_AUTH_MODE', 'REALYTICA_DATA_DIR']) delete process.env[name];
+  for (const name of ['REALYTICA_AUTH_MODE', 'REALYTICA_DATA_DIR', 'REALYTICA_RATE_LIMIT_MODEL']) delete process.env[name];
 });
 
 describe('a job over many records', () => {
@@ -383,6 +385,167 @@ describe('a small job', () => {
     const done = await say(project.id, 'Suggest answers to the questionnaire and tell the owner we are done');
     assert.equal(done.assistantTurn.planId, undefined, 'one small step: no plan');
     assert.deepEqual(done.assistantTurn.text.split('\n').slice(1), ['Nothing was done about: “tell the owner we are done”.']);
+  });
+});
+
+describe('a yes that names no plan', () => {
+  it('runs a plan only in the chat that showed it, while the plan is the last thing that chat said', async () => {
+    const project = await filed(11);
+    const shown = await say(project.id, 'Read the filed documents', undefined, undefined, 'sit_plan');
+    const planId = shown.assistantTurn.planId!;
+    assert.ok(planId, 'eleven papers are shown as a plan');
+    const stands = async (): Promise<string> => (await planOf(project.id, planId)).plan.status;
+
+    // Typed in another chat, it is an answer to whatever that chat said, and not to a plan it never showed.
+    const elsewhere = await say(project.id, 'go ahead', undefined, undefined, 'sit_other');
+    assert.deepEqual([elsewhere.assistantTurn.planId, elsewhere.steps, await stands()], [undefined, [], 'shown']);
+
+    // In the plan's own chat, once it has said something else, the plan is no longer what a yes answers.
+    await say(project.id, 'What documents are on file?', undefined, undefined, 'sit_plan');
+    const later = await say(project.id, 'do it', undefined, undefined, 'sit_plan');
+    assert.deepEqual([later.assistantTurn.planId, later.steps, await stands()], [undefined, [], 'shown']);
+    assert.ok((await stored(project.id)).evidence.every((row) => !row.facts?.length), 'and no paper was read');
+
+    // Asked how far it has got, the plan is the last thing said again, and a yes under it runs it.
+    assert.equal((await say(project.id, 'How far has the plan got?', undefined, undefined, 'sit_plan')).assistantTurn.planId, planId);
+    const ran = await say(project.id, 'go ahead', undefined, undefined, 'sit_plan');
+    assert.deepEqual(ran.steps, ['Step 1 of 1: Read 11 filed papers']);
+    assert.equal(await stands(), 'done');
+  });
+
+  /**
+   * Run a plan in the chat `sit_plan` and cut its go short as it fetches its `at`th paper: the go is held there, and the ledger is
+   * made to say nothing has been written for six minutes, as when the server that ran it was stopped. `then` is what the person
+   * does next; the held go is let go after it.
+   */
+  async function cutShortAt<T>(project: DdProject, planId: string, at: number, then: () => Promise<T>): Promise<T> {
+    const { changeLedger } = await import('../apps/api/src/runs/journal');
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const get = storageAdapter.getDocument.bind(storageAdapter);
+    let reached = (): void => undefined;
+    let letGo = (): void => undefined;
+    const fetching = new Promise<void>((resolve) => (reached = resolve));
+    const gate = new Promise<void>((resolve) => (letGo = resolve));
+    let nth = 0;
+    storageAdapter.getDocument = (async (...given: Parameters<typeof get>) => {
+      if (given[1].startsWith('paper-') && (nth += 1) === at) {
+        reached();
+        await gate;
+      }
+      return get(...given);
+    }) as typeof get;
+    try {
+      const first = say(project.id, 'Run the plan', { plan: { id: planId, act: 'run' } }, undefined, 'sit_plan');
+      await fetching;
+      await changeLedger(project.id, (ledger) => ledger.map((row) => (row.id === planId ? { ...row, updatedAt: new Date(Date.now() - 6 * 60_000).toISOString() } : row)));
+      assert.equal((await planOf(project.id, planId)).cutShort, true);
+      const out = await then();
+      letGo();
+      await first;
+      return out;
+    } finally {
+      letGo();
+      storageAdapter.getDocument = get;
+    }
+  }
+  const lastSaid = async (projectId: string): Promise<ProjectChatTurn> => (await stored(projectId)).conversation.filter((turn) => turn.role === 'assistant' && turn.sessionId === 'sit_plan').at(-1)!;
+
+  it('takes up a plan cut short after a step, typed straight under the line that ticked the step off', async () => {
+    const project = await filed(3);
+    const planId = (await say(project.id, 'Write the red flag report, then read the filed documents', undefined, undefined, 'sit_plan')).assistantTurn.planId!;
+    assert.ok(planId, 'two steps are shown as a plan');
+    // Was: nothing was taken up, and the reply was the next step of the file.
+    const typed = await cutShortAt(project, planId, 1, async () => {
+      assert.match((await lastSaid(project.id)).text, /^Step 1 of 2 done\./, 'the last thing this chat said is the step ticked off');
+      return say(project.id, 'carry on', undefined, undefined, 'sit_plan');
+    });
+    assert.match(typed.assistantTurn.text, /^The plan is done: 2 of 2 steps done\./);
+    assert.deepEqual(typed.steps, ['Step 2 of 2: Read 3 filed papers']);
+    assert.ok((await stored(project.id)).conversation.some((turn) => turn.text.startsWith('Taking the plan up again: 1 step is left.')));
+  });
+
+  it('takes up a plan cut short part way through a step, under what the step last said', async () => {
+    const project = await filed(12);
+    const planId = (await say(project.id, 'Read the filed documents', undefined, undefined, 'sit_plan')).assistantTurn.planId!;
+    // Held at the sixth paper: the first five are read, and the reader has said so in the thread. No step is ticked off yet.
+    const typed = await cutShortAt(project, planId, 6, async () => {
+      const last = await lastSaid(project.id);
+      assert.ok(!/^(?:Step \d|Running the plan)/.test(last.text), `the last thing this chat said is the reader’s own line: ${last.text.slice(0, 80)}`);
+      return say(project.id, 'carry on', undefined, undefined, 'sit_plan');
+    });
+    assert.match(typed.assistantTurn.text, /^The plan is done: 1 of 1 step done\./);
+  });
+
+  it('does not take a cut-short plan up once the chat has said something else', async () => {
+    const project = await filed(3);
+    const planId = (await say(project.id, 'Write the red flag report, then read the filed documents', undefined, undefined, 'sit_plan')).assistantTurn.planId!;
+    const { typed, then } = await cutShortAt(project, planId, 1, async () => {
+      await say(project.id, 'What documents are on file?', undefined, undefined, 'sit_plan');
+      const typed = await say(project.id, 'carry on', undefined, undefined, 'sit_plan');
+      return { typed, then: await planOf(project.id, planId) };
+    });
+    assert.deepEqual([typed.assistantTurn.planId, typed.steps], [undefined, []]);
+    assert.deepEqual([then.cutShort, then.plan.steps.filter((step) => step.state === 'done').length], [true, 1], 'the plan stands where it was cut short');
+  });
+});
+
+describe('a draft to send, asked for with a questionnaire on file', () => {
+  it('is drafted, and suggests no answer to the questionnaire', async () => {
+    const project = await filed(1);
+    // Was: "Suggested answers to 3 questions from what stands on the file." and no draft.
+    const reply = await say(project.id, 'Draft a reply to the lender’s questions');
+    assert.match(reply.assistantTurn.text, /^A reply answers a paper on the file, and none on this file matches that\. Which paper is it to\?$/);
+    const letter = await say(project.id, 'Draft a letter to the lender about the open questions');
+    assert.match(letter.assistantTurn.text, /^Drafted a letter to the lender as .+\/OUT\/1\. It is open in Outgoing\./);
+    const now = await stored(project.id);
+    assert.equal(questionnaireSummary(now.questionnaires![0]!).suggested, 0, 'no answer was suggested');
+    assert.equal(now.outgoing?.length, 1, 'and the letter is a draft to send');
+  });
+
+  it('is drafted the same with a word that describes it, or a please in front', async () => {
+    const project = await filed(1);
+    // Each was: "Suggested answers to 0 questions from what stands on the file. 3 questions are still open." and no draft.
+    for (const said of ['Draft a short reply to the lender’s questions', 'Draft a formal reply to the lender on the questionnaire']) {
+      const reply = await say(project.id, said);
+      assert.match(reply.assistantTurn.text, /^A reply answers a paper on the file, and none on this file matches that\. Which paper is it to\?$/, said);
+    }
+    for (const said of ['Draft a quick email to the lender answering their questions', 'Please draft a brief letter to the bank about the open questions']) {
+      const letter = await say(project.id, said);
+      assert.match(letter.assistantTurn.text, /^Drafted a letter to the (?:lender|bank)\b.* as .+\/OUT\/\d\. It is open in Outgoing\./, said);
+    }
+    const now = await stored(project.id);
+    assert.equal(questionnaireSummary(now.questionnaires![0]!).suggested, 0, 'no answer was suggested');
+    assert.equal(now.outgoing?.length, 2, 'and each letter is a draft to send');
+  });
+});
+
+describe('reading the filed papers again from a plan', () => {
+  it('raises no card that a card already waiting says: one card a value', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    // A deed that states where the land is: reading it raises a card to record the address.
+    const project = await filed(1);
+    const deed = addEvidence(project, { title: 'Sale deed', kind: 'document' }, LEAD);
+    const bytes = readFileSync(path.resolve('test/fixtures/documents/Sale_Deed_2019_Sy_118-2_Whitefield.pdf'));
+    await storageAdapter.putDocument(project.id, `paper-${project.id}-deed.pdf`, bytes, 'application/pdf');
+    attachEvidenceFile(project, deed.id, { fileName: 'sale-deed.pdf', mimeType: 'application/pdf', sizeBytes: bytes.length, storageKey: `paper-${project.id}-deed.pdf` }, LEAD);
+    await store.save();
+    const run = async (): Promise<void> => {
+      const shown = await say(project.id, 'Read the filed papers again, then write the status for September 2026');
+      assert.ok(shown.assistantTurn.planId, 'two steps are shown as a plan');
+      await say(project.id, 'Run the plan', { plan: { id: shown.assistantTurn.planId!, act: 'run' } });
+    };
+    const waiting = async (): Promise<string[]> => (await stored(project.id)).chatProposals.filter((card) => card.status === 'proposed').map((card) => card.title);
+    await run();
+    const first = await waiting();
+    assert.ok(first.some((title) => title.startsWith('Record the address as ')), `the deed raises a card for the address: ${first.join(' | ')}`);
+    await run();
+    // Was: every card the first reading raised, raised again beside it.
+    assert.deepEqual(await waiting(), first);
+    // The reading still says which cards are its own: the ones that wait.
+    const now = await stored(project.id);
+    const read = now.conversation.filter((turn) => turn.toolCalls?.some((call) => /^Read \d+ documents? filed on the register/.test(call.summary))).at(-1)!;
+    assert.ok((read.proposalIds ?? []).length > 0 && read.proposalIds!.every((id) => now.chatProposals.some((card) => card.id === id && card.status === 'proposed')), 'and its reply lists only cards that are there');
   });
 });
 

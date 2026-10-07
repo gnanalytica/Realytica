@@ -315,6 +315,7 @@ const FIELD_SAID: Record<string, string> = {
   revenueShapes: 'the revenue map’s shapes',
   comparableSearch: 'the search for comparables',
   valueSetAside: 'the values set aside',
+  capabilityRuns: 'the Auto-run summary',
 };
 
 /** What a list's records are called: the words for one added, for many added, and for one of them. */
@@ -461,11 +462,13 @@ function tell(path: string[], changes: readonly KeptChange[], before: RecordBase
 
   const words = LIST_SAID[list];
   if (path.length === 2 && words) {
-    if (own?.did === 'added') return { line: `${words.added} ${title}`, bulk: { key: `added:${list}`, many: words.many } };
-    if (own?.did === 'removed') return { line: `Removed ${words.a} ${title}` };
-    if (list === 'actions' && fields.has('status') && record?.status === 'closed') return { line: `Closed the action ${title}` };
-    if (fields.has('status') && typeof record?.status === 'string') return { line: `Marked ${words.a} ${title} as ${record.status.replace(/_/g, ' ')}` };
-    return { line: `Changed ${words.a} ${title}` };
+    // A record with no name of its own is said by what it is: a valuation run is "the valuation", never "untitled".
+    const named = nameOf(record) ? ` ${title}` : '';
+    if (own?.did === 'added') return { line: `${words.added}${named}`, bulk: { key: `added:${list}`, many: words.many } };
+    if (own?.did === 'removed') return { line: `Removed ${words.a}${named}` };
+    if (list === 'actions' && fields.has('status') && record?.status === 'closed') return { line: `Closed the action${named}` };
+    if (fields.has('status') && typeof record?.status === 'string') return { line: `Marked ${words.a}${named} as ${record.status.replace(/_/g, ' ')}` };
+    return { line: `Changed ${words.a}${named}` };
   }
 
   // Anything else: said plainly, by what it is called where it is called anything.

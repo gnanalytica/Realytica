@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { REPORT_KIND_LABEL, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
@@ -15,12 +15,18 @@ export default function Reports() {
   const [kind, setKind] = useState<ReportKind>('executive_dd');
   const [assessmentId, setAssessmentId] = useState('');
   const [busy, setBusy] = useState(false);
-  // A link may name the report to open: `?report=<id>`.
-  const [params] = useSearchParams();
-  const linked = params.get('report');
-  const [viewId, setViewId] = useState<string | null>(project.reports.find((r) => r.id === linked)?.id ?? project.reports[0]?.id ?? null);
-
-  const view = project.reports.find((r) => r.id === viewId) ?? project.reports[0];
+  // The report on screen is the one the address names: `?report=<id>`. A link followed while Reports is open switches to it, and picking one from the list writes it there.
+  const [params, setParams] = useSearchParams();
+  const view = project.reports.find((r) => r.id === params.get('report')) ?? project.reports[0];
+  const show = useCallback(
+    (id: string) =>
+      setParams((was) => {
+        const out = new URLSearchParams(was);
+        out.set('report', id);
+        return out;
+      }),
+    [setParams],
+  );
 
   async function generate() {
     setBusy(true);
@@ -32,7 +38,7 @@ export default function Reports() {
       });
       const next = await api.getProject(project.id);
       setProject(next);
-      setViewId(report.id);
+      show(report.id);
       setOpen(false);
       toast('Report generated from live registers', 'good');
     } catch (e) {
@@ -76,7 +82,7 @@ export default function Reports() {
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => setViewId(r.id)}
+                  onClick={() => show(r.id)}
                   className={`w-full rounded-lg px-3 py-2 text-left text-[13px] ${view?.id === r.id ? 'bg-brand-soft text-brand' : 'hover:bg-sunken'}`}
                 >
                   <span className="block font-medium">{REPORT_KIND_LABEL[r.kind]}</span>

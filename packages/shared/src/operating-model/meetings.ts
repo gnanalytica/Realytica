@@ -40,6 +40,7 @@
 import { datesIn } from './document-parse';
 import { functionDepartment, workstreamOfCheck, type DepartmentKey } from './departments';
 import { allChecks } from './engagements';
+import { asksAQuestion } from './instruction';
 import { recordAuditEvent } from './operations';
 import { projectDepartments } from './team';
 import type { ActionKind, ChatChoice, ChatIngestFile, ChatProposal, DdProject } from './types';
@@ -124,7 +125,10 @@ export const MEETING_QUOTE = 240;
 /* Whether words are notes of a meeting                                   */
 /* ==================================================================== */
 
-const HEADING = /\b(?:minutes of (?:the |a |our )?meeting|meeting minutes|notes of (?:the |a |our )?meeting|meeting notes|record of (?:the |a )?(?:meeting|discussion)|mom)\b/i;
+/** A heading that says notes or minutes, with the meeting named in a word or two: "Minutes of the site meeting", "Notes from the client meeting". */
+const HEADING = /\b(?:(?:minutes|notes) (?:of|from) (?:the |a |our )?(?:[\w’'-]+ ){0,3}meeting|meeting minutes|meeting notes|record of (?:the |a )?(?:meeting|discussion)|mom)\b/i;
+/** A first line that is only the word: "Minutes", "Notes:". */
+const HEADED_ONLY = /^[\s>#*_-]*(?:minutes|notes)[\s:.*_–-]*$/i;
 const NAMED_AS_NOTES = /\b(?:minutes|meeting|mom)\b/i;
 const PRESENT = /^[ \t>*#-]*(?:attendees|attendance|present|participants|in attendance|attended by|members present)\b[^\n:]{0,20}:/im;
 const HELD = /^[ \t>*#-]*(?:date|held on|meeting date|date of (?:the )?meeting)\b[^\n:]{0,10}:[ \t]*(.*)$/im;
@@ -163,17 +167,30 @@ function linesOf(text: string): string[] {
  * may be a paper of title, so a person says.
  */
 export function meetingNotesSeen(text: string, fileName = ''): 'yes' | 'maybe' | 'no' {
+  return layoutOf(text, fileName).seen;
+}
+
+/**
+ * How some words are laid out: the lines that are not blank, whether they
+ * open under a heading that says notes or minutes, whether they hold what
+ * notes hold (who was there, the day, a line marked as a decision, an action
+ * or an open point), and what that comes to.
+ *
+ * In a typed message a line that asks a question heads nothing, whatever it
+ * mentions ("In the meeting notes, what does this mean?"), unless it hands
+ * the notes over.
+ */
+function layoutOf(text: string, fileName = '', typed = false): { lines: string[]; heading: boolean; present: boolean; marked: number; items: boolean; seen: 'yes' | 'maybe' | 'no' } {
   const lines = linesOf(text).filter((line) => line.trim());
-  if (lines.length < 2) return 'no';
-  const head = lines.slice(0, 6).join('\n');
-  const heading = HEADING.test(head) || NAMED_AS_NOTES.test(fileName.replace(/[_.-]+/g, ' '));
+  const first = lines.slice(0, 6).filter((line) => !typed || !asksAQuestion(line) || HANDS_OVER.test(opening(line)));
+  const heading = HEADING.test(first.join('\n')) || HEADED_ONLY.test(first[0] ?? '') || NAMED_AS_NOTES.test(fileName.replace(/[_.-]+/g, ' '));
   const present = PRESENT.test(text);
+  const held = HELD.test(text);
   const marked = lines.filter((line) => MARKED.test(line) || SECTION.test(line)).length;
-  const score = (heading ? 3 : 0) + (present ? 2 : 0) + (HELD.test(text) ? 1 : 0) + (AGENDA.test(text) ? 1 : 0) + Math.min(marked, 3) + (TALK.test(text) ? 1 : 0);
+  const score = (heading ? 3 : 0) + (present ? 2 : 0) + (held ? 1 : 0) + (AGENDA.test(text) ? 1 : 0) + Math.min(marked, 3) + (TALK.test(text) ? 1 : 0);
   const formal = FORMAL_BODY.test(text);
-  if ((heading || present) && score >= 4 && !formal) return 'yes';
-  if (score >= 3 || (score >= 2 && (lines.length >= 3 || marked >= 2))) return 'maybe';
-  return 'no';
+  const seen = lines.length < 2 ? 'no' : (heading || present) && score >= 4 && !formal ? 'yes' : score >= 3 || (score >= 2 && (lines.length >= 3 || marked >= 2)) ? 'maybe' : 'no';
+  return { lines, heading, present, marked, items: present || held || marked > 0, seen };
 }
 
 /**
@@ -213,13 +230,51 @@ export function meetingNotesFor(project: DdProject, file: ChatIngestFile): 'yes'
   return meetingNotesDropped(file);
 }
 
+/** How a message opens when it asks for something: "can you", "please", a question word, or a verb that tells the chat what to do. */
+const OPENS_ASKING = new RegExp(
+  [
+    String.raw`^(?:please|kindly|can you|could you|would you|will you|can we|could we|shall we|should we|can i|could i|may i|i need|i want|i would like|i'd like|we need|we want|let's|let us|help me)\b`,
+    String.raw`^(?:what|which|who|whom|whose|when|where|why|how|is|are|was|were|do|does|did|has|have|had)\b(?!\s*:)`,
+    String.raw`^(?:check|find|look|search|read|show|open|list|tell|give|get|send|share|draft|write|prepare|make|create|summari[sz]e|compare|explain|remind|update)\s+(?:me|us|the|a|an|my|our|this|that|these|those|up|out|through|for|at|into|whether|if|what|who|when|how|all|any|every)\b`,
+  ].join('|'),
+  'i',
+);
+/**
+ * A first line that hands notes over to be kept: "keep these notes", "here
+ * are the minutes", "please find the minutes below". It leads into a paste
+ * and asks for nothing else.
+ */
+const HANDS_OVER = /^(?:(?:please|kindly|can you|could you|would you|will you)\s+)*(?:keep|save|file|record|log|store|add|take|note)\b.*\b(?:notes|minutes|mom)\b|^(?:here|these|those|below|following|attached)\b.*\b(?:notes|minutes|mom)\b|^(?:(?:please|kindly)\s+)?(?:find|see)\b(?=.*\b(?:below|attached|enclosed)\b).*\b(?:notes|minutes|mom)\b/i;
+
+/** A line as it opens, without the marks a paste puts in front of it. */
+const opening = (line: string): string => line.replace(/^[\s>#*_-]+/, '').replace(/[’‘]/g, "'");
+
 /**
  * Whether words typed or pasted into the chat are the notes of a meeting. A
- * message of a line or two is a message, whatever it mentions: notes have a
- * heading or who was there, and then what was said.
+ * message of a line or two is a message, whatever it mentions.
+ *
+ * Kept at once: a heading that says notes or minutes anywhere in the first
+ * lines, and under it what notes hold (who was there, the day, or a line
+ * marked as a decision, an action or an open point). A polite line over them
+ * changes nothing ("Please find below the minutes of the meeting"). A first
+ * line that only names the meeting ("Weekly progress meeting, 3 Oct 2026")
+ * heads notes when who was there and a marked line stand under it.
+ *
+ * Answered as a question: a message that asks for something and holds
+ * nothing notes hold. "Can you check the meeting notes from last week?" typed
+ * over three lines says "meeting notes" and is a question.
+ *
+ * Anything in between that still reads as notes is asked about.
  */
 export function meetingNotesPasted(text: string): 'yes' | 'maybe' | 'no' {
-  return linesOf(text).filter((line) => line.trim()).length < 3 ? 'no' : meetingNotesSeen(text);
+  const layout = layoutOf(text, '', true);
+  if (layout.lines.length < 3) return 'no';
+  const first = opening(layout.lines[0]!);
+  const asks = !HANDS_OVER.test(first) && (asksAQuestion(first) || OPENS_ASKING.test(first));
+  const named = layout.present && layout.marked > 0 && /\bmeeting\b/i.test(first) && (!asks || /:\s*$/.test(first));
+  if (layout.seen === 'yes' && ((layout.heading && layout.items) || named)) return 'yes';
+  if (!layout.items && (asks || asksAQuestion(text))) return 'no';
+  return layout.seen === 'yes' ? 'maybe' : layout.seen;
 }
 
 /* ==================================================================== */
@@ -329,13 +384,16 @@ function oneLine(text: string, atMost: number): string {
  * What notes say, read by rule: the meeting's name, the day it was held, who
  * was there, and the lines the notes mark as decisions, actions and open
  * points. A line is marked by a word and a colon before it ("Decision: …"),
- * or by standing under a heading of that word ("Action items").
+ * or by standing under a heading of that word ("Action items"). A first line
+ * that asks for the notes to be kept, or hands them over ("Please find below
+ * the minutes of the meeting"), is no name for the meeting.
  */
 export function readMeetingNotes(text: string): MeetingReading {
   const lines = linesOf(text);
   const first = lines.find((line) => line.trim());
   const cleaned = first?.replace(/^[\s#*_>-]+|[\s#*_:]+$/g, '') ?? '';
-  const title = cleaned && cleaned.length <= 100 && !MARKED.test(first!) && !PRESENT.test(first!) && !HELD.test(first!) ? cleaned : undefined;
+  const named = cleaned && cleaned.length <= 100 && !MARKED.test(first!) && !PRESENT.test(first!) && !HELD.test(first!);
+  const title = named && !OPENS_ASKING.test(opening(first!)) && !HANDS_OVER.test(opening(first!)) ? cleaned : undefined;
 
   const heldLine = HELD.exec(text)?.[1];
   const heldOn = (heldLine ? meetingDayIn(heldLine) : undefined) ?? (title ? meetingDayIn(title) : undefined) ?? meetingDayIn(lines.slice(0, 6).join(' '));

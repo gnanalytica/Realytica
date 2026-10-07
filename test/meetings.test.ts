@@ -114,6 +114,77 @@ describe('whether words are the notes of a meeting', () => {
   });
 });
 
+describe('a typed message that mentions a meeting', () => {
+  it('is never notes when it is a question or a request, however many lines it runs to', () => {
+    for (const said of [
+      // Was `maybe`: asked about as notes, and its words replaced in the thread.
+      'Can you check the meeting notes\nfrom last week\nfor what was agreed?',
+      'Please draft the minutes of the meeting\nwe had on Friday\nand send them to the architect',
+      'What did the meeting notes say\nabout the boundary wall\nand who is to build it',
+      'Read the meeting notes\nand tell me\nwhat is still open',
+      'In the meeting notes, what does this mean?\nAction: Ravi to get the khata\nThanks',
+      'Minutes of the meeting are due\nI have not written them\nwill you remind me tomorrow?',
+    ]) {
+      assert.equal(meetingNotesPasted(said), 'no', said);
+    }
+  });
+
+  it('is kept at once only with a heading and what notes hold under it', () => {
+    assert.equal(meetingNotesPasted('Meeting notes 3 Oct 2026\nAttendees: Ravi, Meera\nDecision: go ahead with the survey\nAction: Ravi to get the khata by Friday'), 'yes');
+    assert.equal(meetingNotesPasted('Minutes of the meeting\nDate: 3 October 2026\nWe walked the boundary and looked at the gate.'), 'yes', 'a dated line is one of the things notes hold');
+    // An open point put as a question does not make the notes a question.
+    assert.equal(meetingNotesPasted('Minutes of the meeting, 3 Oct 2026\nPresent: Asha, Vikram\nOpen: who pays for the resurvey?'), 'yes');
+    // Nor does a first line that hands them over.
+    assert.equal(meetingNotesPasted('Please keep these meeting notes:\nAttendees: Ravi, Meera\nDecision: go ahead'), 'yes');
+    assert.equal(meetingNotesPasted('Can you keep these meeting notes?\nPresent: Ravi, Meera\nDecision: go ahead'), 'yes');
+  });
+
+  it('is asked about with only one of the two', () => {
+    assert.equal(meetingNotesPasted('Meeting notes 3 Oct\nWe discussed the survey and agreed to wait.\nRavi will chase the bank.'), 'maybe', 'a heading and no items');
+    assert.equal(meetingNotesPasted('Attendees: Asha, Vikram\nDecision: buy the plot\nAction: Meera to pay the advance by Friday'), 'maybe', 'items under no heading');
+    assert.equal(meetingNotesPasted('Minutes of the site meeting\nWe walked the north boundary with the contractor.\nThe wall is in poor shape.'), 'maybe', 'an everyday heading and no items');
+    // A request over what reads as notes, with no heading: asked, and not answered as talk.
+    assert.equal(meetingNotesPasted('Can you keep these?\nDate: 3 October 2026\nPresent: Asha Rao, Vikram Nair\nDecision: The compound wall will be rebuilt.'), 'maybe');
+  });
+
+  const UNDER = 'Date: 3 October 2026\nPresent: Asha Rao, Vikram Nair\nDecision: The compound wall will be rebuilt on the north side.\nAction: Vikram to get the tax receipt by 20 October 2026.';
+
+  it('is kept at once under an everyday heading', () => {
+    // Each was asked about once only "minutes of the meeting" counted as a heading.
+    for (const heading of [
+      'Minutes of the site meeting',
+      'Minutes of site meeting',
+      'Minutes of the progress review meeting',
+      'Minutes of the coordination meeting held on 3 October',
+      'Notes from the site meeting',
+      'Notes of the client meeting',
+      'FYI, minutes of today’s meeting',
+      'Minutes',
+    ]) {
+      assert.equal(meetingNotesPasted(`${heading}\n${UNDER}`), 'yes', heading);
+    }
+    // A first line that only names the meeting heads its notes when who was there and a marked line stand under it.
+    assert.equal(meetingNotesPasted(`Weekly progress meeting, 3 Oct 2026\n${UNDER}`), 'yes');
+    assert.equal(meetingNotesPasted(`What was agreed at the site meeting, 3 Oct:\n${UNDER}`), 'yes');
+    assert.equal(meetingNotesPasted('Site meeting tomorrow\nDate: 8 October 2026\nPlease remind Vikram to bring the drawings.'), 'no', 'a meeting named over no notes is a message');
+  });
+
+  it('is kept at once under a polite first line', () => {
+    // Each was answered as talk: neither kept nor asked about.
+    for (const lead of ['Please find below the minutes of the meeting', 'Please find the minutes of the meeting below', 'Please see the minutes of the meeting below', 'Kindly note the minutes of the meeting']) {
+      assert.equal(meetingNotesPasted(`${lead}\n${UNDER}`), 'yes', lead);
+    }
+    // A question first, and the notes under their own heading.
+    assert.equal(meetingNotesPasted(`Is this what you needed?\nMinutes of the site meeting\n${UNDER}`), 'yes');
+    // The polite line is no name for the meeting. It is named for its day, and a heading of its own still names it.
+    assert.deepEqual([readMeetingNotes(`Please find below the minutes of the meeting\n${UNDER}`).title, readMeetingNotes(`Please find below the minutes of the meeting\n${UNDER}`).heldOn], [undefined, '2026-10-03']);
+    assert.equal(readMeetingNotes(`Minutes of the site meeting\n${UNDER}`).title, 'Minutes of the site meeting');
+    // The same polite words over nothing notes hold are a request.
+    assert.equal(meetingNotesPasted('Please find the minutes of the meeting\nfrom last Friday\nand tell me who attended'), 'no');
+    assert.equal(meetingNotesPasted('Please share the minutes of the site meeting\nwith the architect\nby tomorrow'), 'no');
+  });
+});
+
 describe('what the rules read out of notes', () => {
   const reading = readMeetingNotes(NOTES);
 
@@ -288,7 +359,8 @@ describe('what the notes say, once accepted', () => {
     const question = 'What was agreed about the resurvey?';
     const answer = memAnswer(project, facts, memAsksMemory(question)!, { question });
     const item = meeting.items.find((held) => held.text.includes('resurvey'))!;
-    assert.match(answer.text, /Decision recorded: “Go ahead with the resurvey of the plot before the sale agreement\.” \(approved\) \[approved\]/);
+    // Where it stands is said by its tag. An answer may also say it in words before the tag.
+    assert.match(answer.text, /Decision recorded: “Go ahead with the resurvey of the plot before the sale agreement\.”(?: \(approved\))? \[approved\]/);
     assert.ok(answer.text.includes(`from the meeting of 3 Oct 2026 ${meetingNotesMark(meeting.id, item.id)}`));
     assert.deepEqual(answer.rests.map((rest) => rest.id), [facts.find((fact) => fact.aboutId === decision)!.id]);
 

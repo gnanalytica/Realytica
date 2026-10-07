@@ -44,10 +44,10 @@ function inHand(evidence: EvidenceRecord): boolean {
  * These are the records the graph draws a function's `holds`, `certifies`
  * and `assesses` edges from, counted once they are in hand: an answered
  * check, a document that has come, an approval with a paper behind it, a
- * milestone, a site entry, a site visit, a questionnaire, a certified report,
- * and an estimate with enough on file to say something. A check nobody has
- * answered and a document still expected are on the file and are not work
- * done, so they hold nothing here.
+ * milestone, a site entry, a site visit, a questionnaire, a work package, a
+ * contract, a bill, a certified report, and an estimate with enough on file
+ * to say something. A check nobody has answered and a document still expected
+ * are on the file and are not work done, so they hold nothing here.
  */
 export function functionsHoldingRecords(project: DdProject): Set<string> {
   const holding = new Set<string>();
@@ -64,6 +64,7 @@ export function functionsHoldingRecords(project: DdProject): Set<string> {
   if (project.milestones?.length || project.siteLog?.length) holds('construction.progress');
   if (project.siteVisits?.length) holds('construction.site');
   for (const sheet of project.questionnaires ?? []) holds(departmentHomeWorkstream(questionnaireDepartment(sheet)));
+  if (project.cost?.workPackages.length || project.cost?.contracts.length || project.cost?.bills.length) holds('finance.budget');
   for (const report of project.certifiedReports ?? []) holds(report.workstream);
   // The estimate last, and only where nothing above already answered: it is the one that costs something to work out.
   for (const workstream of WORKSTREAMS) {

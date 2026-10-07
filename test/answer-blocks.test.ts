@@ -12,8 +12,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAnswer, parseInline } from '../apps/web/src/components/chat/answer-blocks';
-import type { Block, Inline } from '../apps/web/src/components/chat/answer-blocks';
+import { acceptValueOffers, addComparable, applyProjectChat, changesBetween, createProject, recordAsItStands, seedDemoProject, turnChanged, valueOffers } from '@realytica/shared';
+import type { DdProject, ScreenResult, ValuationRun } from '@realytica/shared';
+import { parseAnswer, parseInline, replyRan } from '../apps/web/src/components/chat/answer-blocks';
+import type { Block, Inline, ReplyKept } from '../apps/web/src/components/chat/answer-blocks';
 
 const NO_NODES = () => false;
 const nodes = (...ids: string[]) => (id: string) => ids.includes(id);
@@ -30,6 +32,26 @@ describe('inline spans', () => {
       ['text', 'evidence', 'text'],
     );
     assert.equal((spans[1] as { id: string }).id, 'ev-12');
+  });
+
+  it('reads the page a citation names, and gives each citation in a sentence its own chip', () => {
+    // "This paper, page N" is `[ev:<id>:p<N>]`. Two papers in one sentence
+    // are two tokens, and each chip opens its own.
+    const spans = parseInline('The extent is on [ev:ev_1a-2b:p3] and the khata on [ev:ev_3c-4d:p12], with [ev:ev_5e-6f].', NO_NODES);
+    assert.deepEqual(spans.filter(s => s.kind === 'evidence'), [
+      { kind: 'evidence', id: 'ev_1a-2b', page: 3 },
+      { kind: 'evidence', id: 'ev_3c-4d', page: 12 },
+      { kind: 'evidence', id: 'ev_5e-6f' },
+    ]);
+    // Inside a mark, a list item or a table cell it is read the same way.
+    assert.deepEqual(parseInline('**[ev:ev-3:p2]**', NO_NODES), [{ kind: 'evidence', id: 'ev-3', page: 2 }]);
+    const list = parseAnswer('1. Get the EC\n- stated on [ev:ev-3:p2]', NO_NODES)[0] as Extract<Block, { kind: 'numbers' }>;
+    assert.deepEqual(list.details?.[0][0], [{ kind: 'text', text: 'stated on ' }, { kind: 'evidence', id: 'ev-3', page: 2 }]);
+    // What follows the id is a page only when it is a whole number from 1.
+    // Anything else stays part of the id, and the chip then says it names nothing.
+    for (const tail of ['p0', 'p', 'p3a', 'p12345', 'page3', '3']) {
+      assert.deepEqual(parseInline(`[ev:ev-3:${tail}]`, NO_NODES), [{ kind: 'evidence', id: `ev-3:${tail}` }], tail);
+    }
   });
 
   it('never reads an evidence token as a node as well', () => {
@@ -191,10 +213,106 @@ describe('inline spans', () => {
 
   it('still marks a record’s id that resolves to nothing, and still prints what is not ours', () => {
     // Only the frame's ids are put into words. A record is a reference the
-    // answer made, and one we cannot follow stays visible as one.
-    const spans = parseInline('See [dd-risk-9] and [prj_1a-2b::approval::fire] and [prj_1a-2b::stage::acquisition].', NO_NODES);
-    assert.equal(spans.filter(s => s.kind === 'dangling').length, 1);
-    assert.equal(text(spans), 'See <dangling:dd-risk-9> and [prj_1a-2b::approval::fire] and Acquisition.');
+    // answer made, and one we cannot follow stays visible as one. An approval
+    // is a record: its id is the project's with a tail, and is marked whole.
+    const spans = parseInline('See [dd-risk-9] and [prj_1a-2b::approval::fire] and [prj_1a-2b::stage::acquisition] in [Sy.118/2].', NO_NODES);
+    assert.equal(text(spans), 'See <dangling:dd-risk-9> and <dangling:prj_1a-2b::approval::fire> and Acquisition in [Sy.118/2].');
+  });
+
+  it('makes a chip of every record on a line, whatever is in brackets before it', () => {
+    // Only the first bracketed word on a line used to be looked at, so a
+    // footnote mark or an aside hid every id written after it.
+    const CHK = 'chk_1a111df8cb5-03f853e9e3ff4-9a470905e71a3';
+    const FND = 'fnd_1a111df8cb5-03d65c4ab51e8-7263070314d64';
+    const live = nodes(CHK, FND);
+    assert.equal(text(parseInline(`See [1] and [${CHK}] for the position.`, live)), `See [1] and <node:${CHK}> for the position.`);
+    assert.equal(
+      text(parseInline(`As noted [see above], [${CHK}] rests on [${FND}] [sic] and on [${CHK}].`, live)),
+      `As noted [see above], <node:${CHK}> rests on <node:${FND}> [sic] and on <node:${CHK}>.`,
+    );
+    // A citation between them is still one chip, and its own kind.
+    assert.deepEqual(parseInline(`[a] [ev:ev-3] [b] [${FND}]`, live).map(s => s.kind), ['text', 'evidence', 'text', 'node']);
+    // In a table cell too, which is parsed as a line of its own.
+    const table = parseAnswer(`| Check | Note |\n| --- | --- |\n| [x] [${CHK}] | open |`, live)[0] as Extract<Block, { kind: 'table' }>;
+    assert.deepEqual(table.rows[0][0].map(s => s.kind), ['text', 'node']);
+  });
+
+  it('makes a chip of a record inside bold or code, and keeps the mark on the words beside it', () => {
+    // The server puts brackets round an id wherever the model wrote it, and
+    // a model writes an id in backticks more often than not.
+    const CHK = 'chk_1a111df8cb5-03f853e9e3ff4-9a470905e71a3';
+    const live = nodes(CHK);
+    assert.deepEqual(parseInline(`Open **[${CHK}]** and \`[${CHK}]\` now.`, live), [
+      { kind: 'text', text: 'Open ' },
+      { kind: 'node', id: CHK },
+      { kind: 'text', text: ' and ' },
+      { kind: 'node', id: CHK },
+      { kind: 'text', text: ' now.' },
+    ]);
+    assert.deepEqual(parseInline(`**The parcel check [${CHK}] is open**`, live), [
+      { kind: 'bold', text: 'The parcel check ' },
+      { kind: 'node', id: CHK },
+      { kind: 'bold', text: ' is open' },
+    ]);
+    // A citation and an id that names nothing are read there as they are anywhere.
+    assert.deepEqual(parseInline('`[ev:ev-3]` **[chk_1a111-0-0]**', live).map(s => s.kind), ['evidence', 'text', 'dangling']);
+    // Words in brackets stay words, with their mark, and no mark is read inside another.
+    assert.deepEqual(parseInline('**see [above] and `this`**', live), [{ kind: 'bold', text: 'see [above] and `this`' }]);
+    assert.deepEqual(parseInline('`rows[0]`', live), [{ kind: 'code', text: 'rows[0]' }]);
+  });
+
+  it('marks an id of the shape this product mints when nothing on the project has it', () => {
+    // An id is a prefix and an underscore now. The marker knew only the two
+    // older shapes, so an id that named nothing printed raw, brackets and all.
+    const gone = (token: string) => parseInline(`See ${token} for the position.`, NO_NODES).filter(s => s.kind === 'dangling').length;
+    for (const id of ['chk_1a111df8cb5-0000000000000-0000000000000', 'fnd_1a2b-3c', 'rsk_9', 'act_1a', 'ev_1a111df8c67-0', 'rpt_2026-10', 'prj_1a-2b::qa::legal.title']) {
+      assert.equal(gone(`[${id}]`), 1, id);
+    }
+    // Cut short by the model that quoted it: the case the marker was written for.
+    assert.equal(gone('[chk_1a11…71a3]'), 1);
+    assert.equal(gone('[dd-check-…bda_bmrda_acquisition]'), 1);
+    // The product's own words open the same way and are not ids: none holds a digit.
+    for (const word of ['[run_valuation]', '[run_screen]', '[log_site_entry]', '[dd_progress]', '[act_now]', '[val_per_sqm]']) {
+      assert.equal(gone(word), 0, word);
+    }
+    // And a prefix this product does not use is somebody else's reference.
+    for (const other of ['[doc_12]', '[EC_2019]', '[sy_118]', '[1]', '[2217/1998-99]']) {
+      assert.equal(gone(other), 0, other);
+    }
+    // One the project has is its chip, not a mark.
+    assert.deepEqual(parseInline('[chk_1a]', nodes('chk_1a')), [{ kind: 'node', id: 'chk_1a' }]);
+  });
+
+  it('prints an id of a kind with no page as words, and marks only a kind the chat can open', () => {
+    // A card, a chat turn, a line of the history, a valuation run, a flow and
+    // a run have no page, so the chat is given no name for one whether the
+    // project has it or not. Marked as broken, a card waiting on the project
+    // read as missing from it.
+    for (const id of ['prp_1a111df8cb8-8fc21af2ece8f-255df7f5f3a81', 'cht_1a1150765be-1', 'aud_1a114de5be5-2', 'val_1a2b-3', 'flw_1a2b-4', 'run_1a2b-5']) {
+      assert.deepEqual(parseInline(`The card [${id}] is waiting.`, NO_NODES), [{ kind: 'text', text: `The card ${id} is waiting.` }], id);
+    }
+    // Cut short, in a mark, or beside a record: the same.
+    assert.equal(text(parseInline('See [prp_1a11…3a81] and [chk_1a-2b].', NO_NODES)), 'See prp_1a11…3a81 and <dangling:chk_1a-2b>.');
+    assert.deepEqual(parseInline('**[cht_1a-2b]**', NO_NODES), [{ kind: 'bold', text: 'cht_1a-2b' }]);
+    // The product's own words that open the same way keep their brackets.
+    assert.equal(text(parseInline('Use [run_valuation] or [val_per_sqm].', NO_NODES)), 'Use [run_valuation] or [val_per_sqm].');
+    // A name the chat was given wins, whatever the kind.
+    assert.deepEqual(parseInline('[prp_1a-2b]', nodes('prp_1a-2b')), [{ kind: 'node', id: 'prp_1a-2b' }]);
+  });
+
+  it('takes a frame id nothing can name out of bold and code as it does out of plain words', () => {
+    // The bold one used to be marked as broken and the plain one taken out, in the same sentence.
+    assert.deepEqual(parseInline('See **[x1::ws::bogus]** now, and plain [x1::ws::bogus] now', NO_NODES), [{ kind: 'text', text: 'See now, and plain now' }]);
+    assert.deepEqual(parseInline('See `[x1::ws::bogus]` now.', NO_NODES), [{ kind: 'text', text: 'See now.' }]);
+    // The words beside it keep their mark.
+    assert.deepEqual(parseInline('**[x1::ws::bogus] is late**', NO_NODES), [{ kind: 'bold', text: 'is late' }]);
+    // Marked only where the whole line has no word left, in a mark or out of one.
+    for (const line of ['[x1::ws::bogus]', '**[x1::ws::bogus]**', '`[x1::ws::bogus]`', '**[x1::ws::bogus]** ([x1::ws::bogus])']) {
+      assert.ok(parseInline(line, NO_NODES).every((s) => s.kind === 'dangling' && s.id === 'x1::ws::bogus'), line);
+      assert.ok(parseInline(line, NO_NODES).length > 0, line);
+    }
+    // One with a name is said in words there too, with the mark.
+    assert.deepEqual(parseInline('**[prj_1a-2b::ws::design.rfis]**', NO_NODES), [{ kind: 'bold', text: 'RFIs' }]);
   });
 });
 
@@ -213,6 +331,80 @@ describe('blocks', () => {
     const blocks = parseAnswer('1. Get the EC\n2. Chase the khata', NO_NODES);
     const list = blocks[0] as Extract<Block, { kind: 'numbers' }>;
     assert.equal(text(list.items[0]), 'Get the EC');
+  });
+
+  it('keeps a numbered list one list when its items are set apart by blank lines', () => {
+    // Each blank line used to end the list, so three items were three lists
+    // and every one of them was numbered 1.
+    const blocks = parseAnswer('To close:\n\n1. First\n\n2. Second\n\n\n3. Third\n\nThat is all.', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['paragraph', 'numbers', 'paragraph']);
+    const list = blocks[1] as Extract<Block, { kind: 'numbers' }>;
+    assert.deepEqual(list.items.map(text), ['First', 'Second', 'Third']);
+    assert.equal(list.start, undefined);
+    assert.equal(list.details, undefined);
+  });
+
+  it('keeps the dashed lines under a numbered item with that item', () => {
+    const blocks = parseAnswer('1. Get the EC\n- from the sub-registrar\n- for thirty years\n2. Chase the khata\n   - at the BBMP office\n3. Pay the tax', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['numbers']);
+    const list = blocks[0] as Extract<Block, { kind: 'numbers' }>;
+    assert.deepEqual(list.items.map(text), ['Get the EC', 'Chase the khata', 'Pay the tax']);
+    assert.deepEqual(list.details?.map((under) => under.map(text)), [['from the sub-registrar', 'for thirty years'], ['at the BBMP office'], []]);
+
+    // Set apart by blank lines as well, as a model that spaces its items writes them.
+    const spaced = parseAnswer('1. Get the EC\n\n   - from the sub-registrar\n\n2. Chase the khata\n\n   - at the BBMP office [ev:ev-3]', NO_NODES);
+    assert.deepEqual(kinds(spaced), ['numbers']);
+    const loose = spaced[0] as Extract<Block, { kind: 'numbers' }>;
+    assert.deepEqual(loose.items.map(text), ['Get the EC', 'Chase the khata']);
+    assert.deepEqual(loose.details?.map((under) => under.map(text)), [['from the sub-registrar'], ['at the BBMP office <evidence:ev-3>']]);
+  });
+
+  it('leaves a dashed list after a numbered one alone when a blank line parts them', () => {
+    const blocks = parseAnswer('1. Get the EC\n2. Chase the khata\n\n- Tax is paid\n- Khata is in the seller’s name', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['numbers', 'bullets']);
+    assert.equal((blocks[0] as Extract<Block, { kind: 'numbers' }>).details, undefined);
+    // Unless the list is written that way: an earlier item's details stood apart too, so the last item's are its own.
+    const apart = parseAnswer('1. Get the EC\n\n- from the sub-registrar\n\n2. Chase the khata\n\n- at the BBMP office', NO_NODES);
+    assert.deepEqual(kinds(apart), ['numbers']);
+    assert.deepEqual((apart[0] as Extract<Block, { kind: 'numbers' }>).details?.map((under) => under.map(text)), [['from the sub-registrar'], ['at the BBMP office']]);
+    // A divider is not a detail either.
+    assert.deepEqual(kinds(parseAnswer('1. Get the EC\n- - -\n2. Chase the khata', NO_NODES)), ['numbers', 'rule', 'numbers']);
+  });
+
+  it('counts on from the number an item was written with', () => {
+    // A sentence between two items still ends the list. The second half is
+    // numbered as the answer numbered it, not from 1 again.
+    const blocks = parseAnswer('1. Get the EC\nIt has to cover thirty years.\n2. Chase the khata\n3. Pay the tax', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['numbers', 'paragraph', 'numbers']);
+    assert.equal((blocks[0] as Extract<Block, { kind: 'numbers' }>).start, undefined);
+    const rest = blocks[2] as Extract<Block, { kind: 'numbers' }>;
+    assert.equal(rest.start, 2);
+    assert.deepEqual(rest.items.map(text), ['Chase the khata', 'Pay the tax']);
+  });
+
+  it('starts another list where the number starts again at 1', () => {
+    const lists = (answer: string) =>
+      parseAnswer(answer, NO_NODES).map((b) => (b.kind === 'numbers' ? { start: b.start ?? 1, items: b.items.map(text), under: (b.details ?? []).map((d) => d.map(text)) } : b.kind === 'bullets' ? b.items.map(text) : b.kind));
+    // Two lists with only a blank line between them ran on as one, numbered 1 to 4.
+    assert.deepEqual(lists('1. A\n2. B\n\n1. C\n2. D'), [
+      { start: 1, items: ['A', 'B'], under: [] },
+      { start: 1, items: ['C', 'D'], under: [] },
+    ]);
+    assert.deepEqual(lists('1. A\n2. B\n1. C\n2. D'), [
+      { start: 1, items: ['A', 'B'], under: [] },
+      { start: 1, items: ['C', 'D'], under: [] },
+    ]);
+    // Dashes between them, set apart and not set in, are a list of their own: the second list does not make them B's.
+    assert.deepEqual(lists('1. A\n2. B\n\n- x\n- y\n\n1. C'), [{ start: 1, items: ['A', 'B'], under: [] }, ['x', 'y'], { start: 1, items: ['C'], under: [] }]);
+    // Set in under B they are B's, and C is still the first of another list.
+    assert.deepEqual(lists('1. A\n2. B\n\n   - x\n   - y\n\n1. C'), [
+      { start: 1, items: ['A', 'B'], under: [[], ['x', 'y']] },
+      { start: 1, items: ['C'], under: [] },
+    ]);
+    // An answer that writes every item "1." is counting one list.
+    assert.deepEqual(lists('1. A\n\n1. B\n- b\n\n1. C'), [{ start: 1, items: ['A', 'B', 'C'], under: [[], ['b'], []] }]);
+    // And a list that opens at 0 goes on to 1.
+    assert.deepEqual(lists('0. A\n1. B\n2. C'), [{ start: 0, items: ['A', 'B', 'C'], under: [] }]);
   });
 
   it('reads a pipe table', () => {
@@ -322,5 +514,92 @@ describe('blocks', () => {
   it('returns nothing for an empty answer rather than an empty paragraph', () => {
     assert.deepEqual(parseAnswer('', NO_NODES), []);
     assert.deepEqual(parseAnswer('   \n\n  ', NO_NODES), []);
+  });
+});
+
+describe('the picture under a reply', () => {
+  const day = (time: string) => `2026-10-07T${time}Z`;
+  const screenAt = (time: string) => ({ generatedAt: day(time), risks: [{ id: 'risk-1', severity: 'critical' }] }) as unknown as ScreenResult;
+  const runAt = (time: string, over: Partial<ValuationRun> = {}) =>
+    ({ id: `val_${time}`, status: 'computed', createdAt: day(time), indicatedValue: 402_600_000, low: 370_392_000, high: 434_808_000, currency: 'INR', working: { reconciliation: { outcome: 'indicated' } }, ...over }) as unknown as ValuationRun;
+  const reply = (time: string, text: string, lines: string[] = [], over: Partial<ReplyKept> = {}): ReplyKept => ({ role: 'assistant', at: day(time), text, ...(lines.length ? { changed: { lines } } : {}), ...over });
+
+  // A message put to the chat's own rules, and the reply as the API keeps it: with the lines of what it changed.
+  const say = (project: DdProject, message: string): ReplyKept => {
+    const stood = recordAsItStands(project);
+    const turn = applyProjectChat(project, message, { actor: 'tester' }).assistantTurn;
+    return { ...turn, changed: turnChanged(changesBetween(stood, project), true) };
+  };
+
+  it('is the screen’s risks under the reply that ran the screen, and not under the one that proposed it', () => {
+    // The chart used to sit under "Ready to screen… It waits on the Value tab", and "Ran the property screen." had none.
+    const project = seedDemoProject();
+    const proposed = say(project, 'Screen the property');
+    assert.match(proposed.text, /waits on the Value tab/);
+    assert.deepEqual(replyRan(proposed, project), {});
+    const ran = say(project, 'approve all');
+    assert.equal(ran.text, 'Ran the property screen.');
+    assert.deepEqual(replyRan(ran, project), { screen: project.lastScreenResult });
+    assert.deepEqual(replyRan(proposed, project), {}, 'the reply that proposed it still has none');
+    // Asked for again while the first still shows: the words are about a screen, and it ran none.
+    assert.deepEqual(replyRan(say(project, 'Screen the property'), project), {});
+  });
+
+  it('is the range under the reply that ran a valuation with a figure, and nothing for a run with none', () => {
+    const project = createProject({ name: 'Corner plot', type: 'residential', location: 'Northfield', city: 'Bengaluru', landAreaSqm: 1200 }, 'RYT-AB1');
+    const none = say(project, 'Run the valuation');
+    assert.match(none.text, /^No figure yet/);
+    assert.deepEqual(replyRan(none, project), {});
+
+    for (const [n, price] of [58_000_000, 62_000_000, 60_500_000].entries()) addComparable(project, { title: `Plot, Sy. ${120 + n}`, price, areaSqm: 1200, kind: 'transaction', weight: 1 }, 'tester');
+    acceptValueOffers(project, valueOffers(project).map((offer) => offer.id), 'tester');
+    const valued = say(project, 'Run the valuation');
+    assert.match(valued.text, /^Indicative value ₹/);
+    const run = project.valuationRuns.at(-1)!;
+    assert.deepEqual(replyRan(valued, project), { valuation: run });
+    assert.ok(run.low < run.indicatedValue && run.indicatedValue < run.high);
+    // The earlier reply reported a run with no figure, and still draws nothing.
+    assert.deepEqual(replyRan(none, project), {});
+  });
+
+  it('takes the time and the reply’s own account together, never one alone', () => {
+    const project = { lastScreenResult: screenAt('07:05:16.724'), valuationRuns: [runAt('07:05:11.183'), runAt('07:05:20.590')] };
+    const ranScreen = reply('07:05:16.737', 'Ran the property screen. 1 more is waiting: 1 under Risks and actions.', ['Drafted “Red flag report”', 'Changed the last screen']);
+    assert.deepEqual(replyRan(ranScreen, project), { screen: project.lastScreenResult });
+    // Four seconds after that screen, a reply about a valuation: it has its own run and not the screen.
+    const valued = reply('07:05:20.603', 'Indicative value ₹40.26 Cr. Comparable rate on saleable area: ₹40.26 Cr (100%).', ['Marked the valuation as superseded', 'Ran the valuation']);
+    assert.deepEqual(replyRan(valued, project), { valuation: project.valuationRuns[1] });
+    // A second after the screen ran, a reply that only says one is waiting.
+    assert.deepEqual(replyRan(reply('07:05:17.900', 'A property screen is already waiting on the Value tab.'), project), {});
+    // The right words an hour on are about a screen the project no longer holds.
+    assert.deepEqual(replyRan(reply('08:05:16.737', 'Ran the property screen.', ['Changed the last screen']), project), {});
+    // A reply cannot have made what was made after it.
+    assert.deepEqual(replyRan(reply('07:05:16.700', 'Ran the property screen.', ['Changed the last screen']), project), {});
+    // An accepted card says it in the middle of a sentence.
+    assert.deepEqual(replyRan(reply('07:05:21.000', 'Filed 2 documents and ran the valuation.'), project), { valuation: project.valuationRuns[1] });
+  });
+
+  it('draws nothing for a run with no figure, a reply that was undone, or the reply that undid it', () => {
+    const at = '07:05:20.590';
+    const ran = (project: { valuationRuns: ValuationRun[] }, over: Partial<ReplyKept> = {}) => replyRan(reply('07:05:20.603', 'Indicative value ₹40.26 Cr.', ['Ran the valuation'], over), project);
+    assert.deepEqual(Object.keys(ran({ valuationRuns: [runAt(at)] })), ['valuation']);
+    // No approach ran, or they disagreed: the amount is 0 and is not a figure.
+    for (const outcome of ['no_approach_ran', 'approaches_disagree']) {
+      assert.deepEqual(ran({ valuationRuns: [runAt(at, { indicatedValue: 0, low: 0, high: 0, working: { reconciliation: { outcome } } } as never)] }), {}, outcome);
+    }
+    // A figure with no range round it is not drawn as one.
+    assert.deepEqual(ran({ valuationRuns: [runAt(at, { low: 0 })] }), {});
+    assert.deepEqual(ran({ valuationRuns: [runAt(at, { low: 500_000_000 })] }), {});
+    // A run kept before the working was is judged by its amounts.
+    assert.deepEqual(Object.keys(ran({ valuationRuns: [runAt(at, { working: undefined })] })), ['valuation']);
+    // Undone: the run is gone from the project, and the reply says so of itself.
+    assert.deepEqual(ran({ valuationRuns: [runAt(at)] }, { changed: { lines: ['Ran the valuation'], undone: { at: day('07:05:22.771'), by: 'tester', back: 1, of: 1 } } }), {});
+    // The reply that undoes one quotes its lines.
+    const undo = reply('07:05:22.771', 'Undone:\n- Marked the valuation as superseded.\n- Ran the valuation.', [], { toolCalls: [{ name: 'undo', summary: 'Undone' }] });
+    assert.deepEqual(replyRan(undo, { valuationRuns: [runAt(at)] }), {});
+    // The person's own message, no project, a time that cannot be read.
+    assert.deepEqual(replyRan({ ...reply('07:05:20.603', 'Ran the valuation'), role: 'user' }, { valuationRuns: [runAt(at)] }), {});
+    assert.deepEqual(replyRan(reply('07:05:20.603', 'Ran the valuation'), undefined), {});
+    assert.deepEqual(replyRan({ ...reply('07:05:20.603', 'Ran the valuation'), at: 'just now' }, { valuationRuns: [runAt(at)] }), {});
   });
 });

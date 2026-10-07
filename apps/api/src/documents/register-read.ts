@@ -21,6 +21,9 @@
  * names nothing on the register and answers no waiting row until a person
  * confirms it (`confirmProposedType`), says what the paper is instead
  * (`correctProposedType`) or sets the offer aside (`setAsideProposedType`).
+ * So is what this server's own rules read off a file put on a row that
+ * already has a kind: a reading names a row that has no kind, and never
+ * renames one that has (`kindAsRead`).
  * Its values wait on the row like any other, and nothing is offered to a
  * check on their strength: to the checks go the values that stand
  * (`standingAsRead`), never a model's nor one two readers differ on.
@@ -28,16 +31,23 @@
 
 import { randomUUID } from 'node:crypto';
 import { agentCapability, enrichIngestWithDocumentIntelligence } from '@realytica/agents';
-import type { ChatIngestFile, ChatProposal, DdProject, ProjectChatTurn } from '@realytica/shared';
+import type { ChatIngestFile, ChatProposal, DdProject, EvidenceRecord, MayDecide, ProjectChatTurn } from '@realytica/shared';
 import {
   absorbAnsweredGaps,
   ddForDocumentsProposal,
+  decisionRefused,
+  departmentOfPaper,
   DOCUMENT_WORKSTREAM,
   documentTypeOfKind,
+  documentWorkstream,
   factFillProposals,
   flagFindingProposals,
+  holdsADecision,
   keepReadings,
+  kindAsRead,
+  mayDecidePaper,
   MODEL_READER_VERSION,
+  moveDocument,
   placeProposalsFromIngest,
   plural,
   proofOf,
@@ -45,7 +55,7 @@ import {
   recordAuditEvent,
   setAsideOffPaper,
   readingSaid,
-  standingAsRead,
+  standingAmongRead,
   standingFacts,
   waitingAsRead,
 } from '@realytica/shared';
@@ -85,18 +95,59 @@ const MODEL_START_MARGIN_MS = 15_000;
 const article = (type: string): string => `${/^[aeiou]/i.test(type) ? 'an' : 'a'} ${/^[A-Z][a-z]/.test(type) ? type.charAt(0).toLowerCase() + type.slice(1) : type}`;
 
 /**
+ * What a paper's kind is, is for anybody to say who may write on its row.
+ * What that sets aside on the row is not: setting a read value aside is a
+ * decision, and a lead's or a signer's of the department that holds the paper
+ * (`mayDecide`, where a person is asking). Said by anybody else, the kind is
+ * taken and the values it does not carry stay where they wait. Nobody can
+ * accept one meanwhile and nothing acts on it (`paperCarries`), so they wait
+ * for whoever may set them aside.
+ */
+function setAsideWhatItDoesNotCarry(project: DdProject, evidence: EvidenceRecord, actor: string, mayDecide: MayDecide | undefined): void {
+  if (!mayDecide || mayDecidePaper(project, evidence, mayDecide)) setAsideOffPaper(evidence, actor);
+}
+
+/**
+ * Give a row its type. A paper is held by the function its kind belongs to
+ * unless something closer says whose it is, so naming the kind of a paper a
+ * function already holds can move it to another. That is held to the rule for
+ * a move (`moveDocument`): with `mayDecide`, it takes a lead or a signer of
+ * the department that holds the paper now, anybody else is refused before
+ * anything changes, and the move is written on the trail. A paper no function
+ * holds yet is given its first home by whoever says what it is, unless a
+ * value on it has already been decided.
+ */
+function nameThePaper(project: DdProject, evidence: EvidenceRecord, documentType: string, actor: string, mayDecide: MayDecide | undefined, change: () => void): void {
+  /*
+   * A row that holds a value somebody decided. What the row is called says
+   * which of its values stand, so calling it something else takes accepted
+   * values out of force, or puts them back, even where the paper stays in the
+   * function it is in. That is a decision on the paper: its department's lead
+   * or signer makes it, and nobody else.
+   */
+  if (mayDecide && documentType !== evidence.documentType && holdsADecision(evidence) && !mayDecidePaper(project, evidence, mayDecide)) {
+    throw decisionRefused('Saying what a paper is once a value on it has been decided', departmentOfPaper(project, evidence, mayDecide), mayDecide);
+  }
+  moveDocument(project, evidence, (record) => documentWorkstream(record, { ...evidence, documentType }), actor, mayDecide, change);
+}
+
+/**
  * A person says the paper is what a model took it for: the offer becomes the
  * row's type, and the row now answers whatever was waiting for that paper.
- * False when the row has no offer to confirm.
+ * False when the row has no offer to confirm. Where that moves a paper a
+ * function already holds, see `nameThePaper`.
  */
-export function confirmProposedType(project: DdProject, evidenceId: string, actor = 'operator'): boolean {
+export function confirmProposedType(project: DdProject, evidenceId: string, actor = 'operator', options: { mayDecide?: MayDecide } = {}): boolean {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
-  if (!evidence?.proposedDocumentType) return false;
-  evidence.documentType = evidence.proposedDocumentType;
-  delete evidence.proposedDocumentType;
-  evidence.updatedAt = new Date().toISOString();
+  const offered = evidence?.proposedDocumentType;
+  if (!evidence || !offered) return false;
+  nameThePaper(project, evidence, offered, actor, options.mayDecide, () => {
+    evidence.documentType = offered;
+    delete evidence.proposedDocumentType;
+    evidence.updatedAt = new Date().toISOString();
+  });
   recordAuditEvent(project, { actor, action: 'type_confirmed', entityType: 'evidence', entityId: evidence.id, newValue: evidence.documentType });
-  setAsideOffPaper(evidence, actor);
+  setAsideWhatItDoesNotCarry(project, evidence, actor, options.mayDecide);
   absorbAnsweredGaps(project, evidence);
   return true;
 }
@@ -106,17 +157,18 @@ export function confirmProposedType(project: DdProject, evidenceId: string, acto
  * and is remembered as refused, so the next reading does not make it again;
  * the row keeps whatever type it had. What the model read as values of that
  * kind of paper is set aside with it: a nil-encumbrance answer is no reading
- * of a paper that is not an encumbrance certificate. False when there is no
- * offer.
+ * of a paper that is not an encumbrance certificate. Where the person saying
+ * so may not decide the paper, those values wait instead
+ * (`setAsideWhatItDoesNotCarry`). False when there is no offer.
  */
-export function setAsideProposedType(project: DdProject, evidenceId: string, actor = 'operator'): boolean {
+export function setAsideProposedType(project: DdProject, evidenceId: string, actor = 'operator', options: { mayDecide?: MayDecide } = {}): boolean {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
   if (!evidence?.proposedDocumentType) return false;
   evidence.refusedDocumentType = evidence.proposedDocumentType;
   delete evidence.proposedDocumentType;
   evidence.updatedAt = new Date().toISOString();
   recordAuditEvent(project, { actor, action: 'type_refused', entityType: 'evidence', entityId: evidence.id, newValue: evidence.refusedDocumentType });
-  setAsideOffPaper(evidence, actor);
+  setAsideWhatItDoesNotCarry(project, evidence, actor, options.mayDecide);
   return true;
 }
 
@@ -127,18 +179,23 @@ export const DOCUMENT_TYPES: readonly string[] = Object.keys(DOCUMENT_WORKSTREAM
  * A person says what the paper is, in place of what a model took it for.
  * Their word is the row's type, and the row answers whatever was waiting for
  * that paper. What the model read as values of the kind it took the paper
- * for, and the paper as now named does not carry, is set aside. False when
- * there is no offer to correct, or the type is not one the register knows.
+ * for, and the paper as now named does not carry, is set aside, where the
+ * person may decide the paper as now named. False when there is no offer to
+ * correct, or the type is not one the register knows. Where that moves a
+ * paper a function already holds, see `nameThePaper`.
  */
-export function correctProposedType(project: DdProject, evidenceId: string, documentType: string, actor = 'operator'): boolean {
+export function correctProposedType(project: DdProject, evidenceId: string, documentType: string, actor = 'operator', options: { mayDecide?: MayDecide } = {}): boolean {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
-  if (!evidence?.proposedDocumentType || !DOCUMENT_TYPES.includes(documentType)) return false;
-  if (documentType !== evidence.proposedDocumentType) evidence.refusedDocumentType = evidence.proposedDocumentType;
-  evidence.documentType = documentType;
-  delete evidence.proposedDocumentType;
-  evidence.updatedAt = new Date().toISOString();
+  const offered = evidence?.proposedDocumentType;
+  if (!evidence || !offered || !DOCUMENT_TYPES.includes(documentType)) return false;
+  nameThePaper(project, evidence, documentType, actor, options.mayDecide, () => {
+    if (documentType !== offered) evidence.refusedDocumentType = offered;
+    evidence.documentType = documentType;
+    delete evidence.proposedDocumentType;
+    evidence.updatedAt = new Date().toISOString();
+  });
   recordAuditEvent(project, { actor, action: 'type_corrected', entityType: 'evidence', entityId: evidence.id, newValue: evidence.documentType });
-  setAsideOffPaper(evidence, actor);
+  setAsideWhatItDoesNotCarry(project, evidence, actor, options.mayDecide);
   absorbAnsweredGaps(project, evidence);
   return true;
 }
@@ -167,6 +224,8 @@ export async function readOntoRegister(
   const cited: string[] = [];
   /** What a model took an unrecognised paper for: said, and left for a person to confirm. */
   const proposedTypes: string[] = [];
+  /** Rows that kept their kind though the file put on them reads as another: said, and left for a person to confirm or correct. */
+  const keptKinds: Array<{ file: string; is: string; readAs: string }> = [];
   let scans = 0;
   let spend: ProjectChatTurn['spend'];
   // Without a model reader, "ask to read the filed documents" would read the same pages to the same end.
@@ -182,7 +241,10 @@ export async function readOntoRegister(
     file: ChatIngestFile;
     known: boolean;
     label: string;
+    /** What a model took the paper for, left on the row as an offer. */
     offered?: string;
+    /** What the rules read the file as, where the row already had another kind and kept it. */
+    readAs?: string;
   }
 
   /**
@@ -202,18 +264,12 @@ export async function readOntoRegister(
 
     const evidence = project.evidence.find((e) => e.id === upload.evidenceId);
     if (!evidence) return undefined;
-    // Named for what the rules read it as. What a model alone took it for is offered, and names nothing until a person confirms it.
-    const offered = known ? undefined : documentTypeOfKind(file.kindHint);
+    // A row with no kind is named for what the rules read it as. What a model alone took it for is offered, and names nothing until a
+    // person confirms it. So is what the rules read where the row already has another kind: a reading never renames a paper.
     const label = known ? doc.label : (evidence.documentType ?? 'document');
-    let offer: string | undefined;
-    if (known) {
-      evidence.documentType = doc.label;
-      delete evidence.proposedDocumentType;
-    } else if (offered && offered !== evidence.documentType && offered !== evidence.refusedDocumentType) {
-      // Not an offer a person has already refused for this paper.
-      evidence.proposedDocumentType = offered;
-      offer = offered;
-    }
+    const offer = kindAsRead(evidence, known ? { known: doc.label } : { offered: documentTypeOfKind(file.kindHint) });
+    /** The row is the kind the rules read: it was named so just now, or already was. */
+    const named = known && evidence.documentType === doc.label;
     // What it states waits on the row, value by value, for a person to accept: put there once the row says what the paper is, so
     // a value its kind does not carry never waits.
     evidence.facts = proposeOnRow(evidence, facts);
@@ -230,9 +286,10 @@ export async function readOntoRegister(
       evidence.modelReadVersion = MODEL_READER_VERSION;
     }
     evidence.updatedAt = new Date().toISOString();
-    // A waiting row is answered by a paper somebody, or the rules, said is that paper. Never on a model's word alone.
-    if (known) absorbAnsweredGaps(project, evidence);
-    return { upload, file, known, label, ...(offer ? { offered: offer } : {}) };
+    // A waiting row is answered by a paper somebody, or the rules, said is that paper. Never on a model's word alone, and never by
+    // a reading its own row does not go by.
+    if (named) absorbAnsweredGaps(project, evidence);
+    return { upload, file, known, label, ...(offer ? (known ? { readAs: offer } : { offered: offer }) : {}) };
   };
 
   /*
@@ -296,10 +353,18 @@ export async function readOntoRegister(
     const evidence = project.evidence.find((e) => e.id === upload.evidenceId);
     if (!evidence) continue;
     if (landed.offered) proposedTypes.push(landed.offered);
+    if (landed.readAs) keptKinds.push({ file: upload.fileName, is: evidence.documentType ?? 'document', readAs: landed.readAs });
     if (landed.known) {
-      const source = { fileName: upload.fileName, evidenceId: evidence.id, storageKey: upload.storageKey, documentLabel: doc.label };
-      // To the checks go the values that stand. A model's, and one two readers differ on, wait on the row until a person decides them there.
-      cards.push(...factFillProposals(project, standingAsRead(doc), source, actor, cards));
+      const source = { fileName: upload.fileName, evidenceId: evidence.id, storageKey: upload.storageKey, documentLabel: evidence.documentType ?? doc.label };
+      /*
+       * To the checks go the values that stand on the row now, among those
+       * this reading brought. Never the reading as it was read: the row may
+       * hold a person's decision about one of them. A value they set aside
+       * there is offered to no check, a model's and one two readers differ on
+       * wait on the row, and a value the row's own kind does not carry is no
+       * reading of its paper.
+       */
+      cards.push(...factFillProposals(project, standingAmongRead(evidence, doc), source, actor, cards));
       cards.push(...flagFindingProposals(project, doc.flags, source, actor, cards));
     }
     cards.push(...placeProposalsFromIngest(project, [file], actor).filter((p) => !cards.some((c) => c.title === p.title)));
@@ -339,6 +404,7 @@ export async function readOntoRegister(
     proposedTypes.length
       ? `\nA model takes ${proposedTypes.length === 1 ? `it for ${article(proposedTypes[0]!)}` : `them for ${proposedTypes.map(article).join(', ')}`}. That is an offer: confirm it on the row, and until then it answers no waiting row.`
       : '',
+    ...keptKinds.map((kept) => `\n${kept.file} reads as ${article(kept.readAs)}, and its row says ${article(kept.is)}. The row keeps its kind until somebody confirms or corrects it there, and what only the other kind carries waits meanwhile.`),
     partly.length ? `\n${partly.join('\n')}` : '',
     '\nWhat it states is waiting on the row, value by value. Accept each where it sits.',
   ]

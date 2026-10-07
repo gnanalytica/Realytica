@@ -52,6 +52,7 @@ import {
   createEngagement,
   ensureWorkstreamChecks,
   createProjectGrant,
+  DecisionRefused,
   departmentReach,
   departmentRole,
   fileCertifiedReport,
@@ -101,7 +102,7 @@ import {
   type ScopeKey,
   type DepartmentRole,
 } from '@realytica/shared';
-import { viewFor } from '../auth/access';
+import { decidesFor, viewFor } from '../auth/access';
 import { needs, principalOf } from '../auth/middleware';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -156,8 +157,9 @@ function touch(project: DdProject): void {
   project.updatedAt = new Date().toISOString();
 }
 
+/** A decision refused for want of the role is answered as a refusal, 403, with the department it names. Anything else is the request's own fault. */
 function failed(res: Response, err: unknown, fallback: string): void {
-  res.status(400).json({ error: err instanceof Error ? err.message : fallback });
+  res.status(err instanceof DecisionRefused ? 403 : 400).json({ error: err instanceof Error ? err.message : fallback });
 }
 
 /* ==================================================================== */
@@ -371,7 +373,8 @@ projectWorkspaceRouter.post<Params>('/certified', async (req, res) => {
   }
   if (!allowed(req, res, project, ws.department, 'decide')) return;
   try {
-    const report = fileCertifiedReport(project, parsed.data, actorOf(principalOf(req)));
+    // Filing a paper another function holds as this workstream's report moves it, and a move is the holding department's to make.
+    const report = fileCertifiedReport(project, parsed.data, actorOf(principalOf(req)), { mayDecide: decidesFor(req, project) });
     noteProjectEdit(project, `Filed ${report.title} by ${report.signer.name} as the figure of record for ${ws.label}.`, { citedEvidenceIds: [report.evidenceId], actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
@@ -667,6 +670,14 @@ projectWorkspaceRouter.delete<Params & { linkId: string }>('/links/:linkId', asy
 
 const ownerSchema = z.object({ workstream: z.string().regex(/^[a-z]+\.[a-z_]+$/).nullable() });
 
+/**
+ * Give a document to a workstream, or with `null` hand it back to what it
+ * is. Which function holds a paper says whose its values are to decide, so
+ * moving one a function already holds takes a lead or signer of the
+ * department that holds it now, and anybody else is answered 403. A paper no
+ * function holds yet is given its first home by any of the firm's people. The
+ * move is written on the trail by the shared function.
+ */
 projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidenceId/workstream', async (req, res) => {
   const project = load(req, res);
   if (!project || !staffOnly(req, res)) return;
@@ -676,7 +687,7 @@ projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidence
     return;
   }
   try {
-    setDocumentWorkstream(project, req.params.evidenceId, parsed.data.workstream);
+    setDocumentWorkstream(project, req.params.evidenceId, parsed.data.workstream, actorOf(principalOf(req)), { mayDecide: decidesFor(req, project) });
     touch(project);
     await store.save();
     res.json({ project });
@@ -689,6 +700,12 @@ projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidence
  * What a change reaches. Neo4j walks it when it is the store; if that fails
  * the same walk runs over the projection, so the answer never depends on the
  * graph store being up.
+ *
+ * Somebody working from a grant is never answered by the store. Its graph is
+ * the whole file's, and what a record reaches is exactly the checks, findings
+ * and costs beside it that they were not given. They are answered by the same
+ * walk over their own copy of the project, and a record that is not on it is
+ * not found.
  */
 projectWorkspaceRouter.get<Params>('/graph/impact', async (req, res) => {
   const project = load(req, res);
@@ -696,6 +713,16 @@ projectWorkspaceRouter.get<Params>('/graph/impact', async (req, res) => {
   const node = typeof req.query.node === 'string' ? req.query.node.slice(0, 200) : '';
   if (!node) {
     res.status(400).json({ error: 'Name the record: ?node=' });
+    return;
+  }
+  const view = viewFor(req, project);
+  if (!view.complete) {
+    const reached = graphImpact(buildProjectGraph(view.project), node);
+    if (!reached) {
+      res.status(404).json({ error: 'That record is not in the graph.' });
+      return;
+    }
+    res.json({ impact: reached, source: 'projection' });
     return;
   }
   let impact = null;

@@ -246,9 +246,12 @@ export interface LegendItem {
   shape?: 'rect' | 'line';
 }
 
-/** Present whenever there are >=2 series; a single series names itself via the card title instead. */
-export function Legend({ items, className }: { items: LegendItem[]; className?: string }) {
-  if (items.length < 2) return null;
+/**
+ * Present whenever there are >=2 series; a single series names itself via the card title instead.
+ * `single` draws a lone item too, for a chart that lists here the marks it had no room to label.
+ */
+export function Legend({ items, className, single = false }: { items: LegendItem[]; className?: string; single?: boolean }) {
+  if (items.length < (single ? 1 : 2)) return null;
   return (
     <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1', className)} role="list">
       {items.map((it) => (

@@ -11,7 +11,7 @@
 import type { DdProject } from './types';
 import type { WorkspaceRole } from './tenancy';
 import type { DepartmentKey, DepartmentRole } from './departments';
-import { DEFAULT_DEPARTMENTS, DEPARTMENT_KEYS, scopesOfDepartments } from './departments';
+import { DEFAULT_DEPARTMENTS, DEPARTMENT_KEYS, roleCanDecide, scopesOfDepartments } from './departments';
 import type { GrantArea, ProjectRole } from './project-access';
 import type { ScopeKey } from './types';
 import { recordAuditEvent } from './operations';
@@ -80,6 +80,45 @@ export function departmentRole(project: DdProject, person: { email: string; work
   const explicit = member?.departments[department];
   if (explicit) return explicit;
   return person.workspaceRole ? DEFAULT_BY_WORKSPACE_ROLE[person.workspaceRole] : undefined;
+}
+
+/**
+ * Whether a person may decide in a department: accept what was read there,
+ * set it aside, reopen it, pick one of two, or move a paper out of it.
+ *
+ * The answer carries what it was asked of. Whoever is handed it asks it about
+ * a paper or a check on a project, and that project may be one person's copy
+ * with the parts they may not see taken out. A copy cannot say which
+ * department holds a paper when the check that says so is not on it. So the
+ * department is always worked out on `record`, the whole project the answer
+ * was built on, and a copy is never asked.
+ */
+export interface MayDecide {
+  (department: DepartmentKey): boolean;
+  /** The whole project this was built on. Absent on an answer made by hand, which is asked of whatever project it is used on. */
+  readonly record?: DdProject;
+  /**
+   * The role the team list gives the person in a department, where that is
+   * why they may not decide there: their firm role alone would let them. A
+   * refusal says so, since the team list is then the place to change it.
+   */
+  readonly heldBack?: (department: DepartmentKey) => DepartmentRole | undefined;
+}
+
+/**
+ * Where a person decides on this project: the departments they lead or sign
+ * in, by the team list or by their firm role's default. Asked each time, so a
+ * change to the team list is heard by whatever still holds the answer.
+ */
+export function decidesIn(project: DdProject, person: { email: string; workspaceRole?: WorkspaceRole }): MayDecide {
+  const firmRole = person.workspaceRole ? DEFAULT_BY_WORKSPACE_ROLE[person.workspaceRole] : undefined;
+  return Object.assign((department: DepartmentKey) => roleCanDecide(departmentRole(project, person, department)), {
+    record: project,
+    heldBack: (department: DepartmentKey) => {
+      const role = departmentRole(project, person, department);
+      return role && !roleCanDecide(role) && roleCanDecide(firmRole) ? role : undefined;
+    },
+  });
 }
 
 /** The departments this project uses: its own choice, else the firm's, else all six. */

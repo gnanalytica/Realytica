@@ -77,7 +77,9 @@ function ReviewRow({
   const model = fact.source === 'model';
   return (
     <div
-      onMouseEnter={onActivate}
+      // Pointed at by a pointer that moves onto it. A row drawn under a pointer at rest is not: the desk opens under the
+      // press that asked for one value, and the row that happened to land there would take the page from it.
+      onMouseMove={active ? undefined : onActivate}
       onClick={onActivate}
       data-active={active || undefined}
       className={cn(

@@ -438,7 +438,10 @@ const KIND_EVENTS: Record<string, MemFactPast['what']> = {
  * person confirmed or corrected it to that. Where the row was read and nobody
  * has said, it is the rules' reading, which the record acts on. A paper typed
  * by hand with nothing read off it has nobody on record as saying so, and is
- * not told. The kind a model offers and nobody has answered waits beside it.
+ * not told. The kind a reading offers and nobody has answered waits beside
+ * it. On a row with no kind that is a model's offer, since the rules' own
+ * reading would have named the row. On a row that has a kind it is whatever
+ * read the file put on it: the rules, where no model has read the row.
  */
 function kindFacts(project: DdProject, row: EvidenceRecord, trail: Trail): Told[] {
   if (!row.documentType && !row.proposedDocumentType) return [];
@@ -453,7 +456,8 @@ function kindFacts(project: DdProject, row: EvidenceRecord, trail: Trail): Told[
     else if (row.readMethod) told.push({ ...about, slot: `${row.id}::paper_kind`, tag: 'proposed', value: row.documentType, recordedAt: readAt, readBy: 'rules', stands: true, was });
   }
   if (row.proposedDocumentType) {
-    told.push({ ...about, slot: `${row.id}::paper_kind::offer`, tag: 'proposed', value: row.proposedDocumentType, recordedAt: readAt, readBy: 'model', stands: false, ...(told.length ? {} : { was }) });
+    const offeredBy = row.documentType && !row.modelReadAt ? 'rules' : 'model';
+    told.push({ ...about, slot: `${row.id}::paper_kind::offer`, tag: 'proposed', value: row.proposedDocumentType, recordedAt: readAt, readBy: offeredBy, stands: false, ...(told.length ? {} : { was }) });
   }
   return told;
 }

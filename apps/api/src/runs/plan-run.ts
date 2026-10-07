@@ -42,10 +42,13 @@ import { proposePlanByModel } from '@realytica/agents';
 import {
   PLAN_SAID,
   PLAN_STEP,
+  chatSessions,
   isPlanned,
+  liveTurns,
   planAct,
   planChoices,
   planCountSaid,
+  planIsNamed,
   planMayBeAsked,
   planMayBeMeant,
   planPlaceOf,
@@ -54,8 +57,10 @@ import {
   planStepsIn,
   planWants,
   planWantsHeld,
+  splitThread,
   type ChatChoice,
   type ChatPlan,
+  type ChatSitting,
   type ChatTurnPlace,
   type ChoicePin,
   type DdProject,
@@ -235,6 +240,11 @@ async function actOn(ask: PlanAsk, run: PlanRun, act: NonNullable<ReturnType<typ
   return { say: shown(next ?? run) };
 }
 
+/** The last thing a chat said to its person: this sitting's turns, and those of the earlier chat it carries on. */
+function lastSaidIn(project: DdProject, chat: ChatSitting = {}): ProjectChatTurn | undefined {
+  return liveTurns(splitThread(project.conversation).conversation, chatSessions(project.conversation), chat).reverse().find((turn) => turn.role === 'assistant');
+}
+
 /**
  * What a sentence, or a pressed choice, means for plans on this project, or
  * nothing when it means nothing for them.
@@ -250,7 +260,11 @@ export async function planTurnFor(ask: PlanAsk): Promise<PlanTurn | undefined> {
   // A typed sentence is about this person's newest plan that is not over, when it reads as one of the few things said of a plan.
   const mine = planMayBeMeant(question) ? (await plansOf(project.id)).find((run) => !planOver(run) && run.plan.by === actor) : undefined;
   const said = mine ? planAct(question, mine.plan, planCutShort(mine)) : undefined;
-  if (mine && said) return actOn(ask, mine, said);
+  // "Go ahead", "do it", "carry on": a yes that names no plan answers whatever this chat said last. It runs the plan
+  // only where that was the plan's: the plan shown or how it stands, a step ticked off, or what a step of it said.
+  // Typed in another chat, or after another reply, it is answered as it always was.
+  const assent = said !== undefined && (said.act === 'run' || said.act === 'carry_on') && !planIsNamed(question);
+  if (mine && said && !(assent && lastSaidIn(project, ask.chat)?.planId !== mine.id)) return actOn(ask, mine, said);
 
   // A new job. The rules read its steps. Where they read none and it may still be one, or read some and could place only part of
   // the sentence, a model may lay the whole of it out, held to the list.
@@ -392,12 +406,13 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
       return undefined;
     });
   };
-  /** The turns a step leaves are the plan's: in its chat, on its page. */
+  /** The turns a step leaves are the plan's: in its chat, on its page, and what the chat says in them names the plan. */
   const mark = (turns: readonly ProjectChatTurn[]): void => {
     for (const turn of turns) {
       if (!turn.sessionId && plan.sessionId) turn.sessionId = plan.sessionId;
       if (!turn.place && plan.place) turn.place = plan.place;
       turn.actor ??= plan.by;
+      if (turn.role === 'assistant') turn.planId ??= planId;
     }
   };
   const saved = async (): Promise<void> => {
@@ -430,7 +445,7 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
       step.said = done.said;
       step.state = done.complete ? 'done' : 'to_do';
       if (done.complete) step.endedAt = new Date().toISOString();
-      const tick = planSays(project, plan, `Step ${n} of ${inPlan.length} ${done.complete ? 'done' : 'stopped part way'}. ${step.label}: ${done.said}`, { tool: PLAN_STEP, summary: `${done.complete ? 'Done' : 'Part done'}: ${step.label}` });
+      const tick = planSays(project, plan, `Step ${n} of ${inPlan.length} ${done.complete ? 'done' : 'stopped part way'}. ${step.label}: ${done.said}`, { tool: PLAN_STEP, summary: `${done.complete ? 'Done' : 'Part done'}: ${step.label}`, planId });
       await keepTurnChanges(project, stood, tick);
       await saved();
       await keep();
@@ -439,7 +454,7 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
       step.state = 'failed';
       step.said = err instanceof Error ? err.message : 'It could not be done.';
       plan.stoppedBecause = `Step ${n} could not be done: ${step.said}`;
-      const tick = planSays(project, plan, `Step ${n} of ${inPlan.length} could not be done. ${step.label}: ${step.said}`, { tool: PLAN_STEP, summary: `Not done: ${step.label}` });
+      const tick = planSays(project, plan, `Step ${n} of ${inPlan.length} could not be done. ${step.label}: ${step.said}`, { tool: PLAN_STEP, summary: `Not done: ${step.label}`, planId });
       // A step that failed part way may have changed something before it did.
       await keepTurnChanges(project, stood, tick);
       await saved();

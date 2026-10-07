@@ -17,7 +17,10 @@ import { describe, it } from 'node:test';
 import {
   DEPARTMENT_SHORT,
   MENU_DEPARTMENTS,
+  FIRM_ONLY_PANES,
+  SHARED_PLACE_WORDS,
   STAGES,
+  addSiteVisit,
   applyProjectChat,
   chatPlaceLabel,
   cockpitPath,
@@ -25,6 +28,7 @@ import {
   menuAt,
   menuFunctions,
   placeFromText,
+  placeOfRecord,
   placeOfWords,
   seedBdaReferenceProject,
   seedDemoProject,
@@ -452,6 +456,59 @@ describe('the chat goes there', () => {
     applyProjectChat(p, 'move the project to Under construction');
     assert.notEqual(p.currentStage, was, 'a person’s own instruction to move it still runs');
     assert.equal(stageOf(p.currentStage), 'construction');
+  });
+
+  it('answers to the word on every tab, and says that word in the reply, the chip and the toast', () => {
+    for (const [pane, word] of SHARED_PLACE_WORDS) {
+      const p = demo();
+      const reading = went(placeFromText(p, `open ${word}`));
+      // Checks holds the scopes and Risks and actions holds both registers: two panes, one tab.
+      assert.equal(chatPlaceLabel(reading.place), word, `“open ${word}” opens the tab called ${word}, asked for ${pane}`);
+      const out = applyProjectChat(p, `open ${word}`);
+      assert.match(out.assistantTurn.text.toLowerCase(), new RegExp(`^(the )?${word.toLowerCase()} (is|are) open`), out.assistantTurn.text);
+      assert.deepEqual(out.assistantTurn.toolCalls, [{ name: 'navigate', summary: word }]);
+      assert.deepEqual(out.commands, [`Opened ${word}`]);
+    }
+    // The three that were not understood, or were said by the key the code knows them by.
+    assert.equal(applyProjectChat(demo(), 'open Review').assistantTurn.text, 'Review is open.');
+    assert.equal(applyProjectChat(demo(), 'open Auto-run').assistantTurn.text, 'Auto-run is open.');
+    assert.match(applyProjectChat(demo(), 'open AI drafts').assistantTurn.text, /^AI drafts are open/);
+  });
+
+  it('calls the list of due diligences Checks, as its tab does, however it was asked for', () => {
+    for (const said of ['go to registers', 'open Checks', 'show the due diligence', 'open dd']) {
+      const out = applyProjectChat(demo(), said);
+      assert.match(out.assistantTurn.text, /^Checks are open — \d+ due diligences?\.$/, said);
+      assert.deepEqual(out.assistantTurn.toolCalls, [{ name: 'navigate', summary: 'Checks' }], said);
+      assert.deepEqual(out.commands, ['Opened Checks'], said);
+      assert.doesNotMatch(out.assistantTurn.text, /\bDDs?\b/, said);
+    }
+  });
+
+  it('tells a collaborator that a page is the firm’s own, and moves nothing', () => {
+    for (const pane of FIRM_ONLY_PANES) {
+      const word = chatPlaceLabel({ pane });
+      const p = demo();
+      const out = applyProjectChat(p, `open ${word}`, { outside: true });
+      assert.equal(out.assistantTurn.text, `${word} is the firm’s own page. Nothing moved.`);
+      assert.deepEqual(out.navigations, [], word);
+      assert.deepEqual(out.commands, [], word);
+      // The firm's own people are taken there.
+      assert.equal(applyProjectChat(demo(), `open ${word}`).navigations.at(-1)?.target, pane);
+    }
+    // A page that is everybody's opens for a collaborator as it always did.
+    assert.equal(applyProjectChat(demo(), 'open Documents', { outside: true }).navigations.at(-1)?.target, 'evidence');
+    assert.equal(applyProjectChat(demo(), 'open Title', { outside: true }).navigations.at(-1)?.workstream, 'legal.title');
+  });
+
+  it('links a site visit to its own row on the Site page', () => {
+    const p = demo();
+    const visit = addSiteVisit(p, { title: 'First visit', purpose: 'inspection', visitedOn: '2026-09-01', surveyor: 'tester' } as never);
+    const at = placeOfRecord(p, visit.id)!;
+    // Was: the page with no row named, so the Site page had nothing to light.
+    assert.deepEqual([at.open.pane, at.open.extra.item], ['visits', visit.id]);
+    assert.match(cockpitPath(p.id, at.open.pane, at.open.extra), new RegExp(`^/projects/${p.id}/visits\\?item=${visit.id}(?:&stage=\\w+)?$`));
+    assert.equal(cockpitPath(p.id, 'visits'), `/projects/${p.id}/visits`, 'the page asked for alone names no row');
   });
 
   it('names a place the way the menu does', () => {

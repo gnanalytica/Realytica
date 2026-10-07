@@ -17,6 +17,8 @@ import { recordAuditEvent } from './operations';
 import { standingFacts } from './fact-review';
 import { workstreamDefinition } from './departments';
 import { quickAssessment, snapshotOf, type QuickSnapshot, type QuickVerdict } from './quick-assessments';
+import type { MayDecide } from './team';
+import { documentWorkstream, moveDocument } from './vault';
 
 export interface CertifiedSigner {
   name: string;
@@ -67,11 +69,32 @@ export const REVISIT_PROGRESS_POINTS = 5;
 
 const VERDICT_RANK: Record<QuickVerdict, number> = { clear: 0, conditions: 1, blockers: 2, insufficient: -1 };
 
-export function fileCertifiedReport(project: DdProject, input: FileCertifiedInput, actor: string): CertifiedReport {
+/**
+ * File a signed report as its workstream's figure of record.
+ *
+ * A paper filed this way is held by the report's workstream where nothing
+ * closer says whose it is (`documentWorkstream`). So filing one can move a
+ * paper another function holds, and is held to the rule for a move
+ * (`moveDocument`): with `mayDecide`, that takes a lead or a signer of the
+ * department that holds the paper now. Whether the person may certify for the
+ * report's own department is the caller's to ask.
+ */
+export function fileCertifiedReport(project: DdProject, input: FileCertifiedInput, actor: string, options: { mayDecide?: MayDecide } = {}): CertifiedReport {
   if (!workstreamDefinition(input.workstream)) throw new Error('Unknown workstream.');
-  if (!project.evidence.some((e) => e.id === input.evidenceId)) throw new Error('Upload the signed report to the vault first.');
+  const paper = project.evidence.find((e) => e.id === input.evidenceId);
+  if (!paper) throw new Error('Upload the signed report to the vault first.');
   if (!input.signer.name.trim() || !input.signer.profession.trim()) throw new Error('A certified report names who signed it and their profession.');
   if (!input.figure && !input.verdict) throw new Error('A certified report states a figure or a conclusion.');
+  // Where the paper would be held with this report on the file, asked before anything is written.
+  const onceFiled = (record: DdProject) => documentWorkstream({ ...record, certifiedReports: [...(record.certifiedReports ?? []), { workstream: input.workstream, evidenceId: input.evidenceId } as CertifiedReport] }, paper);
+  let filed: CertifiedReport | undefined;
+  moveDocument(project, paper, onceFiled, actor, options.mayDecide, () => {
+    filed = certify(project, input, actor);
+  });
+  return filed!;
+}
+
+function certify(project: DdProject, input: FileCertifiedInput, actor: string): CertifiedReport {
   const at = new Date().toISOString();
   for (const held of project.certifiedReports ?? []) {
     if (held.workstream === input.workstream && held.status === 'current') held.status = 'superseded';

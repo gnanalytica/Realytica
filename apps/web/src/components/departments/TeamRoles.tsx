@@ -5,6 +5,7 @@ import {
   DEPARTMENT_ROLES,
   DEPARTMENT_ROLE_HINT,
   DEPARTMENT_ROLE_LABEL,
+  DEPARTMENT_SHORT,
   WORKSPACE_ROLE_LABEL,
   can,
   departmentRole,
@@ -25,15 +26,6 @@ interface Row {
   workspaceRole?: WorkspaceRole;
   member?: TeamMember;
 }
-
-const SHORT: Record<DepartmentKey, string> = {
-  finance: 'Finance',
-  legal: 'Legal',
-  design: 'Design',
-  construction: 'Construction',
-  procurement: 'Procurement',
-  commercial: 'Commercial',
-};
 
 /**
  * Who does what, department by department.
@@ -88,7 +80,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
         ...(adding.role === 'signer' ? { signer: { profession: adding.profession.trim(), registration: adding.registration.trim() || undefined } } : {}),
       });
       onChanged(res.project);
-      toast(`${adding.name.trim() || adding.email.trim()} is on the project as ${DEPARTMENT_ROLE_LABEL[adding.role].toLowerCase()} in ${SHORT[adding.department as DepartmentKey]}.`, 'good');
+      toast(`${adding.name.trim() || adding.email.trim()} is on the project as ${DEPARTMENT_ROLE_LABEL[adding.role].toLowerCase()} in ${DEPARTMENT_SHORT[adding.department as DepartmentKey]}.`, 'good');
       setAdding({ ...adding, email: '', name: '', profession: '', registration: '' });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not add them', 'critical');
@@ -157,7 +149,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
               <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5">
                 {departments.map((d) => (
                   <div key={d.key} className="min-w-0">
-                    <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{SHORT[d.key]}</dt>
+                    <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{DEPARTMENT_SHORT[d.key]}</dt>
                     <dd className="mt-1">{roleFor(row, d)}</dd>
                   </div>
                 ))}
@@ -172,7 +164,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
                 <th className="px-4 py-2 font-semibold">Person</th>
                 {departments.map((d) => (
                   <th key={d.key} className="px-2 py-2 font-semibold">
-                    {SHORT[d.key]}
+                    {DEPARTMENT_SHORT[d.key]}
                   </th>
                 ))}
               </tr>

@@ -25,6 +25,7 @@ import {
   changeLines,
   changesBetween,
   createProject,
+  createValuationRun,
   listedIds,
   logSiteEntry,
   ownChanges,
@@ -114,6 +115,29 @@ describe('what a message changed', () => {
     const kept = turnChanged(owners, true)!;
     assert.deepEqual([kept.lines.length, kept.more, kept.kept], [12, 2, true]);
     assert.equal(undoSentence(kept), `Undo: ${kept.lines[0]}, and 13 more`);
+  });
+
+  it('says a valuation run as the valuation, with no name where it has none, and what it brings up to date in words a person would use', () => {
+    const { project } = fixture();
+    const before = JSON.stringify(recordAsItStands(project));
+    const ran = did(project, () => void createValuationRun(project, LEAD));
+    // Was: 'Ran the valuation “untitled”' and 'Changed capability runs'.
+    assert.deepEqual(changeLines(ran), ['Ran the valuation', 'Changed the Auto-run summary']);
+    // Only the words changed. An undo puts back what it always did: the run and the summary, and the record is as it stood.
+    const run = project.valuationRuns[0]!;
+    assert.deepEqual(changeLines(did(project, () => (run.signOff = 'internal_review'))), ['Changed the valuation']);
+    assert.deepEqual(changeLines(did(project, () => (run.status = 'superseded'))), ['Marked the valuation as superseded']);
+    run.signOff = 'unsigned';
+    run.status = 'computed';
+    const undone = undoChanges(project, ran);
+    assert.deepEqual([undone.back.map((group) => group.path[0]).sort(), undone.left], [['capabilityRuns', 'valuationRuns'], []]);
+    assert.equal(JSON.stringify(recordAsItStands(project)), before);
+    const again = did(project, () => void createValuationRun(project, LEAD));
+    assert.deepEqual(changeLines(did(project, () => project.valuationRuns.pop())), ['Removed the valuation']);
+    assert.equal(again.some((group) => group.quiet), false, 'each is still a thing of its own to put back');
+    // A record that has a name is still said by it, and the screen is still called the screen.
+    assert.deepEqual(changeLines(did(project, () => project.decisions.push({ id: 'dec_1', title: 'Rebuild the north wall', status: 'approved' } as unknown as DdProject['decisions'][number]))), ['Recorded the decision “Rebuild the north wall”']);
+    assert.deepEqual(changeLines(did(project, () => ((project as unknown as Record<string, unknown>).lastScreenResult = { verdict: 'clear' }))), ['Changed the last screen']);
   });
 
   it('does not take the clock for a change', () => {

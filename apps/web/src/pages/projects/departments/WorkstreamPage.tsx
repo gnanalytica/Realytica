@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Link, Navigate, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
@@ -204,9 +204,14 @@ function visitOf(key: string): number {
  * record is on, with the record in view, and not the list of every record of
  * its kind. The ids of the parts are the ones `functionSections` gives the
  * chat; a test holds the two together.
+ *
+ * A document picked from one of the page's own lists opens the same way, at
+ * the same address. Closing it goes back to the address it was opened from,
+ * with the page where the person had it.
  */
 function FunctionSections({ project, ws, setProject, highlightIds }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void; highlightIds?: string[] }) {
   const nav = useWorkstreamNav(project);
+  const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useSearchParams();
   const part = query.get('part');
@@ -222,19 +227,72 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
    * there still leaves the part in view.
    */
   const visit = visitOf(location.key);
-  const jump = useMemo(() => (part ? { id: part, at: visit } : null), [part, visit]);
+  /*
+   * A document opened from this page's own lists is not a landing. The row is
+   * under the hand that pressed it, so the page stays where the person has
+   * it: on the step that opens the document, and on the step back from it.
+   */
+  const openedHere = Boolean((location.state as { openedHere?: boolean } | null)?.openedHere);
+  const [openedFrom, setOpenedFrom] = useState<string | null>(null);
+  // Only the step back from the document is spared. Once the person has gone anywhere else, coming to that address again is a landing like any other.
+  if (openedFrom && !openedHere && openedFrom !== location.key) setOpenedFrom(null);
+  const landing = !openedHere && openedFrom !== location.key;
+  const jump = useMemo(() => (part && landing ? { id: part, at: visit } : null), [part, landing, visit]);
   // The documents to light: the one the address names, and the ones the chat has just filed or cited.
   const lit = useMemo(() => [...(openId ? [openId] : []), ...(highlightIds ?? [])], [openId, highlightIds]);
   const proof = openId ? project.evidence.find((e) => e.id === openId) : undefined;
   const proofQuotes = useMemo(() => (proof ? quotesForEvidence(project, proof.id) : []), [proof, project]);
+  /*
+   * One of this function's documents, opened where a link from the chat opens
+   * it: over this page, not on the register of every document. It is a step
+   * of its own in the history, marked as one this page took, so closing it is
+   * the step back and lands on the very address it was opened from.
+   */
+  const openHere = (evidenceId: string) => {
+    const next = new URLSearchParams(query);
+    next.set('part', 'documents');
+    next.delete('item');
+    next.set('evidence', evidenceId);
+    next.delete('page');
+    setOpenedFrom(location.key);
+    navigate({ search: `?${next.toString()}` }, { state: { openedHere: true } });
+  };
+  /*
+   * The step back is taken once for an opening. It lands a moment after it is
+   * asked for, and a second Escape or a second press on Close in that moment
+   * would otherwise be a second step, off this page.
+   */
+  const steppedBack = useRef(false);
+  useEffect(() => {
+    steppedBack.current = false;
+  }, [location.key]);
+  const closeProof = () => {
+    if (openedHere) {
+      if (steppedBack.current) return;
+      steppedBack.current = true;
+      navigate(-1);
+      return;
+    }
+    // Reached by a link: there is no address before it to go back to, so the page stays and the document leaves the address.
+    setQuery(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('evidence');
+        next.delete('page');
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   const centre: PageSection | null =
     ws.key === 'legal.approvals'
-      ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={nav.openDocument} marked={item} /> }
+      ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={openHere} marked={item} /> }
       : ws.key === 'construction.progress'
         ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} marked={item} /> }
-        : chain?.nodes.length
-          ? { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
+        : chain
+          ? // Always a part of Title, drawn or not: a link to the chain then lands on the part that says none is drawn yet.
+            { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
           : null;
 
   const sections: PageSection[] = [
@@ -245,13 +303,13 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
       body: (
         <div className="grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
           <QuickAssessmentCard assessment={assessment} />
-          <CertifiedPanel project={project} workstream={ws.key} onChanged={setProject} />
+          <CertifiedPanel project={project} workstream={ws.key} onChanged={setProject} marked={part === 'standing' ? item : null} />
         </div>
       ),
     },
     ...(centre ? [centre] : []),
     { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} marked={part === 'checks' ? item : null} /> },
-    { id: 'documents', name: 'Documents', icon: FileStack, body: <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={nav.openDocument} marked={lit} landed={part === 'documents' || openId ? visit : null} /> },
+    { id: 'documents', name: 'Documents', icon: FileStack, body: <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={openHere} marked={lit} landed={(part === 'documents' || openId) && landing ? visit : null} /> },
     {
       id: 'connections',
       name: 'Connections',
@@ -278,17 +336,7 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
           quotes={proofQuotes}
           citedPage={cited ? Number(cited) || undefined : undefined}
           onProject={setProject}
-          onClose={() =>
-            setQuery(
-              (prev) => {
-                const next = new URLSearchParams(prev);
-                next.delete('evidence');
-                next.delete('page');
-                return next;
-              },
-              { replace: true },
-            )
-          }
+          onClose={closeProof}
         />
       ) : null}
     </>

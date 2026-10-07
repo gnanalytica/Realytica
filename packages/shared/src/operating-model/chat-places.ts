@@ -141,6 +141,14 @@ const PANE_WORD: Partial<Record<ProjectCockpitPane, string>> = {
 export const SHARED_PLACE_WORDS: ReadonlyArray<[ProjectCockpitPane, string]> = Object.entries(PANE_WORD) as Array<[ProjectCockpitPane, string]>;
 
 /**
+ * The shared places that are the firm's own people's: the review table, what
+ * the firm sends, and who is on the project. Somebody working from a grant on
+ * one project is not shown them, by the menu or by the chat. Kept beside the
+ * menu's own list in `rail.tsx` and `ProjectCommandBar.tsx`.
+ */
+export const FIRM_ONLY_PANES: ReadonlySet<ProjectCockpitPane> = new Set<ProjectCockpitPane>(['review', 'outgoing', 'people']);
+
+/**
  * A place in a word or two, as the menu writes it: "Title", "Legal",
  * "Documents". A function whose word another function shares carries its
  * department, because Legal and Commercial each have a Handover.
@@ -291,7 +299,7 @@ const SHARED_NAMES: Array<[ProjectCockpitPane, string[]]> = [
   ['decisions', ['decisions']],
   ['assets', ['assets', 'phases', 'phases and assets', 'towers']],
   ['reports', ['reports', 'report']],
-  ['review', ['review table', 'review tables']],
+  ['review', ['review', 'review table', 'review tables']],
   ['outgoing', ['outgoing', 'letters', 'letters and minutes']],
   ['drafts', ['drafts', 'ai drafts']],
   ['orchestrate', ['auto run', 'orchestrator']],
@@ -999,7 +1007,12 @@ export function placeOfRecord(project: DdProject, id: string, here: ChatPlace = 
   const entry = (project.siteLog ?? []).find((e) => e.id === id);
   if (entry) return reachable(project, 'construction.progress') ? onFunction(project, 'site_entry', `Site log ${entry.date}`, 'construction.progress', 'progress', { item: entry.id }, here) : undefined;
   const visit = (project.siteVisits ?? []).find((v) => v.id === id);
-  if (visit) return reachable(project, 'construction.site') ? onFunction(project, 'site_visit', visit.title, 'construction.site', undefined, {}, here) : undefined;
+  if (visit) {
+    if (!reachable(project, 'construction.site')) return undefined;
+    // The Site page is not laid out in parts, so the visit is named on the address itself for the page to light its row.
+    const place = onFunction(project, 'site_visit', visit.title, 'construction.site', undefined, {}, here);
+    return { ...place, open: { ...place.open, extra: { ...place.open.extra, item: visit.id } } };
+  }
 
   const sheet = (project.questionnaires ?? []).find((q) => q.id === id);
   if (sheet) {

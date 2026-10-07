@@ -98,6 +98,7 @@ import { questionStatus, questionnaireDepartment, questionnaireSummary } from '.
 import { projectDepartments } from './team';
 import { quickAssessment, QUICK_VERDICT_LABEL } from './quick-assessments';
 import { approvalsRegister, APPROVAL_STATUS_LABEL } from './approvals';
+import { COST_DEDUCTION_LABEL, billLineStatus, billPosition, contractPosition, costRegister, costSourceSaid, moneySaid, packagePosition, type BillLine } from './cost';
 import { linkEdge, projectLinks, type LinkEnd } from './links';
 import { documentWorkstream } from './vault';
 import type { TitleEdgeKind, TitleGraph, TitleGraphSummary, TitleNodeKind } from '../types';
@@ -193,8 +194,9 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
  * on a file with no land declared, and `sited_at` would say the project
  * stands on that parcel and `engaged_on` that it engaged that party. A kind
  * left out is one that always arrives under a parent (a check under its
- * scope, an answer under its questionnaire) or that points at the project
- * itself, as every question, thought and proposal does.
+ * scope, an answer under its questionnaire, a bill's line and its certificate
+ * under the bill) or that points at the project itself, as every question,
+ * thought and proposal does.
  */
 const PROJECT_TIE: Partial<Record<ProjectGraphNodeKind, ProjectGraphEdgeKind>> = {
   department: 'has_department',
@@ -219,6 +221,9 @@ const PROJECT_TIE: Partial<Record<ProjectGraphNodeKind, ProjectGraphEdgeKind>> =
   engagement: 'has_record',
   member: 'has_record',
   contradiction: 'has_record',
+  work_package: 'has_record',
+  contract: 'has_record',
+  bill: 'has_record',
 };
 
 /**
@@ -713,8 +718,8 @@ const ROLE_EDGE: Record<DepartmentRole, ProjectGraphEdgeKind> = {
 
 /**
  * Stages, departments, functions, engagements, people, milestones, the site
- * log, quick assessments and certified reports, and every record placed in
- * its function and in the stage it arrived in.
+ * log, the cost register, quick assessments and certified reports, and every
+ * record placed in its function and in the stage it arrived in.
  *
  * This is the frame the departments share. The registers above say what the
  * file holds; this says whose work each record is, when it happened, and how
@@ -837,6 +842,105 @@ function addStructure(project: DdProject, b: Builder): void {
     for (const update of entry.milestoneUpdates) b.edge(entry.id, update.milestoneId, 'advances');
   }
 
+  /*
+   * The cost register: the budget's work packages, the contracts that cover
+   * them, each contractor's bills with their lines, and the certificates
+   * issued on them.
+   *
+   * Every line of a bill is a node of its own, so that a question about one
+   * item finds it ("what was passed for the waterproofing in the third
+   * bill"). Its detail carries its amounts and where on the paper they were
+   * read, because the detail is what a search reads and what the chat is
+   * handed. A line that said only "item 4.2" would be found and say nothing.
+   * It also names its bill and its work package: a neighbourhood taken around
+   * one line does not walk on from them to every other line they have
+   * (`extractProjectSubgraph`), so the line says where it sits by itself.
+   *
+   * A node's detail also says what its status says. The neighbourhood handed
+   * to the chat is written from the label and the detail alone, so a
+   * certificate that was withdrawn has to say so in words, or it reads as one
+   * that stands. For the same reason a line is "certified" only while its
+   * bill's certificate stands: what was passed for it before one is issued,
+   * or after it was withdrawn, is said as passed, with no certificate.
+   *
+   * Budget holds a package, a contract and a bill. A line and a certificate
+   * arrive under their bill.
+   */
+  const cost = costRegister(project);
+  const money = (amount: number): string => moneySaid(amount, project.currency);
+  const packageNames = new Map(cost.workPackages.map((pack) => [pack.id, [pack.code, pack.name].filter(Boolean).join(' ')]));
+  for (const pack of cost.workPackages) {
+    const at = packagePosition(project, pack.id);
+    const over = at.balance !== undefined && at.balance < 0;
+    const detail = [
+      at.budget === undefined ? 'No budget set' : `Budget ${money(at.budget)}`,
+      `claimed ${money(at.claimed)}`,
+      `certified ${money(at.certified)}`,
+      at.balance === undefined ? '' : over ? `over budget by ${money(-at.balance)}` : `left of the budget ${money(at.balance)}`,
+    ];
+    b.node('work_package', pack.id, packageNames.get(pack.id) ?? pack.name, detail.filter(Boolean).join(' · '), {
+      status: over ? 'over_budget' : at.claimed !== 0 || at.certified !== 0 ? 'under_way' : 'not_started',
+    });
+    holds('finance.budget', pack.id);
+    if (pack.source) b.edge(pack.id, pack.source.evidenceId, 'supported_by');
+    if (pack.milestoneId) b.edge(pack.id, pack.milestoneId, 'measured_against');
+  }
+  for (const contract of cost.contracts) {
+    const at = contractPosition(project, contract.id);
+    const detail = [
+      `Contract value ${money(at.value)}`,
+      `certified ${money(at.certified)}`,
+      `paid ${money(at.paid)}`,
+      at.balance < 0 ? `certified beyond the contract value by ${money(-at.balance)}` : `left to certify ${money(at.balance)}`,
+      contract.reference ? `ref. ${contract.reference}` : '',
+    ];
+    b.node('contract', contract.id, `${contract.contractor}: ${contract.title}`, detail.filter(Boolean).join(' · '));
+    holds('finance.budget', contract.id);
+    for (const packageId of contract.workPackageIds) b.edge(contract.id, packageId, 'covers');
+    if (contract.source) b.edge(contract.id, contract.source.evidenceId, 'supported_by');
+  }
+  for (const bill of cost.bills) {
+    const at = billPosition(bill);
+    const contractor = cost.contracts.find((contract) => contract.id === bill.contractId)?.contractor;
+    const label = contractor ? `${contractor} bill ${bill.number}` : `Bill ${bill.number}`;
+    const detail = [
+      bill.date,
+      `claimed ${money(at.claimed)}`,
+      at.gross !== undefined && at.net !== undefined ? `certified ${money(at.gross)} gross, ${money(at.net)} net` : 'not certified',
+      `paid ${money(at.paid)}`,
+      at.overpaid ? `overpaid by ${money(at.overpaid)}` : '',
+    ];
+    b.node('bill', bill.id, label, detail.filter(Boolean).join(' · '), { key: bill.number, status: at.status });
+    holds('finance.budget', bill.id);
+    b.edge(bill.id, bill.contractId, 'billed_under');
+    if (bill.evidenceId) b.edge(bill.id, bill.evidenceId, 'supported_by');
+    inStage(bill.id, `${bill.date}T12:00:00.000Z`);
+    for (const line of bill.lines) {
+      const status = billLineStatus(line, bill);
+      const sits = { bill: label, workPackage: line.workPackageId ? packageNames.get(line.workPackageId) : undefined, certified: status === 'certified' || status === 'adjusted' };
+      b.node('bill_line', line.id, [line.item, line.description].filter(Boolean).join(' ').slice(0, 120), billLineDetail(line, sits, money), { status });
+      b.edge(bill.id, line.id, 'has_line');
+      if (line.workPackageId) b.edge(line.id, line.workPackageId, 'prices');
+      if (line.source) b.edge(line.id, line.source.evidenceId, 'supported_by');
+    }
+    for (const certificate of bill.certifications) {
+      const less = certificate.deductions.map((deduction) => `${deduction.label ?? COST_DEDUCTION_LABEL[deduction.kind].toLowerCase()} ${money(deduction.amount)}`).join(', ');
+      const detail = [
+        certificate.withdrawn ? `Withdrawn ${certificate.withdrawn.at.slice(0, 10)}${certificate.withdrawn.reason ? `: ${certificate.withdrawn.reason.slice(0, 160)}` : ''}` : '',
+        `${certificate.signer.name ?? certificate.signer.email}, ${certificate.signer.profession}`,
+        `gross ${money(certificate.gross)}`,
+        less ? `less ${less}` : 'no deductions',
+        `net ${money(certificate.net)}`,
+        certificate.certifiedOn,
+      ];
+      // Named by its bill's own label, contractor and all: two contractors each have a bill RA-1.
+      b.node('certification', certificate.id, `Certificate for ${label}`, detail.filter(Boolean).join(' · '), { status: certificate.withdrawn ? 'withdrawn' : 'current' });
+      b.edge(certificate.id, bill.id, 'certifies_bill');
+      if (certificate.evidenceId) b.edge(certificate.id, certificate.evidenceId, 'supported_by');
+      inStage(certificate.id, `${certificate.certifiedOn}T12:00:00.000Z`);
+    }
+  }
+
   // A questionnaire sits in its department's work. Each question that has an
   // answer is a node of its own, joined to what proves it, so "what does this
   // answer rest on" and "which answers cite this photograph" are both one hop.
@@ -916,6 +1020,54 @@ function addStructure(project: DdProject, b: Builder): void {
     const toKind = b.kindOf(to);
     if (fromKind && toKind && projectEdgeEndpointsValid(edge.rel, fromKind, toKind)) b.edge(from, to, edge.rel);
   }
+}
+
+/**
+ * One line of a bill, as its node says it: the bill it is on and the work
+ * package it prices, what it claims, with the quantity and the rate where the
+ * bill gives them, what was passed for it, by whom and why, and the page or
+ * the cell it was read from.
+ *
+ * What was passed is said as certified only where the bill's certificate
+ * stands. Before one is issued, and after it was withdrawn, the same decision
+ * is passed and no more, and the line says there is no certificate.
+ *
+ * Each person keeps the verb that is theirs. Whoever decided the line passed
+ * it; the certificate was signed by its signer, who is named on the
+ * certificate and may be somebody else. So a certified line reads "certified
+ * ₹2,00,000, passed by junior@firm.in", never "certified by" the person who
+ * only passed it.
+ *
+ * A model's reading of a page says that it is one, as a model's reading of a
+ * photograph does: the figures are what the model made of the page until a
+ * certifier has been through them.
+ */
+function billLineDetail(line: BillLine, sits: { bill: string; workPackage?: string; certified: boolean }, money: (amount: number) => string): string {
+  const unit = line.unit ? ` ${line.unit}` : '';
+  const rate = line.rate === undefined ? '' : `${money(line.rate)}${line.unit ? ` per ${line.unit}` : ''}`;
+  const quantity = line.quantityToDate === undefined ? '' : `${line.quantityToDate.toLocaleString('en-IN')}${unit} to date`;
+  const passed = line.certified;
+  const decision = !passed
+    ? 'not yet decided'
+    : [
+        `${sits.certified ? 'certified' : 'passed'} ${money(passed.amount)}`,
+        passed.quantity === undefined ? '' : ` for ${passed.quantity.toLocaleString('en-IN')}${unit}`,
+        sits.certified ? `, passed by ${passed.by}` : ` by ${passed.by}, no certificate`,
+        passed.note ? `: ${passed.note.slice(0, 160)}` : '',
+      ].join('');
+  return [
+    sits.bill,
+    sits.workPackage ? `work package ${sits.workPackage}` : '',
+    `claimed ${money(line.amount)}`,
+    quantity && rate ? `${quantity} at ${rate}` : quantity || (rate ? `rate ${rate}` : ''),
+    line.amountToDate === undefined ? '' : `amount to date ${money(line.amountToDate)}`,
+    line.previousAmount === undefined ? '' : `previously ${money(line.previousAmount)}`,
+    decision,
+    [line.source ? costSourceSaid(line.source) : '', line.readBy === 'model' ? 'read by a model' : ''].filter(Boolean).join(', '),
+    line.variation ? 'variation' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function addDeliberation(project: DdProject, b: Builder): void {

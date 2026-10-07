@@ -16,7 +16,9 @@
  * So a step changes the record exactly as far as that code does. What a
  * paper states still waits on its row, an answer still waits on its
  * question, a report that needs a card still gets a card. A step that
- * accepts takes the cards the plan named when it was made and no other.
+ * accepts takes the cards the plan named when it was made and no other, and
+ * of those only the read values the person carrying it out may decide
+ * (`PlanSetting.mayDecide`).
  *
  * A step that works through many records does a few, saves, says how far it
  * has got, and asks whether to go on (`mustEnd`): that is where a plan stops
@@ -32,6 +34,7 @@ import {
   MEETING_IS_NOTES,
   REPORT_KIND_LABEL,
   applyProjectChat,
+  cardSays,
   currentTurnProposals,
   documentWorkstream,
   functionDepartment,
@@ -52,9 +55,11 @@ import {
   stopReviewRun,
   suggestFromFile,
   type ChatPlace,
+  type ChatProposal,
   type ChatSitting,
   type DdProject,
   type EvidenceRecord,
+  type MayDecide,
   type PlanStep,
   type PlanWant,
   type ProjectChatTurn,
@@ -75,6 +80,14 @@ import { store } from '../store';
 export interface PlanSetting {
   project: DdProject;
   actor: string;
+  /**
+   * Where that person leads or signs on this project. A step that accepts
+   * takes the read values of those departments and leaves the rest waiting, as
+   * the chat does when they ask it themselves. It is the person carrying the
+   * plan out who is asked, so a plan a colleague laid out decides no more for
+   * them than they may decide.
+   */
+  mayDecide: MayDecide;
   /** The workspace, whose saved playbooks a step may name. */
   tenantId: string;
   /** The chat it was asked in: "what the last reply raised" is that chat's last reply. */
@@ -236,6 +249,21 @@ async function savedAsRead(project: DdProject, file: Parameters<typeof keepPageT
   await store.save();
 }
 
+/**
+ * One card a value. The reader raises a card for what each paper it reads
+ * states, and a paper read again states what it stated before. A card this
+ * go raised that says what one already waiting says is taken off again, and
+ * the reading's own line lists the one that waits in its place.
+ */
+function oneCardAValue(project: DdProject, waiting: readonly ChatProposal[], said: readonly ProjectChatTurn[]): void {
+  const held = new Map(waiting.map((card) => [cardSays(card), card.id]));
+  const before = new Set(held.values());
+  const twice = new Map(project.chatProposals.filter((card) => card.status === 'proposed' && !before.has(card.id) && held.has(cardSays(card))).map((card) => [card.id, held.get(cardSays(card))!]));
+  if (!twice.size) return;
+  project.chatProposals = project.chatProposals.filter((card) => !twice.has(card.id));
+  for (const turn of said) if (turn.proposalIds) turn.proposalIds = [...new Set(turn.proposalIds.map((id) => twice.get(id) ?? id))];
+}
+
 async function readFiled(run: StepRun): Promise<StepDone> {
   const { project, step, actor } = run;
   /** The papers this step has read, in this go and any before it. */
@@ -267,6 +295,7 @@ async function readFiled(run: StepRun): Promise<StepDone> {
     }
     if (uploads.length) {
       const before = project.conversation.length;
+      const waiting = project.chatProposals.filter((card) => card.status === 'proposed');
       let landed = 0;
       await readOntoRegister(project, uploads, actor, {
         landed: async (file) => {
@@ -276,6 +305,7 @@ async function readFiled(run: StepRun): Promise<StepDone> {
           await run.progress(read.size + landed);
         },
       }).catch(() => undefined);
+      oneCardAValue(project, waiting, project.conversation.slice(before));
       run.wrote(project.conversation.slice(before));
       // Read means the reader put a reading on its row: it is no longer among the papers nothing has been read off.
       const still = new Set(rowsToRead(project, false).map((row) => row.id));
@@ -297,7 +327,7 @@ function acceptRaised(run: StepRun): StepDone {
   // Only the cards the plan named, and of those only what still waits: nothing a step before this one raised is among them.
   const ids = (step.proposalIds ?? []).filter((id) => project.chatProposals.some((card) => card.id === id && card.status === 'proposed'));
   if (!ids.length) return { said: 'Nothing it named is still waiting, so nothing was accepted.', did: 0, complete: true };
-  const result = applyProjectChat(project, CHOICE_SENTENCE.all, { actor, chat: run.chat, place: run.place, sitting: { decision: 'accept', proposalIds: ids } });
+  const result = applyProjectChat(project, CHOICE_SENTENCE.all, { actor, mayDecide: run.mayDecide, chat: run.chat, place: run.place, sitting: { decision: 'accept', proposalIds: ids } });
   run.wrote([result.userTurn, result.assistantTurn]);
   const accepted = ids.filter((id) => project.chatProposals.some((card) => card.id === id && card.status === 'committed')).length;
   return { said: `Accepted ${accepted} of the ${plural(ids.length, 'thing')} it named.${accepted < ids.length ? ' The rest could not be accepted here and still wait.' : ''}`, did: accepted, complete: true };
@@ -324,7 +354,7 @@ function suggestAnswers(run: StepRun): StepDone {
 /** A step the chat carries out by a sentence: said to the chat's own rules, which do the rest. */
 async function bySentence(run: StepRun, sentence: string): Promise<StepDone> {
   const { project, step, actor } = run;
-  const result = applyProjectChat(project, sentence, { actor, chat: run.chat, place: run.place, modelReader: agentCapability().available });
+  const result = applyProjectChat(project, sentence, { actor, mayDecide: run.mayDecide, chat: run.chat, place: run.place, modelReader: agentCapability().available });
   run.wrote([result.userTurn, result.assistantTurn]);
   // A status report just written is put in plainer words where a model is set up, as it is when asked for alone.
   const wrote = result.commands.includes('Wrote a status report') ? result.navigations.find((go) => go.target === 'reports')?.item : undefined;
@@ -337,7 +367,7 @@ async function keepMeeting(run: StepRun): Promise<StepDone> {
   const held = meetingAskedNow(project);
   if (!held || held.id !== run.step.meetingId) return { said: 'The notes the chat was holding are no longer held, so none were kept.', did: 0, complete: true };
   const turn = await meetingTurn(project, MEETING_IS_NOTES, { kind: 'answer', said: 'notes', asked: held });
-  const result = applyProjectChat(project, turn.question, { actor, chat: run.chat, place: run.place, meeting: turn.given, modelReader: agentCapability().available });
+  const result = applyProjectChat(project, turn.question, { actor, mayDecide: run.mayDecide, chat: run.chat, place: run.place, meeting: turn.given, modelReader: agentCapability().available });
   run.wrote([result.userTurn, result.assistantTurn]);
   return { said: result.assistantTurn.text.split('\n')[0]!.replace(/\s*\[[^\]]+\]/g, ''), did: 1, complete: true };
 }

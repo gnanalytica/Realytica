@@ -13,12 +13,102 @@ import { paperCarries, type DocumentFact } from './document-parse';
 import type { ChatProposal, DdProject, EvidenceRecord } from './types';
 import { findCheck, recordAuditEvent, recordCheckFields } from './operations';
 import { isBlank } from './check-fields';
-import { acceptedOneAtATime, factReview, stands } from './fact-review';
+import { acceptedOneAtATime, factReview, stands, toReopen, valueOnPaper } from './fact-review';
 import { commitChatProposal, rejectChatProposal } from './wizard';
 import { decidedOnACheck, factFillProposals, pendingFactProposals } from './document-intake';
+import { DEPARTMENT_ROLE_LABEL, DEPARTMENT_SHORT, workstreamDefinition, workstreamOfCheck, type DepartmentKey } from './departments';
+import { allChecks } from './engagements';
+import { projectDepartments, type MayDecide } from './team';
+import { documentWorkstream } from './vault';
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/* -------------------------------------------------------------------- */
+/* Who may decide                                                         */
+/* -------------------------------------------------------------------- */
+
+/**
+ * A decision refused for want of the role.
+ *
+ * Where a value read off a paper stands is decided by a lead or a signer of
+ * the department the value belongs to: accepting it, setting it aside,
+ * reopening it, picking one of two. Everything in this file that settles a
+ * read value takes `mayDecide`, the answer for the person asking, and refuses
+ * with this before anything changes. Absent, nobody is asking: it is the
+ * server's own work, and nothing is refused.
+ */
+export class DecisionRefused extends Error {
+  /** The department whose lead or signer decides it. Absent for a paper no function holds yet. */
+  readonly department?: DepartmentKey;
+
+  constructor(message: string, department?: DepartmentKey) {
+    super(message);
+    this.name = 'DecisionRefused';
+    this.department = department;
+  }
+}
+
+/**
+ * A refusal, said in full: what needs the role, and in which department by
+ * the menu's word for it. Where the project's team list is the reason (it
+ * gives the person less there than their firm role would), it says that too:
+ * the team list is then the place to change it, and a line that only names
+ * the department sends an owner looking for a role they thought they had.
+ */
+export function decisionRefused(what: string, department: DepartmentKey | undefined, mayDecide: MayDecide): DecisionRefused {
+  const lesser = department ? mayDecide.heldBack?.(department) : undefined;
+  const why = lesser ? ` On this project the team list makes you a ${DEPARTMENT_ROLE_LABEL[lesser].toLowerCase()} there.` : '';
+  return new DecisionRefused(`${what} needs a lead or signer in ${department ? DEPARTMENT_SHORT[department] : 'one of this project’s departments'}.${why}`, department);
+}
+
+/**
+ * The department a check sits in: the one its function belongs to. A check
+ * the file does not hold is placed as the library places a check it does not
+ * know, so the answer is always a department and never a reason to let a
+ * decision through.
+ *
+ * Where a person is asking, it is read off the whole record their answer was
+ * built on (`MayDecide.record`), not off `project`: the chat hands these
+ * functions an outside collaborator's copy of the project, and a copy with
+ * checks taken out cannot say where one of them sits.
+ */
+export function departmentOfCheck(project: DdProject, checkId: string, mayDecide?: MayDecide): DepartmentKey {
+  const check = allChecks(mayDecide?.record ?? project).find((held) => held.id === checkId);
+  return workstreamDefinition(workstreamOfCheck(check?.definitionId ?? ''))!.department;
+}
+
+/**
+ * The department whose function holds a paper, or undefined while nothing
+ * says which. Read off the whole record where a person is asking, as a
+ * check's is: a paper two checks hold is held by the first of them, and on a
+ * copy of the project that first check may be missing.
+ */
+export function departmentOfPaper(project: DdProject, evidence: EvidenceRecord, mayDecide?: MayDecide): DepartmentKey | undefined {
+  const workstream = documentWorkstream(mayDecide?.record ?? project, evidence);
+  return workstream ? workstreamDefinition(workstream)?.department : undefined;
+}
+
+/**
+ * Whether a person may decide what was read on a paper: a lead or signer of
+ * the department whose function holds it. A paper no function holds yet is
+ * decided by a lead or signer of any department the project uses, so it is
+ * never left with nobody to decide it.
+ */
+export function mayDecidePaper(project: DdProject, evidence: EvidenceRecord, mayDecide: MayDecide): boolean {
+  const department = departmentOfPaper(project, evidence, mayDecide);
+  return department ? mayDecide(department) : projectDepartments(mayDecide.record ?? project).some((held) => mayDecide(held));
+}
+
+/**
+ * Refuse a decision on a check's values to a person who is neither lead nor
+ * signer in the check's department. With nobody asking, nothing is refused.
+ */
+export function assertMayDecideCheck(project: DdProject, checkId: string, mayDecide: MayDecide | undefined): void {
+  if (!mayDecide) return;
+  const department = departmentOfCheck(project, checkId, mayDecide);
+  if (!mayDecide(department)) throw decisionRefused('Deciding a value on this check', department, mayDecide);
 }
 
 /* -------------------------------------------------------------------- */
@@ -70,7 +160,7 @@ function holdsThisReading(card: ChatProposal, fact: DocumentFact): boolean {
 }
 
 /** The paper a check-values card was read from: by its row, or by the stored file where the card was raised before the row was. */
-function sourceRow(project: DdProject, card: ChatProposal): EvidenceRecord | undefined {
+export function paperOfCard(project: DdProject, card: ChatProposal): EvidenceRecord | undefined {
   const storageKey = typeof card.payload.sourceStorageKey === 'string' ? card.payload.sourceStorageKey : undefined;
   return (
     (typeof card.payload.sourceEvidenceId === 'string' ? project.evidence.find((e) => e.id === card.payload.sourceEvidenceId) : undefined)
@@ -91,11 +181,64 @@ export function fromWaitingReading(project: DdProject, card: ChatProposal, key: 
 /** The reading a card's field came from, where that reading still waits on its paper. */
 function waitingSource(project: DdProject, card: ChatProposal, key: string): { row: EvidenceRecord; fact: DocumentFact } | undefined {
   const value = String(((card.payload.values ?? {}) as Record<string, unknown>)[key]);
-  const row = sourceRow(project, card);
+  const row = paperOfCard(project, card);
   const fact = (row?.facts ?? []).find(
     (f) => f.key === key && factReview(f) === 'proposed' && !stands(f, row!) && (String(f.value) === value || (f.otherReading !== undefined && String(f.otherReading.value) === value)),
   );
   return row && fact ? { row, fact } : undefined;
+}
+
+/**
+ * Whether a card's field still holds the value it was raised with: the one
+ * its citation was made for. A figure a person has since typed onto the card
+ * is their own, and no reading of any paper.
+ */
+function asRaised(card: ChatProposal, key: string): boolean {
+  const cited = ((card.payload.citations ?? {}) as Record<string, { value?: unknown }>)[key];
+  return cited?.value !== undefined && String(cited.value) === String(((card.payload.values ?? {}) as Record<string, unknown>)[key]);
+}
+
+/**
+ * Whether a card's field came from a value that has since been set aside on
+ * its paper, with nothing accepted there in its place. The document no longer
+ * states it, so no check takes it from there: the field is set aside on the
+ * check too, or the value is reopened on the document. Accepting everything
+ * on a card leaves it waiting, as it leaves a reading that waits.
+ */
+export function fromSetAsideReading(project: DdProject, card: ChatProposal, key: string): boolean {
+  return setAsideSource(project, card, key) !== undefined;
+}
+
+/** The value a card's field came from, where it was set aside on its paper and nothing stands there in its place. Not a figure typed onto the card since. */
+function setAsideSource(project: DdProject, card: ChatProposal, key: string): { row: EvidenceRecord; fact: DocumentFact } | undefined {
+  const row = asRaised(card, key) ? paperOfCard(project, card) : undefined;
+  const on = row ? valueOnPaper(row, key, ((card.payload.values ?? {}) as Record<string, unknown>)[key]) : undefined;
+  return row && on?.now === 'set_aside' ? { row, fact: on.fact } : undefined;
+}
+
+/**
+ * What a card's field offers its check now: the value it was raised with,
+ * unless the paper it was read from has since been accepted as stating
+ * another under that key. A person corrected it there, kept the other
+ * reader's value, or accepted a newer reading.
+ *
+ * A check is never given a value its document no longer states. Where the
+ * person who decided the document also decides the check, the card is settled
+ * with the document. Where they do not, the card is another department's and
+ * stays as it was raised, so what it offers is read through this each time it
+ * is shown, compared or accepted. `fact` is the paper's own value where that
+ * is what is offered, for its page and words.
+ *
+ * Only while the card holds what it was raised with (`asRaised`). A figure a
+ * person typed onto the card is what they mean the check to hold, and is
+ * recorded as typed: putting the paper's value in its place would change what
+ * they sent without a word.
+ */
+function nowOffered(project: DdProject, card: ChatProposal, key: string): { value: unknown; fact?: DocumentFact } {
+  const value = ((card.payload.values ?? {}) as Record<string, unknown>)[key];
+  const row = asRaised(card, key) ? paperOfCard(project, card) : undefined;
+  const on = row ? valueOnPaper(row, key, value) : undefined;
+  return on?.now === 'accepted_as' ? { value: on.fact.value, fact: on.fact } : { value };
 }
 
 /** A kind of paper as it is said mid-sentence: "a sale deed", "an encumbrance certificate". */
@@ -112,7 +255,7 @@ function aPaper(type: string): string {
  */
 function contested(project: DdProject, card: ChatProposal, key: string): boolean {
   const checkId = String(card.payload.checkId);
-  const value = String(((card.payload.values ?? {}) as Record<string, unknown>)[key]);
+  const value = String(nowOffered(project, card, key).value);
   let held: unknown;
   try {
     const field = findCheck(project, checkId).check.fields?.[key];
@@ -128,7 +271,7 @@ function contested(project: DdProject, card: ChatProposal, key: string): boolean
       && other.status === 'proposed'
       && other.payload.checkId === checkId
       && waitingFieldKeys(other).includes(key)
-      && String(((other.payload.values ?? {}) as Record<string, unknown>)[key]) !== value,
+      && String(nowOffered(project, other, key).value) !== value,
   );
 }
 
@@ -178,6 +321,13 @@ function takeOtherReading(fact: DocumentFact): void {
  * A value under a key the row's kind of paper does not carry is not accepted:
  * it is no reading of that paper (`paperCarries`). "All" leaves it where it
  * is; naming it says why, and what to do first.
+ *
+ * With `mayDecide`, the person deciding has to be a lead or signer of the
+ * department that holds the paper (`mayDecidePaper`): anybody else is refused
+ * before anything changes, whichever of the three decisions it is. And the
+ * decision follows the value only onto the checks of the departments they
+ * decide in. On any other check the value stays waiting, for that
+ * department's lead or signer.
  */
 export function reviewFacts(
   project: DdProject,
@@ -189,12 +339,22 @@ export function reviewFacts(
   options: {
     /** Whether this person may record values on a check. A contractor's decision stops at the checks in their grant. */
     checkWritable?: (checkId: string) => boolean;
+    /** Where the person deciding leads or signs. Absent, nobody is asking and nothing is refused. */
+    mayDecide?: MayDecide;
     /** Keep the other reader's value for the one key named, in place of this server's. */
     take?: 'other';
   } = {},
 ): { evidence: EvidenceRecord; changed: DocumentFact[] } {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
   if (!evidence) throw new Error('Document not found');
+  if (options.mayDecide && !mayDecidePaper(project, evidence, options.mayDecide)) {
+    throw decisionRefused('Deciding what was read on this paper', departmentOfPaper(project, evidence, options.mayDecide), options.mayDecide);
+  }
+  /** A check this decision follows the value onto: one the person may record on, in a department they decide in. */
+  const reaches = (card: ChatProposal): boolean => {
+    const checkId = String(card.payload.checkId);
+    return (!options.checkWritable || options.checkWritable(checkId)) && (!options.mayDecide || options.mayDecide(departmentOfCheck(project, checkId, options.mayDecide)));
+  };
   const facts = evidence.facts ?? [];
   const named = (f: DocumentFact) => keys === 'all' || keys.includes(f.key);
   const waiting = facts.filter((f) => named(f) && factReview(f) === 'proposed' && !(keys === 'all' && decision === 'accept' && acceptedOneAtATime(f)));
@@ -203,11 +363,14 @@ export function reviewFacts(
     const offered = evidence.proposedDocumentType;
     throw new Error(
       offered
-        ? `Say what this paper is first. A model takes it for ${aPaper(offered)}: confirm that, or say what it is, and “${offPaper[0]!.label}” can be accepted.`
+        ? evidence.documentType
+          ? // A row that has a kind keeps it whatever is read off a file put on it, so the offer may be this server's own reading.
+            `Say what this paper is first. Its row says ${aPaper(evidence.documentType)} and a reading takes it for ${aPaper(offered)}: confirm that, or say what it is, and “${offPaper[0]!.label}” can be accepted.`
+          : `Say what this paper is first. A model takes it for ${aPaper(offered)}: confirm that, or say what it is, and “${offPaper[0]!.label}” can be accepted.`
         : `${evidence.documentType ? aPaper(evidence.documentType).replace(/^a/, 'A') : 'A paper of no kind'} does not carry “${offPaper[0]!.label}”, so it is not accepted on this row.`,
     );
   }
-  const targets = decision === 'reopen' ? facts.filter((f) => named(f) && f.decidedAt && factReview(f) !== 'proposed') : waiting.filter((f) => !offPaper.includes(f));
+  const targets = decision === 'reopen' ? toReopen(facts, named) : waiting.filter((f) => !offPaper.includes(f));
   if (!targets.length) return { evidence, changed: [] };
   const at = nowIso();
   let rows = [...facts];
@@ -275,7 +438,7 @@ export function reviewFacts(
         if (!stale.length) continue;
         unoffered = true;
         // The other reading's card is set aside where it waits, by whoever may decide that check.
-        if (!options.checkWritable || options.checkWritable(String(card.payload.checkId))) decideCheckFields(project, card.id, stale, 'reject', actor, undefined, { fromDocument: true });
+        if (reaches(card)) decideCheckFields(project, card.id, stale, 'reject', actor, undefined, { fromDocument: true, mayDecide: options.mayDecide });
       }
       // As the value kept and with its own page and words, unless a person already decided it on a check.
       if (unoffered && !decidedOnACheck(project, fact.key, asRead(fact), evidence)) offer.push(fact.readAs ? { ...fact, value: fact.readAs.value, display: fact.readAs.display } : fact);
@@ -291,7 +454,7 @@ export function reviewFacts(
   if (decision !== 'reopen') {
     for (const fact of targets) {
       for (const card of fillsFrom(project, evidence)) {
-        if (options.checkWritable && !options.checkWritable(String(card.payload.checkId))) continue;
+        if (!reaches(card)) continue;
         const fields = fieldsCarrying(card, fact).filter((key) => decision !== 'accept' || !contested(project, card, key));
         if (!fields.length) continue;
         try {
@@ -302,7 +465,7 @@ export function reviewFacts(
             decision === 'accept' ? 'accept' : 'reject',
             actor,
             fact.edited ? Object.fromEntries(fields.map((k) => [k, fact.value])) : undefined,
-            { fromDocument: true },
+            { fromDocument: true, mayDecide: options.mayDecide },
           );
         } catch {
           /* it stays waiting on its check, where it can be decided on its own */
@@ -333,6 +496,12 @@ export function waitingFieldKeys(card: ChatProposal): string[] {
  * read from where the value is still the page's. The card stays waiting until
  * every field on it is decided, and then reads as filed if any value was
  * accepted, or set aside if none was.
+ *
+ * With `mayDecide`, the person deciding has to be a lead or signer of the
+ * check's department, and is refused before anything changes if not. The
+ * paper the value was read from is told only where they may decide that paper
+ * too: otherwise the check's decision stands alone, and the paper's own value
+ * waits for its department.
  */
 export function decideCheckFields(
   project: DdProject,
@@ -344,11 +513,14 @@ export function decideCheckFields(
   options: {
     /** Decided on the document already; the document need not be told. */
     fromDocument?: boolean;
+    /** Where the person deciding leads or signs. Absent, nobody is asking and nothing is refused. */
+    mayDecide?: MayDecide;
   } = {},
 ): ChatProposal {
   const card = project.chatProposals.find((p) => p.id === proposalId);
   if (!card || card.kind !== 'record_check_fields') throw new Error('No check values waiting by that id');
   if (card.status !== 'proposed') throw new Error('These values were already decided');
+  assertMayDecideCheck(project, String(card.payload.checkId), options.mayDecide);
   const payload = card.payload;
   const values = (payload.values ?? {}) as Record<string, unknown>;
   const decided = { ...((payload.decided ?? {}) as Record<string, 'accepted' | 'rejected'>) };
@@ -367,18 +539,36 @@ export function decideCheckFields(
           : `“${held.fact.label}” is still waiting on ${paper}. Accept it on the document; the check takes it from there.`,
       );
     }
+    // Nor is a value the document no longer states: one set aside there since the card was raised. A figure the person types here is their own.
+    const gone = open.filter((k) => !(overrides && k in overrides)).map((k) => setAsideSource(project, card, k)).find(Boolean);
+    if (gone) {
+      throw new Error(`“${gone.fact.label}” was set aside on ${gone.row.documentType ?? gone.row.title}. Reopen it on the document, or set it aside here; the check takes nothing the document no longer states.`);
+    }
   }
 
   if (decision === 'accept') {
-    const subset = Object.fromEntries(open.map((k) => [k, overrides && k in overrides ? overrides[k] : values[k]]));
+    /*
+     * What each field records. A figure the person typed is theirs. Decided
+     * on the document, it is what the document's decision hands over.
+     * Otherwise it is what the card offers now (`nowOffered`): the paper's
+     * accepted value where that is no longer the card's, never the stale one.
+     */
+    const offers = new Map(
+      open.map((k) => [k, overrides && k in overrides ? { value: overrides[k] } : options.fromDocument ? { value: values[k] } : nowOffered(project, card, k)] as const),
+    );
+    const subset = Object.fromEntries([...offers].map(([k, offer]) => [k, offer.value]));
     const offered = (payload.citations ?? {}) as Record<string, { page?: number; quote?: string; value?: unknown }>;
-    const citations = Object.fromEntries(Object.entries(offered).filter(([k, c]) => k in subset && String(subset[k]) === String(c.value)));
+    const citations: Record<string, { page?: number; quote?: string }> = Object.fromEntries(Object.entries(offered).filter(([k, c]) => k in subset && String(subset[k]) === String(c.value)));
+    // The paper's own value cites the paper's own page and words for it, unless a person typed it there: a correction has no quote that says it.
+    for (const [k, offer] of offers) if ('fact' in offer && offer.fact && !offer.fact.edited) citations[k] = { page: offer.fact.page, quote: offer.fact.quote };
     const storageKey = typeof payload.sourceStorageKey === 'string' ? payload.sourceStorageKey : undefined;
     const sourceEvidenceId =
       (typeof payload.sourceEvidenceId === 'string' && project.evidence.some((e) => e.id === payload.sourceEvidenceId) ? payload.sourceEvidenceId : undefined)
       ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey))?.id : undefined);
     const outcome = recordCheckFields(project, checkId, subset, actor, sourceEvidenceId, citations);
     if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
+    // The card says what went onto the check, not what it was raised with.
+    for (const [k, offer] of offers) if ('fact' in offer && offer.fact) values[k] = offer.value;
   } else {
     recordAuditEvent(project, { actor, action: 'set_aside_check_values', entityType: 'check', entityId: checkId, oldValue: open.map((k) => `${k}: ${String(values[k])}`).join('; ') });
   }
@@ -393,7 +583,9 @@ export function decideCheckFields(
    * Accepted on the check as read off a document, so the document is
    * accepted as stating it — the same value is not asked about twice. Only
    * acceptance travels this way: setting a value aside on one check says
-   * nothing about whether the page says it.
+   * nothing about whether the page says it. And only where the person may
+   * decide the paper too: a lead of the check's department who does not lead
+   * the paper's leaves the paper's own value waiting there.
    */
   if (decision === 'accept' && !options.fromDocument) {
     const storageKey = typeof payload.sourceStorageKey === 'string' ? payload.sourceStorageKey : undefined;
@@ -404,7 +596,9 @@ export function decideCheckFields(
       paperCarries(row?.documentType, k)
       && (row?.facts ?? []).some((f) => f.key === k && factReview(f) === 'proposed' && String(f.value) === String(overrides && k in overrides ? overrides[k] : values[k])),
     );
-    if (row && stated.length) reviewFacts(project, row.id, stated, 'accept', actor);
+    if (row && stated.length && (!options.mayDecide || mayDecidePaper(project, row, options.mayDecide))) {
+      reviewFacts(project, row.id, stated, 'accept', actor, undefined, { mayDecide: options.mayDecide });
+    }
   }
   return card;
 }
@@ -466,7 +660,10 @@ export function waitingOnCheck(project: DdProject, checkId: string): CheckWaitin
     for (const key of waitingFieldKeys(card)) {
       const list = byKey.get(key) ?? [];
       const fileName = row?.attachments[0]?.fileName ?? (typeof card.payload.sourceFileName === 'string' ? card.payload.sourceFileName : undefined);
-      list.push({ proposalId: card.id, key, value: values[key], page: citations[key]?.page, quote: citations[key]?.quote, source, fileName, sourceEvidenceId: row?.id });
+      // Shown as it would be recorded: the paper's accepted value where that is no longer the card's.
+      const offer = nowOffered(project, card, key);
+      const cite = offer.fact ? (offer.fact.edited ? undefined : offer.fact) : citations[key];
+      list.push({ proposalId: card.id, key, value: offer.value, page: cite?.page, quote: cite?.quote, source, fileName, sourceEvidenceId: row?.id });
       byKey.set(key, list);
     }
   }
@@ -486,16 +683,18 @@ export function waitingOnCheck(project: DdProject, checkId: string): CheckWaitin
  * Settle a field the documents disagree on: carry one value — or, with no
  * id, keep what the check holds — and set the rest aside where they wait.
  * Nothing changes on the documents themselves; each still states what it
- * states.
+ * states. With `mayDecide`, picking is a lead's or signer's of the check's
+ * department, as every decision on a check's values is.
  */
-export function pickCheckValue(project: DdProject, checkId: string, key: string, proposalId: string | null, actor: string): void {
+export function pickCheckValue(project: DdProject, checkId: string, key: string, proposalId: string | null, actor: string, options: { mayDecide?: MayDecide } = {}): void {
+  assertMayDecideCheck(project, checkId, options.mayDecide);
   const waiting = project.chatProposals.filter(
     (p) => p.kind === 'record_check_fields' && p.status === 'proposed' && p.payload.checkId === checkId && waitingFieldKeys(p).includes(key),
   );
   if (proposalId !== null && !waiting.some((p) => p.id === proposalId)) throw new Error('That value is no longer waiting');
   // The chosen value first: if it will not record, nothing else is set aside.
-  if (proposalId !== null) decideCheckFields(project, proposalId, [key], 'accept', actor);
-  for (const other of waiting) if (other.id !== proposalId) decideCheckFields(project, other.id, [key], 'reject', actor);
+  if (proposalId !== null) decideCheckFields(project, proposalId, [key], 'accept', actor, undefined, { mayDecide: options.mayDecide });
+  for (const other of waiting) if (other.id !== proposalId) decideCheckFields(project, other.id, [key], 'reject', actor, undefined, { mayDecide: options.mayDecide });
 }
 
 /* -------------------------------------------------------------------- */
@@ -508,18 +707,30 @@ export function pickCheckValue(project: DdProject, checkId: string, key: string,
  *
  * A DD started this way is offered the values already on file, the same as
  * one started from the chat, so they turn up waiting on its checks.
+ *
+ * A card of check values is a read value, and with `mayDecide` is a lead's or
+ * signer's of the check's department to accept. A request, a finding or a DD
+ * to start is not one, and is anybody's who may write.
  */
-export function acceptWaiting(project: DdProject, proposalId: string, actor: string): { proposal: ChatProposal; recordId?: string; offered: ChatProposal[] } {
+export function acceptWaiting(
+  project: DdProject,
+  proposalId: string,
+  actor: string,
+  options: { mayDecide?: MayDecide } = {},
+): { proposal: ChatProposal; recordId?: string; offered: ChatProposal[] } {
   const card = project.chatProposals.find((p) => p.id === proposalId);
   if (!card) throw new Error('Nothing waiting by that id');
   if (card.kind === 'record_check_fields') {
+    assertMayDecideCheck(project, String(card.payload.checkId), options.mayDecide);
     // Values the documents disagree on stay waiting for the picker: accepting the card is not choosing between them.
     // So does a value read from a reading that still waits on its paper: that one is decided there.
-    const open = waitingFieldKeys(card).filter((key) => !contested(project, card, key) && !fromWaitingReading(project, card, key));
-    const decided = open.length ? decideCheckFields(project, proposalId, open, 'accept', actor) : card;
+    // And a value since set aside on its paper: the document no longer states it.
+    const open = waitingFieldKeys(card).filter((key) => !contested(project, card, key) && !fromWaitingReading(project, card, key) && !fromSetAsideReading(project, card, key));
+    const decided = open.length ? decideCheckFields(project, proposalId, open, 'accept', actor, undefined, { mayDecide: options.mayDecide }) : card;
     return { proposal: decided, recordId: String(card.payload.checkId), offered: [] };
   }
-  const result = commitChatProposal(project, proposalId, actor);
+  // A card that gives a paper to another function moves it, and a move is the department's that holds the paper now.
+  const result = commitChatProposal(project, proposalId, actor, { mayDecide: options.mayDecide });
   const offered: ChatProposal[] = [];
   if (card.kind === 'start_dd' || card.kind === 'add_scope') {
     const waiting = project.chatProposals.filter((p) => p.status === 'proposed');
@@ -531,8 +742,11 @@ export function acceptWaiting(project: DdProject, proposalId: string, actor: str
   return { ...result, offered };
 }
 
-/** Set something waiting aside. It stays in the record, decided. */
-export function setAsideWaiting(project: DdProject, proposalId: string, actor: string): ChatProposal {
+/** Set something waiting aside. It stays in the record, decided. A card of check values is set aside by whoever may accept it. */
+export function setAsideWaiting(project: DdProject, proposalId: string, actor: string, options: { mayDecide?: MayDecide } = {}): ChatProposal {
+  // Looked for before the list is known to be there: a file stored before cards were kept has none.
+  const waiting = (project.chatProposals ?? []).find((p) => p.id === proposalId);
+  if (waiting?.kind === 'record_check_fields') assertMayDecideCheck(project, String(waiting.payload.checkId), options.mayDecide);
   const card = rejectChatProposal(project, proposalId);
   recordAuditEvent(project, { actor, action: 'set_aside_proposal', entityType: 'proposal', entityId: card.id, oldValue: card.title });
   return card;

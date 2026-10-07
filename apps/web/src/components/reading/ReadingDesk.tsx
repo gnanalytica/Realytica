@@ -8,6 +8,7 @@ import { Button, cn, useToast } from '../ui/kit';
 import { FactRow, type FactState } from './FactRow';
 import { FactReviewList, type FactDecision, type FactEdit } from './FactReview';
 import { PagePreview } from './PagePreview';
+import { nothingRead } from './said';
 
 /** The register row a file on the desk was filed as — found by the stored file, which is all the reading knows. */
 export function rowForFile(project: DdProject, key: string): EvidenceRecord | undefined {
@@ -177,6 +178,12 @@ export function ReadingDesk({
     return () => ro.disconnect();
   }, [bodyEl]);
   const revealUntil = useRef(new Map<string, number>());
+  /*
+   * How large the page is drawn: 1 fits it to its half of the desk, which
+   * beside a conversation leaves a deed's print a few pixels high. Kept from
+   * one document to the next, since the print is as small on the next one.
+   */
+  const [zoom, setZoom] = useState(1);
   const [pinned, setPinned] = useState<string | null>(pinKey ?? null);
   useEffect(() => {
     if (pinKey) setPinned(pinKey);
@@ -391,6 +398,20 @@ export function ReadingDesk({
               {/* Sound has no pages. */}
               {isSoundFile(current) ? '' : ` · page ${page}${current.pages ? ` of ${current.pages}` : ''}`}
             </p>
+            {isSoundFile(current) ? null : (
+              // The pop-up's three: smaller, the width it fits, larger.
+              <span className="flex shrink-0 items-center">
+                <button type="button" onClick={() => setZoom((z) => Math.max(1, z - 0.5))} disabled={zoom <= 1} className="rounded px-2 py-0.5 text-mini text-ink-secondary hover:text-ink disabled:text-ink-muted">
+                  −
+                </button>
+                <button type="button" onClick={() => setZoom(1)} className="rounded px-2 py-0.5 text-mini text-ink-secondary hover:text-ink">
+                  Fit
+                </button>
+                <button type="button" onClick={() => setZoom((z) => Math.min(4, z + 0.5))} disabled={zoom >= 4} className="rounded px-2 py-0.5 text-mini text-ink-secondary hover:text-ink disabled:text-ink-muted">
+                  +
+                </button>
+              </span>
+            )}
             {scanning ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-micro font-medium text-brand-ink">
                 <Sparkles size={10} aria-hidden />
@@ -412,6 +433,7 @@ export function ReadingDesk({
             scanMs={scanDuration}
             marks={pointed?.marks ?? null}
             markId={pointed ? `${current.key}:${pointed.key}` : undefined}
+            zoom={zoom}
             className="min-h-0 flex-1"
           />
           {pointed ? (
@@ -515,7 +537,8 @@ export function ReadingDesk({
                 <p className="text-micro text-ink-muted">{current.taken.as === 'voice' ? 'What it proposes waits under “Needs your decision”.' : 'What it proposes is in the chat.'}</p>
               )}
             </div>
-          ) : shown && !facts.length && !current.notes && current.phase !== 'failed' && current.phase !== 'model' ? (
+          ) : nothingRead({ shown, streamed: facts.length, held: rowFacts.length, notes: current.notes, phase: current.phase }) ? (
+            // Only where nothing was read. A filed paper's values are its row's, listed above, and the stream's own list is empty beside them.
             <p className="flex items-center gap-1.5 text-[13px] text-ink-muted">
               <FileText size={13} aria-hidden />
               {current.summary ?? 'Filed as it is; nothing on it matched what the reader knows how to read.'}

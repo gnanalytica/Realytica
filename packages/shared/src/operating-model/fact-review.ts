@@ -111,6 +111,17 @@ export function waitingAsRead(read: { facts: readonly DocumentFact[] } | null | 
 }
 
 /**
+ * What stands on a row among the values a reading of its paper brought. It
+ * is the row as it is now, and never the reading as it was read: the row may
+ * hold a person's decision about one of them, and its own kind may not carry
+ * another.
+ */
+export function standingAmongRead(row: Paper, read: { facts: readonly DocumentFact[] } | null | undefined): DocumentFact[] {
+  const brought = new Set((read?.facts ?? []).map((fact) => fact.key));
+  return standingFacts(row).filter((fact) => brought.has(fact.key));
+}
+
+/**
  * What a paper dropped in the chat states, for the turn that closes the drop
  * to act on.
  *
@@ -258,22 +269,108 @@ export function factsAwaitingReview(project: DdProject): Array<{ evidence: Evide
  * What a new reading puts on a row: each value proposed, beside whatever the
  * row already holds.
  *
- * A value the row already accepts is not asked again when the page still says
- * it. A different value waits beside the accepted one, which stays in force
- * until the new one is accepted. Anything proposed or set aside from an
- * earlier reading of the same key is replaced by this one.
+ * What a person decided is theirs, whatever is read afterwards. A value the
+ * row accepts stays in force. A value a person set aside stays set aside,
+ * and is kept on the row through every later reading: were it dropped when
+ * another value was read, the next reading of the first value would bring it
+ * back as if nobody had decided it. So asking for a paper to be read again,
+ * or putting another file on its row, undoes nobody's decision.
+ *
+ * A reading that states what a person already decided brings nothing new:
+ * the value the row accepts, the page's own figure where a person corrected
+ * it, a value a person set aside. A different value is a new proposal, and
+ * waits beside them. It takes the place of whatever waited before under the
+ * same key, so one value waits under a key at a time. A value that was set
+ * aside by no person (one the paper's kind did not carry when it was read,
+ * see `proposeOnRow`) is replaced as well: nobody decided it.
+ *
+ * A key can therefore hold more than one value: one accepted, one waiting,
+ * and any a person set aside. Of those set aside, the one the latest reading
+ * states is kept last, where the others are from readings gone by.
  */
 export function proposeFacts(existing: DocumentFact[], incoming: DocumentFact[]): DocumentFact[] {
-  const out = existing.filter((f) => !incoming.some((n) => n.key === f.key) || factReview(f) === 'accepted');
+  const states = (held: DocumentFact['value'], fact: DocumentFact) => String(held) === String(fact.value);
+  /** A value a person set aside: kept whatever a later reading states. */
+  const setAside = (held: DocumentFact) => factReview(held) === 'rejected' && Boolean(held.decidedBy);
+  const out = existing.filter((f) => !incoming.some((n) => n.key === f.key) || factReview(f) === 'accepted' || setAside(f));
   for (const fact of incoming) {
     const accepted = out.find((f) => f.key === fact.key && factReview(f) === 'accepted');
-    if (accepted && String(accepted.value) === String(fact.value)) {
+    if (accepted && states(accepted.value, fact)) {
       if (!accepted.marks && fact.marks) accepted.marks = fact.marks;
+      continue;
+    }
+    // The page's figure, which a person has already corrected on this row: the correction stands.
+    if (accepted?.readAs && states(accepted.readAs.value, fact)) continue;
+    const aside = out.find((f) => f.key === fact.key && setAside(f) && states(f.value, fact));
+    if (aside) {
+      // Still set aside. It is what the paper is read as stating now, so it is the last of its key: the one a person is shown, and reopens.
+      const at = out.indexOf(aside);
+      const last = out.reduce((found, held, i) => (held.key === fact.key ? i : found), at);
+      if (last !== at) {
+        out.splice(at, 1);
+        out.splice(last, 0, aside);
+      }
       continue;
     }
     out.push({ ...fact, review: 'proposed', decidedBy: undefined, decidedAt: undefined });
   }
   return out;
+}
+
+/**
+ * Whether a row holds a value somebody has decided: one accepted, or one a
+ * person set aside. What the row's paper is called says which of its values
+ * stand (`stands`), so calling it something else is a decision about them.
+ */
+export function holdsADecision(evidence: Pick<EvidenceRecord, 'facts'>): boolean {
+  return (evidence.facts ?? []).some((fact) => factReview(fact) === 'accepted' || Boolean(fact.decidedBy));
+}
+
+/**
+ * The value a reopening puts back to waiting under each of these keys.
+ *
+ * A reopening names a key, and a key can hold more than one decided value
+ * (`proposeFacts`). It is the one a person is shown under the key: the value
+ * accepted there, or with none accepted the last of those set aside, which is
+ * the one the latest reading stated. Nothing is reopened under a key where a
+ * value already waits: that one is still to be decided, and two waiting under
+ * one key could not be told apart by whoever accepts next.
+ */
+export function toReopen(facts: readonly DocumentFact[], named: (fact: DocumentFact) => boolean): DocumentFact[] {
+  const decided = facts.filter((fact) => named(fact) && fact.decidedAt && factReview(fact) !== 'proposed');
+  return [...new Set(decided.map((fact) => fact.key))].flatMap((key) => {
+    if (facts.some((fact) => fact.key === key && factReview(fact) === 'proposed')) return [];
+    const under = decided.filter((fact) => fact.key === key);
+    return [under.find((fact) => factReview(fact) === 'accepted') ?? under[under.length - 1]!];
+  });
+}
+
+/**
+ * Where a value that was once read off a paper stands on it now, asked by
+ * whatever offered that value somewhere else (a card on a check) and is about
+ * to make the offer good.
+ *
+ * - `stated`: the paper still states it, as accepted or as a reading that
+ *   waits. Also where the paper holds nothing under the key that says
+ *   otherwise.
+ * - `accepted_as`: the paper has since been accepted as stating another value
+ *   under the key. A person corrected it there, kept the other reader's
+ *   value, or accepted a newer reading. That value is what the paper states.
+ * - `set_aside`: the value was set aside on the paper and nothing was
+ *   accepted in its place. The paper no longer states it.
+ */
+export function valueOnPaper(
+  row: Paper,
+  key: string,
+  value: unknown,
+): { now: 'stated' } | { now: 'accepted_as'; fact: DocumentFact } | { now: 'set_aside'; fact: DocumentFact } {
+  const under = (row.facts ?? []).filter((fact) => fact.key === key);
+  const same = (fact: DocumentFact) => String(fact.value) === String(value);
+  if (under.some((fact) => factReview(fact) !== 'rejected' && same(fact))) return { now: 'stated' };
+  const accepted = under.find((fact) => factReview(fact) === 'accepted');
+  if (accepted) return { now: 'accepted_as', fact: accepted };
+  const aside = under.find((fact) => factReview(fact) === 'rejected' && same(fact));
+  return aside ? { now: 'set_aside', fact: aside } : { now: 'stated' };
 }
 
 /**

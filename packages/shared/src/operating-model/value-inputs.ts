@@ -52,7 +52,8 @@ import {
   type RevenueMapAnchor,
 } from './revenue-map';
 import { COMPARABLE_SOURCE_LABEL, MIN_SCHEDULE, comparableSchedule, fileComparableSchedule } from './comparables';
-import { reviewFacts } from './review';
+import { decisionRefused, mayDecidePaper, reviewFacts } from './review';
+import type { MayDecide } from './team';
 import { REFERENCE_DATA, resolveStatePack } from '../reference';
 
 /* ==================================================================== */
@@ -791,6 +792,15 @@ export interface AcceptedOffers {
 }
 
 /**
+ * The valuation's inputs are Finance's. With `mayDecide`, accepting an offered
+ * value or setting one aside is a lead's or signer's there, and anybody else
+ * is refused before anything changes. With nobody asking, nothing is refused.
+ */
+function assertMayDecideValue(mayDecide: MayDecide | undefined): void {
+  if (mayDecide && !mayDecide('finance')) throw decisionRefused('Deciding a value for the valuation', 'finance', mayDecide);
+}
+
+/**
  * Record the offers a person accepted, by id.
  *
  * Each is looked up afresh on the file as it is now, so an id the page held
@@ -799,8 +809,14 @@ export interface AcceptedOffers {
  * revenue-map read, filed on the register for the purpose; and a document's
  * own value still waiting on its row is accepted there too, so it is not asked
  * about twice.
+ *
+ * That last step is a decision on the document, so with `mayDecide` it is
+ * taken only where the person may decide that paper as well. A Finance lead
+ * who does not lead the deed's department records the extent for the
+ * valuation, and the deed's own value waits for whoever decides it.
  */
-export function acceptValueOffers(project: DdProject, ids: readonly string[], actor: string): AcceptedOffers {
+export function acceptValueOffers(project: DdProject, ids: readonly string[], actor: string, options: { mayDecide?: MayDecide } = {}): AcceptedOffers {
+  assertMayDecideValue(options.mayDecide);
   const offers = new Map(valueOffers(project).map((o) => [o.id, o]));
   const wanted = ids.map((id) => ({ id, offer: offers.get(id) }));
   const started = wanted.some((w) => w.offer && SPEC_BY_KEY.get(w.offer.input)?.target.kind === 'check') ? ensureValueChecks(project, actor) : undefined;
@@ -856,7 +872,9 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
         const row = project.evidence.find((e) => e.id === read.evidenceId);
         // The value the offer was read from: one that stands, since no other is offered.
         const fact = row ? standingFacts(row).find((f) => f.key === read.key) : undefined;
-        if (row && fact && factReview(fact) === 'proposed') reviewFacts(project, row.id, [fact.key], 'accept', actor);
+        if (row && fact && factReview(fact) === 'proposed' && (!options.mayDecide || mayDecidePaper(project, row, options.mayDecide))) {
+          reviewFacts(project, row.id, [fact.key], 'accept', actor, undefined, { mayDecide: options.mayDecide });
+        }
       }
       seen.add(offer.input);
       applied.push(offer);
@@ -874,7 +892,8 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
  * Set offers aside. They stay out of the page until the file says something
  * different — a new document, a corrected value — which is a new offer.
  */
-export function setAsideValueOffers(project: DdProject, ids: readonly string[], actor: string): number {
+export function setAsideValueOffers(project: DdProject, ids: readonly string[], actor: string, options: { mayDecide?: MayDecide } = {}): number {
+  assertMayDecideValue(options.mayDecide);
   const offers = new Map(valueOffers(project).map((o) => [o.id, o]));
   const at = new Date().toISOString();
   const list = project.valueSetAside ?? [];

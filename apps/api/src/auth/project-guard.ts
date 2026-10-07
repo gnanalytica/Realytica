@@ -238,6 +238,13 @@ function guardWorkspace(req: Request, res: Response, next: NextFunction, readsAr
  * would be dropped by any prefix rule, taking the half of the picture that is
  * about the land with them.
  *
+ * A node the graph makes for a record goes with that record. What was said in
+ * the chat is filed under `chat:<turn id>`, with its opening words: an id of
+ * the graph's own, on no register, that stands for a turn which is. So a node
+ * also goes when any part of its id, between colons, is the id of a record
+ * out of reach. Somebody else's question is no more this reader's than the
+ * turn it was asked in.
+ *
  * An edge with either end gone goes too. A dangling edge is a shape the graph
  * validator rejects, and a line to nowhere is its own disclosure.
  */
@@ -248,7 +255,8 @@ export function withinReach<T extends { nodes: ProjectGraphNode[]; edges: Projec
 ): T {
   const blocked = outOfReach(req, project);
   if (blocked.size === 0) return graph;
-  const nodes = graph.nodes.filter((n) => !blocked.has(n.id));
+  const outside = (id: string): boolean => blocked.has(id) || id.split(':').some((part) => blocked.has(part));
+  const nodes = graph.nodes.filter((n) => !outside(n.id));
   const kept = new Set(nodes.map((n) => n.id));
   return { ...graph, nodes, edges: graph.edges.filter((e) => kept.has(e.from) && kept.has(e.to)) };
 }
