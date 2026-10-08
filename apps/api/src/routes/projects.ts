@@ -236,7 +236,7 @@ import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, 
 import { PROJECT_KEPT, removeProject } from '../project-removal';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
-import { UPLOAD_LIMITS } from '../uploads';
+import { UPLOAD_LIMITS, withSentFileName } from '../uploads';
 import { projectSiteContextRouter } from './site-context';
 import { projectPeopleRouter } from './project-people';
 import { projectGisOverlayRouter } from './gis-overlay';
@@ -2283,6 +2283,7 @@ projectsRouter.post('/:projectId/proposals/:proposalId/set-aside', async (req, r
 const chatUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: UPLOAD_LIMITS.maxFileBytes, files: 10 },
+  fileFilter: withSentFileName,
 });
 
 /** One uploaded file, however it arrived — multipart, the bundled samples, or already filed. */
@@ -3568,6 +3569,7 @@ projectsRouter.post('/:projectId/evidence/status', async (req, res) => {
 const evidenceUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: UPLOAD_LIMITS.maxFileBytes, files: 10 },
+  fileFilter: withSentFileName,
 });
 
 projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.array('files', 10), async (req, res) => {

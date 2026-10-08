@@ -9,6 +9,8 @@
  * surface it was written for.
  */
 
+import type multer from 'multer';
+
 const MAX_FILES_PER_UPLOAD = 10;
 const LOCAL_MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -37,4 +39,30 @@ export const UPLOAD_LIMITS = {
   maxFiles: MAX_FILES_PER_UPLOAD,
   maxFileBytes: onVercel ? VERCEL_MAX_REQUEST_BYTES : LOCAL_MAX_FILE_BYTES,
   maxRequestBytes: onVercel ? VERCEL_MAX_REQUEST_BYTES : LOCAL_MAX_FILE_BYTES * MAX_FILES_PER_UPLOAD,
+};
+
+/**
+ * A file's name as it was sent.
+ *
+ * A browser writes the name into the upload as UTF-8 and multer reads it as
+ * Latin-1, so every letter outside plain English arrived as two or three
+ * wrong ones: a curly apostrophe as "â" and two unseen characters, a Kannada
+ * or Hindi name as nothing readable. The bytes are read again as UTF-8, but
+ * only where that is sound. A name already holding letters beyond Latin-1 was
+ * read right the first time, and one whose bytes are not UTF-8 was Latin-1 all
+ * along: both are left as they came.
+ */
+export function sentFileName(name: string): string {
+  if (/[\u0100-\uffff]/.test(name)) return name;
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.from(name, 'latin1'));
+  } catch {
+    return name;
+  }
+}
+
+/** For every multer instance: each file is taken in, its name put right once on the way. */
+export const withSentFileName: NonNullable<multer.Options['fileFilter']> = (_req, file, done) => {
+  file.originalname = sentFileName(file.originalname);
+  done(null, true);
 };

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Check, ClipboardList, Clock, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
 import { proposedFacts, type DdProject, type DocumentFact, type EvidenceRecord } from '@realytica/shared';
@@ -309,6 +309,15 @@ export function ReadingDesk({
     revealUntil.current.set(current.key, Date.now() + 3600);
   }
   const revealing = (revealUntil.current.get(current.key) ?? 0) > Date.now();
+  /*
+   * A link on the desk leads to a page under it, so the desk goes when one is
+   * pressed. In a transition, as the page arrives: closed outright it would
+   * first uncover the page being left. A press that opens another tab leaves
+   * the desk where it is.
+   */
+  const leave = (e: MouseEvent) => {
+    if (!(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) startTransition(onClose);
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col animate-fade-in" aria-label="Reading the documents">
@@ -520,6 +529,7 @@ export function ReadingDesk({
               {current.taken.as === 'questionnaire' ? (
                 <Link
                   to={questionsPath(projectId, current.taken.department)}
+                  onClick={leave}
                   className="inline-flex items-center gap-1 rounded-md bg-raised px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:text-brand"
                 >
                   Open the questions
@@ -528,6 +538,7 @@ export function ReadingDesk({
               ) : current.taken.as === 'photo' ? (
                 <Link
                   to={`/projects/${projectId}/w/construction.progress`}
+                  onClick={leave}
                   className="inline-flex items-center gap-1 rounded-md bg-raised px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:text-brand"
                 >
                   Open Progress
