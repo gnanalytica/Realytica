@@ -17,9 +17,8 @@ import ScopeWorkspace from './pages/projects/ScopeWorkspace';
 import { EvidenceRegister, FindingRegister } from './pages/projects/Registers';
 import SiteView from './pages/projects/SiteView';
 import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions';
-import Reports from './pages/projects/Reports';
+import Reports, { OutgoingRedirect } from './pages/projects/Reports';
 import ReviewTable from './pages/projects/ReviewTable';
-import Outgoing from './pages/projects/Outgoing';
 import Valuation from './pages/projects/Valuation';
 import AiDrafts from './pages/projects/AiDrafts';
 import ProjectPeople from './pages/projects/ProjectPeople';
@@ -46,6 +45,7 @@ const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Requests = lazy(() => import('./pages/Requests'));
 const ReportPrint = lazy(() => import('./pages/projects/ReportPrint'));
+const CostReportPrint = lazy(() => import('./pages/projects/CostReportPrint'));
 /*
  * The example project carries every function's made-up data with it, a third
  * of a megabyte nobody working on a real project needs, so it arrives only
@@ -108,6 +108,16 @@ export default function App() {
           }
         />
         <Route
+          path="projects/:projectId/cost-reports/:reportId/print"
+          element={
+            <AuthGate>
+              <Suspense fallback={null}>
+                <CostReportPrint />
+              </Suspense>
+            </AuthGate>
+          }
+        />
+        <Route
           element={
             <AuthGate>
               <AppShell />
@@ -144,7 +154,7 @@ export default function App() {
             <Route path="decisions" element={<DecisionRegister />} />
             <Route path="reports" element={<Reports />} />
             <Route path="review" element={<ReviewTable />} />
-            <Route path="outgoing" element={<Outgoing />} />
+            <Route path="outgoing" element={<OutgoingRedirect />} />
             <Route path="valuation" element={<Valuation />} />
             <Route path="graph" element={<CockpitGraph />} />
             <Route path="ai" element={<AiDrafts />} />

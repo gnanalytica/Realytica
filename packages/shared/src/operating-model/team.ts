@@ -103,6 +103,8 @@ export interface MayDecide {
    * refusal says so, since the team list is then the place to change it.
    */
   readonly heldBack?: (department: DepartmentKey) => DepartmentRole | undefined;
+  /** The role they hold in a department, team list or firm default. */
+  readonly roleIn?: (department: DepartmentKey) => DepartmentRole | undefined;
 }
 
 /**
@@ -114,6 +116,7 @@ export function decidesIn(project: DdProject, person: { email: string; workspace
   const firmRole = person.workspaceRole ? DEFAULT_BY_WORKSPACE_ROLE[person.workspaceRole] : undefined;
   return Object.assign((department: DepartmentKey) => roleCanDecide(departmentRole(project, person, department)), {
     record: project,
+    roleIn: (department: DepartmentKey) => departmentRole(project, person, department),
     heldBack: (department: DepartmentKey) => {
       const role = departmentRole(project, person, department);
       return role && !roleCanDecide(role) && roleCanDecide(firmRole) ? role : undefined;

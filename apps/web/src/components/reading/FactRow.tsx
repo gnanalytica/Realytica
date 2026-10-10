@@ -118,7 +118,6 @@ export function FactRow({
           {fact.originalValue}
         </p>
       ) : null}
-      {model && proofSaid(fact) ? <p className="text-micro text-ink-muted">AI read · {proofSaid(fact)}</p> : null}
       {fact.otherReading ? <OtherReading fact={fact} /> : null}
     </div>
   );

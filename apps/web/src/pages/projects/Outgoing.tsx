@@ -132,7 +132,7 @@ interface Asking {
  * here, a lead or a signer approves it by name, and it is saved as a Word
  * file. Nothing is sent from here.
  */
-export default function OutgoingPage() {
+export default function OutgoingPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { project, setProject } = useOutletContext<ProjectOutlet>();
   const me = useMe();
   const toast = useToast();
@@ -348,7 +348,9 @@ export default function OutgoingPage() {
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <p className="min-w-0 flex-1 basis-64 text-[13px] text-ink-secondary">Letters, replies, requests for information and minutes, filled from the record. Nothing is sent from here.</p>
+          {embedded ? null : (
+            <p className="min-w-0 flex-1 basis-64 text-[13px] text-ink-secondary">Letters, replies, requests for information and minutes, filled from the record. Nothing is sent from here.</p>
+          )}
           {newButton}
         </div>
         {draftId && meta ? <p className="text-[13px] text-[var(--status-warning-text)]">That draft is no longer on this file.</p> : null}

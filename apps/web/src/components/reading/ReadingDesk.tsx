@@ -7,6 +7,7 @@ import { cardStateFor, type ReadingFile, type ReadingSession, type SourceFocus }
 import { Button, cn, useToast } from '../ui/kit';
 import { FactRow, type FactState } from './FactRow';
 import { FactReviewList, type FactDecision, type FactEdit } from './FactReview';
+import { proofHighlightTerm } from './find-on-page';
 import { PagePreview } from './PagePreview';
 import { nothingRead } from './said';
 
@@ -442,6 +443,7 @@ export function ReadingDesk({
             scanMs={scanDuration}
             marks={pointed?.marks ?? null}
             markId={pointed ? `${current.key}:${pointed.key}` : undefined}
+            highlightTerm={pointed ? proofHighlightTerm(pointed) : null}
             zoom={zoom}
             className="min-h-0 flex-1"
           />
@@ -458,7 +460,7 @@ export function ReadingDesk({
           ) : null}
         </div>
 
-        <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(46%,440px)] shrink-0 pr-1' : 'flex-1')}>
+        <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(52%,520px)] shrink-0 pr-1' : 'flex-1')}>
           {rowFacts.length ? null : (
           <p className="text-[12px] font-semibold text-ink">
             {scanning ? 'Reading…' : current.taken ? { questionnaire: 'A questionnaire', notes: 'Notes of a meeting', voice: 'A voice note', photo: 'A site photograph' }[current.taken.as] : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Link, Navigate, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Stamp, Waypoints } from 'lucide-react';
+import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Stamp, Wallet, Waypoints } from 'lucide-react';
 import {
   STAGES,
   cockpitPath,
@@ -24,6 +24,7 @@ import { Connections } from '../../../components/departments/Connections';
 import { WorkstreamChecks, WorkstreamDocuments, WorkstreamEngagements } from '../../../components/departments/WorkstreamRecords';
 import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegister';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
+import { BudgetDesk } from '../../../components/budget/BudgetDesk';
 import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
 import { TitleChainDiagram } from '../../../components/charts';
 import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
@@ -49,7 +50,6 @@ export function useWorkstreamNav(project: DdProject) {
     pairPhone: () => navigate(`${cockpitPath(project.id, 'people')}#pair`),
     openFindings: () => navigate(cockpitPath(project.id, 'findings')),
     openActions: () => navigate(cockpitPath(project.id, 'actions')),
-    openReports: () => navigate(cockpitPath(project.id, 'reports')),
     openReport: (reportId: string) => navigate(`${cockpitPath(project.id, 'reports')}?report=${encodeURIComponent(reportId)}`),
   };
 }
@@ -290,10 +290,12 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
       ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={openHere} marked={item} /> }
       : ws.key === 'construction.progress'
         ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} marked={item} /> }
-        : chain
-          ? // Always a part of Title, drawn or not: a link to the chain then lands on the part that says none is drawn yet.
-            { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
-          : null;
+        : ws.key === 'finance.budget'
+          ? { id: 'cost', name: 'Cost Report', icon: Wallet, body: <BudgetDesk project={project} onChanged={setProject} /> }
+          : chain
+            ? // Always a part of Title, drawn or not: a link to the chain then lands on the part that says none is drawn yet.
+              { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
+            : null;
 
   const sections: PageSection[] = [
     {

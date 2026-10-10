@@ -21,7 +21,8 @@ import {
 import { api } from '../../lib/api';
 import { AnimatedNumber, EASE_ENTER, Reveal, Stagger, StaggerItem, motion } from '../../lib/motion';
 import { Badge, Disclosure, Skeleton, TONE_FILL, cn, toneText } from '../../components/ui/kit';
-import { KeyFacts, NeedsDecisionCard, OpenItemsCard, RecentActivityCard, WaitingOnCard } from '../../components/project/ProjectPanels';
+import { KeyFacts, NeedsDecisionCard, OpenItemsCard, RecentActivityCard } from '../../components/project/ProjectPanels';
+import { ProjectRequestsCard } from '../../components/project/RequestsPanel';
 import { EngagementsCard } from '../../components/project/EngagementEditor';
 import { VERDICT_TONE } from '../../components/departments/QuickAssessmentCard';
 import { DEPARTMENT_ICON } from '../../components/departments/icons';
@@ -163,12 +164,11 @@ function AcrossProject({ project }: { project: DdProject }) {
   const filed = project.evidence.filter((e) => e.attachments.length > 0).length;
   const openFindings = project.findings.filter((f) => f.status === 'open' || f.status === 'under_review' || f.status === 'accepted').length;
   const openActions = project.actions.filter((a) => a.status !== 'closed').length;
-  const links: Array<{ label: string; count: number; pane: 'evidence' | 'dd' | 'findings' | 'risks' | 'reports' }> = [
+  const links: Array<{ label: string; count: number; pane: 'evidence' | 'dd' | 'findings' | 'risks' }> = [
     { label: 'Documents', count: filed, pane: 'evidence' },
     { label: 'Checks', count: project.assessments.reduce((n, a) => n + a.scopes.reduce((m, s) => m + s.checks.length, 0), 0), pane: 'dd' },
     { label: 'Findings', count: openFindings, pane: 'findings' },
     { label: 'Risks and actions', count: openActions, pane: 'risks' },
-    { label: 'Reports', count: project.reports.length, pane: 'reports' },
   ];
   return (
     <nav aria-label="Across the project" className="flex flex-wrap items-center gap-1.5">
@@ -260,10 +260,11 @@ export default function Overview() {
         <KeyFacts project={project} />
       </div>
 
+      <ProjectRequestsCard project={project} onChanged={setProject} />
+
       <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <OpenItemsCard project={project} />
         <NeedsDecisionCard project={project} />
-        <WaitingOnCard project={project} />
         <RecentActivityCard project={project} />
       </div>
 

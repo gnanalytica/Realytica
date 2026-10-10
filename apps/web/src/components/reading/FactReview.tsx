@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Sparkles } from 'lucide-react';
-import { acceptedOneAtATime, factReview, oneAtATimeSaid, paperCarries, proofSaid, type DocumentFact, type FactReview as Review } from '@realytica/shared';
+import { acceptedOneAtATime, factReview, paperCarries, type DocumentFact, type FactReview as Review } from '@realytica/shared';
 import { cn } from '../ui/kit';
 import { AcceptAllButton, DecideButtons, DecidedMark } from '../review/Decide';
 import { OtherReading, useTyped } from './FactRow';
@@ -109,13 +109,18 @@ function ReviewRow({
         <span className="pointer-events-none absolute inset-0 rounded-lg animate-flash-provenance" style={{ animationDelay: `${delay + 120}ms` }} aria-hidden />
       ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-micro font-medium uppercase tracking-[0.06em] text-ink-muted">{fact.label}</span>
-          <span className="shrink-0 font-mono text-micro text-ink-muted">p.{fact.page}</span>
+        <div className="flex items-start gap-2">
+          {/*
+            Long register labels ("BOUNDARY NORTH (ITEM 1 - SY NO. 77/10)") must
+            wrap. Truncating them in the already-narrow review column hid the
+            survey number that tells one boundary from the next.
+          */}
+          <span className="min-w-0 flex-1 break-words text-micro font-medium uppercase leading-snug tracking-[0.06em] text-ink-muted">{fact.label}</span>
+          <span className="shrink-0 pt-px font-mono text-micro text-ink-muted">p.{fact.page}</span>
           {state === 'proposed' ? (
             <Sparkles
               size={11}
-              className="shrink-0 text-provenance-ink"
+              className="mt-0.5 shrink-0 text-provenance-ink"
               aria-label={model ? 'Read by the model' : 'Read from the page'}
             />
           ) : null}
@@ -169,7 +174,6 @@ function ReviewRow({
             {fact.originalValue}
           </p>
         ) : null}
-        {model && proofSaid(fact) ? <p className="text-micro text-ink-muted">AI read · {proofSaid(fact)}</p> : null}
         {fact.otherReading ? (
           <div className="flex flex-wrap items-baseline gap-x-2">
             <OtherReading fact={fact} />
@@ -296,7 +300,6 @@ export function FactReviewList({
   // Nor what the row's kind of paper does not carry: the file accepts none of it until a person says what the paper is.
   const offPaper = waiting.filter((f) => !paperCarries(documentType, f.key));
   const together = waiting.filter((f) => !acceptedOneAtATime(f) && !offPaper.includes(f));
-  const oneByOne = oneAtATimeSaid(waiting.filter((f) => !offPaper.includes(f)));
   const offPaperSaid = !offPaper.length
     ? ''
     : offered
@@ -349,7 +352,6 @@ export function FactReviewList({
           onAccept={acceptAll}
         />
       </div>
-      {oneByOne ? <p className="text-micro text-ink-muted">{oneByOne}</p> : null}
       {offPaperSaid ? <p className="text-micro text-ink-muted">{offPaperSaid}</p> : null}
       <div className="flex items-center gap-2.5" aria-hidden={facts.length === 0}>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-sunken">

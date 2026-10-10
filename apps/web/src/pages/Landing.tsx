@@ -318,7 +318,7 @@ function HeroCanvas() {
               delay={1.0}
               rows={[
                 { label: 'Valuation', verdict: 'Estimate', tone: 'warning', fill: 72, delay: 1.45 },
-                { label: 'Budget', verdict: 'Soon', tone: 'neutral', fill: 0, delay: 1.5 },
+                { label: 'Budget', verdict: 'Live', tone: 'good', fill: 0.35, delay: 1.5 },
               ]}
             />
           </div>

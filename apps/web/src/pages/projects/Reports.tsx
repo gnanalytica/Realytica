@@ -1,13 +1,18 @@
 import { useCallback, useState } from 'react';
 import { FileText } from 'lucide-react';
-import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { REPORT_KIND_LABEL, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
+import { Navigate, useOutletContext, useSearchParams } from 'react-router-dom';
+import { REPORT_KIND_LABEL, cockpitPath, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Button, Card, CardBody, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
 import { ReportEditor } from './ReportEditor';
+import Outgoing from './Outgoing';
 import type { ProjectOutlet } from './ProjectLayout';
 import { formatWhen } from './shared';
 
+/**
+ * Everything that leaves the project as a document: DD / status reports from the
+ * registers, and letters / RFIs / minutes. One page, no sub-tabs.
+ */
 export default function Reports() {
   const { project, setProject, onOpenCited } = useOutletContext<ProjectOutlet>();
   const toast = useToast();
@@ -15,13 +20,15 @@ export default function Reports() {
   const [kind, setKind] = useState<ReportKind>('executive_dd');
   const [assessmentId, setAssessmentId] = useState('');
   const [busy, setBusy] = useState(false);
-  // The report on screen is the one the address names: `?report=<id>`. A link followed while Reports is open switches to it, and picking one from the list writes it there.
   const [params, setParams] = useSearchParams();
   const view = project.reports.find((r) => r.id === params.get('report')) ?? project.reports[0];
+
   const show = useCallback(
     (id: string) =>
       setParams((was) => {
         const out = new URLSearchParams(was);
+        out.delete('side');
+        out.delete('draft');
         out.set('report', id);
         return out;
       }),
@@ -49,71 +56,83 @@ export default function Reports() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <Button onClick={() => setOpen(true)}>Generate report</Button>
-      </div>
-      {project.reports.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={<FileText size={18} />}
-            title="No reports yet"
-            description="Built from the records on this file. Exports to Word or PDF."
-            action={
-              <Button variant="primary" onClick={() => setOpen(true)}>
-                Generate a report
-              </Button>
-            }
-          />
-        </Card>
-      ) : (
-        /*
-          Two columns only once the *pane* is wide enough to hold both, not
-          once the window is. `lg:` measured the window, so on a 1024px screen
-          the 16rem list took two thirds of a 388px pane and the report wrapped
-          one word per line. 44rem is 16rem of list, the gap, and about 40
-          characters of report left over; below it the list sits on top, where
-          a handful of report names cost one line each.
-        */
-        <div className="grid grid-cols-1 gap-4 [@container(min-width:44rem)]:grid-cols-[16rem_minmax(0,1fr)]">
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold text-ink">Reports</h2>
+            <p className="text-[13px] text-ink-secondary">DD and status reports built from the registers on this project.</p>
+          </div>
+          <Button onClick={() => setOpen(true)}>Generate report</Button>
+        </div>
+        {project.reports.length === 0 ? (
           <Card>
-            <CardBody className="space-y-1 p-2">
-              {project.reports.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => show(r.id)}
-                  className={`w-full rounded-lg px-3 py-2 text-left text-[13px] ${view?.id === r.id ? 'bg-brand-soft text-brand' : 'hover:bg-sunken'}`}
-                >
-                  <span className="block font-medium">{REPORT_KIND_LABEL[r.kind]}</span>
-                  {/* A status report is one of several, told apart by the period it covers. */}
-                  <span className="text-[11px] text-ink-muted">{(r.kind === 'status' ? statusReportPeriodSaid(r) : undefined) ?? formatWhen(r.generatedAt)}</span>
-                </button>
-              ))}
-            </CardBody>
+            <EmptyState
+              icon={<FileText size={18} />}
+              title="No reports yet"
+              description="Generate one here, or from a department’s Report step."
+              action={
+                <Button variant="primary" onClick={() => setOpen(true)}>
+                  Generate a report
+                </Button>
+              }
+            />
           </Card>
-          {view ? (
+        ) : (
+          <div className="grid grid-cols-1 gap-4 [@container(min-width:44rem)]:grid-cols-[16rem_minmax(0,1fr)]">
             <Card>
-              <CardBody>
-                <ReportEditor
-                  project={project}
-                  report={view}
-                  onChanged={async () => setProject(await api.getProject(project.id))}
-                  onOpenRecord={onOpenCited}
-                />
+              <CardBody className="space-y-1 p-2">
+                {project.reports.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => show(r.id)}
+                    className={`w-full rounded-lg px-3 py-2 text-left text-[13px] ${view?.id === r.id ? 'bg-brand-soft text-brand' : 'hover:bg-sunken'}`}
+                  >
+                    <span className="block font-medium">{REPORT_KIND_LABEL[r.kind]}</span>
+                    <span className="text-[11px] text-ink-muted">
+                      {(r.kind === 'status' ? statusReportPeriodSaid(r) : undefined) ?? formatWhen(r.generatedAt)}
+                    </span>
+                  </button>
+                ))}
               </CardBody>
             </Card>
-          ) : null}
+            {view ? (
+              <Card>
+                <CardBody>
+                  <ReportEditor
+                    project={project}
+                    report={view}
+                    onChanged={async () => setProject(await api.getProject(project.id))}
+                    onOpenRecord={onOpenCited}
+                  />
+                </CardBody>
+              </Card>
+            ) : null}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3 border-t border-hairline pt-6">
+        <div className="min-w-0">
+          <h2 className="text-[15px] font-semibold text-ink">Letters</h2>
+          <p className="text-[13px] text-ink-secondary">Replies, RFIs and minutes filled from the record. Nothing is emailed from here.</p>
         </div>
-      )}
+        <Outgoing embedded />
+      </section>
+
       <Modal
         open={open}
         onClose={() => setOpen(false)}
         title="Generate report"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => void generate()} disabled={busy}>Generate</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void generate()} disabled={busy}>
+              Generate
+            </Button>
           </>
         }
       >
@@ -121,7 +140,9 @@ export default function Reports() {
           <Field label="Report type">
             <Select value={kind} onChange={(e) => setKind(e.target.value as ReportKind)}>
               {Object.entries(REPORT_KIND_LABEL).map(([k, label]) => (
-                <option key={k} value={k}>{label}</option>
+                <option key={k} value={k}>
+                  {label}
+                </option>
               ))}
             </Select>
           </Field>
@@ -129,7 +150,9 @@ export default function Reports() {
             <Select value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
               <option value="">All assessments</option>
               {project.assessments.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
               ))}
             </Select>
           </Field>
@@ -137,4 +160,14 @@ export default function Reports() {
       </Modal>
     </div>
   );
+}
+
+/** Old /outgoing URLs land on Reports (letters section). */
+export function OutgoingRedirect() {
+  const { project } = useOutletContext<ProjectOutlet>();
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params);
+  next.delete('side');
+  const q = next.toString();
+  return <Navigate to={`${cockpitPath(project.id, 'reports')}${q ? `?${q}` : ''}`} replace />;
 }

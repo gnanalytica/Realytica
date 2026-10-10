@@ -18,6 +18,11 @@
  * POST   /milestones                      add milestones, or the usual set
  * PATCH  /milestones/:milestoneId
  * DELETE /milestones/:milestoneId
+ * POST   /cost-reports                    start a monthly Cost Report
+ * PATCH  /cost-reports/:reportId          note / issue / reopen
+ * POST   /cost-reports/:reportId/packages add a package row
+ * PATCH  /cost-reports/:reportId/packages/:rowId
+ * DELETE /cost-reports/:reportId/packages/:rowId
  * GET    /site                            the site app's view of the project
  * POST   /site-log                        a day's entry from site (idempotent on the phone's id)
  * POST   /site-log/photos                 photographs for an entry, before it is filed
@@ -44,7 +49,38 @@ import {
   addEvidence,
   addLink,
   addMilestones,
+  addBill,
+  addContract,
+  addCostReportBasicPrice,
+  addCostReportPackage,
+  addCostReportVariation,
   attachEvidenceFile,
+  billPosition,
+  certifyBill,
+  certifyLine,
+  costReportOf,
+  costReportTotals,
+  costSummary,
+  importCostReportRows,
+  issueCostReport,
+  parseCostReportTable,
+  recordPayment,
+  reopenCostReport,
+  removeBill,
+  removeContract,
+  removeCostReportBasicPrice,
+  removeCostReportPackage,
+  removeCostReportVariation,
+  setBillLines,
+  setCostReportNote,
+  setCostReportPhotos,
+  startCostReport,
+  updateCostReportBasicPrice,
+  updateCostReportRow,
+  updateCostReportVariation,
+  updateContract,
+  voidPayment,
+  withdrawCertification,
   buildProjectGraph,
   can,
   certifiedReadout,
@@ -482,6 +518,645 @@ projectWorkspaceRouter.delete<Params & { milestoneId: string }>('/milestones/:mi
   touch(project);
   await store.save();
   res.json({ project });
+});
+
+/* ==================================================================== */
+/* Finance › Budget: monthly Cost Reports                              */
+/* ==================================================================== */
+
+const moneyField = z.number().finite().nonnegative().max(1e13);
+const costReportStart = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
+  note: z.string().max(4000).optional(),
+  seedPackages: z.boolean().optional(),
+});
+
+projectWorkspaceRouter.post<Params>('/cost-reports', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = costReportStart.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Give a month (YYYY-MM-DD), or from and to.' });
+    return;
+  }
+  try {
+    const report = startCostReport(project, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, report, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not start the Cost Report');
+  }
+});
+
+const costReportPatch = z.object({
+  note: z.string().max(4000).nullable().optional(),
+  photoEvidenceIds: z.array(z.string().min(1).max(80)).max(40).optional(),
+  issue: z.boolean().optional(),
+  reopen: z.boolean().optional(),
+});
+
+projectWorkspaceRouter.patch<Params & { reportId: string }>('/cost-reports/:reportId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = costReportPatch.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send a note, or ask to issue or reopen.' });
+    return;
+  }
+  const { note, issue, reopen } = parsed.data;
+  if (issue && reopen) {
+    res.status(400).json({ error: 'Issue or reopen, not both.' });
+    return;
+  }
+  if (issue || reopen) {
+    if (!allowed(req, res, project, 'finance', 'decide')) return;
+  } else if (!allowed(req, res, project, 'finance', 'edit')) return;
+  try {
+    const actor = actorOf(principalOf(req));
+    if (issue) issueCostReport(project, req.params.reportId, actor);
+    else if (reopen) reopenCostReport(project, req.params.reportId, actor);
+    const heldAfter = () => costReportOf(project, req.params.reportId);
+    if (note !== undefined) {
+      if (issue || reopen) {
+        if (heldAfter().status === 'draft') setCostReportNote(project, req.params.reportId, note, actor);
+      } else {
+        setCostReportNote(project, req.params.reportId, note, actor);
+      }
+    }
+    if (parsed.data.photoEvidenceIds !== undefined) {
+      if (heldAfter().status === 'draft') setCostReportPhotos(project, req.params.reportId, parsed.data.photoEvidenceIds, actor);
+    }
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not update the Cost Report');
+  }
+});
+
+const costReportRow = z.object({
+  workPackageId: z.string().min(1).max(80).optional(),
+  code: z.string().trim().max(40).nullable().optional(),
+  name: z.string().trim().min(1).max(200),
+  budget: moneyField.optional(),
+  poIssued: moneyField.optional(),
+  amountPaid: moneyField.optional(),
+  anticipatedCost: moneyField.optional(),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:reportId/packages', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = costReportRow.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Give the package a name and its figures.' });
+    return;
+  }
+  try {
+    const body = parsed.data;
+    const row = addCostReportPackage(
+      project,
+      req.params.reportId,
+      {
+        name: body.name,
+        ...(body.workPackageId ? { workPackageId: body.workPackageId } : {}),
+        ...(body.code ? { code: body.code } : {}),
+        ...(body.budget !== undefined ? { budget: body.budget } : {}),
+        ...(body.poIssued !== undefined ? { poIssued: body.poIssued } : {}),
+        ...(body.amountPaid !== undefined ? { amountPaid: body.amountPaid } : {}),
+        ...(body.anticipatedCost !== undefined ? { anticipatedCost: body.anticipatedCost } : {}),
+        ...(body.note !== undefined ? { note: body.note } : {}),
+      },
+      actorOf(principalOf(req)),
+    );
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not add that package');
+  }
+});
+
+const costReportRowPatch = z.object({
+  workPackageId: z.string().min(1).max(80).optional(),
+  code: z.string().trim().max(40).nullable().optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  budget: moneyField.nullable().optional(),
+  poIssued: moneyField.nullable().optional(),
+  amountPaid: moneyField.nullable().optional(),
+  anticipatedCost: moneyField.nullable().optional(),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+projectWorkspaceRouter.patch<Params & { reportId: string; rowId: string }>('/cost-reports/:reportId/packages/:rowId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = costReportRowPatch.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the fields to change.' });
+    return;
+  }
+  try {
+    const row = updateCostReportRow(project, req.params.reportId, req.params.rowId, parsed.data, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not change that package');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { reportId: string; rowId: string }>('/cost-reports/:reportId/packages/:rowId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  try {
+    removeCostReportPackage(project, req.params.reportId, req.params.rowId, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not remove that package');
+  }
+});
+
+
+const dayField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const signedMoney = z.number().finite().max(1e13);
+
+const variationBody = z.object({
+  description: z.string().trim().min(1).max(500),
+  amount: signedMoney,
+  workPackageId: z.string().min(1).max(80).nullable().optional(),
+  contingencyDrawn: z.boolean().optional(),
+  dated: dayField.nullable().optional(),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:reportId/variations', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = variationBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Give the variation a description and an amount.' });
+    return;
+  }
+  try {
+    const row = addCostReportVariation(project, req.params.reportId, parsed.data, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not add that variation');
+  }
+});
+
+projectWorkspaceRouter.patch<Params & { reportId: string; variationId: string }>('/cost-reports/:reportId/variations/:variationId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = variationBody.partial().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the fields to change.' });
+    return;
+  }
+  try {
+    const row = updateCostReportVariation(project, req.params.reportId, req.params.variationId, parsed.data, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not change that variation');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { reportId: string; variationId: string }>('/cost-reports/:reportId/variations/:variationId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  try {
+    removeCostReportVariation(project, req.params.reportId, req.params.variationId, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not remove that variation');
+  }
+});
+
+const basicPriceBody = z.object({
+  item: z.string().trim().min(1).max(300),
+  unit: z.string().trim().max(40).nullable().optional(),
+  tenderRate: moneyField,
+  currentRate: moneyField,
+  quantity: moneyField.nullable().optional(),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:reportId/basic-prices', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = basicPriceBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Give the item and its tender and current rates.' });
+    return;
+  }
+  try {
+    const row = addCostReportBasicPrice(project, req.params.reportId, parsed.data, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not add that basic price line');
+  }
+});
+
+projectWorkspaceRouter.patch<Params & { reportId: string; lineId: string }>('/cost-reports/:reportId/basic-prices/:lineId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = basicPriceBody.partial().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the fields to change.' });
+    return;
+  }
+  try {
+    const row = updateCostReportBasicPrice(project, req.params.reportId, req.params.lineId, parsed.data, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not change that basic price line');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { reportId: string; lineId: string }>('/cost-reports/:reportId/basic-prices/:lineId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  try {
+    removeCostReportBasicPrice(project, req.params.reportId, req.params.lineId, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not remove that basic price line');
+  }
+});
+
+const costImportUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1 } });
+
+projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:reportId/import', costImportUpload.single('file'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const file = req.file;
+  const pasted = typeof req.body?.text === 'string' ? req.body.text : '';
+  try {
+    let text = pasted;
+    if (file) {
+      const name = (file.originalname || '').toLowerCase();
+      if (name.endsWith('.xlsx')) {
+        const ExcelJS = (await import('exceljs')).default;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(file.buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+        const sheet = workbook.worksheets[0];
+        if (!sheet) throw new Error('That workbook has no sheet.');
+        const lines: string[] = [];
+        sheet.eachRow({ includeEmpty: false }, (row) => {
+          const values = Array.isArray(row.values) ? (row.values as unknown[]).slice(1) : [];
+          const cells = values.map((v) => {
+            if (v == null) return '';
+            if (typeof v === 'object' && v && 'result' in v) return String((v as { result: unknown }).result ?? '');
+            if (typeof v === 'object' && v && 'text' in v) return String((v as { text: unknown }).text ?? '');
+            return String(v);
+          });
+          lines.push(cells.map((c) => (c.includes(',') || c.includes('"') ? `"${c.replace(/"/g, '""')}"` : c)).join(','));
+        });
+        text = lines.join('\n');
+      } else {
+        text = file.buffer.toString('utf8');
+      }
+    }
+    if (!text.trim()) {
+      res.status(400).json({ error: 'Upload a CSV/Excel file or paste the ledger table.' });
+      return;
+    }
+    const rows = parseCostReportTable(text);
+    const result = importCostReportRows(project, req.params.reportId, rows, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, totals: costReportTotals(report), ...result });
+  } catch (err) {
+    failed(res, err, 'Could not import that ledger');
+  }
+});
+
+/* ==================================================================== */
+/* Finance › Budget: contracts, RA bills, certify, pay                   */
+/* ==================================================================== */
+
+const contractBody = z.object({
+  contractor: z.string().trim().min(1).max(200),
+  title: z.string().trim().min(1).max(300),
+  reference: z.string().trim().max(80).optional(),
+  workPackageIds: z.array(z.string().min(1).max(80)).max(40).optional(),
+  value: moneyField.refine((n) => n > 0),
+  retentionPercent: z.number().min(0).max(100).optional(),
+});
+
+projectWorkspaceRouter.post<Params>('/cost/contracts', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = contractBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Name the contractor, the work, and the contract value.' });
+    return;
+  }
+  try {
+    const contract = addContract(project, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, contract, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not add that contract');
+  }
+});
+
+projectWorkspaceRouter.patch<Params & { contractId: string }>('/cost/contracts/:contractId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = contractBody.partial().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the fields to change.' });
+    return;
+  }
+  try {
+    const contract = updateContract(project, req.params.contractId, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, contract, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not change that contract');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { contractId: string }>('/cost/contracts/:contractId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  try {
+    removeContract(project, req.params.contractId, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not remove that contract');
+  }
+});
+
+const billLineBody = z.object({
+  item: z.string().max(80).optional(),
+  description: z.string().trim().min(1).max(500),
+  workPackageId: z.string().min(1).max(80).optional(),
+  unit: z.string().max(40).optional(),
+  rate: moneyField.optional(),
+  quantityToDate: z.number().finite().optional(),
+  amountToDate: moneyField.optional(),
+  previousAmount: moneyField.optional(),
+  amount: signedMoney,
+  variation: z.boolean().optional(),
+  readBy: z.enum(['person', 'sheet', 'model']).default('person'),
+});
+
+const billBody = z.object({
+  contractId: z.string().min(1).max(80),
+  number: z.string().trim().min(1).max(40),
+  date: dayField,
+  periodFrom: dayField.optional(),
+  periodTo: dayField.optional(),
+  statedTotal: moneyField.optional(),
+  evidenceId: z.string().min(1).max(80).optional(),
+  lines: z.array(billLineBody).max(500).optional(),
+});
+
+projectWorkspaceRouter.post<Params>('/cost/bills', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = billBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Give the contract, bill number, date, and lines.' });
+    return;
+  }
+  try {
+    const { lines, ...rest } = parsed.data;
+    const bill = addBill(
+      project,
+      {
+        ...rest,
+        lines: (lines ?? []).map((line) => ({
+          item: line.item ?? '',
+          description: line.description,
+          amount: line.amount,
+          readBy: line.readBy,
+          ...(line.workPackageId ? { workPackageId: line.workPackageId } : {}),
+          ...(line.unit ? { unit: line.unit } : {}),
+          ...(line.rate !== undefined ? { rate: line.rate } : {}),
+          ...(line.quantityToDate !== undefined ? { quantityToDate: line.quantityToDate } : {}),
+          ...(line.amountToDate !== undefined ? { amountToDate: line.amountToDate } : {}),
+          ...(line.previousAmount !== undefined ? { previousAmount: line.previousAmount } : {}),
+          ...(line.variation ? { variation: true } : {}),
+        })),
+      },
+      actorOf(principalOf(req)),
+    );
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, bill, position: billPosition(bill), summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not add that bill');
+  }
+});
+
+projectWorkspaceRouter.put<Params & { billId: string }>('/cost/bills/:billId/lines', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = z.object({ lines: z.array(billLineBody).max(500) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the bill lines.' });
+    return;
+  }
+  try {
+    const bill = setBillLines(
+      project,
+      req.params.billId,
+      parsed.data.lines.map((line) => ({
+        item: line.item ?? '',
+        description: line.description,
+        amount: line.amount,
+        readBy: line.readBy,
+        ...(line.workPackageId ? { workPackageId: line.workPackageId } : {}),
+        ...(line.unit ? { unit: line.unit } : {}),
+        ...(line.rate !== undefined ? { rate: line.rate } : {}),
+        ...(line.quantityToDate !== undefined ? { quantityToDate: line.quantityToDate } : {}),
+        ...(line.amountToDate !== undefined ? { amountToDate: line.amountToDate } : {}),
+        ...(line.previousAmount !== undefined ? { previousAmount: line.previousAmount } : {}),
+        ...(line.variation ? { variation: true } : {}),
+      })),
+      actorOf(principalOf(req)),
+    );
+    touch(project);
+    await store.save();
+    res.json({ project, bill, position: billPosition(bill), summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not replace those lines');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { billId: string; lineId: string }>('/cost/bills/:billId/lines/:lineId/certify', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = z.object({ amount: signedMoney, quantity: z.number().finite().optional(), note: z.string().max(1000).optional() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say how much to pass on this line.' });
+    return;
+  }
+  try {
+    const line = certifyLine(project, req.params.billId, req.params.lineId, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, line, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not certify that line');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { billId: string }>('/cost/bills/:billId/certify', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  const parsed = z
+    .object({
+      signer: z.object({
+        email: z.string().email(),
+        name: z.string().trim().max(120).optional(),
+        profession: z.string().trim().min(1).max(120),
+        registration: z.string().trim().max(80).optional(),
+      }),
+      certifiedOn: dayField,
+      deductions: z
+        .array(z.object({ kind: z.enum(['retention', 'advance_recovery', 'tax', 'penalty', 'other']), label: z.string().max(80).optional(), amount: moneyField }))
+        .max(20)
+        .optional(),
+      note: z.string().max(2000).optional(),
+      evidenceId: z.string().min(1).max(80).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Name the signer, their profession, and the day the certificate was issued.' });
+    return;
+  }
+  try {
+    const certificate = certifyBill(project, req.params.billId, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, certificate, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not issue the certificate');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { billId: string }>('/cost/bills/:billId/withdraw', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  const parsed = z.object({ reason: z.string().trim().max(500).optional() }).safeParse(req.body ?? {});
+  try {
+    const certificate = withdrawCertification(project, req.params.billId, actorOf(principalOf(req)), parsed.success ? parsed.data.reason : undefined);
+    touch(project);
+    await store.save();
+    res.json({ project, certificate, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not withdraw the certificate');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { billId: string }>('/cost/bills/:billId/payments', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = z.object({ amount: moneyField.refine((n) => n > 0), paidOn: dayField, reference: z.string().trim().max(80).optional() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Give the amount and the day it was paid.' });
+    return;
+  }
+  try {
+    const payment = recordPayment(project, req.params.billId, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, payment, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not record that payment');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { billId: string; paymentId: string }>('/cost/bills/:billId/payments/:paymentId/void', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  const parsed = z.object({ reason: z.string().trim().min(1).max(500) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say why the payment is voided.' });
+    return;
+  }
+  try {
+    const payment = voidPayment(project, req.params.billId, req.params.paymentId, actorOf(principalOf(req)), parsed.data.reason);
+    touch(project);
+    await store.save();
+    res.json({ project, payment, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not void that payment');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { billId: string }>('/cost/bills/:billId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  try {
+    removeBill(project, req.params.billId, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, summary: costSummary(project) });
+  } catch (err) {
+    failed(res, err, 'Could not remove that bill');
+  }
 });
 
 /** The site app's whole view of a project, in one small answer. */

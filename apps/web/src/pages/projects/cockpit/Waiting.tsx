@@ -20,6 +20,7 @@ import { specForProposal } from '../../../components/create/specs';
 import { DecideButtons } from '../../../components/review/Decide';
 import { useLiveHighlight } from '../LiveRow';
 import { tabHolding } from './rail';
+import { WAITING_CHIPS_SHOWN, visibleTurnChips } from './turn-waiting-chips';
 
 export type Waiting = ReturnType<typeof waitingOnCanvas>;
 
@@ -32,6 +33,9 @@ export type Waiting = ReturnType<typeof waitingOnCanvas>;
  * function's documents open their review, its checks open its page at the
  * checks. After a drop, the functions its other papers went to, and the paper
  * in the graph. A waiting chip is gone once what it counts is decided.
+ *
+ * More than two waiting places fold behind "+N more places" — the lead that
+ * lists everything still waiting from earlier must not become a wall of chips.
  */
 export function TurnWaiting({
   project,
@@ -48,10 +52,12 @@ export function TurnWaiting({
   onGo: (chip: TurnChip) => void;
 }) {
   const chips = useMemo(() => turnChips(project, turn, waiting, here), [project, turn, waiting, here]);
+  const [expanded, setExpanded] = useState(false);
+  const { shown, hiddenWaiting } = useMemo(() => visibleTurnChips(chips, expanded), [chips, expanded]);
   if (!chips.length) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {chips.map((chip) => (
+      {shown.map((chip) => (
         <button
           key={chip.key}
           type="button"
@@ -72,6 +78,24 @@ export function TurnWaiting({
           <ArrowRight size={12} className="text-ink-muted" aria-hidden />
         </button>
       ))}
+      {hiddenWaiting > 0 ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken coarse:min-h-11"
+        >
+          +{hiddenWaiting} more place{hiddenWaiting === 1 ? '' : 's'}
+        </button>
+      ) : null}
+      {expanded && chips.filter((chip) => chip.kind === 'waiting').length > WAITING_CHIPS_SHOWN ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken coarse:min-h-11"
+        >
+          Show less
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -255,7 +255,7 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
         ['pre_development', 'Techno-economic feasibility report'],
         ['operations', 'Realised return reconciliation'],
       ]),
-      ws('finance', 'budget', 'Budget & cost to complete', 'Budget against committed and actual cost, and what is left to spend.', 'coming_soon', ['Quantity Surveyor', 'Chartered Accountant'], ['design_tender', 'construction', 'operations'], [
+      ws('finance', 'budget', 'Budget & cost to complete', 'Budget against committed and actual cost, and what is left to spend.', 'live', ['Quantity Surveyor', 'Chartered Accountant'], ['design_tender', 'construction', 'operations'], [
         ['design_tender', 'Approved budget'],
         ['construction', 'Cost-to-complete statement'],
       ]),
