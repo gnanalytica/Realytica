@@ -34,6 +34,15 @@ export const LAYOUTS: Record<CockpitLayout, LayoutSpec> = {
  */
 export const EMPTY_CHAT_WIDTH = 380;
 
+/**
+ * How wide the conversation stays while the reading desk is open.
+ *
+ * Verification needs the page and the value list; a 520px chat leaves the
+ * review column truncating field names. Narrow here without rewriting the
+ * person's saved chat width — closing the desk puts it back.
+ */
+export const DESK_CHAT_WIDTH = 320;
+
 const KEY = 'cockpitChatWidth';
 const MIN_CHAT = 320;
 const MAX_CHAT = 720;

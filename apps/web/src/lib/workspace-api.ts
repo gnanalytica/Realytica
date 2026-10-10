@@ -13,6 +13,17 @@ import type {
   AnswerSource,
   CertifiedReadout,
   CertifiedReport,
+  BillCertification,
+  BillLine,
+  CostBill,
+  CostContract,
+  CostPayment,
+  CostReportBasicPrice,
+  CostReportPackageRow,
+  CostReportPeriod,
+  CostReportTotals,
+  CostReportVariation,
+  CostSummary,
   CreateEngagementInput,
   DdProject,
   DepartmentKey,
@@ -100,6 +111,212 @@ export const workspaceApi = {
 
   removeMilestone: (projectId: string, milestoneId: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'DELETE' }),
+
+  startCostReport: (
+    projectId: string,
+    body: { month?: string; from?: string; to?: string; label?: string; note?: string; seedPackages?: boolean } = {},
+  ) => request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(`/projects/${projectId}/cost-reports`, json(body)),
+
+  patchCostReport: (projectId: string, reportId: string, body: { note?: string | null; photoEvidenceIds?: string[]; issue?: boolean; reopen?: boolean }) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(`/projects/${projectId}/cost-reports/${reportId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  addCostReportPackage: (
+    projectId: string,
+    reportId: string,
+    body: {
+      workPackageId?: string;
+      code?: string;
+      name: string;
+      budget?: number;
+      poIssued?: number;
+      amountPaid?: number;
+      anticipatedCost?: number;
+      note?: string | null;
+    },
+  ) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportPackageRow; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/packages`,
+      json(body),
+    ),
+
+  updateCostReportRow: (
+    projectId: string,
+    reportId: string,
+    rowId: string,
+    patch: {
+      code?: string | null;
+      name?: string;
+      budget?: number | null;
+      poIssued?: number | null;
+      amountPaid?: number | null;
+      anticipatedCost?: number | null;
+      note?: string | null;
+    },
+  ) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportPackageRow; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/packages/${rowId}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+
+  removeCostReportPackage: (projectId: string, reportId: string, rowId: string) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/packages/${rowId}`,
+      { method: 'DELETE' },
+    ),
+
+  addCostReportVariation: (
+    projectId: string,
+    reportId: string,
+    body: { description: string; amount: number; workPackageId?: string | null; contingencyDrawn?: boolean; dated?: string | null; note?: string | null },
+  ) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportVariation; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/variations`,
+      json(body),
+    ),
+
+  updateCostReportVariation: (
+    projectId: string,
+    reportId: string,
+    variationId: string,
+    patch: Partial<{ description: string; amount: number; workPackageId: string | null; contingencyDrawn: boolean; dated: string | null; note: string | null }>,
+  ) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportVariation; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/variations/${variationId}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+
+  removeCostReportVariation: (projectId: string, reportId: string, variationId: string) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/variations/${variationId}`,
+      { method: 'DELETE' },
+    ),
+
+  addCostReportBasicPrice: (
+    projectId: string,
+    reportId: string,
+    body: { item: string; unit?: string | null; tenderRate: number; currentRate: number; quantity?: number | null; note?: string | null },
+  ) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportBasicPrice; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/basic-prices`,
+      json(body),
+    ),
+
+  updateCostReportBasicPrice: (
+    projectId: string,
+    reportId: string,
+    lineId: string,
+    patch: Partial<{ item: string; unit: string | null; tenderRate: number; currentRate: number; quantity: number | null; note: string | null }>,
+  ) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportBasicPrice; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/basic-prices/${lineId}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+
+  removeCostReportBasicPrice: (projectId: string, reportId: string, lineId: string) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/basic-prices/${lineId}`,
+      { method: 'DELETE' },
+    ),
+
+  importCostReport: (projectId: string, reportId: string, input: { file: File } | { text: string }) => {
+    if ('file' in input) {
+      const body = new FormData();
+      body.append('file', input.file);
+      return request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number }>(
+        `/projects/${projectId}/cost-reports/${reportId}/import`,
+        { method: 'POST', body },
+      );
+    }
+    return request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number }>(
+      `/projects/${projectId}/cost-reports/${reportId}/import`,
+      json({ text: input.text }),
+    );
+  },
+
+  addCostContract: (
+    projectId: string,
+    body: { contractor: string; title: string; reference?: string; workPackageIds?: string[]; value: number; retentionPercent?: number },
+  ) => request<{ project: DdProject; contract: CostContract; summary: CostSummary }>(`/projects/${projectId}/cost/contracts`, json(body)),
+
+  updateCostContract: (
+    projectId: string,
+    contractId: string,
+    patch: Partial<{ contractor: string; title: string; reference: string; workPackageIds: string[]; value: number; retentionPercent: number }>,
+  ) =>
+    request<{ project: DdProject; contract: CostContract; summary: CostSummary }>(`/projects/${projectId}/cost/contracts/${contractId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+
+  removeCostContract: (projectId: string, contractId: string) =>
+    request<{ project: DdProject; summary: CostSummary }>(`/projects/${projectId}/cost/contracts/${contractId}`, { method: 'DELETE' }),
+
+  addCostBill: (
+    projectId: string,
+    body: {
+      contractId: string;
+      number: string;
+      date: string;
+      periodFrom?: string;
+      periodTo?: string;
+      statedTotal?: number;
+      evidenceId?: string;
+      lines?: Array<{
+        item?: string;
+        description: string;
+        workPackageId?: string;
+        unit?: string;
+        rate?: number;
+        amount: number;
+        variation?: boolean;
+        readBy?: 'person' | 'sheet' | 'model';
+      }>;
+    },
+  ) => request<{ project: DdProject; bill: CostBill; summary: CostSummary }>(`/projects/${projectId}/cost/bills`, json(body)),
+
+  setCostBillLines: (
+    projectId: string,
+    billId: string,
+    lines: Array<{ item?: string; description: string; workPackageId?: string; amount: number; variation?: boolean; readBy?: 'person' | 'sheet' | 'model' }>,
+  ) =>
+    request<{ project: DdProject; bill: CostBill; summary: CostSummary }>(`/projects/${projectId}/cost/bills/${billId}/lines`, {
+      method: 'PUT',
+      body: JSON.stringify({ lines }),
+    }),
+
+  certifyCostBillLine: (projectId: string, billId: string, lineId: string, body: { amount: number; quantity?: number; note?: string }) =>
+    request<{ project: DdProject; line: BillLine; summary: CostSummary }>(`/projects/${projectId}/cost/bills/${billId}/lines/${lineId}/certify`, json(body)),
+
+  certifyCostBill: (
+    projectId: string,
+    billId: string,
+    body: {
+      signer: { email: string; name?: string; profession: string; registration?: string };
+      certifiedOn: string;
+      deductions?: Array<{ kind: 'retention' | 'advance_recovery' | 'tax' | 'penalty' | 'other'; label?: string; amount: number }>;
+      note?: string;
+      evidenceId?: string;
+    },
+  ) =>
+    request<{ project: DdProject; certificate: BillCertification; summary: CostSummary }>(`/projects/${projectId}/cost/bills/${billId}/certify`, json(body)),
+
+  withdrawCostBillCertification: (projectId: string, billId: string, reason?: string) =>
+    request<{ project: DdProject; certificate: BillCertification; summary: CostSummary }>(`/projects/${projectId}/cost/bills/${billId}/withdraw`, json({ reason })),
+
+  recordCostPayment: (projectId: string, billId: string, body: { amount: number; paidOn: string; reference?: string }) =>
+    request<{ project: DdProject; payment: CostPayment; summary: CostSummary }>(`/projects/${projectId}/cost/bills/${billId}/payments`, json(body)),
+
+  voidCostPayment: (projectId: string, billId: string, paymentId: string, reason: string) =>
+    request<{ project: DdProject; payment: CostPayment; summary: CostSummary }>(
+      `/projects/${projectId}/cost/bills/${billId}/payments/${paymentId}/void`,
+      json({ reason }),
+    ),
+
+  removeCostBill: (projectId: string, billId: string) =>
+    request<{ project: DdProject; summary: CostSummary }>(`/projects/${projectId}/cost/bills/${billId}`, { method: 'DELETE' }),
 
   readAlerts: (projectId: string, ids: string[] | 'all') =>
     request<{ read: number; alerts: ProjectAlert[] }>(`/projects/${projectId}/alerts/read`, json({ ids })),

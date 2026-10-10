@@ -26,19 +26,13 @@ export function ValueDrivers({ drivers, revealed }: { drivers: ValueDriverLine[]
   return (
     <Card>
       <CardHeader
-        title="What moves the value"
-        subtitle={
-          drivers.length
-            ? `${applied.length} in the figure · ${advisory.length} for the valuer to weigh`
-            : 'Nothing on the file moves it yet'
-        }
-        info="Drivers in the figure are already in the arithmetic. The rest are what the file records that the market prices; reflect them in the comparables’ net adjustment, where they can be weighed against the comparables themselves."
+        title="Drivers"
+        subtitle={drivers.length ? `${applied.length} in · ${advisory.length} to weigh` : 'None yet'}
+        info="In the figure = already in the arithmetic. To weigh = price into comparables’ net adjustment."
       />
       <CardBody className="p-0">
         {drivers.length === 0 ? (
-          <p className="px-4 py-3 text-[13px] leading-relaxed text-ink-secondary">
-            Drivers come from what the file records: the khata and tenure, the plot’s road and facing, what the state’s revenue map draws around the parcel, what is nearby. Read the revenue map on the Overview and file the khata to see them here.
-          </p>
+          <p className="px-4 py-3 text-[13px] text-ink-muted">Khata, tenure, plot, map surrounds.</p>
         ) : (
           <ul className="divide-y divide-hairline">
             {ordered.map((d, i) =>

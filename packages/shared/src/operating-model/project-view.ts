@@ -188,7 +188,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const commercial = area('commercials');
   const cost = project.cost;
   const costKept = Boolean(cost && (cost.workPackages.length || cost.contracts.length || cost.bills.length || cost.extraColumns?.length || cost.forecast));
-  if (!commercial && (project.budget !== undefined || costKept)) withheld.push('commercials');
+  const reportsKept = Boolean(project.costReports?.length);
+  if (!commercial && (project.budget !== undefined || costKept || reportsKept)) withheld.push('commercials');
 
   const view: DdProject = {
     ...project,
@@ -203,7 +204,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     siteVisits,
     sheets,
     conversation,
-    ...(commercial ? {} : { budget: undefined, cost: undefined }),
+    ...(commercial ? {} : { budget: undefined, cost: undefined, costReports: undefined }),
     // The fee is a commercial term between the firm and its client.
     ...(commercial ? {} : { engagements: (project.engagements ?? []).map(({ fee: _fee, ...e }) => e) }),
     // Requests name who else the firm is chasing. A collaborator sees the ones

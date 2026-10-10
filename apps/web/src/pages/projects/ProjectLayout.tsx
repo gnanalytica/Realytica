@@ -21,7 +21,7 @@ export interface ProjectOutlet {
   /** A decision on the canvas is in flight. */
   waitingBusy?: boolean;
   /** Open a document on the desk, with the values waiting on it. Given the value a source chip stands for, at that value's page with its words marked. */
-  onReviewDocument?: (evidenceId: string, value?: Pick<WaitingCheckValue, 'proposalId' | 'key' | 'page'>) => void;
+  onReviewDocument?: (evidenceId: string, value?: Partial<Pick<WaitingCheckValue, 'proposalId' | 'key' | 'page'>>) => void;
   highlightIds?: string[];
   onOpenCited?: (id: string) => void;
 }

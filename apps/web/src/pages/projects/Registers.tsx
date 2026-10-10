@@ -1,6 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { ChevronRight, FileQuestion, FileText, Image as ImageIcon } from 'lucide-react';
+import {
+  CalendarDays,
+  Camera,
+  ChevronDown,
+  ChevronRight,
+  ClipboardCheck,
+  FileBadge,
+  FileQuestion,
+  FileSignature,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
+  Mail,
+  Map as MapPinIcon,
+  Receipt,
+  Ruler,
+  ScrollText,
+  ShieldCheck,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   plural,
   ownedBy,
@@ -26,8 +45,10 @@ import {
   quotesForEvidence,
   ricsConditionRating,
   type CapturePurpose,
+  type DepartmentKey,
   type EnvironmentalCondition,
   type EvidenceAttachment,
+  type EvidenceKind,
   type EvidenceRecord,
   type EvidenceStatus,
   type FindingRecord,
@@ -35,7 +56,7 @@ import {
   type RicsEscalation,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Input, RegisterRow, Select, andList, cn, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Input, RegisterRow, Select, TONE_FILL, andList, cn, toneChip, useToast, type Tone } from '../../components/ui/kit';
 import { CreateButton } from '../../components/create/CreateWizard';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
@@ -46,6 +67,7 @@ import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceD
 import { useStickyState } from '../../lib/useStickyState';
 import { AssignCell } from '../../components/AssignCell';
 import { MineToggle, useMine } from '../../components/MineToggle';
+import { DEPARTMENT_ICON } from '../../components/departments/icons';
 
 const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[];
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
@@ -61,6 +83,69 @@ function isFiled(e: { status: EvidenceStatus; attachments: unknown[] }): boolean
 type RegisterFilter = 'all' | 'gaps' | 'filed' | EvidenceStatus;
 
 const BULK_STATUSES = ['requested', 'received', 'validated', 'missing'] satisfies EvidenceStatus[];
+
+/** Status → tone: gaps warm, filed cool, problems loud. */
+const EVIDENCE_STATUS_TONE: Record<EvidenceStatus, Tone> = {
+  expected: 'neutral',
+  requested: 'warning',
+  received: 'info',
+  validated: 'good',
+  used: 'good',
+  superseded: 'neutral',
+  rejected: 'critical',
+  missing: 'serious',
+};
+
+const EVIDENCE_KIND_ICON: Record<EvidenceKind, LucideIcon> = {
+  document: FileText,
+  drawing: Ruler,
+  approval: ShieldCheck,
+  contract: FileSignature,
+  boq: FileSpreadsheet,
+  invoice: Receipt,
+  photograph: Camera,
+  schedule: CalendarDays,
+  inspection: ClipboardCheck,
+  test_report: ClipboardCheck,
+  certificate: FileBadge,
+  correspondence: Mail,
+  market_comparable: ScrollText,
+  gis: MapPinIcon,
+  other: FileQuestion,
+};
+
+/** Soft tile behind the kind mark — readable colour without competing with status. */
+const EVIDENCE_KIND_TILE: Record<EvidenceKind, string> = {
+  document: 'bg-sunken text-ink-secondary',
+  drawing: 'bg-warning/20 text-[var(--status-warning-text)]',
+  approval: 'bg-good/15 text-[var(--status-good-text)]',
+  contract: 'bg-serious/12 text-[var(--status-serious-text)]',
+  boq: 'bg-brand-soft text-brand',
+  invoice: 'bg-brand-soft text-brand',
+  photograph: 'bg-provenance/10 text-provenance-ink',
+  schedule: 'bg-warning/20 text-[var(--status-warning-text)]',
+  inspection: 'bg-good/15 text-[var(--status-good-text)]',
+  test_report: 'bg-good/15 text-[var(--status-good-text)]',
+  certificate: 'bg-good/15 text-[var(--status-good-text)]',
+  correspondence: 'bg-sunken text-ink-secondary',
+  market_comparable: 'bg-brand-soft text-brand',
+  gis: 'bg-warning/20 text-[var(--status-warning-text)]',
+  other: 'bg-sunken text-ink-muted',
+};
+
+const DEPT_MARK: Record<DepartmentKey, string> = {
+  finance: 'bg-brand-soft text-brand',
+  legal: 'bg-serious/12 text-[var(--status-serious-text)]',
+  design: 'bg-warning/20 text-[var(--status-warning-text)]',
+  construction: 'bg-good/15 text-[var(--status-good-text)]',
+  procurement: 'bg-sunken text-ink-secondary',
+  commercial: 'bg-brand-soft text-brand',
+};
+
+function evidenceRowIcon(e: EvidenceRecord): LucideIcon {
+  if ((e.attachments ?? []).some((f) => f.mimeType.startsWith('image/'))) return ImageIcon;
+  return EVIDENCE_KIND_ICON[e.kind] ?? FileQuestion;
+}
 
 export function EvidenceRegister() {
   const { project, setProject, highlightIds, onReviewDocument } = useOutletContext<ProjectOutlet>();
@@ -147,19 +232,20 @@ export function EvidenceRegister() {
    */
   const groups = useMemo(() => {
     const UNFILED = 'Not yet given to a function';
-    const byName = new Map<string, typeof rows>();
+    const byName = new Map<string, { items: typeof rows; department?: DepartmentKey }>();
     for (const row of rows) {
       const ws = documentWorkstream(project, row);
       const def = ws ? workstreamDefinition(ws) : undefined;
       const name = def ? `${departmentDefinition(def.department).label.split(' ')[0]} › ${def.label}` : UNFILED;
       const bucket = byName.get(name);
-      if (bucket) bucket.push(row);
-      else byName.set(name, [row]);
+      if (bucket) bucket.items.push(row);
+      else byName.set(name, { items: [row], department: def?.department });
     }
     return [...byName.entries()]
-      .map(([name, items]) => ({
+      .map(([name, { items, department }]) => ({
         name,
         items,
+        department,
         gaps: items.filter((e) => GAP_STATUSES.includes(e.status)).length,
       }))
       .sort((a, b) => (a.name === UNFILED ? 1 : b.name === UNFILED ? -1 : a.name.localeCompare(b.name)));
@@ -182,10 +268,27 @@ export function EvidenceRegister() {
       return next;
     });
 
+  /*
+   * Rows stay compact until somebody opens one. A deep-link expands that row
+   * so the file they asked for is not buried under assignees and ISO names.
+   */
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => (focusId ? new Set([focusId]) : new Set()));
+  const isExpanded = (id: string) => expandedIds.has(id);
+  const toggleExpanded = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   const [reading, setReading] = useState<string | null>(null);
 
   useEffect(() => {
-    if (focusId) setProofId(focusId);
+    if (focusId) {
+      setProofId(focusId);
+      setExpandedIds((prev) => (prev.has(focusId) ? prev : new Set([...prev, focusId])));
+    }
   }, [focusId]);
 
   const proof = proofId ? project.evidence.find((e) => e.id === proofId) : undefined;
@@ -353,21 +456,27 @@ export function EvidenceRegister() {
                 {chosen.size > 0 ? `${chosen.size} of ${rows.length}` : `${rows.length} shown`}
               </span>
             </div>
-            {groups.map((group) => (
+            {groups.map((group) => {
+              const DeptIcon = group.department ? DEPARTMENT_ICON[group.department] : FileText;
+              const deptMark = group.department ? DEPT_MARK[group.department] : 'bg-sunken text-ink-muted';
+              return (
               <section key={group.name}>
                 <h3>
                   <button
                     type="button"
                     onClick={() => toggle(group.name)}
                     aria-expanded={isOpen(group.name)}
-                    className="flex w-full items-center gap-2 border-y border-hairline bg-sunken/60 px-4 py-1.5 text-left hover:bg-sunken coarse:min-h-11"
+                    className="flex w-full items-center gap-2.5 border-y border-hairline bg-sunken/50 px-4 py-2 text-left hover:bg-sunken coarse:min-h-11"
                   >
                     <ChevronRight
                       size={13}
                       className={cn('shrink-0 text-ink-muted transition-transform duration-quick ease-state', isOpen(group.name) && 'rotate-90')}
                       aria-hidden="true"
                     />
-                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink">{group.name}</span>
+                    <span className={cn('grid size-6 shrink-0 place-items-center rounded-md', deptMark)} aria-hidden>
+                      <DeptIcon size={13} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{group.name}</span>
                     {/*
                       The gap count is the reason to open a section, so it sits
                       on the header rather than being found by opening it — but
@@ -376,15 +485,30 @@ export function EvidenceRegister() {
                       open 9" is the same number twice.
                     */}
                     {group.gaps > 0 && group.gaps !== group.items.length ? (
-                      <span className="shrink-0 rounded-full bg-warning/25 px-1.5 text-[10px] tabular-nums text-ink">{group.gaps} open</span>
+                      <Badge tone="warning">{group.gaps} open</Badge>
                     ) : null}
-                    <span className="shrink-0 text-[11px] tabular-nums text-ink-muted">{group.items.length}</span>
+                    <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[11px] tabular-nums text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+                      {group.items.length}
+                    </span>
                   </button>
                 </h3>
                 {isOpen(group.name)
-                  ? group.items.map((e) => (
-              <LiveRow key={e.id} id={e.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 transition-colors duration-quick hover:bg-sunken/40">
-                <div className="flex min-w-0 items-start gap-2.5">
+                  ? group.items.map((e) => {
+              const Icon = evidenceRowIcon(e);
+              const files = e.attachments ?? [];
+              const open = isExpanded(e.id);
+              const pending = onReviewDocument ? proposedFacts(e).length : 0;
+              const statusTone = EVIDENCE_STATUS_TONE[e.status];
+              return (
+              <LiveRow
+                key={e.id}
+                id={e.id}
+                highlightIds={liveIds}
+                variant="flush"
+                className={cn('relative transition-colors duration-quick', open ? 'bg-sunken/30' : 'hover:bg-sunken/40')}
+              >
+                <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', TONE_FILL[statusTone])} />
+                <div className="flex items-start gap-2.5 px-4 py-2.5 pl-5">
                   <input
                     type="checkbox"
                     aria-label={`Select ${e.title}`}
@@ -399,142 +523,169 @@ export function EvidenceRegister() {
                       })
                     }
                   />
-                {/* What kind of thing it is, before its name is read: a page or a photograph. */}
-                {(() => {
-                  const Icon = (e.attachments ?? []).some((f) => f.mimeType.startsWith('image/')) ? ImageIcon : (e.attachments ?? []).length ? FileText : FileQuestion;
-                  return (
-                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)]" aria-hidden>
-                      <Icon size={15} />
-                    </span>
-                  );
-                })()}
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-ink">{e.title}</p>
-                  <p className="text-[12px] text-ink-muted">
-                    {EVIDENCE_KIND_LABEL[e.kind]}
-                    {e.used ? ' · used' : e.considered ? ' · considered' : ''}
-                    {(e.attachments ?? []).length ? ` · ${plural(e.attachments.length, 'file')}` : ''}
-                  </p>
-                  <AssignCell
-                    className="-ml-1.5"
-                    project={project}
-                    targetId={e.id}
-                    subject={e.title}
-                    owner={e.owner}
-                    onAssigned={setProject}
-                  />
-                  {e.iso19650 ? (
-                    // Derived from the parts, never stored — the name is a view
-                    // of the reference, and two copies of it would drift.
-                    <p
-                      className="mt-0.5 font-mono text-[11px] text-ink-muted"
-                      title={`ISO 19650 information container name. XX is the standard's own placeholder for a part nobody has recorded — ${iso19650Completeness(e.iso19650).known} of ${iso19650Completeness(e.iso19650).total} known.`}
-                    >
-                      {iso19650Name(project.reference, e.iso19650)}
-                    </p>
-                  ) : null}
-                  {(e.attachments ?? []).length ? (
-                    <ul className="mt-1 space-y-1">
-                      {e.attachments.map((f) => (
-                        <li key={f.id}>
+                  <span
+                    className={cn('mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl ring-1 ring-inset ring-[var(--ring)]', EVIDENCE_KIND_TILE[e.kind])}
+                    aria-hidden
+                  >
+                    <Icon size={16} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(e.id)}
+                        aria-expanded={open}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="text-[14px] font-semibold leading-snug text-ink">{e.title}</p>
+                        <p className="mt-0.5 text-[12px] text-ink-muted">
+                          {EVIDENCE_KIND_LABEL[e.kind]}
+                          {e.used ? ' · used' : e.considered ? ' · considered' : ''}
+                          {files.length ? ` · ${plural(files.length, 'file')}` : ' · no file yet'}
+                        </p>
+                      </button>
+                      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                        <Badge tone={statusTone}>{EVIDENCE_STATUS_LABEL[e.status]}</Badge>
+                        {pending > 0 ? (
                           <button
                             type="button"
+                            onClick={() => onReviewDocument?.(e.id)}
+                            aria-label={`Review the ${pending} values waiting on ${e.title}`}
+                            className={cn('inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-mini font-medium', toneChip('info'))}
+                          >
+                            <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
+                            {pending} to review
+                          </button>
+                        ) : null}
+                        {files.length ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Open the proof for ${e.title}`}
                             onClick={() => {
-                              setProofFileId(f.id);
+                              setProofFileId(null);
                               setProofId(e.id);
                             }}
-                            className="text-[12px] text-brand underline"
                           >
-                            {f.fileName}
-                          </button>
-                          {/* How much of it was read, where that was not all of it. */}
-                          {readingLine(f.reading) ? <p className="text-[11px] text-ink-muted">{readingLine(f.reading)}</p> : null}
-                          {f.mimeType.startsWith('image/') ? (
-                            <>
-                              <CaptureStrip
-                                evidence={e}
-                                attachment={f}
-                                visits={project.siteVisits ?? []}
-                                onChange={(body) => void setCapture(e.id, f.id, body)}
-                              />
-                              <ObservationStrip
-                                attachment={f}
-                                busy={reading === f.id}
-                                onRead={() => void readPhoto(e.id, f.id)}
-                              />
-                            </>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* What the document was read as stating, waiting to be accepted on it. */}
-                  {onReviewDocument && proposedFacts(e).length ? (
-                    <button
-                      type="button"
-                      onClick={() => onReviewDocument(e.id)}
-                      aria-label={`Review the ${proposedFacts(e).length} values waiting on ${e.title}`}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-provenance/10 px-2.5 py-1 text-[12px] font-medium text-provenance-ink ring-1 ring-inset ring-provenance/35 hover:bg-provenance/20 coarse:min-h-11"
-                    >
-                      <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
-                      {proposedFacts(e).length} to review
-                    </button>
-                  ) : null}
-                  {(e.attachments ?? []).length ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`Open the proof for ${e.title}`}
-                      onClick={() => {
-                        setProofFileId(null);
-                        setProofId(e.id);
-                      }}
-                    >
-                      Open proof
-                    </Button>
-                  ) : null}
-                  <OutgoingFromPaper projectId={project.id} row={e} />
-                  <Select
-                    value={e.status}
-                    aria-label={`Status of ${e.title}`}
-                    onChange={(ev) => void setStatus(e.id, ev.target.value as EvidenceStatus)}
-                  >
-                    {EVIDENCE_STATUSES.map((s) => (
-                      <option key={s} value={s}>{EVIDENCE_STATUS_LABEL[s]}</option>
-                    ))}
-                  </Select>
-                  <label className="cursor-pointer text-[12px] font-medium text-brand">
-                    Upload
-                    <input
-                      type="file"
-                      className="sr-only"
-                      multiple
-                      onChange={(ev) => {
-                        const files = ev.target.files;
-                        if (!files?.length) return;
-                        void (async () => {
-                          try {
-                            await api.uploadEvidenceFiles(project.id, e.id, [...files]);
-                            setProject(await api.getProject(project.id));
-                            toast('File attached', 'good');
-                          } catch (err) {
-                            toast(err instanceof Error ? err.message : 'Upload failed', 'critical');
-                          } finally {
-                            ev.target.value = '';
-                          }
-                        })();
-                      }}
-                    />
-                  </label>
+                            Open
+                          </Button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(e.id)}
+                          aria-expanded={open}
+                          aria-label={open ? `Hide details for ${e.title}` : `Show details for ${e.title}`}
+                          className="grid size-8 place-items-center rounded-lg text-ink-muted hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11"
+                        >
+                          <ChevronDown
+                            size={16}
+                            className={cn('transition-transform duration-quick ease-state', open && 'rotate-180')}
+                            aria-hidden
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {open ? (
+                      <div className="mt-3 space-y-3 border-t border-hairline pt-3">
+                        <AssignCell
+                          className="-ml-1.5"
+                          project={project}
+                          targetId={e.id}
+                          subject={e.title}
+                          owner={e.owner}
+                          onAssigned={setProject}
+                        />
+                        {e.iso19650 ? (
+                          <p
+                            className="font-mono text-[11px] text-ink-muted"
+                            title={`ISO 19650 information container name. XX is the standard's own placeholder for a part nobody has recorded — ${iso19650Completeness(e.iso19650).known} of ${iso19650Completeness(e.iso19650).total} known.`}
+                          >
+                            {iso19650Name(project.reference, e.iso19650)}
+                          </p>
+                        ) : null}
+                        {files.length ? (
+                          <ul className="space-y-2 rounded-xl bg-surface p-2.5 ring-1 ring-inset ring-[var(--ring)]">
+                            {files.map((f) => (
+                              <li key={f.id} className="min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setProofFileId(f.id);
+                                    setProofId(e.id);
+                                  }}
+                                  className="truncate text-[12px] font-medium text-brand underline"
+                                >
+                                  {f.fileName}
+                                </button>
+                                {readingLine(f.reading) ? <p className="text-[11px] text-ink-muted">{readingLine(f.reading)}</p> : null}
+                                {f.mimeType.startsWith('image/') ? (
+                                  <>
+                                    <CaptureStrip
+                                      evidence={e}
+                                      attachment={f}
+                                      visits={project.siteVisits ?? []}
+                                      onChange={(body) => void setCapture(e.id, f.id, body)}
+                                    />
+                                    <ObservationStrip
+                                      attachment={f}
+                                      busy={reading === f.id}
+                                      onRead={() => void readPhoto(e.id, f.id)}
+                                    />
+                                  </>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-[12px] text-ink-muted">Nothing attached yet — upload a file or change the status.</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <OutgoingFromPaper projectId={project.id} row={e} />
+                          <Select
+                            value={e.status}
+                            aria-label={`Status of ${e.title}`}
+                            onChange={(ev) => void setStatus(e.id, ev.target.value as EvidenceStatus)}
+                          >
+                            {EVIDENCE_STATUSES.map((s) => (
+                              <option key={s} value={s}>{EVIDENCE_STATUS_LABEL[s]}</option>
+                            ))}
+                          </Select>
+                          <label className="cursor-pointer text-[12px] font-medium text-brand">
+                            Upload
+                            <input
+                              type="file"
+                              className="sr-only"
+                              multiple
+                              onChange={(ev) => {
+                                const picked = ev.target.files;
+                                if (!picked?.length) return;
+                                void (async () => {
+                                  try {
+                                    await api.uploadEvidenceFiles(project.id, e.id, [...picked]);
+                                    setProject(await api.getProject(project.id));
+                                    toast('File attached', 'good');
+                                  } catch (err) {
+                                    toast(err instanceof Error ? err.message : 'Upload failed', 'critical');
+                                  } finally {
+                                    ev.target.value = '';
+                                  }
+                                })();
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </LiveRow>
-                    ))
+              );
+                  })
                   : null}
               </section>
-            ))}
+              );
+            })}
           </CardBody>
         </Card>
       )}

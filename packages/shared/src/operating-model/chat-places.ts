@@ -215,6 +215,7 @@ const CENTRE_SECTION: Record<string, string> = {
   'legal.title': 'chain',
   'legal.approvals': 'approvals',
   'construction.progress': 'progress',
+  'finance.budget': 'cost',
 };
 
 /**

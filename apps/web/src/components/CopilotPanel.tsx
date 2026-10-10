@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AttachControls, type VoiceInfo } from './chat/AttachControls';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
-import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, X } from 'lucide-react';
+import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, PanelLeftClose, SearchX, X } from 'lucide-react';
 import { PLAN_STEP, askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread, undoSentence } from '@realytica/shared';
 import type { AgentStep, ChatChoice, ChatTurnPlace, ChoicePin, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, ValuationRun, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
@@ -27,7 +27,7 @@ import { relativeTime } from '../lib/format';
  */
 function TurnTime({ at, spend }: { at: string; spend?: TurnSpend }) {
   return (
-    <div className="mt-1.5 flex items-center gap-1.5 text-micro text-ink-muted">
+    <div className="mt-1 flex items-center gap-1.5 text-micro text-ink-muted">
       <span>{relativeTime(at)}</span>
       {/*
         What the turn cost, where the money was spent.
@@ -134,7 +134,7 @@ function TurnBubble({
      */
     const asked = planStep ? `The plan, step ${planStep.step} of ${planStep.of}` : askedOn(turn.place, here);
     return (
-      <div className="flex flex-col items-end gap-1 pl-8">
+      <div className="flex flex-col items-end gap-0.5 pl-6">
         {asked ? <p className="text-micro text-ink-muted">{asked}</p> : null}
         {/*
           `whitespace-pre-wrap`, which the assistant side has always had and
@@ -145,7 +145,7 @@ function TurnBubble({
         */}
         <div
           className={cn(
-            'max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md px-3.5 py-2 text-[13px] leading-relaxed text-ink ring-1 ring-inset [overflow-wrap:anywhere]',
+            'max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-md px-3 py-1.5 text-[12.5px] leading-snug text-ink ring-1 ring-inset [overflow-wrap:anywhere]',
             // The plan's own colour for what the plan said, the person's for what they did.
             planStep ? 'bg-ai-soft/60 ring-ai/25' : 'bg-sunken ring-[var(--ring)]',
           )}
@@ -171,13 +171,13 @@ function TurnBubble({
   // error styling other panels use for a broken state.
   if (turn.refusedForLackOfEvidence) {
     return (
-      <div className="flex gap-2.5">
+      <div className="flex gap-2">
         <AiMark className="mt-0.5" />
-        <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md bg-brand-soft px-3.5 py-2.5 ring-1 ring-inset ring-brand/20">
+        <div className="min-w-0 flex-1 rounded-xl rounded-tl-md bg-brand-soft px-3 py-2 ring-1 ring-inset ring-brand/20">
           <div className="mb-1 flex items-center gap-1.5 text-mini font-semibold text-brand">
             <SearchX size={12} /> No answer — the evidence doesn&rsquo;t support one
           </div>
-          <p className="text-[13px] leading-relaxed text-ink">{turn.text}</p>
+          <p className="text-[12.5px] leading-snug text-ink">{turn.text}</p>
           <p className="mt-1 text-mini text-ink-secondary">
             That&rsquo;s a legitimate outcome, not an error — nothing on file backs a confident answer yet.
           </p>
@@ -188,7 +188,7 @@ function TurnBubble({
   }
 
   return (
-    <div className="flex gap-2.5">
+    <div className="flex gap-2">
       {/*
         A face for the other side of the conversation.
         
@@ -200,7 +200,7 @@ function TurnBubble({
       */}
       <AiMark className="mt-0.5" />
       <div className="min-w-0 flex-1">
-        <p className="mb-1 text-[12px] font-semibold leading-5 text-ink">Copilot</p>
+        <p className="mb-0.5 text-[11px] font-semibold leading-4 text-ink">Copilot</p>
         {turn.unanswered ? (
           /*
            * The question was not answered, and what follows is the standing
@@ -327,7 +327,7 @@ function TurnBubble({
                   disabled={busy}
                   onClick={() => onPick(choice.send, choice.sitting)}
                   className={cn(
-                    'group flex w-full flex-col gap-0.5 rounded-lg bg-surface px-3 py-2 text-left',
+                    'group flex w-full flex-col gap-0.5 rounded-lg bg-surface px-2.5 py-1.5 text-left',
                     'ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick',
                     'hover:bg-brand-soft hover:ring-brand/30 coarse:min-h-11',
                     'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface disabled:hover:ring-[var(--ring)]',
@@ -411,10 +411,10 @@ function TypingIndicator({ steps }: { steps: AgentStep[] }) {
   const done = steps.filter(s => s.kind === 'tool_result').length;
 
   return (
-    <div className="flex animate-rise-in gap-2.5">
+    <div className="flex animate-rise-in gap-2">
       <AiMark className="mt-0.5" busy />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-[12px] font-semibold leading-5 text-ink">Copilot</p>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="text-[11px] font-semibold leading-4 text-ink">Copilot</p>
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1" aria-hidden>
             {[0, 1, 2].map((i) => (
@@ -509,10 +509,13 @@ export function CopilotPanel({
   pending,
   askError,
   className,
+  onCollapse,
 }: {
   conversation: CopilotTurn[];
   /** The room around the panel. Given here, not by a box around it, so files dropped anywhere on the chat's column land on the panel. */
   className?: string;
+  /** Collapse this column so the work surface can use the full width. */
+  onCollapse?: () => void;
   /**
    * The message that was sent: its words and the names of its files. It is
    * drawn at the foot of this chat until its reply is in the thread. After
@@ -940,7 +943,7 @@ export function CopilotPanel({
   const current = rows.find((row) => row.current);
 
   return (
-    <div className={cn('relative flex flex-col', compact ? 'gap-2' : 'gap-3', fill && 'h-full min-h-0', className)} {...dropTarget}>
+    <div className={cn('relative flex flex-col', compact ? 'gap-1.5' : 'gap-2.5', fill && 'h-full min-h-0', className)} {...dropTarget}>
       {dropping && takesFiles ? (
         <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl bg-brand-soft/85 ring-2 ring-inset ring-brand">
           <p className="flex items-center gap-2 text-[13px] font-medium text-brand">
@@ -1021,6 +1024,29 @@ export function CopilotPanel({
               onDeleteAll={onDeleteChats && !busy && !disabled ? askDelete : undefined}
             />
           ) : null}
+          {onCollapse ? (
+            <button
+              type="button"
+              onClick={onCollapse}
+              aria-label="Hide conversation"
+              title="Hide conversation"
+              className="ml-auto grid size-8 shrink-0 place-items-center rounded-lg text-ink-muted transition-colors duration-quick hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              <PanelLeftClose size={15} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      ) : onCollapse ? (
+        <div className="flex shrink-0 items-center justify-end border-b border-hairline px-1 pb-1.5">
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label="Hide conversation"
+            title="Hide conversation"
+            className="grid size-8 place-items-center rounded-lg text-ink-muted transition-colors duration-quick hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            <PanelLeftClose size={15} aria-hidden />
+          </button>
         </div>
       ) : null}
       {reading ? (
@@ -1064,7 +1090,7 @@ export function CopilotPanel({
         ref={scrollRef}
         onScroll={handleThreadScroll}
         className={cn(
-          'flex min-h-[9rem] flex-col gap-2.5 overflow-y-auto pr-1',
+          'flex min-h-[9rem] flex-col gap-1.5 overflow-y-auto pr-1',
           fill ? 'min-h-0 flex-1' : 'max-h-[26rem]',
           // A phone held sideways has no room for this floor and a docked card: the thread keeps a few lines.
           dock && compact && 'short:min-h-[3rem]',
@@ -1089,7 +1115,7 @@ export function CopilotPanel({
             they read as one thing, and the empty space goes where empty space
             belongs, which is above the content rather than around it.
           */
-          <div className={cn('flex flex-1 flex-col justify-end gap-3', compact ? 'py-3' : 'py-6')}>
+          <div className={cn('flex flex-1 flex-col justify-end gap-2', compact ? 'py-2' : 'py-4')}>
             {planLeadCards}
             <div className="flex items-center gap-2.5">
               <AiMark size="md" />
@@ -1112,7 +1138,7 @@ export function CopilotPanel({
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.28, ease: EASE_ENTER, delay: 0.05 * i }}
                     className={cn(
-                      'group flex w-full items-center gap-2.5 rounded-xl bg-surface px-3 py-2.5 text-left text-[13px] text-ink-secondary shadow-card',
+                      'group flex w-full items-center gap-2 rounded-lg bg-surface px-2.5 py-2 text-left text-[12.5px] text-ink-secondary shadow-card',
                       'ring-1 ring-inset ring-[var(--ring)] transition-[color,box-shadow] duration-quick',
                       'hover:text-ink hover:shadow-tile hover:ring-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50',
                       'coarse:min-h-11',
@@ -1240,7 +1266,7 @@ export function CopilotPanel({
         </div>
       ) : null}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+      <form onSubmit={handleSubmit} className={cn("flex flex-col", compact ? "gap-1.5" : "gap-2")}>
         {files.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {files.map((f) => (
@@ -1286,7 +1312,7 @@ export function CopilotPanel({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             className={cn(
-              'max-h-[9rem] min-h-[2.75rem] w-full resize-none bg-transparent px-3.5 pb-1 pt-2.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-muted coarse:text-base',
+              'max-h-[9rem] min-h-[2.5rem] w-full resize-none bg-transparent px-3 pb-1 pt-2 text-[12.5px] leading-snug text-ink outline-none placeholder:text-ink-muted coarse:text-base',
             )}
             ref={composerRef}
           />

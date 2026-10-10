@@ -1,12 +1,15 @@
 import { useEffect } from 'react';
 import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
+import { TitleChainDiagram } from '../../components/charts';
 import { useParams } from 'react-router-dom';
 import {
   engagementForReport,
   REPORT_KIND_LABEL,
   readReportBlock,
+  titleGraphFromProject,
   reportIsFrozen,
   reportSummaryLine,
+  type DdProject,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
@@ -18,6 +21,42 @@ import { useAsync } from '../../lib/useAsync';
  * the navigation around it. The same blocks the editor shows, in the same
  * order; a draft says so at the top and in the page footer.
  */
+
+function TitleChainPrintBlock({
+  project,
+  kind,
+  lines,
+  note,
+}: {
+  project: DdProject;
+  kind?: string;
+  lines: string[];
+  note?: string;
+}) {
+  const graph = kind === 'title_chain' ? titleGraphFromProject(project) : null;
+  const drawn = Boolean(graph && graph.nodes.length > 0);
+  return (
+    <>
+      {drawn ? (
+        <div className="mt-2 overflow-x-auto">
+          <TitleChainDiagram graph={graph!} summary={project.lastScreenResult?.titleGraph} />
+        </div>
+      ) : null}
+      {drawn ? (
+        note ? <p className="mt-1 italic text-neutral-600">{note}</p> : null
+      ) : lines.length ? (
+        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          {lines.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 italic text-neutral-600">{note ?? 'Nothing recorded for this section.'}</p>
+      )}
+    </>
+  );
+}
+
 export default function ReportPrint() {
   const { projectId, reportId } = useParams<{ projectId: string; reportId: string }>();
   const { data: project, error } = useAsync(() => api.getProject(projectId as string), [projectId]);
@@ -92,14 +131,13 @@ export default function ReportPrint() {
                     {resolved.note ? <p className="mt-1 italic text-neutral-600">{resolved.note}</p> : null}
                     <ReportPhotos project={project} table={resolved.table} print />
                   </>
-                ) : resolved.lines.length ? (
-                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
-                    {resolved.lines.map((line, i) => (
-                      <li key={i}>{line}</li>
-                    ))}
-                  </ul>
                 ) : (
-                  <p className="mt-1 italic text-neutral-600">{resolved.note ?? 'Nothing recorded for this section.'}</p>
+                  <TitleChainPrintBlock
+                    project={project}
+                    kind={block.source?.kind}
+                    lines={resolved.lines}
+                    note={resolved.note}
+                  />
                 )
               ) : (
                 (block.text ?? '')

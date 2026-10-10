@@ -7,6 +7,7 @@ import { evidenceFileUrl, fetchWithAuth, proposalFileUrl } from '../../lib/api';
 import type { ReadingSource } from '../../lib/reading';
 import { Button, cn } from '../ui/kit';
 import { MarksOverlay } from './MarksOverlay';
+import { marksFromPageText } from './find-on-page';
 import { noPageSaid, type NoPage } from './said';
 
 /* Same worker as the document viewer: served from this origin, never a CDN. */
@@ -101,7 +102,9 @@ const reducedMotion = (): boolean =>
  * points at a fact, the page is the fact's page and its words are marked the
  * way a person would mark them: the quote highlighted line by line, and the
  * value itself ringed. The marks are the boxes the reader found the words in,
- * so they sit over the words rather than near them.
+ * so they sit over the words rather than near them. When those boxes were not
+ * kept — a model read that only quotes the page — `highlightTerm` looks the
+ * words up in the page's text and draws the same marks from what it finds.
  *
  * A file that cannot be drawn is a blank ruled sheet that says why, and
  * offers another try where trying again can end differently.
@@ -115,6 +118,8 @@ export function PagePreview({
   scanMs,
   marks,
   markId,
+  highlightTerm,
+  highlightValue,
   zoom = 1,
   className,
 }: {
@@ -129,6 +134,13 @@ export function PagePreview({
   marks?: FactMarks | null;
   /** Changes whenever a different fact is pointed at, so its marks draw afresh. */
   markId?: string;
+  /**
+   * Words to find on the page when `marks` has none: the value, or a short
+   * stretch of the quote. Ignored when kept marks are present.
+   */
+  highlightTerm?: string | null;
+  /** Tighter term for the value ring, when it differs from `highlightTerm`. */
+  highlightValue?: string | null;
   /** How many times the width there is room for. At 1 the page fits the panel; past it the panel scrolls sideways too. */
   zoom?: number;
   className?: string;
@@ -137,6 +149,7 @@ export function PagePreview({
   const [attempt, setAttempt] = useState(0);
   const [aspect, setAspect] = useState(1.414);
   const [width, setWidth] = useState(0);
+  const [foundMarks, setFoundMarks] = useState<FactMarks | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -191,9 +204,34 @@ export function PagePreview({
     };
   }, [doc, pageNumber, width]);
 
-  const quote = marks?.quote ?? [];
+  const hasKeptMarks = Boolean(marks?.quote.length);
   /* A blank sheet stands in for the page until it is drawn, and for good when it cannot be. Nothing is marked on it. */
   const paper = loaded?.kind !== 'pdf' && loaded?.kind !== 'image';
+
+  /*
+   * No boxes were kept with the fact — look the words up on this page's text.
+   * Only PDFs: an image has no text layer to search. Cleared when kept marks
+   * arrive or the pointer leaves the fact.
+   */
+  useEffect(() => {
+    if (hasKeptMarks || !highlightTerm || !doc || paper) {
+      setFoundMarks(null);
+      return;
+    }
+    let live = true;
+    void doc
+      .getPage(pageNumber)
+      .then((p) => marksFromPageText(p, highlightTerm, highlightValue ?? undefined))
+      .then((found) => {
+        if (live) setFoundMarks(found);
+      });
+    return () => {
+      live = false;
+    };
+  }, [hasKeptMarks, highlightTerm, highlightValue, doc, pageNumber, paper, markId]);
+
+  const drawn = hasKeptMarks && marks ? marks : foundMarks;
+  const quote = drawn?.quote ?? [];
 
   /* Bring the marked words into view, centred, when the page is taller than the panel, or enlarged past its width. */
   useEffect(() => {
@@ -208,7 +246,7 @@ export function PagePreview({
     });
     // Re-centre only when a different fact is pointed at, or its page is drawn at last.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markId, width, aspect, paper]);
+  }, [markId, width, aspect, paper, quote[0]?.x, quote[0]?.y]);
 
   return (
     <div ref={scrollRef} className={cn('relative rounded-lg bg-sunken', zoom > 1 ? 'overflow-auto' : 'overflow-y-auto overflow-x-hidden', className)}>
@@ -256,7 +294,7 @@ export function PagePreview({
             </div>
           ) : null}
 
-          {!paper && marks?.quote.length ? <MarksOverlay marks={marks} markId={markId} /> : null}
+          {!paper && drawn?.quote.length ? <MarksOverlay marks={drawn} markId={markId} /> : null}
         </div>
       </div>
     </div>

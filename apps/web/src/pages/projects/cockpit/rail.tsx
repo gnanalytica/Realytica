@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   Scale,
   Search,
-  Send,
   Sparkles,
   Table2,
   Users,
@@ -89,8 +88,9 @@ export interface CockpitSection {
  * Overview, and the places the whole project shares.
  *
  * A department's own documents, records and reports sit on its pages; these
- * are the same things across every department. They are listed under the
- * departments in the selector, and Overview links to them too.
+ * are the same things across every department. In the selector they sit under
+ * the departments as a quieter "All of the project" group — Overview links
+ * to them too. Day-to-day work stays in a department.
  */
 export const SECTIONS: CockpitSection[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard, home: 'overview', tabs: [{ pane: 'overview', label: 'Overview', icon: LayoutDashboard }] },
@@ -110,13 +110,14 @@ export const SECTIONS: CockpitSection[] = [
     ],
   },
   {
+    // Packs and letters live on the Reports page (Packs | Letters). AI drafts
+    // and auto-run stay reachable by URL, not listed.
     key: 'reports',
     label: 'Reports',
     icon: FileText,
     home: 'reports',
     tabs: [
-      { pane: 'reports', label: 'Reports', icon: FileText },
-      { pane: 'outgoing', label: 'Outgoing', icon: Send },
+      { pane: 'reports', label: 'Reports', icon: FileText, also: ['outgoing'] },
       { pane: 'drafts', label: 'AI drafts', icon: Sparkles },
       { pane: 'orchestrate', label: 'Auto-run', icon: Workflow },
     ],
@@ -164,7 +165,7 @@ export function menuPlaceOf(pane: ProjectCockpitPane, at: { department?: string;
 }
 
 /** Tabs a section shows in its second row: Auto-run is reachable, not listed. */
-const HIDDEN_TABS: ReadonlySet<ProjectCockpitPane> = new Set(['orchestrate']);
+const HIDDEN_TABS: ReadonlySet<ProjectCockpitPane> = new Set(['orchestrate', 'drafts']);
 
 const TABS = SECTIONS.flatMap((s) => s.tabs.map((t) => ({ section: s, tab: t })));
 
@@ -377,13 +378,23 @@ export function ProjectPicker({
     const holds = waiting ? departmentDefinition(key).workstreams.some((w) => WORKSTREAM_PANE[w.key] && waiting.byPane[WORKSTREAM_PANE[w.key]!]) : false;
     return { key, label: DEPARTMENT_SHORT[key], note: soon ? 'Coming soon' : undefined, muted: soon, waiting: holds };
   });
-  const shared: PickerItem[] = SECTIONS.filter((section) => section.key !== 'overview' && (!section.staffOnly || staff)).map((section) => ({
+  // Day-to-day work is in a department. Review and the registers stay on their
+  // routes (and Overview links) but are not listed here — they crowded the
+  // quiet group beside Documents / Outgoing / People / Graph.
+  const pickerShared = new Set<CockpitSectionKey>(['documents', 'reports', 'people', 'graph']);
+  const shared: PickerItem[] = SECTIONS.filter(
+    (section) => pickerShared.has(section.key) && (!section.staffOnly || staff),
+  ).map((section) => ({
     key: section.key,
     label: section.label,
     icon: section.icon,
     waiting: waiting ? section.tabs.some((t) => waitingOnTab(t, waiting.byPane) > 0) : false,
   }));
-  const label = departments.find((d) => d.key === current)?.label ?? shared.find((p) => p.key === current)?.label ?? overview.label;
+  const label =
+    departments.find((d) => d.key === current)?.label ??
+    shared.find((p) => p.key === current)?.label ??
+    SECTIONS.find((s) => s.key === current)?.label ??
+    overview.label;
 
   return (
     <DepartmentPicker
@@ -391,7 +402,11 @@ export function ProjectPicker({
       current={current}
       waiting={waiting ? Object.values(waiting.byPane).some((n) => (n ?? 0) > 0) : false}
       dense={dense}
-      groups={[[{ key: overview.key, label: overview.label, icon: overview.icon }], departments, shared]}
+      groups={[
+        [{ key: overview.key, label: overview.label, icon: overview.icon }],
+        departments,
+        { heading: 'All of the project', quiet: true, items: shared },
+      ]}
       onPick={(key) => {
         const section = SECTIONS.find((x) => x.key === key);
         if (section) onGo(section.home);

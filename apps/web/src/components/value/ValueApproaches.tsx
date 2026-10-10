@@ -1,8 +1,9 @@
-import { useState, type ReactNode } from 'react';
-import { Check, FileText, Map as MapIcon, Pencil, Scale, Sparkles, X } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Check, Sparkles, X } from 'lucide-react';
 import {
   VALUE_APPROACH_LABEL,
   ownSales,
+  propertySurveyLine,
   type DdProject,
   type ValuationApproachRun,
   type ValuationMethodKey,
@@ -14,6 +15,9 @@ import {
 import { Button, Card, CardBody, CardHeader, Select, Tooltip, cn } from '../ui/kit';
 import { money } from '../../lib/format';
 import { useTyped } from '../reading/FactRow';
+
+/** Where on a paper to open the reading desk. */
+export type ValueSourceFocus = { key?: string; page?: number };
 
 const METHOD: Partial<Record<ValueApproachKey, ValuationMethodKey>> = {
   comparable: 'comparable_rate',
@@ -31,24 +35,23 @@ const FORMULA: Record<ValueApproachKey, (building: boolean) => string> = {
 };
 
 /** The inputs a bare site has no use for. */
-const BUILDING_ONLY = new Set(['built_up_area', 'replacement_rate', 'effective_age_years', 'expected_life_years']);
+const BUILDING_ONLY = new Set(['built_up_area', 'carpet_area', 'replacement_rate', 'effective_age_years', 'expected_life_years']);
 
 export interface ValueApproachActions {
   onAccept: (ids: string[]) => void;
   onSetAside: (ids: string[]) => void;
-  /** Record a value a person typed; resolves to why it would not save, or null. */
-  onCommit: (row: ValueInputRow, value: number | null, citeEvidenceId?: string) => Promise<string | null>;
-  onOpenSource: (evidenceId: string) => void;
+  /** Record a value a person typed or chose; resolves to why it would not save, or null. */
+  onCommit: (row: ValueInputRow, value: number | string | null, citeEvidenceId?: string) => Promise<string | null>;
+  /** Open the paper; pass key/page so the desk points at that value alone. */
+  onOpenSource: (evidenceId: string, focus?: ValueSourceFocus) => void;
 }
 
 /**
  * The approaches, each with the inputs it runs on.
  *
- * An input shows one of three things and never confuses them: a value
- * somebody recorded (ink, with a tick), a value the file offers (ochre, with
- * where it came from — the document and page, the map read, the convention),
- * or nothing (a dash, and an invitation to type it). The approach's own
- * result sits in its header, and says which input it is still waiting on.
+ * Each input is an always-editable field. A value somebody recorded sits in
+ * the field (ink). A value the file still offers sits beside it in ochre,
+ * with accept / set-aside. An eye opens the paper on the page that stated it.
  */
 export function ValueApproaches({
   project,
@@ -76,16 +79,27 @@ export function ValueApproaches({
   actions: ValueApproachActions;
 }) {
   const building = rows.some((r) => r.key === 'built_up_area' && (r.recorded || r.offers.length)) || (project.builtUpAreaSqm ?? 0) > 0;
+  // Residual is the development bridge — open on early / build stages even
+  // before GDV is typed, so the desk does not hide the approach that matters.
+  const residualOpenByStage = [
+    'opportunity_site',
+    'feasibility',
+    'acquisition',
+    'design',
+    'approvals',
+    'procurement',
+    'pre_construction',
+    'construction',
+  ].includes(project.currentStage);
   const approaches: ValueApproachKey[] = ['property', 'comparable', 'cost', 'income', 'residual'];
   return (
-    <div className="space-y-3">
+    <div id="value-approaches" className="space-y-3 scroll-mt-3">
       {approaches.map((key) => {
         const own = rows.filter((r) => r.approach === key && (building || !BUILDING_ONLY.has(r.key) || r.recorded || r.offers.length));
         const run = METHOD[key] ? working.runs.find((r) => r.method === METHOD[key]) : undefined;
         const used = own.some((r) => r.recorded || r.offers.length);
-        // Income and residual are for a property that earns or a site that is
-        // developed; folded until the file says either.
-        const folded = (key === 'income' || key === 'residual') && !used;
+        // Income stays folded until used. Residual opens on development stages.
+        const folded = key === 'income' ? !used : key === 'residual' ? !used && !residualOpenByStage : false;
         // An older sale of the parcel is history, not a rate: said here so the
         // valuer who wants it can adjust it for time and type it in. Only for
         // a bare site — a building's price over the land's extent is a rate
@@ -116,6 +130,7 @@ export function ValueApproaches({
             canRecordChecks={canRecordChecks}
             actions={actions}
             evidence={project.evidence}
+            survey={key === 'property' ? propertySurveyLine(project) : null}
           />
         );
       })}
@@ -138,6 +153,7 @@ function ApproachCard({
   canRecordChecks,
   actions,
   evidence,
+  survey,
 }: {
   approach: ValueApproachKey;
   notes: string[];
@@ -153,6 +169,7 @@ function ApproachCard({
   canRecordChecks: boolean;
   actions: ValueApproachActions;
   evidence: DdProject['evidence'];
+  survey?: ReturnType<typeof propertySurveyLine>;
 }) {
   const [open, setOpen] = useState(!foldedAtFirst);
   const waiting = rows.filter((r) => r.waiting && (revealed === null || revealed.has(r.key)));
@@ -192,6 +209,7 @@ function ApproachCard({
       />
       {open ? (
         <CardBody className="p-0">
+          {survey ? <PropertySurveyStrip survey={survey} actions={actions} busy={busy} /> : null}
           <ul className="divide-y divide-hairline">
             {rows.map((row) => (
               <InputRow
@@ -220,31 +238,82 @@ function ApproachCard({
   );
 }
 
-function SourceChip({ offer, onOpen }: { offer: ValueOffer; onOpen: (id: string) => void }) {
-  const Icon = offer.source.kind === 'document' ? FileText : offer.source.kind === 'revenue_map' ? MapIcon : offer.source.kind === 'comparables' ? Scale : Sparkles;
-  const text = `${offer.source.label}${offer.source.detail ? ` · ${offer.source.detail}` : ''}`;
-  const tip = (
-    <span className="block max-w-[34ch] space-y-1">
-      <span className="block">{offer.basis}</span>
-      {offer.source.quote ? <span className="block italic text-ink-muted">“{offer.source.quote}”</span> : null}
-    </span>
+/** Fact key/page an offer carries, for pointing the reading desk. */
+function offerFocus(offer: ValueOffer): ValueSourceFocus | undefined {
+  const key = offer.facts?.[0]?.key;
+  const page = offer.source.page;
+  if (key === undefined && page === undefined) return undefined;
+  return { ...(key !== undefined ? { key } : {}), ...(page !== undefined ? { page } : {}) };
+}
+
+/** Focus for a recorded figure: the document fact it was read from, not the whole paper. */
+function recordedFocus(row: ValueInputRow): ValueSourceFocus | undefined {
+  const recorded = row.recorded;
+  if (!recorded) return undefined;
+  if (recorded.factKey || recorded.page !== undefined) {
+    return {
+      ...(recorded.factKey ? { key: recorded.factKey } : {}),
+      ...(recorded.page !== undefined ? { page: recorded.page } : {}),
+    };
+  }
+  // Still-offered figure on the same paper: it names the fact key.
+  const matched = row.offers.find(
+    (o) =>
+      o.source.evidenceId === recorded.evidenceId ||
+      o.facts?.some((f) => f.evidenceId === recorded.evidenceId),
   );
-  const body = (
-    <span className="inline-flex min-w-0 items-center gap-1">
-      <Icon size={11} className="shrink-0" aria-hidden />
-      <span className="truncate">{text}</span>
-    </span>
-  );
+  return matched ? offerFocus(matched) : undefined;
+}
+
+/** A paper the eye can open: document-backed offer, or a recorded citation. */
+function eyeTarget(row: ValueInputRow, offer: ValueOffer | null): { evidenceId: string; focus?: ValueSourceFocus } | null {
+  if (offer?.source.evidenceId && offer.source.kind === 'document') {
+    return { evidenceId: offer.source.evidenceId, focus: offerFocus(offer) };
+  }
+  if (offer?.facts?.[0]?.evidenceId) {
+    const fact = offer.facts[0]!;
+    return { evidenceId: fact.evidenceId, focus: { key: fact.key, ...(offer.source.page !== undefined ? { page: offer.source.page } : {}) } };
+  }
+  if (row.recorded?.evidenceId) {
+    return { evidenceId: row.recorded.evidenceId, focus: recordedFocus(row) };
+  }
+  return null;
+}
+
+function draftFromRecorded(row: ValueInputRow): string {
+  return row.recorded ? String(row.recorded.value) : '';
+}
+
+/** Survey numbers named on the papers — identity, not an editable rate. */
+function PropertySurveyStrip({
+  survey,
+  actions,
+  busy,
+}: {
+  survey: NonNullable<ReturnType<typeof propertySurveyLine>>;
+  actions: ValueApproachActions;
+  busy: boolean;
+}) {
   return (
-    <Tooltip label={tip}>
-      {offer.source.evidenceId ? (
-        <button type="button" onClick={() => onOpen(offer.source.evidenceId!)} className="min-w-0 max-w-full text-left text-mini text-provenance-ink hover:underline">
-          {body}
-        </button>
-      ) : (
-        <span className="min-w-0 max-w-full cursor-help text-mini text-provenance-ink">{body}</span>
-      )}
-    </Tooltip>
+    <div className="flex min-w-0 items-center gap-2.5 border-b border-hairline px-3 py-1.5">
+      <div className="w-[8.5rem] shrink-0 sm:w-[10rem]">
+        <p className="text-[12px] font-medium text-ink">Survey no.</p>
+      </div>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <p className="min-w-0 flex-1 truncate font-mono text-[12px] tabular-nums text-ink">{survey.display}</p>
+        <Tooltip label="Show where this was found">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => actions.onOpenSource(survey.evidenceId, { key: survey.key, ...(survey.page !== undefined ? { page: survey.page } : {}) })}
+            aria-label="Show where the survey number was found"
+            className="shrink-0 rounded-md p-0.5 text-provenance-ink hover:bg-provenance/15 disabled:opacity-40"
+          >
+            <Sparkles size={14} />
+          </button>
+        </Tooltip>
+      </div>
+    </div>
   );
 }
 
@@ -270,23 +339,39 @@ function InputRow({
   actions: ValueApproachActions;
   evidence: DdProject['evidence'];
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [cite, setCite] = useState('');
+  const [draft, setDraft] = useState(() => draftFromRecorded(row));
+  const [cite, setCite] = useState(row.recorded?.evidenceId ?? '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const offer = row.waiting;
+  const [dirty, setDirty] = useState(false);
+  const offer = !hidden ? row.waiting : null;
   const typed = useTyped(offer?.display ?? '', 0, landing);
-  // Only what says something different: a second document agreeing with the
-  // figure shown is corroboration, not an alternative.
-  const shownValue = row.recorded?.value ?? offer?.value;
-  const alternatives = row.offers.filter((o) => o.id !== offer?.id && (shownValue === undefined || Math.abs(o.value - shownValue) / Math.max(o.value, shownValue, 1) > 0.02));
+  const eye = eyeTarget(row, offer);
+  const recordedKey = row.recorded ? `${row.recorded.value}|${row.recorded.evidenceId ?? ''}` : '';
+  // Valytica: the AI figure is the field until accepted — dashed box, not a side chip.
+  const suggest = Boolean(offer && !row.recorded && !pending);
+
+  // When the file records a figure (accept or save), the field follows it.
+  useEffect(() => {
+    setDraft(draftFromRecorded(row));
+    setCite(row.recorded?.evidenceId ?? '');
+    setDirty(false);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the recorded figure changes
+  }, [recordedKey]);
 
   async function save() {
+    if (!editable) return;
     const text = draft.trim();
     const n = text === '' ? null : Number(text.replace(/[,\s₹]/g, ''));
     if (n !== null && !Number.isFinite(n)) {
       setError('That is not a number.');
+      return;
+    }
+    const recorded = row.recorded?.value ?? null;
+    if (n === recorded && (n === null || !row.proof || cite === (row.recorded?.evidenceId ?? ''))) {
+      setError(null);
+      setDirty(false);
       return;
     }
     if (row.proof && n !== null && !cite) {
@@ -298,162 +383,214 @@ function InputRow({
     setSaving(false);
     if (refused) setError(refused);
     else {
-      setEditing(false);
       setError(null);
+      setDirty(false);
     }
   }
 
-  const state: 'recorded' | 'offered' | 'missing' = row.recorded ? 'recorded' : offer && !hidden ? 'offered' : 'missing';
 
   return (
-    <li className={cn('relative px-4 py-2', landing && 'animate-fade-in')}>
+    <li className={cn('relative px-3 py-1.5', landing && 'animate-fade-in')}>
       {landing ? <span className="pointer-events-none absolute inset-0 animate-flash-provenance" aria-hidden /> : null}
-      <div className="relative grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-[13px]">
-            <span
-              className={cn(
-                'shrink-0',
-                state === 'recorded' ? 'text-[var(--status-good-text)]' : state === 'offered' ? 'text-provenance-ink' : row.required ? 'text-[var(--status-warning-text)]' : 'text-ink-muted',
-              )}
-              aria-label={state === 'recorded' ? 'Recorded' : state === 'offered' ? 'Offered by the file' : 'Not on file'}
-            >
-              {state === 'recorded' ? <Check size={12} /> : state === 'offered' ? <Sparkles size={12} /> : <span className="inline-block w-3 text-center">–</span>}
-            </span>
-            <span className="truncate text-ink">{row.label}</span>
-            {row.proof ? (
-              <span className="shrink-0 rounded px-1 text-micro text-ink-muted ring-1 ring-inset ring-[var(--ring)]" title="Has to cite a document on the register">
-                cites
+      <div className="relative space-y-1">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="w-[8.5rem] shrink-0 sm:w-[10rem]">
+            <p className="flex flex-wrap items-center gap-1 text-[12px] leading-snug">
+              <span className="font-medium text-ink">{row.label}</span>
+              {row.proof ? (
+                <span className="shrink-0 rounded px-1 text-micro text-ink-muted ring-1 ring-inset ring-[var(--ring)]" title="Has to cite a document on the register">
+                  cites
+                </span>
+              ) : null}
+              {row.disagree && !hidden ? (
+                <span className="shrink-0 rounded-full bg-warning/15 px-1.5 text-micro font-medium text-[var(--status-warning-text)]" title="The file states different figures for this">
+                  papers differ
+                </span>
+              ) : null}
+            </p>
+          </div>
+
+          <div className="flex min-w-0 flex-1 items-stretch gap-1.5">
+            {pending ? (
+              <span className="relative block h-8 min-w-0 flex-1 overflow-hidden rounded-lg bg-sunken" aria-hidden>
+                <span className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-provenance/10 to-transparent" />
               </span>
-            ) : null}
-            {row.disagree && !hidden ? (
-              <span className="shrink-0 rounded-full bg-warning/15 px-1.5 text-micro font-medium text-[var(--status-warning-text)]" title="The file states different figures for this">
-                papers differ
-              </span>
-            ) : null}
-          </p>
-          <div className="mt-0.5 min-h-[1rem] pl-[1.125rem]">
-            {state === 'offered' && offer ? (
-              <SourceChip offer={offer} onOpen={actions.onOpenSource} />
-            ) : state === 'recorded' ? (
-              <span className="text-mini text-ink-muted">{row.recorded!.source ? `Recorded · ${row.recorded!.source}` : 'Recorded'}</span>
-            ) : pending ? (
-              <span className="text-mini text-ink-muted">Reading…</span>
+            ) : suggest && offer ? (
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-dashed border-provenance/50 bg-provenance/10 px-2.5 py-1">
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-medium tabular-nums text-ink">
+                  {landing ? typed : offer.display}
+                </span>
+                <Tooltip label={eye ? 'Show where this was found' : offer.basis}>
+                  <button
+                    type="button"
+                    disabled={busy || !eye}
+                    onClick={() => eye && actions.onOpenSource(eye.evidenceId, eye.focus)}
+                    aria-label={`Show where ${row.label.toLowerCase()} was found`}
+                    className="shrink-0 rounded-md p-0.5 text-provenance-ink hover:bg-provenance/20 disabled:opacity-40"
+                  >
+                    <Sparkles size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="Accept — record it, citing where it came from">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => actions.onAccept([offer.id])}
+                    aria-label={`Accept ${row.label.toLowerCase()} ${offer.display}`}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[var(--status-good-text)] text-white hover:opacity-90 disabled:opacity-40"
+                  >
+                    <Check size={13} strokeWidth={2.5} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="Set aside — it stays out until the file says something new">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => actions.onSetAside([offer.id])}
+                    aria-label={`Set aside ${row.label.toLowerCase()} ${offer.display}`}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken hover:text-ink disabled:opacity-40"
+                  >
+                    <X size={12} />
+                  </button>
+                </Tooltip>
+              </div>
             ) : (
-              <span className="text-mini text-ink-muted">{row.required ? 'Nothing on file — a valuer’s figure' : 'Optional'}</span>
-            )}
-            {alternatives.length && !hidden ? (
-              <span className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-mini text-ink-muted">
-                <span>The file also says</span>
-                {alternatives.slice(0, 3).map((alt) => (
-                  <Tooltip key={alt.id} label={alt.basis}>
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                {row.options ? (
+                  <Select
+                    aria-label={row.label}
+                    disabled={!editable || busy || saving}
+                    value={draft}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      setDirty(true);
+                      setError(null);
+                      void (async () => {
+                        const next = e.target.value;
+                        setSaving(true);
+                        const refused = await actions.onCommit(row, next === '' ? null : next, cite || undefined);
+                        setSaving(false);
+                        if (refused) setError(refused);
+                        else {
+                          setError(null);
+                          setDirty(false);
+                        }
+                      })();
+                    }}
+                    className="h-8 min-w-[7rem] flex-1 text-[12px]"
+                  >
+                    <option value="">Choose…</option>
+                    {row.options.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <input
+                    inputMode="decimal"
+                    aria-label={row.label}
+                    disabled={!editable || busy || saving}
+                    value={draft}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      setDirty(true);
+                      setError(null);
+                    }}
+                    onBlur={() => {
+                      if (dirty) void save();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void save();
+                      }
+                      if (e.key === 'Escape') {
+                        setDraft(draftFromRecorded(row));
+                        setCite(row.recorded?.evidenceId ?? '');
+                        setDirty(false);
+                        setError(null);
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    placeholder={row.unit}
+                    className="h-8 min-w-[7rem] flex-1 rounded-lg bg-sunken px-2.5 text-left font-mono text-[12px] tabular-nums text-ink ring-1 ring-inset ring-[var(--ring)] placeholder:text-ink-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                  />
+                )}
+                {/* Accepted from the file: keep the AI mark; click opens that field on the paper. */}
+                {eye ? (
+                  <Tooltip label="Show where this was found">
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => actions.onAccept([alt.id])}
-                      className="font-mono tabular-nums text-ink-secondary underline decoration-dotted underline-offset-2 hover:text-ink disabled:opacity-50"
+                      onClick={() => actions.onOpenSource(eye.evidenceId, eye.focus)}
+                      aria-label={`Show where ${row.label.toLowerCase()} was found`}
+                      className="shrink-0 rounded-md p-0.5 text-provenance-ink hover:bg-provenance/15 disabled:opacity-40"
                     >
-                      {alt.display} ({alt.source.label})
+                      <Sparkles size={14} />
                     </button>
                   </Tooltip>
-                ))}
-              </span>
-            ) : null}
+                ) : null}
+                {offer && row.recorded ? (
+                  <div className="inline-flex items-center gap-1 rounded-lg border border-dashed border-provenance/50 bg-provenance/10 px-1.5 py-0.5">
+                    <span className="font-mono text-[11px] font-medium tabular-nums text-ink">{offer.display}</span>
+                    <Tooltip label={offerFocus(offer) || offer.source.evidenceId ? 'Show where this was found' : offer.basis}>
+                      <button
+                        type="button"
+                        disabled={busy || !offer.source.evidenceId}
+                        onClick={() =>
+                          offer.source.evidenceId && actions.onOpenSource(offer.source.evidenceId, offerFocus(offer))
+                        }
+                        aria-label={`Show where ${row.label.toLowerCase()} was found`}
+                        className="rounded p-0.5 text-provenance-ink hover:bg-provenance/20 disabled:opacity-40"
+                      >
+                        <Sparkles size={12} />
+                      </button>
+                    </Tooltip>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => actions.onAccept([offer.id])}
+                      aria-label={`Accept ${row.label.toLowerCase()} ${offer.display}`}
+                      className="flex size-6 items-center justify-center rounded-md bg-[var(--status-good-text)] text-white hover:opacity-90 disabled:opacity-40"
+                    >
+                      <Check size={12} strokeWidth={2.5} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => actions.onSetAside([offer.id])}
+                      aria-label={`Set aside ${row.label.toLowerCase()} ${offer.display}`}
+                      className="flex size-6 items-center justify-center rounded-md bg-surface text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken disabled:opacity-40"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
-          {editing ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2 pl-[1.125rem]">
-              <input
-                autoFocus
-                inputMode="decimal"
-                aria-label={row.label}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void save();
-                  if (e.key === 'Escape') setEditing(false);
-                }}
-                placeholder={row.unit}
-                className="h-8 w-36 rounded-md bg-sunken px-2 text-right font-mono text-[13px] tabular-nums text-ink ring-1 ring-inset ring-[var(--ring)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-              />
-              <span className="text-mini text-ink-muted">{row.unit}</span>
-              {row.proof ? (
-                <Select aria-label={`Document ${row.label.toLowerCase()} is read from`} value={cite} onChange={(e) => setCite(e.target.value)} className="h-8 max-w-[16rem] text-[12px]">
-                  <option value="">Read from…</option>
-                  {evidence.map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.title}
-                    </option>
-                  ))}
-                </Select>
-              ) : null}
-              <Button size="sm" variant="primary" onClick={() => void save()} loading={saving}>
-                Save
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-              {error ? <p className="basis-full text-mini text-critical">{error}</p> : null}
-            </div>
-          ) : null}
         </div>
 
-        <div className="flex items-center gap-1 pt-px">
-          {pending ? (
-            <span className="relative block h-4 w-24 overflow-hidden rounded bg-sunken" aria-hidden>
-              <span className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-provenance/10 to-transparent" />
-            </span>
-          ) : state === 'recorded' ? (
-            <span className="font-mono text-[13px] tabular-nums text-ink">{row.recorded!.display}</span>
-          ) : state === 'offered' && offer ? (
-            <span className="font-mono text-[13px] font-medium tabular-nums text-provenance-ink">{landing ? typed : offer.display}</span>
-          ) : (
-            <span className="font-mono text-[13px] text-ink-muted">—</span>
-          )}
-          {state === 'offered' && offer && !pending ? (
-            <>
-              <Tooltip label="Accept — record it, citing where it came from">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => actions.onAccept([offer.id])}
-                  aria-label={`Accept ${row.label.toLowerCase()} ${offer.display}`}
-                  className="ml-1 rounded-md p-1 text-[var(--status-good-text)] hover:bg-good/15 disabled:opacity-40"
-                >
-                  <Check size={14} />
-                </button>
-              </Tooltip>
-              <Tooltip label="Set aside — it stays out until the file says something new">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => actions.onSetAside([offer.id])}
-                  aria-label={`Set aside ${row.label.toLowerCase()} ${offer.display}`}
-                  className="rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-40"
-                >
-                  <X size={14} />
-                </button>
-              </Tooltip>
-            </>
-          ) : null}
-          {!pending && !editing && editable ? (
-            <Tooltip label={state === 'missing' ? 'Type it' : 'Type a different figure'}>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setDraft(row.recorded ? String(row.recorded.value) : '');
-                  setCite(row.recorded?.evidenceId ?? '');
-                  setError(null);
-                  setEditing(true);
-                }}
-                aria-label={`Type ${row.label.toLowerCase()}`}
-                className="rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-40"
-              >
-                <Pencil size={13} />
-              </button>
-            </Tooltip>
-          ) : null}
-        </div>
+        {row.proof && dirty && draft.trim() !== '' ? (
+          <Select
+            aria-label={`Document ${row.label.toLowerCase()} is read from`}
+            value={cite}
+            onChange={(e) => {
+              setCite(e.target.value);
+              setDirty(true);
+            }}
+            className="h-7 max-w-[16rem] text-[12px] sm:ml-[calc(10rem+0.625rem)]"
+          >
+            <option value="">Read from…</option>
+            {evidence.map((ev) => (
+              <option key={ev.id} value={ev.id}>
+                {ev.title}
+              </option>
+            ))}
+          </Select>
+        ) : null}
+        {error ? <p className="text-mini text-critical sm:pl-[calc(10rem+0.625rem)]">{error}</p> : null}
       </div>
     </li>
   );
