@@ -20,7 +20,7 @@ From the web app the same happens by dropping the folder on **Documents**, or in
 
 ### Reading what the local reader could not
 
-Say **Read the filed documents** in the chat. Each turn takes up to ten documents nobody has read, sends them straight to the model (no second OCR pass), and stops starting new ones after eight minutes; it ends by saying how many are left, and saying it again carries on. **Read the filed documents again** reads everything from the start.
+Say **Read the filed documents** in the chat. Each turn takes up to ten documents nobody has read and stops starting new ones after five minutes. A file this server has not read at all goes straight to the model, with no second OCR pass; one it read in part is read here again first, and the model is sent only the pages that could not be read well. The turn ends by saying how many are left, and saying it again carries on. **Read the filed documents again** reads everything from the start.
 
 A value the model reads is kept only with the page it is printed on, and that page is checked, never taken on the model's word:
 

@@ -47,7 +47,10 @@ MATCH (c:Ryt:certified_report { status: 'revisit' }) RETURN c.projectId, c.label
 
 The structural half — stages, departments, workstreams, engagements, people,
 milestones, site entries, quick assessments and certified reports — is
-described in [architecture.md](../architecture.md#the-graph).
+described in [architecture.md](../architecture.md#the-graph), with the cost
+register's work packages, contracts, bills, bill lines and certificates. The
+project's memory is in the same database under labels of its own (`MemProject`,
+`MemEntry`, `MemFact`, `MemPage`) and is no part of `:Ryt`.
 
 One node label family: `:Ryt`, the project graph. Every node also carries a
 label for its **kind** (`:workstream`, `:parcel`, `:check`, `:finding` …), its **layer**

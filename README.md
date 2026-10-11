@@ -1,8 +1,12 @@
 # Realytica
 
-One workspace for a property's whole life — land, design, approvals, construction, sales and handover, then running the finished building — and for every profession that works on it.
+An AI project office that everyone on a building project can work in or connect to.
 
-A project moves through **four stages** (Land, Pre-construction, Under construction, Completed), its work is divided into **departments** (Legal, Finance, Engineering, Commercial, Procurement, with Design worked inside Engineering), and each department holds **functions** — Title, Approvals, Valuation, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
+It takes in every document, in English or any other language. It reads the latest laws and policy changes and works out the action items. It finds by itself where the project has issues and suggests them. For any data or document it tells the people concerned what the information is and what their action item is. It shows analytics and action items at each level: portfolio, project, department, function and person. It answers with sources, fills an empty template or questionnaire from everything on the project, and gives monthly or quarterly reports. People work in it directly, integrate with it, or use connectors from the tools they already have. Eventually it is voice enabled. A named person still accepts what counts.
+
+That is the product as it is defined. Not all of it is built: reading every language, watching the law, notifying on each document, connectors and voice are partly built or not yet. [What is built and what is not](docs/product.md#what-is-built-and-what-is-not) says which, line by line.
+
+A project moves through **four stages** (Land, Pre-construction, Under construction, Completed), its work is divided into **departments** (Legal, Finance, Engineering, Commercial, Procurement, with Design worked inside Engineering), and each department holds **functions** — Title, Approvals, Valuation, Budget, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
 
 | | |
 |---|---|
@@ -10,7 +14,8 @@ A project moves through **four stages** (Land, Pre-construction, Under construct
 | API | `apps/api` — Express, one serverless function on Vercel (Mumbai) |
 | Site app | `mobile/` — Expo (React Native) for Android and iOS, offline-first |
 | Domain | `packages/shared` — the model and every rule that is a pure function of a project |
-| Models | `packages/agents` — document reading, the chat, the project orchestrator |
+| Models | `packages/agents` — document reading, the chat, the project orchestrator, voice notes put into words |
+| Maps | `packages/site-intel` — public map layers, guidance values and place lookups |
 
 Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [how it looks and moves](docs/design.md) · [the API](docs/api.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md)
 
@@ -21,27 +26,31 @@ pnpm install
 pnpm dev
 ```
 
-The web app is on http://localhost:5173 and the API on http://localhost:5174. Node 20.10+ and pnpm 10.
+The web app is on http://localhost:5173 and the API on http://localhost:5174 (`PORT` moves the API). Node 20.10 or later and pnpm 10; CI runs Node 22 and pnpm 10.33.
 
-With nothing configured, sign-in is off (every request is a local operator), data lives in `apps/api/data/v2/`, the graph is a local journal file, and document reading uses the bundled OCR. Add a model key to read scans and run the chat on a model; see below.
+With nothing configured, sign-in is off (every request is a local operator), data lives in `apps/api/data/v2/`, the graph is a local journal file, and document reading uses a file's text layer and the bundled OCR (English and Kannada). The chat then answers by rule. Add a model key to have a model read what those could not and to run the chat on a model; see below.
 
 ### Settings
 
-Every variable is prefixed `REALYTICA_`. Put local ones in `.env.local` (git-ignored).
+Every variable is prefixed `REALYTICA_`, except the few a row marks as written in full. Put local ones in `.env.local` (git-ignored).
 
 | Variable | What it does |
 |---|---|
 | `AUTH_MODE` | `off` locally; `google` in production (with `AUTH_CLIENT_ID`, `AUTH_BOOTSTRAP_EMAILS`). See [docs/auth.md](docs/auth.md). |
 | `API_KEY`, `BASE_URL` | The model endpoint: Anthropic directly, or a gateway such as OpenRouter. |
 | `MODEL_EXTRACTION`, `MODEL_REASONING`, `MODEL_JUDGMENT`, `MODEL_BASIC` | The model each tier runs; `MODEL_BASIC` is the free model the chat tries first. |
+| `MODEL_PAGE_CHECK` | Optional: the model that checks a value against the page it was said to be on. Unset, the extraction model checks its own reading. |
+| `MODEL_TRANSCRIPTION` | Optional: the model that puts a voice note into words. It needs a gateway (`BASE_URL`); OpenRouter has a default. |
 | `NEO4J_URL`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | The graph. Required on Vercel; locally the journal stands in. |
-| `DATA_DIR` | Where the filesystem store writes. On Vercel a Blob store (`BLOB_STORE_ID`) is used instead. |
+| `DATA_DIR` | Where the filesystem store writes. On Vercel a Blob store is used instead, named by `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`: Vercel sets these, and they are written in full, with no prefix. |
 | `STORAGE_NAMESPACE` | The data generation, `v2` by default. |
 | `GOOGLE_MAPS_API_KEY` | Places and the satellite map. |
-| `UNBLOCKER_PROVIDER`, `UNBLOCKER_API_KEY` | Portal comparables search (99acres, MagicBricks). |
+| `UNBLOCKER_PROVIDER`, `UNBLOCKER_API_KEY` | Portal comparables search (99acres, MagicBricks). Written in full, with no prefix. |
 | `RESEND_API_KEY`, `ALERT_FROM`, `APP_URL` | Alert emails. Without them alerts stay in the app and on phones. |
 | `EXPO_ACCESS_TOKEN` | Optional: authenticates push sends to the site app. |
-| `ALLOWED_ORIGINS`, `RATE_LIMIT_*`, `OPERATORS` | Hardening; see [docs/runbooks/deployment.md](docs/runbooks/deployment.md). |
+| `AUTOMATIONS` | `on` mounts `/api/flows` and lets saved flows fire. Off by default, and the web app has no screen for flows. |
+| `ALLOWED_ORIGINS`, `RATE_LIMIT_API`, `RATE_LIMIT_MODEL`, `RATE_LIMIT_UPLOAD`, `RATE_LIMIT_PAIRING`, `OPERATORS` | Hardening; see [docs/runbooks/deployment.md](docs/runbooks/deployment.md) and, for `OPERATORS`, [docs/auth.md](docs/auth.md). |
+| `VITE_GOOGLE_CLIENT_ID`, `VITE_GOOGLE_MAPS_BROWSER_KEY` | Read when the web app is built, and written in full: the sign-in client, and an optional browser key for the map. |
 
 ### Checks
 
@@ -58,9 +67,11 @@ apps/api            Express API: routes, auth, storage, the graph adapters, docu
 apps/web            The web app
 mobile/             The site app (Expo); its own package, outside the pnpm workspace
 packages/shared     The domain: projects, stages, departments, functions, checks, approvals,
-                    progress, quick assessments, certified reports, alerts, links, the graph
+                    progress, cost, quick assessments, certified reports, alerts, links, the graph
 packages/agents     Model calls: document intelligence, the chat, the project orchestrator
 packages/site-intel Public map layers and place lookups
 test/               Every test, run by `pnpm test`; test/fixtures holds synthetic documents
+evals/              Measurements that need a model key: `pnpm eval`, `eval:reading`, `eval:multilingual`
+scripts/            The Vercel build, the lint checks, the document loader and the probes
 docs/               Product, architecture, design, API, site app, demo, runbooks
 ```

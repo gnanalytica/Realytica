@@ -30,4 +30,4 @@ Every entry goes to an outbox on the phone first, with an id the phone generates
 
 ## Notifications
 
-With notifications allowed, the phone registers its Expo push token. The API pushes alerts to the phones of a department's lead and signer: a serious issue from site, work logged before it is allowed, a late milestone, an approval lapsing, a certified report to revisit. Push needs a development or store build; Expo Go cannot receive them.
+With notifications allowed, the phone registers its Expo push token. The API pushes alerts to the phones of a department's lead and signer: a serious issue from site, work logged before it is allowed, a late milestone, an approval lapsing, a certified report to revisit, and an action past its date, which also goes to the person it is on. Push needs a development or store build; Expo Go cannot receive them.
