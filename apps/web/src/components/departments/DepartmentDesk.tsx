@@ -46,7 +46,6 @@ export interface DepartmentDeskNav {
   openActions: () => void;
   /** The site record, for a department that inspects one. */
   openSite?: () => void;
-  openReports: () => void;
   openReport: (reportId: string) => void;
   pairPhone: () => void;
 }
@@ -261,16 +260,11 @@ export function DepartmentDesk({
               title="Hand-over"
               subtitle="Built from the steps before it"
               action={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button size="sm" variant="ghost" onClick={nav.openReports}>
-                    Open Reports
+                reportKind ? (
+                  <Button size="sm" variant="primary" loading={creating} onClick={() => void createReport()}>
+                    {existing ? 'Open the report' : 'Create the report'}
                   </Button>
-                  {reportKind ? (
-                    <Button size="sm" variant="primary" loading={creating} onClick={() => void createReport()}>
-                      {existing ? 'Open the report' : 'Create the report'}
-                    </Button>
-                  ) : null}
-                </div>
+                ) : null
               }
             />
             <CardBody>

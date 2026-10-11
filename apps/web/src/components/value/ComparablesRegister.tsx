@@ -27,7 +27,7 @@ export interface ComparablesActions {
   onAdd: (input: AddComparableInput) => Promise<string | null>;
   onUpdate: (id: string, patch: ComparablePatch) => Promise<string | null>;
   onDecide: (ids: string[], decision: 'accept' | 'reject') => void;
-  onOpenSource: (evidenceId: string) => void;
+  onOpenSource: (evidenceId: string, focus?: { key?: string; page?: number }) => void;
 }
 
 function rate(n: number | null): string {

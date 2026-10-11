@@ -84,9 +84,14 @@ export interface ValueInputSpec {
   target: ValueTarget;
   label: string;
   unit: string;
+  /** When set, the input is a choice among these, not a number. */
+  options?: readonly string[];
 }
 
 const check = (id: string, key: string): ValueTarget => ({ kind: 'check', definitionId: `indicative_valuation.${id}`, key });
+
+const INTEREST_OPTIONS = ['freehold', 'leasehold', 'development rights'] as const;
+const QUOTED_BASIS_OPTIONS = ['carpet', 'built-up', 'super built-up'] as const;
 
 /**
  * Every input, in the order the page fills them: the property first, because
@@ -96,7 +101,11 @@ const check = (id: string, key: string): ValueTarget => ({ kind: 'check', defini
 export const VALUE_INPUTS: readonly ValueInputSpec[] = [
   { key: 'land_area', approach: 'property', target: { kind: 'project', field: 'landAreaSqm' }, label: 'Plot area', unit: 'sqm' },
   { key: 'built_up_area', approach: 'property', target: { kind: 'project', field: 'builtUpAreaSqm' }, label: 'Built-up area', unit: 'sqm' },
-  { key: 'area_valued', approach: 'property', target: { kind: 'project', field: 'saleableAreaSqm' }, label: 'Area valued', unit: 'sqm' },
+  { key: 'carpet_area', approach: 'property', target: check('subject', 'rera_carpet_area'), label: 'RERA carpet area', unit: 'sqm' },
+  { key: 'area_valued', approach: 'property', target: { kind: 'project', field: 'saleableAreaSqm' }, label: 'Saleable / SBA', unit: 'sqm' },
+  { key: 'quoted_basis', approach: 'property', target: check('subject', 'quoted_basis'), label: 'Area basis', unit: '', options: QUOTED_BASIS_OPTIONS },
+  { key: 'guideline_rate', approach: 'property', target: check('subject', 'guideline_rate_per_sqm'), label: 'Guideline rate', unit: 'INR/sqm' },
+  { key: 'interest', approach: 'property', target: check('subject', 'interest'), label: 'Interest valued', unit: '', options: INTEREST_OPTIONS },
   { key: 'rate_per_sqm', approach: 'comparable', target: check('comparable_inputs', 'rate_per_sqm'), label: 'Rate applied', unit: 'INR/sqm' },
   { key: 'net_adjustment_pct', approach: 'comparable', target: check('comparable_inputs', 'net_adjustment_pct'), label: 'Net adjustment', unit: '%' },
   { key: 'land_rate_per_sqm', approach: 'cost', target: check('cost_inputs', 'land_rate_per_sqm'), label: 'Land rate', unit: 'INR/sqm' },
@@ -151,7 +160,8 @@ export interface ValueOffer {
   /** Stable while the file says the same thing: the input, the source and the value. */
   id: string;
   input: string;
-  value: number;
+  /** A quantity, or a choice among a field's options. */
+  value: number | string;
   display: string;
   source: ValueSource;
   /** Why this number, in a line. Shown beside it. */
@@ -173,7 +183,8 @@ function grouped(n: number, digits = 0): string {
 }
 
 /** A value in its own unit, the way a valuer writes it. */
-export function formatValueInput(value: number, unit: string): string {
+export function formatValueInput(value: number | string, unit: string): string {
+  if (typeof value === 'string') return value;
   // A true minus: these sit in columns beside positive figures.
   if (value < 0) return `\u2212${formatValueInput(-value, unit)}`;
   if (unit === 'INR') return `₹${grouped(Math.round(value))}`;
@@ -228,6 +239,10 @@ const VALUE_FACT_KEYS = new Set([
   'sanctioned_extent',
   'sanctioned_area',
   'cleared_built_up_area',
+  'carpet_area',
+  'rera_carpet_area',
+  'super_built_up_area',
+  'saleable_area',
   'consideration',
   'registration_date',
   'monthly_rent',
@@ -370,7 +385,7 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
   ) => {
     const spec = SPEC_BY_KEY.get(input);
     // An adjustment is signed; everything else on the sheet is a positive quantity.
-    if (!spec || !Number.isFinite(value) || value === 0 || (value < 0 && !SIGNED.has(input))) return;
+    if (!spec || spec.options || !Number.isFinite(value) || value === 0 || (value < 0 && !SIGNED.has(input))) return;
     const rounded = spec.unit === 'sqm' || spec.unit.startsWith('INR') ? Math.round(value * 100) / 100 : Math.round(value * 10) / 10;
     // A rate worked out from a price keeps every digit, so the price comes
     // back out of it exactly: ₹5.5 Cr over 1,200 sqm times 1,200 sqm is
@@ -380,6 +395,22 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
     const id = [input, source.kind, idPart ?? source.evidenceId ?? source.detail ?? source.label, rest.facts?.[0]?.key ?? '', rounded].join('|');
     if (setAside.has(id) || out.some((o) => o.id === id)) return;
     out.push({ id, input, value: kept, display: formatValueInput(kept, spec.unit), source, basis, rank, ...rest });
+  };
+
+  const addChoice = (
+    input: string,
+    value: string,
+    source: ValueSource,
+    basis: string,
+    rank: number,
+    extra: Partial<Pick<ValueOffer, 'with' | 'facts'>> & { idPart?: string } = {},
+  ) => {
+    const spec = SPEC_BY_KEY.get(input);
+    if (!spec?.options || !spec.options.includes(value)) return;
+    const { idPart, ...rest } = extra;
+    const id = [input, source.kind, idPart ?? source.evidenceId ?? source.detail ?? source.label, rest.facts?.[0]?.key ?? '', value].join('|');
+    if (setAside.has(id) || out.some((o) => o.id === id)) return;
+    out.push({ id, input, value, display: formatValueInput(value, spec.unit), source, basis, rank, ...rest });
   };
 
   /* ---- the plot ------------------------------------------------------- */
@@ -448,19 +479,74 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
     }
   }
 
+  /* ---- carpet (RERA) and saleable / SBA -------------------------------- */
+
+  const CARPET_KEYS: Array<{ key: string; rank: number; says: string }> = [
+    { key: 'rera_carpet_area', rank: 1, says: 'The RERA carpet area' },
+    { key: 'carpet_area', rank: 2, says: 'The carpet area' },
+  ];
+  for (const { key, rank, says } of CARPET_KEYS) {
+    for (const { row, fact } of stated(project, key)) {
+      const n = numberOf(fact);
+      if (n !== null) {
+        add('carpet_area', n, docSource(row, fact), `${says} the ${documentName(row).toLowerCase()} states — RERA s.2(k).`, rank, {
+          facts: [{ evidenceId: row.id, key }],
+          with: { quoted_basis: 'carpet' },
+        });
+      }
+    }
+  }
+
+  const SALEABLE_KEYS: Array<{ key: string; rank: number; says: string; basis: string }> = [
+    { key: 'saleable_area', rank: 1, says: 'The saleable area', basis: 'super built-up' },
+    { key: 'super_built_up_area', rank: 2, says: 'The super built-up area', basis: 'super built-up' },
+  ];
+  for (const { key, rank, says, basis } of SALEABLE_KEYS) {
+    for (const { row, fact } of stated(project, key)) {
+      const n = numberOf(fact);
+      if (n !== null) {
+        add('area_valued', n, docSource(row, fact), `${says} the ${documentName(row).toLowerCase()} states.`, rank, {
+          facts: [{ evidenceId: row.id, key }],
+          with: { quoted_basis: basis },
+        });
+        addChoice('quoted_basis', basis, docSource(row, fact), `The ${documentName(row).toLowerCase()} states the area on a ${basis} basis.`, rank, {
+          facts: [{ evidenceId: row.id, key }],
+        });
+      }
+    }
+  }
+  for (const { row, fact } of stated(project, 'carpet_area').concat(stated(project, 'rera_carpet_area'))) {
+    addChoice('quoted_basis', 'carpet', docSource(row, fact), `The ${documentName(row).toLowerCase()} states a carpet area.`, 1, {
+      facts: [{ evidenceId: row.id, key: fact.key }],
+    });
+  }
+  for (const { row, fact } of stated(project, 'sanctioned_area').concat(stated(project, 'cleared_built_up_area'))) {
+    addChoice('quoted_basis', 'built-up', docSource(row, fact), `The ${documentName(row).toLowerCase()} states a built-up area.`, 2, {
+      facts: [{ evidenceId: row.id, key: fact.key }],
+    });
+  }
+
+  /* ---- interest valued ------------------------------------------------ */
+
+  if (project.tenure === 'freehold' || project.tenure === 'leasehold') {
+    addChoice('interest', project.tenure, { kind: 'project', label: 'This file', detail: 'Tenure' }, `The tenure recorded on this file is ${project.tenure}.`, 1);
+  }
+
   /* ---- what is valued -------------------------------------------------- */
 
   const recordedLand = project.landAreaSqm ?? 0;
   const recordedBuilt = project.builtUpAreaSqm ?? 0;
   if (building) {
-    if (recordedBuilt > 0) add('area_valued', recordedBuilt, { kind: 'project', label: 'This file', detail: 'Built-up area' }, 'The built-up area recorded on this file. Record a carpet area on Subject identification where the sale is quoted on it.', 0);
+    if (recordedBuilt > 0) add('area_valued', recordedBuilt, { kind: 'project', label: 'This file', detail: 'Built-up area' }, 'The built-up area recorded on this file. Record a carpet area where the sale is quoted on it.', 3);
     for (const offer of out.filter((o) => o.input === 'built_up_area')) {
-      add('area_valued', offer.value, offer.source, `Valued on the built-up area. ${offer.basis}`, offer.rank + 1, offer.facts ? { facts: offer.facts } : {});
+      if (typeof offer.value !== 'number') continue;
+      add('area_valued', offer.value, offer.source, `Valued on the built-up area. ${offer.basis}`, offer.rank + 3, offer.facts ? { facts: offer.facts } : {});
     }
   } else {
-    if (recordedLand > 0) add('area_valued', recordedLand, { kind: 'project', label: 'This file', detail: 'Plot area' }, 'A bare site is valued on its extent — the plot area recorded on this file.', 0);
+    if (recordedLand > 0) add('area_valued', recordedLand, { kind: 'project', label: 'This file', detail: 'Plot area' }, 'A bare site is valued on its extent — the plot area recorded on this file.', 3);
     for (const offer of out.filter((o) => o.input === 'land_area')) {
-      add('area_valued', offer.value, offer.source, `A bare site is valued on its extent. ${offer.basis}`, offer.rank + 1, offer.facts ? { facts: offer.facts } : {});
+      if (typeof offer.value !== 'number') continue;
+      add('area_valued', offer.value, offer.source, `A bare site is valued on its extent. ${offer.basis}`, offer.rank + 3, offer.facts ? { facts: offer.facts } : {});
     }
   }
 
@@ -532,17 +618,15 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
       ? ` ${differing.map((r) => `Sy. ${labels.get(r.parcelRef) ?? r.surveyNo} carries ${r.anchor ? perUnit(r.anchor) : ''}`).join('; ')}: the published values differ by parcel, and this is the one for Sy. ${from}, not an average.`
       : '';
     const none = several && guidance.unpriced.length ? ` The map published no value for ${surveyNumbersLabel(guidance.unpriced.map((r) => labels.get(r.parcelRef) ?? r.surveyNo), 12)}.` : '';
-    add(
-      'land_rate_per_sqm',
-      guidancePerSqm(anchor),
-      {
-        kind: 'revenue_map',
-        label: 'State revenue map',
-        detail: `Guidance value${anchor.locality ? `, ${anchor.locality}` : ''}${several || !anchor.locality ? `, Sy. ${from}` : ''}`,
-      },
-      `The guidance value the state publishes here: ${perUnit(anchor)}.${several ? ` Read for Sy. ${from}.` : ''}${others}${none} The statutory floor, not a market rate — most sites transact above it, so replace it with land comparables where you hold them.`,
-      1,
-    );
+    const guidanceSource: ValueSource = {
+      kind: 'revenue_map',
+      label: 'State revenue map',
+      detail: `Guidance value${anchor.locality ? `, ${anchor.locality}` : ''}${several || !anchor.locality ? `, Sy. ${from}` : ''}`,
+    };
+    const guidanceBasis = `The guidance value the state publishes here: ${perUnit(anchor)}.${several ? ` Read for Sy. ${from}.` : ''}${others}${none} The statutory floor, not a market rate — most sites transact above it, so replace it with land comparables where you hold them.`;
+    const guidanceRate = guidancePerSqm(anchor);
+    add('guideline_rate', guidanceRate, guidanceSource, guidanceBasis, 1);
+    add('land_rate_per_sqm', guidanceRate, guidanceSource, guidanceBasis, 1);
   }
 
   for (const { row, fact } of stated(project, 'oc_date')) {
@@ -634,10 +718,14 @@ function currentCheck(project: DdProject, definitionId: string): CheckInstance |
 }
 
 export interface RecordedValue {
-  value: number;
+  value: number | string;
   /** Where it was recorded from, when it cites something. */
   source?: string;
   evidenceId?: string;
+  /** Page on that paper, when known. */
+  page?: number;
+  /** Document fact key on that paper, when known — so the desk opens on this figure alone. */
+  factKey?: string;
 }
 
 function recordedOf(project: DdProject, target: ValueTarget): RecordedValue | null {
@@ -646,14 +734,53 @@ function recordedOf(project: DdProject, target: ValueTarget): RecordedValue | nu
     if (typeof n !== 'number' || n <= 0) return null;
     // The document it was accepted from, while the value is still the one accepted.
     const from = project.valueSources?.[target.field];
-    return from && from.value === n
-      ? { value: n, source: `${from.label}${from.page ? ` p. ${from.page}` : ''}`, ...(from.evidenceId ? { evidenceId: from.evidenceId } : {}) }
-      : { value: n, source: 'This file' };
+    if (!from || from.value !== n) return { value: n, source: 'This file' };
+    const paper = from.evidenceId ? project.evidence.find((e) => e.id === from.evidenceId) : undefined;
+    const hit = paper
+      ? (from.factKey ? standingFacts(paper).find((f) => f.key === from.factKey) : undefined) ??
+        standingFacts(paper).find((f) => typeof f.value === 'number' && !apart(f.value, n)) ??
+        standingFacts(paper).find((f) => {
+          const parsed = Number(String(f.value).replace(/[,\s]/g, ''));
+          return Number.isFinite(parsed) && !apart(parsed, n);
+        })
+      : undefined;
+    return {
+      value: n,
+      source: `${from.label}${from.page ? ` p. ${from.page}` : ''}`,
+      ...(from.evidenceId ? { evidenceId: from.evidenceId } : {}),
+      ...(hit ? { factKey: hit.key, page: hit.page } : from.page !== undefined ? { page: from.page } : {}),
+      ...(from.factKey && !hit ? { factKey: from.factKey } : {}),
+    };
   }
   const held = currentCheck(project, target.definitionId)?.fields?.[target.key];
-  if (!held || isBlank(held) || typeof held.value !== 'number') return null;
+  if (!held || isBlank(held)) return null;
+  if (typeof held.value === 'string' && held.value.trim()) {
+    const text = held.value.trim();
+    const row = held.sourceEvidenceId ? project.evidence.find((e) => e.id === held.sourceEvidenceId) : undefined;
+    return {
+      value: text,
+      ...(row ? { source: documentName(row), evidenceId: row.id } : {}),
+      ...(held.page !== undefined ? { page: held.page } : {}),
+    };
+  }
+  if (typeof held.value !== 'number') return null;
+  const n = held.value;
   const row = held.sourceEvidenceId ? project.evidence.find((e) => e.id === held.sourceEvidenceId) : undefined;
-  return { value: held.value, ...(row ? { source: documentName(row), evidenceId: row.id } : {}) };
+  if (!row) return { value: n };
+  // Prefer the document fact whose number is this figure; else the page the check cited.
+  const facts = standingFacts(row);
+  const hit =
+    facts.find((f) => typeof f.value === 'number' && !apart(f.value, n)) ??
+    facts.find((f) => {
+      const parsed = Number(String(f.value).replace(/[,\s]/g, ''));
+      return Number.isFinite(parsed) && !apart(parsed, n);
+    });
+  return {
+    value: n,
+    source: documentName(row),
+    evidenceId: row.id,
+    ...(hit ? { factKey: hit.key, page: hit.page } : held.page !== undefined ? { page: held.page } : {}),
+  };
 }
 
 export interface ValueInputRow {
@@ -666,6 +793,8 @@ export interface ValueInputRow {
   proof: boolean;
   /** The approach does not run without it. */
   required: boolean;
+  /** Choice options when the input is an enum, not a quantity. */
+  options?: readonly string[];
   recorded: (RecordedValue & { display: string }) | null;
   /** Everything the file offers for it, best first. */
   offers: ValueOffer[];
@@ -682,6 +811,13 @@ function apart(a: number, b: number): boolean {
   return Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b), 1e-9) > AGREE_WITHIN;
 }
 
+function valuesDisagree(values: Array<number | string>): boolean {
+  if (values.length < 2) return false;
+  const first = values[0]!;
+  if (typeof first === 'string') return values.some((v) => String(v) !== first);
+  return values.some((v) => typeof v !== 'number' || apart(v, first));
+}
+
 /** Each input, what is recorded for it, and what the file offers. */
 export function valueInputRows(project: DdProject, offers = valueOffers(project)): ValueInputRow[] {
   return VALUE_INPUTS.map((spec) => {
@@ -689,7 +825,8 @@ export function valueInputRows(project: DdProject, offers = valueOffers(project)
     const recorded = recordedOf(project, spec.target);
     const mine = offers.filter((o) => o.input === spec.key);
     const values = [...(recorded ? [recorded.value] : []), ...mine.map((o) => o.value)];
-    const disagree = values.some((v) => apart(v, values[0]!));
+    // Choices on the subject are settled when known; they do not block a figure.
+    const choice = Boolean(spec.options);
     return {
       key: spec.key,
       approach: spec.approach,
@@ -697,13 +834,36 @@ export function valueInputRows(project: DdProject, offers = valueOffers(project)
       unit: spec.unit,
       target: spec.target,
       proof: def?.proof === 'required',
-      required: spec.target.kind === 'project' ? false : def?.required !== false,
+      required: choice ? false : spec.target.kind === 'project' ? false : def?.required !== false,
+      ...(spec.options ? { options: spec.options } : {}),
       recorded: recorded ? { ...recorded, display: formatValueInput(recorded.value, spec.unit) } : null,
       offers: mine,
       waiting: recorded ? null : (mine[0] ?? null),
-      disagree,
+      disagree: valuesDisagree(values),
     };
   });
+}
+
+/** Survey numbers the property papers name — identity for The property card. */
+export function propertySurveyLine(project: DdProject): {
+  display: string;
+  evidenceId: string;
+  key: string;
+  page?: number;
+} | null {
+  for (const row of project.evidence) {
+    const fact = standingFacts(row).find((f) => f.key === 'survey_numbers' || f.key === 'covered_survey_numbers');
+    if (!fact) continue;
+    const display = fact.display || String(fact.value);
+    if (!display.trim()) continue;
+    return {
+      display,
+      evidenceId: row.id,
+      key: fact.key,
+      ...(fact.page !== undefined ? { page: fact.page } : {}),
+    };
+  }
+  return null;
 }
 
 /* ==================================================================== */
@@ -727,7 +887,7 @@ export function withValueOffers(project: DdProject, offers: readonly ValueOffer[
     const spec = SPEC_BY_KEY.get(offer.input);
     if (!spec) continue;
     if (spec.target.kind === 'project') {
-      copy[spec.target.field] = offer.value;
+      if (typeof offer.value === 'number') copy[spec.target.field] = offer.value;
       continue;
     }
     let held = currentCheck(copy, spec.target.definitionId);
@@ -792,12 +952,16 @@ export interface AcceptedOffers {
 }
 
 /**
- * The valuation's inputs are Finance's. With `mayDecide`, accepting an offered
- * value or setting one aside is a lead's or signer's there, and anybody else
- * is refused before anything changes. With nobody asking, nothing is refused.
+ * The valuation's inputs are Finance's. With `mayDecide`, a lead, signer or
+ * contributor there may accept what the file offers or set it aside — the
+ * figure on the desk, not a paper's own reading. Anybody else is refused
+ * before anything changes. With nobody asking, nothing is refused.
  */
 function assertMayDecideValue(mayDecide: MayDecide | undefined): void {
-  if (mayDecide && !mayDecide('finance')) throw decisionRefused('Deciding a value for the valuation', 'finance', mayDecide);
+  if (!mayDecide) return;
+  if (mayDecide('finance')) return;
+  if (mayDecide.roleIn?.('finance') === 'contributor') return;
+  throw decisionRefused('Deciding a value for the valuation', 'finance', mayDecide);
 }
 
 /**
@@ -837,6 +1001,7 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
     const spec = SPEC_BY_KEY.get(offer.input)!;
     try {
       if (spec.target.kind === 'project') {
+        if (typeof offer.value !== 'number') throw new Error('That project field only takes a number.');
         patchProject(project, { [spec.target.field]: offer.value }, actor);
         project.valueSources = {
           ...(project.valueSources ?? {}),
@@ -845,6 +1010,7 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
             label: offer.source.label,
             ...(offer.source.evidenceId ? { evidenceId: offer.source.evidenceId } : {}),
             ...(offer.source.page ? { page: offer.source.page } : {}),
+            ...(offer.facts?.[0]?.key ? { factKey: offer.facts[0].key } : {}),
             at: new Date().toISOString(),
             by: actor,
           },

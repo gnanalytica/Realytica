@@ -64,7 +64,7 @@ export function functionsHoldingRecords(project: DdProject): Set<string> {
   if (project.milestones?.length || project.siteLog?.length) holds('construction.progress');
   if (project.siteVisits?.length) holds('construction.site');
   for (const sheet of project.questionnaires ?? []) holds(departmentHomeWorkstream(questionnaireDepartment(sheet)));
-  if (project.cost?.workPackages.length || project.cost?.contracts.length || project.cost?.bills.length) holds('finance.budget');
+  if (project.cost?.workPackages.length || project.cost?.contracts.length || project.cost?.bills.length || project.costReports?.length) holds('finance.budget');
   for (const report of project.certifiedReports ?? []) holds(report.workstream);
   // The estimate last, and only where nothing above already answered: it is the one that costs something to work out.
   for (const workstream of WORKSTREAMS) {

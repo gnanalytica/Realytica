@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Send, X } from 'lucide-react';
-import type { EvidenceRecord, ProjectRequest, ProjectRequestStatus } from '@realytica/shared';
+import { cockpitPath, requestAgeDays, type DdProject, type EvidenceRecord, type ProjectRequest, type ProjectRequestStatus } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Field, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../ui/kit';
 import { Avatar, dayMonth } from './ProjectPanels';
 
 /** Roles an outside professional holds on a file, as a firm names them. */
@@ -90,7 +90,7 @@ export function RequestList({
                 {showProject && row.projectName ? (
                   <>
                     {' · '}
-                    <Link to={`/projects/${row.projectId}/people`} className="text-brand hover:underline">
+                    <Link to={cockpitPath(row.projectId, 'overview')} className="text-brand hover:underline">
                       {row.projectName}
                     </Link>
                   </>
@@ -268,5 +268,55 @@ export function NewRequestModal({
         </p>
       </div>
     </Modal>
+  );
+}
+
+/** What this file is waiting on, and from whom — lives on the project overview. */
+export function ProjectRequestsCard({
+  project,
+  onChanged,
+}: {
+  project: DdProject;
+  onChanged: (project: DdProject) => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const rows = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const order = { sent: 0, draft: 1, answered: 2, cancelled: 3 } as const;
+    return (project.requests ?? [])
+      .map((request) => ({
+        projectId: project.id,
+        request,
+        ageDays: requestAgeDays(request),
+        overdue: request.status === 'sent' && Boolean(request.dueAt && request.dueAt < today),
+      }))
+      .sort((a, b) => order[a.request.status] - order[b.request.status] || b.ageDays - a.ageDays);
+  }, [project]);
+  const refresh = async () => onChanged(await api.getProject(project.id));
+  const open = rows.filter((r) => r.request.status === 'sent').length;
+  return (
+    <Card>
+      <CardHeader
+        icon={<Send size={15} className="text-brand" />}
+        title="Requests"
+        subtitle={rows.length ? `${open} waiting on others · ${rows.length} in all` : 'Nothing asked for yet'}
+        info="A request linked to an expected document closes itself when that document is filed."
+        action={
+          <Button size="sm" variant="primary" icon={<Send size={13} />} onClick={() => setCreating(true)}>
+            New request
+          </Button>
+        }
+      />
+      <CardBody>
+        <RequestList rows={rows} onChanged={refresh} empty="Record who was asked for what, and by when." />
+      </CardBody>
+      <NewRequestModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        projects={[{ id: project.id, name: project.name, evidence: project.evidence }]}
+        initialProjectId={project.id}
+        onCreated={refresh}
+      />
+    </Card>
   );
 }

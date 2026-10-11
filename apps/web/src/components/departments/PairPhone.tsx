@@ -73,7 +73,7 @@ export function PairPhone() {
     <Card>
       <span id="pair" />
       <CardHeader
-        icon={<Smartphone size={15} />}
+        icon={<Smartphone size={15} className="text-brand" />}
         title="The site app"
         subtitle="Log the day from site, with or without signal"
         action={

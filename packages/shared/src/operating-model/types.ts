@@ -2154,7 +2154,7 @@ export interface DdProject {
    * area accepted off a deed would otherwise read as somebody's typing; kept
    * against the value, so a later edit by hand does not inherit the deed.
    */
-  valueSources?: Partial<Record<'landAreaSqm' | 'builtUpAreaSqm' | 'saleableAreaSqm', { value: number; label: string; evidenceId?: string; page?: number; at: string; by: string }>>;
+  valueSources?: Partial<Record<'landAreaSqm' | 'builtUpAreaSqm' | 'saleableAreaSqm', { value: number; label: string; evidenceId?: string; page?: number; factKey?: string; at: string; by: string }>>;
   /**
    * The comparables a market rate is drawn from: portal listings a search
    * found, registered sales, and figures a valuer added — each with its
@@ -2176,6 +2176,8 @@ export interface DdProject {
   siteLog?: import('./progress').SiteLogEntry[];
   /** Finance › Budget: the cost register. The budget's work packages, the contracts that cover them, each contractor's bills line by line, and what was certified and paid against them. See `cost.ts`. */
   cost?: import('./cost').CostRegister;
+  /** Finance › Budget: monthly Cost Reports — the editable figure of record for cost monitoring. See `cost-report.ts`. */
+  costReports?: import('./cost-report').CostReportPeriod[];
   /** What the team should hear about; raised and resolved from the project's state. */
   alerts?: import('./alerts').ProjectAlert[];
   /** Meetings whose notes were kept: the day, who was there, where the words are stored and what was proposed from them. Never the words. See `meetings.ts`. */

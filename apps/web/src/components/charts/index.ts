@@ -33,6 +33,9 @@ export type { ProvenanceBarProps } from './ProvenanceBar';
 export { default as TitleChainDiagram } from './TitleChainDiagram';
 export type { TitleChainDiagramProps } from './TitleChainDiagram';
 
+export { default as DepartmentLinksDiagram } from './DepartmentLinksDiagram';
+export type { DepartmentLinksDiagramProps } from './DepartmentLinksDiagram';
+
 
 export { default as PlaybookTrack } from './PlaybookTrack';
 export type { PlaybookTrackProps } from './PlaybookTrack';

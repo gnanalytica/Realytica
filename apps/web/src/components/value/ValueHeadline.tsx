@@ -1,9 +1,50 @@
 import type { ReactNode } from 'react';
-import { Sparkles } from 'lucide-react';
-import { VALUATION_SIGN_OFF_LABEL, type ValuationRun, type ValueSummary } from '@realytica/shared';
-import { Button, Card, CardBody, Tooltip, cn } from '../ui/kit';
+import {
+  VALUATION_SIGN_OFF_LABEL,
+  type ValuationMethodKey,
+  type ValuationPremise,
+  type ValuationRun,
+  type ValuationSignOff,
+  type ValueSummary,
+} from '@realytica/shared';
+import { Button, Card, CardBody, Select, Tooltip, cn } from '../ui/kit';
 import { money, pct } from '../../lib/format';
 import { useCountUp } from './useValueFill';
+
+const PREMISE_LABEL: Record<ValuationPremise, string> = {
+  as_is: 'As-is market value',
+  as_completed: 'As-completed value',
+  residual: 'Residual land value (site)',
+  forced_sale: 'Forced sale',
+};
+
+/** The four approaches shown on the blend — always, with what each means. */
+const APPROACH_CHIPS: ReadonlyArray<{
+  label: string;
+  methods: readonly ValuationMethodKey[];
+  meaning: string;
+}> = [
+  {
+    label: 'Comparables',
+    methods: ['comparable_rate', 'land_rate'],
+    meaning: 'What similar properties sold for, applied to this area.',
+  },
+  {
+    label: 'Cost',
+    methods: ['depreciated_replacement_cost'],
+    meaning: 'Land plus cost to rebuild, less depreciation for age.',
+  },
+  {
+    label: 'Income',
+    methods: ['investment_income'],
+    meaning: 'Rent capitalised at a yield — what an investor would pay for the income.',
+  },
+  {
+    label: 'Residual',
+    methods: ['residual_land'],
+    meaning: 'Completed development value minus build cost and profit — what the land is worth to a developer.',
+  },
+];
 
 /** Where the figure on the page stands. */
 export type ValueStatus =
@@ -44,24 +85,21 @@ export function ValueHeadline({
   summary,
   status,
   run,
-  waiting,
-  sources,
+  premise,
   busy,
   spreadBasis,
-  onAcceptAll,
   onRecord,
+  onSignOff,
 }: {
   summary: ValueSummary;
   status: ValueStatus;
   run?: ValuationRun;
-  /** How many values from the file wait for a person. */
-  waiting: number;
-  /** Where those values came from, in words: "3 documents and the revenue map". */
-  sources: string;
+  /** Basis of value shown above the figure. */
+  premise: ValuationPremise;
   busy: boolean;
   spreadBasis: string;
-  onAcceptAll: () => void;
   onRecord: () => void;
+  onSignOff?: (signOff: ValuationSignOff) => void;
 }) {
   const shown = useCountUp(summary.fairMarket);
   const usable = summary.approaches.filter((a) => a.share > 0);
@@ -72,15 +110,14 @@ export function ValueHeadline({
       <CardBody className="space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
-            <p className="text-micro font-medium uppercase tracking-[0.08em] text-ink-muted">Fair market value</p>
             {summary.fairMarket !== null && shown !== null ? (
               <>
                 <p
                   className={cn(
-                    'mt-1 font-mono text-[28px] font-semibold leading-none tracking-tight tabular-nums',
+                    'font-mono text-[28px] font-semibold leading-none tracking-tight tabular-nums',
                     status === 'provisional' ? 'text-provenance-ink' : 'text-ink',
                   )}
-                  title={`${full(summary.fairMarket)} before rounding`}
+                  title={`${PREMISE_LABEL[premise]} · ${full(summary.fairMarket)} before rounding`}
                 >
                   {rounded(shown)}
                 </p>
@@ -107,40 +144,53 @@ export function ValueHeadline({
                       ? `No figure yet — waiting on ${waitingOn.slice(0, 2).join(' and ').toLowerCase()}`
                       : 'No figure yet'}
                 </p>
-                <p className="mt-1 max-w-[60ch] text-[12px] leading-relaxed text-ink-secondary">
-                  {summary.outcome === 'approaches_disagree'
-                    ? spreadBasis
-                    : 'Every approach multiplies a rate by an area. “Value this property” fills what the file holds; what it does not hold waits below for a person.'}
-                </p>
+                {summary.outcome === 'approaches_disagree' && spreadBasis ? (
+                  <p className="mt-1 max-w-[52ch] text-[12px] text-ink-secondary" title={spreadBasis}>
+                    {spreadBasis.length > 120 ? `${spreadBasis.slice(0, 117)}…` : spreadBasis}
+                  </p>
+                ) : null}
               </>
             )}
           </div>
-          <StatusChip status={status} run={run} waiting={waiting} />
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <StatusChip status={status} run={run} />
+            {run && onSignOff ? (
+              <Select
+                aria-label="Sign-off"
+                value={run.signOff}
+                onChange={(e) => onSignOff(e.target.value as ValuationSignOff)}
+                className="h-8 w-auto max-w-[14rem] text-[12px]"
+              >
+                {(Object.keys(VALUATION_SIGN_OFF_LABEL) as ValuationSignOff[]).map((k) => (
+                  <option key={k} value={k}>
+                    {VALUATION_SIGN_OFF_LABEL[k]}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
+          </div>
         </div>
 
         {summary.restsOnGuidance ? (
-          <p className="rounded-lg bg-warning/10 px-3 py-2 text-[13px] leading-relaxed text-ink ring-1 ring-inset ring-warning/30">
-            <span className="font-medium">This is the guideline value, not yet a market value.</span>{' '}
-            <span className="text-ink-secondary">
-              The only rate on the file is the state’s guidance rate — the floor duty is charged on. Most sites transact above it; record comparables, or a recent sale of the parcel, for a market figure.
-            </span>
+          <p className="rounded-lg bg-warning/10 px-3 py-1.5 text-[12px] font-medium text-[var(--status-warning-text)] ring-1 ring-inset ring-warning/30">
+            Guideline only — add comparables for a market figure
           </p>
         ) : null}
 
         {summary.fairMarket !== null ? (
-          <dl className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))]">
-            <Figure label="Realisable" value={money(summary.realisable, 'INR')} note="90% of fair market — a sale in the ordinary course" />
-            <Figure label="Distress" value={money(summary.distress, 'INR')} note="75% — a forced sale, as panels state it" />
+          <dl className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(8rem,1fr))]">
+            <Figure label="Realisable" value={money(summary.realisable, 'INR')} note="90% of FMV" />
+            <Figure label="Distress" value={money(summary.distress, 'INR')} note="75% forced sale" />
             {summary.guideline ? (
               <Figure
-                label="Guideline value"
+                label="Guideline"
                 value={money(summary.guideline.value, 'INR')}
-                note={`${summary.guideline.published} on the plot`}
+                note={summary.guideline.published}
                 aside={
                   summary.vsGuideline !== null && !summary.restsOnGuidance ? (
                     <span
                       className={cn('font-mono text-mini tabular-nums', summary.vsGuideline < 0 ? 'text-[var(--status-warning-text)]' : 'text-ink-muted')}
-                      title="The fair market value against the guideline value"
+                      title="Fair market vs guideline"
                     >
                       {summary.vsGuideline < 0 ? '\u2212' : '+'}
                       {pct(Math.abs(summary.vsGuideline) * 100, 0)}
@@ -149,34 +199,63 @@ export function ValueHeadline({
                 }
               />
             ) : (
-              <Figure label="Guideline value" value="—" note="Read the revenue map on the Overview for the state’s guidance rate" muted />
+              <Figure label="Guideline" value="—" note="No map rate" muted />
             )}
           </dl>
         ) : null}
 
-        {summary.approaches.length ? (
+        {summary.approaches.length || usable.length ? (
           <div className="space-y-1.5">
             {usable.length ? (
-              <div className="flex h-2 overflow-hidden rounded-full bg-sunken" role="img" aria-label={usable.map((a) => `${a.label} ${Math.round(a.share * 100)}%`).join(', ')}>
+              <div
+                className="flex h-2 overflow-hidden rounded-full bg-sunken"
+                role="img"
+                aria-label={usable.map((a) => `${approachChipLabel(a.method)} ${Math.round(a.share * 100)}%`).join(', ')}
+              >
                 {usable.map((a, i) => (
-                  <span key={a.method} className={cn('h-full transition-[width] duration-slow ease-enter', SERIES[i % SERIES.length])} style={{ width: `${a.share * 100}%` }} />
+                  <span
+                    key={a.method}
+                    className={cn('h-full transition-[width] duration-slow ease-enter', SERIES[i % SERIES.length])}
+                    style={{ width: `${a.share * 100}%` }}
+                    title={`${approachChipLabel(a.method)}: ${money(a.amount, 'INR')}`}
+                  />
                 ))}
               </div>
             ) : null}
-            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-mini">
-              {summary.approaches.map((a) => {
-                const i = usable.findIndex((u) => u.method === a.method);
+            <ul className="flex flex-wrap items-center gap-1.5">
+              {APPROACH_CHIPS.map((chip) => {
+                const match = summary.approaches.find((a) => chip.methods.includes(a.method));
+                const running = match && match.share > 0 && match.amount !== null;
+                const color = running ? usable.findIndex((u) => u.method === match.method) : -1;
+                const tip = running
+                  ? `${chip.meaning} ${money(match.amount, 'INR')} · ${Math.round(match.share * 100)}% of the blend.`
+                  : match?.missing.length
+                    ? `${chip.meaning} Not run — needs ${match.missing.slice(0, 2).join(', ').toLowerCase()}.`
+                    : `${chip.meaning} Not run yet.`;
                 return (
-                  <li key={a.method} className="inline-flex items-center gap-1.5">
-                    <span className={cn('h-2 w-2 rounded-full', i >= 0 ? SERIES[i % SERIES.length] : 'bg-sunken ring-1 ring-inset ring-[var(--ring)]')} aria-hidden />
-                    <span className={i >= 0 ? 'text-ink' : 'text-ink-muted'}>{a.label}</span>
-                    {i >= 0 ? (
-                      <span className="font-mono tabular-nums text-ink-secondary">
-                        {money(a.amount, 'INR')} · {Math.round(a.share * 100)}%
+                  <li key={chip.label}>
+                    <Tooltip label={tip}>
+                      <span
+                        className={cn(
+                          'inline-flex cursor-help items-center gap-1 rounded-md px-1.5 py-0.5 text-mini ring-1 ring-inset',
+                          running ? 'bg-sunken text-ink ring-[var(--ring)]' : 'bg-transparent text-ink-muted ring-[var(--ring)]',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'size-1.5 rounded-full',
+                            color >= 0 ? SERIES[color % SERIES.length] : 'bg-sunken ring-1 ring-inset ring-[var(--ring)]',
+                          )}
+                          aria-hidden
+                        />
+                        <span className={cn('font-medium', running ? 'text-ink' : 'text-ink-muted')}>{chip.label}</span>
+                        {running ? (
+                          <span className="font-mono tabular-nums text-ink-secondary">{Math.round(match.share * 100)}%</span>
+                        ) : (
+                          <span className="text-ink-muted">—</span>
+                        )}
                       </span>
-                    ) : (
-                      <span className="text-ink-muted">needs {a.missing.slice(0, 2).join(', ').toLowerCase()}</span>
-                    )}
+                    </Tooltip>
                   </li>
                 );
               })}
@@ -184,28 +263,8 @@ export function ValueHeadline({
           </div>
         ) : null}
 
-        {status === 'provisional' ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-provenance/10 px-3 py-2 ring-1 ring-inset ring-provenance/30">
-            <p className="flex min-w-0 items-center gap-1.5 text-[13px] text-ink">
-              <Sparkles size={13} className="shrink-0 text-provenance-ink" aria-hidden />
-              <span>
-                <span className="font-medium">
-                  {waiting} value{waiting === 1 ? '' : 's'} from {sources}
-                </span>{' '}
-                <span className="text-ink-secondary">
-                  {waiting === 1 ? 'waits' : 'wait'} for you. The figure counts {waiting === 1 ? 'it' : 'them'}; nothing is recorded until you accept.
-                </span>
-              </span>
-            </p>
-            <Button variant="primary" size="sm" onClick={onAcceptAll} loading={busy}>
-              Accept all and record
-            </Button>
-          </div>
-        ) : status === 'unrecorded' ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-sunken px-3 py-2 ring-1 ring-inset ring-[var(--ring)]">
-            <p className="text-[13px] text-ink-secondary">
-              {run ? 'The inputs have changed since the valuation recorded on ' + new Date(run.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + '.' : 'The inputs are recorded. Record the valuation to carry it into a report.'}
-            </p>
+        {status === 'unrecorded' ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button size="sm" onClick={onRecord} loading={busy}>
               Record valuation
             </Button>
@@ -216,15 +275,8 @@ export function ValueHeadline({
   );
 }
 
-function StatusChip({ status, run, waiting }: { status: ValueStatus; run?: ValuationRun; waiting: number }) {
-  if (status === 'provisional') {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-provenance/10 px-2 py-0.5 text-mini font-medium text-provenance-ink ring-1 ring-inset ring-provenance/30">
-        <Sparkles size={11} aria-hidden />
-        Provisional · {waiting} to accept
-      </span>
-    );
-  }
+function StatusChip({ status, run }: { status: ValueStatus; run?: ValuationRun }) {
+  if (status === 'provisional') return null;
   if (status === 'recorded' && run) {
     return (
       <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-mini font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
@@ -244,6 +296,10 @@ function StatusChip({ status, run, waiting }: { status: ValueStatus; run?: Valua
       Indicative
     </span>
   );
+}
+
+function approachChipLabel(method: ValuationMethodKey): string {
+  return APPROACH_CHIPS.find((c) => c.methods.includes(method))?.label ?? method;
 }
 
 function Figure({ label, value, note, aside, muted }: { label: string; value: string; note: string; aside?: ReactNode; muted?: boolean }) {

@@ -183,7 +183,7 @@ export function AnswerBody({
 
   return (
     // A word longer than the column is broken, not left to push the thread sideways: a reference number, a file name, a link.
-    <div className="flex flex-col gap-2 break-words text-[13px] leading-relaxed text-ink">
+    <div className="flex flex-col gap-1.5 break-words text-[12.5px] leading-snug text-ink">
       {blocks.map((block, i) => (
         <BlockView key={i} block={block} render={spans => renderInline(spans, String(i))} />
       ))}

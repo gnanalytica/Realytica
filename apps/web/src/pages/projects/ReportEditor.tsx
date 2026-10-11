@@ -27,6 +27,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
+import { TitleChainDiagram } from '../../components/charts';
 import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, Trash2 } from 'lucide-react';
 import {
   engagementForReport,
@@ -40,6 +41,7 @@ import {
   readReportBlock,
   reportIsFrozen,
   reportSummaryLine,
+  titleGraphFromProject,
   type DdProject,
   type GeneratedReport,
   type ReportBlock,
@@ -112,7 +114,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
           <Badge tone={frozen ? 'neutral' : 'good'}>{frozen ? report.status : 'live'}</Badge>
-          <InfoTip label="Sections with a coloured rail read the registers and update as the file does. The rest are your words. Detaching a live section stops it updating, and the report says so." />
+          <InfoTip label="Sections with a coloured rail read the registers and update as the project does. The rest are your words. Detaching a live section stops it updating, and the report says so." />
           <Button
             variant="ghost"
             icon={<FileDown size={13} />}
@@ -331,6 +333,10 @@ interface RowProps {
 function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRecord, onRun }: RowProps) {
   const live = isLiveBlock(block);
   const resolved = useMemo(() => readReportBlock(project, block, frozen), [project, block, frozen]);
+  const titleGraph = useMemo(
+    () => (live && block.source?.kind === 'title_chain' ? titleGraphFromProject(project) : null),
+    [live, block.source?.kind, project],
+  );
   const label = block.heading ?? (block.source ? REPORT_SOURCE_LABEL[block.source.kind] : 'Untitled');
 
   return (
@@ -468,9 +474,16 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
               <span className="text-[12px] text-ink-muted">{REPORT_SOURCE_READS[block.source!.kind]}</span>
             </div>
           ) : null}
-          {resolved.lines.length === 0 ? (
+          {titleGraph && titleGraph.nodes.length > 0 ? (
+            <div className="mb-3 overflow-x-auto rounded-lg bg-page/50 ring-1 ring-inset ring-hairline">
+              <TitleChainDiagram graph={titleGraph} summary={project.lastScreenResult?.titleGraph} />
+            </div>
+          ) : null}
+          {titleGraph && titleGraph.nodes.length > 0 ? (
+            resolved.note ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null
+          ) : resolved.lines.length === 0 ? (
             <p className="text-[13px] italic text-ink-muted">
-              {resolved.note ?? 'Nothing in the registers matches this section yet. It will fill in as the file does — it is not printing “none found”.'}
+              {resolved.note ?? 'Nothing in the registers matches this section yet. It will fill in as the project does — it is not printing “none found”.'}
             </p>
           ) : resolved.table ? (
             <>
@@ -478,24 +491,26 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
               <ReportPhotos project={project} table={resolved.table} />
             </>
           ) : (
-            <ul className="space-y-1">
-              {resolved.lines.map((line, i) => {
-                const recordId = resolved.recordIds[i];
-                return (
-                  <li key={`${block.id}-${i}`} className="text-[13px] text-ink-secondary">
-                    {recordId && onOpenRecord ? (
-                      <button type="button" className="text-left hover:text-brand hover:underline" onClick={() => onOpenRecord(recordId)}>
-                        {line}
-                      </button>
-                    ) : (
-                      line
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <ul className="space-y-1">
+                {resolved.lines.map((line, i) => {
+                  const recordId = resolved.recordIds[i];
+                  return (
+                    <li key={`${block.id}-${i}`} className="text-[13px] text-ink-secondary">
+                      {recordId && onOpenRecord ? (
+                        <button type="button" className="text-left hover:text-brand hover:underline" onClick={() => onOpenRecord(recordId)}>
+                          {line}
+                        </button>
+                      ) : (
+                        line
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {resolved.note ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null}
+            </>
           )}
-          {resolved.note && resolved.lines.length > 0 ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null}
         </>
       ) : (
         <ProseField

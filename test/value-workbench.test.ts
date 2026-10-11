@@ -146,6 +146,36 @@ describe('what the file offers', () => {
     assert.equal(of('achievable_rent')?.value, 600, '₹8.4 lakh a month for 1,400 sqm');
     assert.equal(of('rate_per_sqm'), undefined, 'a deed for a building is not a land rate');
   });
+
+  it('offers carpet, saleable / SBA, and the guideline rate as named property inputs', () => {
+    const p = createProject({ name: 'Flat', type: 'residential', location: 'Whitefield', city: 'Bengaluru' }, 'RYT-V4');
+    file(p, 'Agreement', 'Sale agreement', [
+      fact('carpet_area', 95, 2),
+      fact('super_built_up_area', 128, 2),
+    ]);
+    file(p, 'OC', 'Occupancy certificate', [fact('oc_date', '2018-01-01', 1)]);
+    p.revenueMap = revenueMap();
+    const offers = valueOffers(p, NOW);
+    const of = (input: string) => offers.find((o) => o.input === input);
+    assert.equal(of('carpet_area')?.value, 95);
+    assert.equal(of('carpet_area')?.with?.quoted_basis, 'carpet');
+    assert.equal(of('area_valued')?.value, 128, 'SBA is offered as saleable / SBA');
+    assert.equal(of('guideline_rate')?.value, guidancePerSqm(p.revenueMap!.anchor!));
+    assert.equal(of('land_rate_per_sqm')?.value, of('guideline_rate')?.value, 'cost still sees the same guidance rate');
+
+    const out = acceptValueOffers(p, [of('carpet_area')!.id, of('area_valued')!.id, of('guideline_rate')!.id], 'tester');
+    assert.deepEqual(out.refused, []);
+    assert.equal(p.saleableAreaSqm, 128);
+    const subject = p.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks)).find((c) => c.definitionId === 'indicative_valuation.subject')!;
+    assert.equal(subject.fields?.rera_carpet_area?.value, 95);
+    assert.equal(subject.fields?.quoted_basis?.value, 'carpet');
+    assert.equal(subject.fields?.guideline_rate_per_sqm?.value, guidancePerSqm(p.revenueMap!.anchor!));
+
+    const rows = valueInputRows(p, valueOffers(p, NOW));
+    assert.equal(rows.find((r) => r.key === 'carpet_area')!.label, 'RERA carpet area');
+    assert.equal(rows.find((r) => r.key === 'area_valued')!.label, 'Saleable / SBA');
+    assert.equal(rows.find((r) => r.key === 'guideline_rate')!.label, 'Guideline rate');
+  });
 });
 
 describe('the figure before anything is accepted', () => {

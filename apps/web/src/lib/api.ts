@@ -1024,6 +1024,21 @@ export const api = {
     }),
   patchValuation: (projectId: string, runId: string, signOff: ValuationSignOff) =>
     request<ValuationRun>(`/projects/${projectId}/valuation/${runId}`, { method: 'PATCH', body: JSON.stringify({ signOff }) }),
+  /** Who is signing, and whether they hold an interest — Rule 8(3)(c)/(d). */
+  setValuationValuer: (
+    projectId: string,
+    runId: string,
+    body: {
+      valuer: { name: string; registrationNumber?: string; registeredFor?: string; firm?: string };
+      declaredConflict: boolean;
+      interests?: string[];
+      appointedOn?: string;
+    },
+  ) =>
+    request<{ run: ValuationRun; rule8: import('@realytica/shared').Rule8Summary }>(
+      `/projects/${projectId}/valuation/${runId}/valuer`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
   snapshotCapabilities: (projectId: string) =>
     request<CapabilityRun[]>(`/projects/${projectId}/capabilities`, { method: 'POST', body: JSON.stringify({}) }),
   proposeAiDrafts: (projectId: string, actor?: string) =>

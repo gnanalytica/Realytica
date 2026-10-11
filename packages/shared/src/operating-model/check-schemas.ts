@@ -463,6 +463,15 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
       hint: '1 whole building to the outer face · 2 whole building internally · 3 exclusive occupant area · 4 component areas.',
     },
     { key: 'ipms_area', label: 'Area on that IPMS basis', kind: 'area', unit: 'sqm', required: false },
+    {
+      key: 'guideline_rate_per_sqm',
+      label: 'Guideline rate',
+      kind: 'money',
+      unit: 'INR/sqm',
+      required: false,
+      from: 'State guidance / circle rate',
+      hint: 'The statutory floor the state publishes for this locality — not a market rate. Most sites transact above it.',
+    },
     { key: 'interest', label: 'Interest valued', kind: 'enum', options: ['freehold', 'leasehold', 'development rights'] },
   ],
   /*

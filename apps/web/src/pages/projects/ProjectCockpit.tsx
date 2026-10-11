@@ -1,7 +1,7 @@
 import { Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
+import { ArrowRight, ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelLeftOpen, PanelRight, Search } from 'lucide-react';
 import {
   STAGES,
   STAGE_WORD,
@@ -65,7 +65,7 @@ import { Spinner, cn, useToast } from '../../components/ui/kit';
 import { SPRING, ScreenEnter, motion } from '../../lib/motion';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { useMe } from '../../lib/useMe';
-import { EMPTY_CHAT_WIDTH, LAYOUTS, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
+import { DESK_CHAT_WIDTH, EMPTY_CHAT_WIDTH, LAYOUTS, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
 import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -322,6 +322,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   }, [checkVoice]);
   const [deskOpen, setDeskOpen] = useState(false);
   const [deskPin, setDeskPin] = useState<string | null>(null);
+  /** Hide the conversation so the work surface can use the full width. */
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
   /* A decision on the canvas in flight. */
   const [deciding, setDeciding] = useState(false);
@@ -824,7 +826,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    * waiting on the check in the address.
    */
   const shownByChip = useCallback(
-    (evidenceId: string, named?: Pick<WaitingCheckValue, 'proposalId' | 'key' | 'page'>) => {
+    (evidenceId: string, named?: Partial<Pick<WaitingCheckValue, 'proposalId' | 'key' | 'page'>>) => {
       const now = projectRef.current;
       const checkId = searchParams.get('check');
       const values = named ? [named] : checkId ? waitingOnCheck(now, checkId).fields.flatMap((field) => field.values).filter((value) => value.sourceEvidenceId === evidenceId) : [];
@@ -832,7 +834,16 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       const stated = now.evidence.find((e) => e.id === evidenceId)?.facts ?? [];
       return {
         fileKey: typeof from === 'string' && from ? from : undefined,
-        facts: values.flatMap((value) => stated.find((fact) => fact.key === value.key && (value.page === undefined || fact.page === value.page)) ?? []),
+        facts: values.flatMap((value) => {
+          if (!value.key) {
+            return value.page !== undefined ? stated.filter((fact) => fact.page === value.page).slice(0, 1) : [];
+          }
+          return (
+            stated.find((fact) => fact.key === value.key && (value.page === undefined || fact.page === value.page))
+            ?? stated.find((fact) => fact.key === value.key)
+            ?? []
+          );
+        }),
       };
     },
     [searchParams],
@@ -1020,6 +1031,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
   const chat = (
     <CopilotPanel
+      onCollapse={isDesktop && LAYOUTS[layout].chat !== null ? () => setChatCollapsed(true) : undefined}
       sessionId={sessionId}
       sessionStartedAt={sessionStartedAt}
       sessionActor={myActor}
@@ -1034,8 +1046,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       onRenameChat={async (id, name) => setProject((await api.renameChat(project.id, id, name)).project)}
       leadTurn={leadTurn}
       fill
-      className={isDesktop ? 'p-4' : 'p-3'}
-      compact={!isDesktop}
+      className="p-3"
+      compact
       conversation={conversation}
       evidence={evidenceForChat(project)}
       suggestions={suggestions}
@@ -1225,17 +1237,20 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
          * with no way to scroll it back.
          */
         <div ref={workScrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
-          <WaitingHere
-            project={project}
-            pane={pane}
-            waiting={waiting}
-            sittingCheckId={searchParams.get('check')}
-            busy={deciding || asking || sending.length > 0}
-            highlightIds={highlightIds}
-            onAccept={(id, payload) => void acceptWaiting(id, payload)}
-            onSetAside={(id) => void setAsideWaiting(id)}
-            onGo={goWaiting}
-          />
+          {/* Summary is analytics only — decide waiting on the function tabs. */}
+          {pane === 'department' ? null : (
+            <WaitingHere
+              project={project}
+              pane={pane}
+              waiting={waiting}
+              sittingCheckId={searchParams.get('check')}
+              busy={deciding || asking || sending.length > 0}
+              highlightIds={highlightIds}
+              onAccept={(id, payload) => void acceptWaiting(id, payload)}
+              onSetAside={(id) => void setAsideWaiting(id)}
+              onGo={goWaiting}
+            />
+          )}
           {/* One broken pane must not take the project tabs with it, and the
               two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>
@@ -1387,12 +1402,38 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               'flex min-h-0 min-w-0 flex-col border-r border-hairline bg-surface',
               !dragging && 'transition-[width] duration-base ease-state motion-reduce:transition-none',
             )}
-            style={spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }}
+            style={
+              spec.chat === null
+                ? { flexGrow: 1 }
+                : {
+                    width: chatCollapsed ? 0 : deskOpen ? DESK_CHAT_WIDTH : chatWidth,
+                    flexShrink: 0,
+                    ...(chatCollapsed ? { display: 'none' } : {}),
+                  }
+            }
           >
             <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
           </section>
 
-          {spec.rightPane ? (
+          {spec.chat !== null && chatCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setChatCollapsed(false)}
+              aria-label="Show AI Copilot Chat"
+              title="Show AI Copilot Chat"
+              className="flex w-10 shrink-0 flex-col items-center gap-3 border-r border-hairline bg-surface pt-3 text-ink-secondary transition-colors duration-quick hover:bg-sunken hover:text-ink"
+            >
+              <PanelLeftOpen size={16} aria-hidden />
+              <span
+                aria-hidden
+                className="text-[11px] font-semibold tracking-wide text-ink-muted [writing-mode:vertical-rl] rotate-180"
+              >
+                AI Copilot Chat
+              </span>
+            </button>
+          ) : null}
+
+          {spec.rightPane && !deskOpen && !chatCollapsed ? (
             <div
               role="separator"
               aria-orientation="vertical"

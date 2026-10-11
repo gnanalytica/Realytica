@@ -354,10 +354,15 @@ describe('what the valuation is offered', () => {
 
   it('is Finance’s to accept and to set aside, and a refusal starts no valuation DD', () => {
     const { p, offer } = offered();
-    refused(p, () => acceptValueOffers(p, [offer.id], 'asha@firm.in', { mayDecide: staff(p) }), says, 'finance');
-    refused(p, () => setAsideValueOffers(p, [offer.id], 'asha@firm.in', { mayDecide: staff(p) }), says, 'finance');
+    const viewer = decidesIn(p, { email: 'view@firm.in', workspaceRole: 'viewer' });
+    refused(p, () => acceptValueOffers(p, [offer.id], 'view@firm.in', { mayDecide: viewer }), says, 'finance');
+    refused(p, () => setAsideValueOffers(p, [offer.id], 'view@firm.in', { mayDecide: viewer }), says, 'finance');
     assert.equal(p.assessments.length, 0);
     assert.equal(p.landAreaSqm, undefined);
+    // A Finance contributor may accept what the file offers for the valuation.
+    const out = acceptValueOffers(p, [offer.id], 'asha@firm.in', { mayDecide: staff(p) });
+    assert.deepEqual(out.applied.map((o) => o.id), [offer.id]);
+    assert.equal(p.landAreaSqm, 1200);
   });
 
   it('is recorded by Finance’s signer, and the deed’s own value waits for whoever decides the deed', () => {
@@ -1297,8 +1302,14 @@ describe('the routes a decision arrives by', () => {
     assert.equal(fieldOn(p, now(), 'extent_khata'), 11850);
   });
 
-  it('refuse them the valuation’s offers, and answer “approve all” with what waits and for whom', async () => {
+  it('refuse a Finance viewer the valuation’s offers, and answer “approve all” with what waits and for whom', async () => {
     const { p, row } = await seeded();
+    // Staff may accept valuation offers as Finance contributors; a team role of
+    // viewer in Finance may not.
+    assert.equal(
+      (await call('PUT', `/api/projects/${p.id}/team/${encodeURIComponent('asha@builders.in')}`, dev(), { departments: { finance: 'viewer' } })).status,
+      200,
+    );
     const says = 'Deciding a value for the valuation needs a lead or signer in Finance.';
     const taken = await call('POST', `/api/projects/${p.id}/value/accept`, asha(), { ids: ['land_area|document|none||1'], record: true });
     assert.equal(taken.status, 403);

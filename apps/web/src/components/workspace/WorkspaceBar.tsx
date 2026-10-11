@@ -7,8 +7,9 @@ import { useEdges } from '../../lib/useEdges';
 /**
  * The menu of a project's workspace, in three pieces.
  *
- * - **Where you are** is one selector: the department, with Overview above
- *   the departments and the places shared by the whole project below them.
+ * - **Where you are** is one selector: Overview, then the departments people
+ *   work in. Places the whole project shares (Documents, Registers, …) sit
+ *   below in a quieter group — reachable, not equal to a department.
  * - **When** is a track of the four stages, always on screen. A stage is the
  *   state of the property, so it has no steps under it.
  * - **What** is a row of tabs, one for each function of the department,
@@ -35,6 +36,19 @@ export interface PickerItem {
   muted?: boolean;
 }
 
+/** One ruled-off block in the selector. A quiet group is secondary to departments. */
+export interface PickerGroup {
+  items: PickerItem[];
+  /** Label above the items — e.g. "All of the project". */
+  heading?: string;
+  /** Smaller type and lighter ink: cross-project places, not where people live. */
+  quiet?: boolean;
+}
+
+function asGroups(groups: Array<PickerItem[] | PickerGroup>): PickerGroup[] {
+  return groups.map((group) => (Array.isArray(group) ? { items: group } : group)).filter((group) => group.items.length > 0);
+}
+
 export function DepartmentPicker({
   label,
   groups,
@@ -48,14 +62,15 @@ export function DepartmentPicker({
   label: string;
   /** Something in the project waits for a person: a dot on the closed selector, and the menu says where. */
   waiting?: boolean;
-  /** Each group is ruled off from the one before. */
-  groups: PickerItem[][];
+  /** Each group is ruled off from the one before. A bare list is still accepted. */
+  groups: Array<PickerItem[] | PickerGroup>;
   current: string;
   onPick: (key: string) => void;
   /** For a phone's header, where it sits under the project's name: smaller type, the same press. */
   dense?: boolean;
   className?: string;
 }) {
+  const shown = asGroups(groups);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -142,12 +157,14 @@ export function DepartmentPicker({
             transition={{ duration: 0.18, ease: EASE_ENTER }}
             className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-[min(34rem,calc(100dvh-8rem))] w-max min-w-[15.5rem] max-w-[min(20rem,86vw)] origin-top-left overflow-y-auto rounded-xl bg-surface p-1.5 shadow-pop ring-1 ring-[var(--ring)]"
           >
-            {groups
-              .filter((g) => g.length)
-              .map((group, gi) => (
-                <div key={group[0]!.key} className={cn(gi > 0 && 'mt-1 border-t border-hairline pt-1')}>
-                  {group.map((item) => {
+            {shown.map((group, gi) => (
+                <div key={group.heading ?? group.items[0]!.key} className={cn(gi > 0 && 'mt-1 border-t border-hairline pt-1')}>
+                  {group.heading ? (
+                    <p className="px-2 pb-0.5 pt-1.5 text-micro font-medium uppercase tracking-[0.06em] text-ink-muted">{group.heading}</p>
+                  ) : null}
+                  {group.items.map((item) => {
                     const on = item.key === current;
+                    const quiet = Boolean(group.quiet);
                     return (
                       <button
                         key={item.key}
@@ -159,22 +176,34 @@ export function DepartmentPicker({
                           onPick(item.key);
                         }}
                         className={cn(
-                          'grid w-full grid-cols-[26px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2 py-1.5 text-left',
-                          'min-h-11 transition-colors duration-quick ease-state',
+                          'grid w-full items-center text-left transition-colors duration-quick ease-state',
+                          quiet
+                            ? 'grid-cols-[18px_minmax(0,1fr)_auto] gap-2 rounded-md px-2 py-1 min-h-9 coarse:min-h-11'
+                            : 'grid-cols-[26px_minmax(0,1fr)_auto] gap-2.5 rounded-lg px-2 py-1.5 min-h-11',
                           on ? 'bg-brand-soft' : 'hover:bg-page focus-visible:bg-page',
                         )}
                       >
                         <span
                           aria-hidden
                           className={cn(
-                            'grid size-[26px] place-items-center rounded-lg font-mono text-[11px] font-medium',
-                            on ? 'bg-brand text-brand-ink' : 'bg-sunken text-ink-secondary',
+                            'grid place-items-center font-mono font-medium',
+                            quiet
+                              ? cn('size-[18px] text-[10px]', on ? 'text-brand' : 'text-ink-muted')
+                              : cn('size-[26px] rounded-lg text-[11px]', on ? 'bg-brand text-brand-ink' : 'bg-sunken text-ink-secondary'),
                           )}
                         >
-                          {item.icon ? <item.icon size={14} /> : item.label[0]}
+                          {item.icon ? <item.icon size={quiet ? 13 : 14} /> : item.label[0]}
                         </span>
                         <span className="min-w-0">
-                          <span className={cn('block truncate text-[13px] font-semibold', item.muted && !on ? 'text-ink-secondary' : 'text-ink')}>{item.label}</span>
+                          <span
+                            className={cn(
+                              'block truncate',
+                              quiet ? 'text-[12px] font-medium' : 'text-[13px] font-semibold',
+                              item.muted && !on ? 'text-ink-muted' : quiet && !on ? 'text-ink-secondary' : 'text-ink',
+                            )}
+                          >
+                            {item.label}
+                          </span>
                           {item.note ? <span className="block truncate text-[12px] text-ink-muted">{item.note}</span> : null}
                         </span>
                         {item.waiting ? <WaitDot /> : <span />}

@@ -279,11 +279,11 @@ describe('the menu’s words are held in one place', () => {
     const page = read('pages/projects/departments/WorkstreamPage.tsx');
     const drawn = new Set([...page.matchAll(/id: '([a-z]+)',\s*name: '/g)].map((m) => m[1]!));
     const sectioned = WORKSTREAMS.filter((w) => functionSections(w.key).length > 0);
-    assert.deepEqual(sectioned.map((w) => w.key).sort(), ['construction.progress', 'legal.approvals', 'legal.title'], 'the built functions laid out as one page with a rail');
+    assert.deepEqual(sectioned.map((w) => w.key).sort(), ['construction.progress', 'finance.budget', 'legal.approvals', 'legal.title'], 'the built functions laid out as one page with a rail');
     for (const w of sectioned) for (const section of functionSections(w.key)) assert.ok(drawn.has(section), `${w.key} lands on “${section}”, which the page does not draw`);
     for (const section of drawn) assert.ok(sectioned.some((w) => functionSections(w.key).includes(section)), `the page draws “${section}”, which the chat cannot land on`);
     // A function whose page is not laid out in parts has none: Valuation, the site record, the technical due diligence, and anything not built.
-    for (const key of ['finance.valuation', 'construction.site', 'construction.quality', 'finance.budget', 'design']) assert.deepEqual(functionSections(key), [], key);
+    for (const key of ['finance.valuation', 'construction.site', 'construction.quality', 'design']) assert.deepEqual(functionSections(key), [], key);
   });
 
   it('names the shared places by the words on their tabs', () => {

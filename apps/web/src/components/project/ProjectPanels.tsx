@@ -187,7 +187,7 @@ export function WaitingOnCard({
         subtitle={items.length ? `${items.length} open` : 'Nothing outstanding'}
         action={
           action ?? (
-            <Link to={cockpitPath(project.id, 'people')} className="text-[12px] font-medium text-brand">
+            <Link to={cockpitPath(project.id, 'overview')} className="text-[12px] font-medium text-brand">
               All requests
             </Link>
           )
@@ -195,7 +195,7 @@ export function WaitingOnCard({
       />
       <CardBody>
         {items.length === 0 ? (
-          <p className="text-[13px] text-ink-muted">No requests sent. Ask someone for a document from the People tab.</p>
+          <p className="text-[13px] text-ink-muted">No requests sent. Ask someone for a document from the Overview.</p>
         ) : (
           <ul className="divide-y divide-hairline">
             {items.slice(0, 6).map(({ request, ageDays, overdue }) => (

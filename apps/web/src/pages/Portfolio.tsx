@@ -472,12 +472,12 @@ export default function Portfolio() {
             />
             <CardBody>
               {data.waitingOn.length === 0 ? (
-                <p className="text-[13px] text-ink-muted">Nothing outstanding. Requests sent from a project's People tab appear here.</p>
+                <p className="text-[13px] text-ink-muted">Nothing outstanding. Requests sent from a project's Overview appear here.</p>
               ) : (
                 <ul className="divide-y divide-hairline">
                   {data.waitingOn.slice(0, 6).map(({ request, projectName, projectId, ageDays, overdue }) => (
                     <li key={request.id}>
-                      <Link to={`/projects/${projectId}/people`} className="flex items-center gap-3 py-2">
+                      <Link to={`/projects/${projectId}`} className="flex items-center gap-3 py-2">
                         <Avatar name={request.recipient} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[13px] font-medium text-ink">{request.recipient}</p>

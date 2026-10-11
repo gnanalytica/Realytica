@@ -18,11 +18,13 @@ import {
   withValueOffers,
   VALUATION_RUN_STATUS_LABEL,
   VALUATION_SIGN_OFF_LABEL,
+  type DdProject,
+  type ValuationPremise,
   type ValuationSignOff,
   type ValueInputRow,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Button, Disclosure, Select, useToast } from '../../components/ui/kit';
+import { Button, Disclosure, useToast } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ValuationWorkingPanel } from '../../components/ValuationWorkingPanel';
 import { ValueHeadline, type ValueStatus } from '../../components/value/ValueHeadline';
@@ -32,12 +34,36 @@ import { ValueApproaches, describeSources } from '../../components/value/ValueAp
 import { ValueReading, type ReadingStep } from '../../components/value/ValueReading';
 import { useValueFill } from '../../components/value/useValueFill';
 import { ComparablesRegister } from '../../components/value/ComparablesRegister';
+import { settleItems, ValueMustSettle, type SettleTarget } from '../../components/value/ValueMustSettle';
+import { ValueRule8 } from '../../components/value/ValueRule8';
 import { useAsync } from '../../lib/useAsync';
 import { countryForCurrency } from '../../lib/units';
 import { money } from '../../lib/format';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { WorkstreamFrame } from './departments/WorkstreamPage';
+
+/** Basis of value from the latest run, else the stage’s default premise. */
+function premiseOf(project: DdProject, runPremise?: ValuationPremise): ValuationPremise {
+  if (runPremise) return runPremise;
+  if (project.currentStage === 'opportunity_site' || project.currentStage === 'feasibility' || project.currentStage === 'acquisition') {
+    return 'residual';
+  }
+  if (project.currentStage === 'operations' || project.currentStage === 'handover' || project.currentStage === 'completion') {
+    return 'as_is';
+  }
+  return 'as_completed';
+}
+
+function jumpTo(target: SettleTarget) {
+  const id =
+    target === 'approaches' || target === 'comparables' || target === 'property'
+      ? 'value-approaches'
+      : target === 'compliance'
+        ? 'value-compliance'
+        : 'value-rule8';
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 /**
  * The Value tab: one view of what the property is worth, what that figure
@@ -181,9 +207,10 @@ export default function Valuation() {
     }
   }
 
-  async function commit(row: ValueInputRow, value: number | null, cite?: string): Promise<string | null> {
+  async function commit(row: ValueInputRow, value: number | string | null, cite?: string): Promise<string | null> {
     try {
       if (row.target.kind === 'project') {
+        if (typeof value === 'string') return 'That field only takes a number.';
         setProject(await api.patchProject(project.id, { [row.target.field]: value ?? undefined }));
         return null;
       }
@@ -219,7 +246,30 @@ export default function Valuation() {
     }
   }
 
-  const openSource = (evidenceId: string) => (onReviewDocument ?? onOpenCited)?.(evidenceId);
+  async function saveValuer(body: {
+    valuer: { name: string; registrationNumber?: string; registeredFor?: string; firm?: string };
+    declaredConflict: boolean;
+    interests?: string[];
+    appointedOn?: string;
+  }) {
+    if (!latest) throw new Error('Record a valuation first.');
+    setBusy(true);
+    try {
+      await api.setValuationValuer(project.id, latest.id, body);
+      setProject(await api.getProject(project.id));
+      toast('Valuer and conflict recorded', 'good');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const openSource = (evidenceId: string, focus?: { key?: string; page?: number }) => {
+    if (onReviewDocument) {
+      onReviewDocument(evidenceId, focus);
+      return;
+    }
+    onOpenCited?.(evidenceId);
+  };
 
   /* ---- the reading ---------------------------------------------------- */
 
@@ -248,14 +298,21 @@ export default function Valuation() {
   const readingSummary =
     fill.progress.total === 0
       ? waiting.length === 0 && rows.some((r) => r.recorded)
-        ? 'Checked the title. Every value the file holds is already recorded.'
-        : 'Checked the title. The file holds nothing these inputs can be read from yet — file the sale deed, the khata, the plan or a lease, or read the revenue map on the Overview.'
-      : `Filled ${fill.progress.total} input${fill.progress.total === 1 ? '' : 's'} from ${describeSources(filled)}.${
-          forValuer.length ? ` ${forValuer.join(', ')} ${forValuer.length === 1 ? 'waits' : 'wait'} for a valuer.` : ''
-        } Nothing is recorded until you accept.`;
+        ? 'Title checked · inputs already recorded'
+        : 'Title checked · nothing to fill yet'
+      : `Filled ${fill.progress.total} from ${describeSources(filled)}${
+          forValuer.length ? ` · ${forValuer.slice(0, 2).join(', ').toLowerCase()} for valuer` : ''
+        }`;
 
   // During the fill, the checks and drivers arrive with the inputs.
   const share = fill.phase === 'checking' ? 0 : fill.phase === 'filling' ? fill.progress.done / Math.max(1, fill.progress.total) : null;
+  const premise = premiseOf(project, latest?.ibbi.premise);
+  const mustSettle = settleItems(checks, summary, working);
+  // Development budget on the project is not a land asking price.
+  const developmentBudget =
+    project.currentStage !== 'opportunity_site' &&
+    project.currentStage !== 'feasibility' &&
+    project.currentStage !== 'acquisition';
 
   return (
     <div className="space-y-4">
@@ -267,9 +324,6 @@ export default function Valuation() {
           <div className="min-w-0">
             <p className="text-[12px] font-medium text-ink-muted">Finance &amp; Investment</p>
             <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">Valuation</h2>
-            <p className="mt-0.5 max-w-[70ch] text-[13px] text-ink-secondary">
-              Compliance, value and what moves it, from what the file holds — the site, the whole project as is or as completed, or a phase. Indicative until a registered valuer certifies it.
-            </p>
           </div>
         </div>
         <Button variant="primary" icon={<Sparkles size={14} />} onClick={() => void valueProperty()} loading={fill.phase === 'checking'} disabled={filling || busy}>
@@ -277,43 +331,31 @@ export default function Valuation() {
         </Button>
       </div>
 
-      <WorkstreamFrame project={project} workstream="finance.valuation" setProject={setProject} compact />
-
-      {fill.phase !== 'idle' ? <ValueReading phase={fill.phase} steps={steps} summary={readingSummary} onDismiss={fill.reset} /> : null}
-
       <ValueHeadline
         summary={summary}
         status={status}
         run={latest}
-        waiting={filling ? counted.length : waiting.length}
-        sources={describeSources(filling ? counted : waiting)}
+        premise={premise}
         busy={busy}
         spreadBasis={working.reconciliation.spreadBasis}
-        onAcceptAll={() => void accept(waiting.map((o) => o.id), true)}
         onRecord={() => void record()}
+        onSignOff={latest ? (value) => void signOff(latest.id, value) : undefined}
       />
 
+      <ValueMustSettle items={mustSettle} onJump={jumpTo} />
+
+      {fill.phase !== 'idle' ? <ValueReading phase={fill.phase} steps={steps} summary={readingSummary} onDismiss={fill.reset} /> : null}
+
       {readingsWaiting.length ? (
-        <p className="text-[12px] text-provenance-ink">
-          {readingsWaiting.length === 1
-            ? `A reading of ${readingsWaiting[0]!.fact.label.toLowerCase()} is waiting to be accepted on ${readingsWaiting[0]!.evidence.documentType ?? readingsWaiting[0]!.evidence.title}. Until then it is offered to no input here.`
-            : `${readingsWaiting.length} readings are waiting to be accepted on the documents. Until then they are offered to no input here.`}
-          <button type="button" onClick={() => openSource(readingsWaiting[0]!.evidence.id)} className="ml-1.5 font-medium text-brand underline-offset-2 hover:underline">
+        <p className="flex flex-wrap items-center gap-2 text-[12px] text-provenance-ink">
+          <span className="font-medium">
+            {readingsWaiting.length} document {readingsWaiting.length === 1 ? 'reading' : 'readings'} waiting
+          </span>
+          <button type="button" onClick={() => openSource(readingsWaiting[0]!.evidence.id)} className="font-medium text-brand underline-offset-2 hover:underline">
             Review
           </button>
         </p>
       ) : null}
-
-      <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
-        <ValueChecks
-          checks={checks}
-          rule8={rule8}
-          revealed={share === null ? null : Math.floor(share * checks.length)}
-          screenedAt={screen?.generatedAt}
-          state={screen?.stateCompliance?.state}
-        />
-        <ValueDrivers drivers={drivers} revealed={share === null ? null : Math.floor(share * drivers.length)} />
-      </div>
 
       <ValueApproaches
         project={project}
@@ -341,9 +383,30 @@ export default function Valuation() {
         }
       />
 
+      <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
+        <ValueChecks
+          checks={checks}
+          revealed={share === null ? null : Math.floor(share * checks.length)}
+          screenedAt={screen?.generatedAt}
+          state={screen?.stateCompliance?.state}
+        />
+        <ValueDrivers drivers={drivers} revealed={share === null ? null : Math.floor(share * drivers.length)} />
+      </div>
+
+      <ValueRule8
+        projectId={project.id}
+        rule8={rule8}
+        run={latest}
+        busy={busy}
+        onSaveValuer={saveValuer}
+      />
+
       <div className="space-y-2">
         <Disclosure title="The working, line by line">
           <ValuationWorkingPanel working={working} currency={project.currency} />
+        </Disclosure>
+        <Disclosure title="Certified report and engagements">
+          <WorkstreamFrame project={project} workstream="finance.valuation" setProject={setProject} compact />
         </Disclosure>
         {screen ? (
           <Disclosure title="Evidence and confidence">
@@ -351,7 +414,7 @@ export default function Valuation() {
           </Disclosure>
         ) : null}
         {screen?.transactionCosts ? (
-          <Disclosure title="Acquisition costs">
+          <Disclosure title={developmentBudget ? 'Transaction costs (not project budget)' : 'Acquisition costs'}>
             <ScreenResultPanel result={screen} only={['costs']} askingPrice={project.budget} country={countryForCurrency(project.currency)} locality={project.city} />
           </Disclosure>
         ) : null}
@@ -365,17 +428,7 @@ export default function Valuation() {
                     <span className="ml-2 text-ink-secondary">{VALUATION_RUN_STATUS_LABEL[run.status]}</span>
                     <span className="ml-2 font-mono text-[11px] text-ink-muted">{formatWhen(run.createdAt)}</span>
                   </span>
-                  {run.id === latest?.id ? (
-                    <Select aria-label="Sign-off" value={run.signOff} onChange={(e) => void signOff(run.id, e.target.value as ValuationSignOff)} className="h-8 w-auto text-[12px]">
-                      {(Object.keys(VALUATION_SIGN_OFF_LABEL) as ValuationSignOff[]).map((k) => (
-                        <option key={k} value={k}>
-                          {VALUATION_SIGN_OFF_LABEL[k]}
-                        </option>
-                      ))}
-                    </Select>
-                  ) : (
-                    <span className="text-[12px] text-ink-muted">{VALUATION_SIGN_OFF_LABEL[run.signOff]}</span>
-                  )}
+                  <span className="text-[12px] text-ink-muted">{VALUATION_SIGN_OFF_LABEL[run.signOff]}</span>
                 </li>
               ))}
             </ul>
