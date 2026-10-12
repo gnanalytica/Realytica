@@ -1,7 +1,18 @@
 /**
- * The daily timer.
+ * The timers.
  *
- * GET /alerts   bring every project's alerts up to date, as of now
+ * GET /alerts   once a day: bring every project's alerts up to date, as of
+ *               now, then run every other timed job in turn
+ * GET /often    every ten minutes: send the notices that have waited, and
+ *               try again the webhook deliveries that are due
+ * GET /hourly   every hour: read the connected folders
+ *
+ * The daily run is the whole of it, and is enough by itself: the other two
+ * only bring three of its jobs round sooner, on a plan that allows a timer
+ * more often than daily. Each job is in its own try, with its own time, so
+ * one that throws or runs long never stops the ones after it; a job there is
+ * no time left for is not started and says so in the answer. The jobs that
+ * ask a model come last, so they are the ones passed over on a slow day.
  *
  * Alerts are otherwise worked out when a project is saved, so a date that
  * came up on a day nobody touched the project raised nothing until somebody
@@ -150,8 +161,110 @@ export async function alertsCron(authorization: string | undefined, now: Date, s
   return { status: 200, body: await sweepAlerts(now, source) };
 }
 
-cronRouter.get('/alerts', async (req, res) => {
-  const { status, body } = await alertsCron(req.headers.authorization, new Date());
-  if (status === 200) console.log(`[cron] alerts ${JSON.stringify(body)}`);
-  res.status(status).json(body);
-});
+/* ==================================================================== */
+/* Every timed job, in turn                                              */
+/* ==================================================================== */
+
+/** One timed job: the key its counts are answered under, the longest it may take, and the work. */
+export interface TimedJob {
+  key: string;
+  budgetMs: number;
+  /** `budgetMs` is handed on for a job that can stop itself in time. */
+  run(now: Date, budgetMs: number): Promise<Record<string, number>>;
+}
+
+/** What one job answered: its counts, or why it has none. `notRun` and not `skipped`, which is a count of the folder read's own. */
+export type JobAnswer = Record<string, number> | { notRun: string } | { error: string };
+
+const SECOND = 1000;
+
+/**
+ * The function is given 800 s (`maxDuration` in scripts/build-vercel-output.mjs).
+ * A job is started only while its whole budget still fits in what is left of
+ * the run, so the last one ends by 740 s and the answer is out with a minute
+ * to spare.
+ */
+export const DAILY_BUDGET_MS = 740 * SECOND;
+export const OFTEN_BUDGET_MS = 100 * SECOND;
+export const HOURLY_BUDGET_MS = 200 * SECOND;
+
+const tellJob: TimedJob = { key: 'tell', budgetMs: 45 * SECOND, run: async (now) => (await import('../cron/tell')).sweepTell(now) };
+/** The folder read stops itself: it is told its time, less what a file already being taken may need to finish. */
+const driveJob: TimedJob = { key: 'drive', budgetMs: 150 * SECOND, run: async (now, budgetMs) => (await import('../cron/drive-sync')).driveSync(now, { budgetMs: budgetMs - 30 * SECOND }) };
+const webhookRetryJob: TimedJob = { key: 'webhookRetry', budgetMs: 45 * SECOND, run: async (now) => ({ ...(await (await import('../cron/webhook-retry')).retryWebhooks(now)) }) };
+
+/** The daily run, in order. Alerts first, as before; the two that ask a model last. */
+export const DAILY_JOBS: readonly TimedJob[] = [
+  { key: 'alerts', budgetMs: 80 * SECOND, run: async (now) => ({ ...(await sweepAlerts(now)) }) },
+  tellJob,
+  driveJob,
+  { key: 'reportDay', budgetMs: 45 * SECOND, run: async (now) => (await import('../cron/report-day')).reportDay(now) },
+  webhookRetryJob,
+  { key: 'lawWatch', budgetMs: 120 * SECOND, run: async (now) => (await import('../cron/law-watch')).lawWatchCron(now) },
+  // The daily review stops starting projects after five minutes, and the call it is in may take one more.
+  { key: 'fileSweep', budgetMs: 370 * SECOND, run: async (now) => (await import('../cron/file-sweep')).fileSweep(now) },
+];
+
+/** What is worth bringing round every ten minutes: a notice goes ten minutes after the first, and a delivery is tried again an hour after it failed. */
+export const OFTEN_JOBS: readonly TimedJob[] = [tellJob, webhookRetryJob];
+
+/** A folder is polled, not watched, so how soon a file arrives is how often this runs. */
+export const HOURLY_JOBS: readonly TimedJob[] = [driveJob];
+
+/** Run each job in turn. One that throws, or outlasts its budget, is answered for and the next one starts. */
+export async function runTimed(now: Date, jobs: readonly TimedJob[], totalMs: number, clock: () => number = Date.now): Promise<Record<string, JobAnswer>> {
+  const began = clock();
+  const out: Record<string, JobAnswer> = {};
+  for (const job of jobs) {
+    const left = totalMs - (clock() - began);
+    if (left < job.budgetMs) {
+      out[job.key] = { notRun: `No time left in this run: it needs ${Math.round(job.budgetMs / SECOND)} s and ${Math.max(0, Math.round(left / SECOND))} s were left. The next run takes it up.` };
+      console.warn(`[cron] ${job.key} not run: no time left`);
+      continue;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const work = job.run(now, job.budgetMs);
+      // Past its time a job is left to finish by itself, and whatever it then throws is nobody's to catch.
+      work.catch(() => undefined);
+      out[job.key] = await Promise.race([
+        work,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`It took longer than its ${Math.round(job.budgetMs / SECOND)} s and was left behind.`)), job.budgetMs);
+        }),
+      ]);
+      console.log(`[cron] ${job.key} ${JSON.stringify(out[job.key])}`);
+    } catch (err) {
+      out[job.key] = { error: (err as Error).message };
+      console.warn(`[cron] ${job.key}: ${(err as Error).message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return out;
+}
+
+/** A timed route's answer, apart from the wire: 401 without the secret, each job's counts under its own key with it. */
+export async function timedCron(
+  authorization: string | undefined,
+  now: Date,
+  jobs: readonly TimedJob[],
+  totalMs: number,
+  clock?: () => number,
+): Promise<{ status: number; body: Record<string, JobAnswer> | { error: string } }> {
+  if (!cronAuthorized(authorization)) return { status: 401, body: { error: 'Unauthorized' } };
+  return { status: 200, body: await runTimed(now, jobs, totalMs, clock) };
+}
+
+const TIMED: Array<[string, readonly TimedJob[], number]> = [
+  ['/alerts', DAILY_JOBS, DAILY_BUDGET_MS],
+  ['/often', OFTEN_JOBS, OFTEN_BUDGET_MS],
+  ['/hourly', HOURLY_JOBS, HOURLY_BUDGET_MS],
+];
+
+for (const [path, jobs, totalMs] of TIMED) {
+  cronRouter.get(path, async (req, res) => {
+    const { status, body } = await timedCron(req.headers.authorization, new Date(), jobs, totalMs);
+    res.status(status).json(body);
+  });
+}

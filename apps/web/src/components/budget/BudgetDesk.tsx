@@ -25,6 +25,7 @@ import { Badge, Button, Card, CardBody, CardHeader, Input, cn, useToast } from '
 import { CostReportExtras } from './CostReportExtras';
 import { CostBillsPanel } from './CostBillsPanel';
 import { SinceLastReport } from './SinceLastReport';
+import { TenderOffers } from '../procurement/TenderOffers';
 
 function money(amount: number, currency: DdProject['currency']): string {
   return moneySaid(amount, currency);
@@ -88,6 +89,8 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
 
   return (
     <div className="space-y-4">
+      {/* What Procurement awarded and offers as PO issued: written on the draft below when Finance accepts it. */}
+      <TenderOffers project={project} onChanged={onChanged} />
       <Card>
         <CardHeader
           title="Cost Report"

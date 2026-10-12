@@ -36,6 +36,7 @@ import {
   removeReportBlock,
 } from './operations';
 import { interpretReportCommand, looksLikeReportCommand, openReportOf } from './report-command';
+import { ownerPackStanding, ownerPacksKept, preparedReportSaid } from './report-day';
 import { reportSummaryLine } from './report-blocks';
 import type {
   ChatChoice,
@@ -544,7 +545,7 @@ function unknownName(q: string): string | undefined {
 /* A record asked for by its own words                                   */
 /* ==================================================================== */
 
-type CalledKind = 'document' | 'check' | 'finding' | 'risk' | 'action' | 'decision' | 'questionnaire';
+type CalledKind = 'document' | 'check' | 'finding' | 'risk' | 'action' | 'decision' | 'questionnaire' | 'report';
 
 /** A record a sentence may name by its own words, and what a choice between several says of it. */
 interface Called {
@@ -566,6 +567,7 @@ const KIND_SAID: Array<[CalledKind, RegExp]> = [
   ['action', /^action$/],
   ['decision', /^decision$/],
   ['questionnaire', /^questionnaire$/],
+  ['report', /^(?:report|pack)$/],
 ];
 
 /** Words of a name that join its other words and say nothing of which record. */
@@ -654,6 +656,14 @@ function recordsCalled(project: DdProject, q: string): { name: string; found: Ca
     const { answered, total } = questionnaireSummary(sheet);
     if (departmentDefinition(questionnaireDepartment(sheet))?.status === 'live' && placeOfRecord(project, sheet.id)) add({ kind: 'questionnaire', id: sheet.id, title: sheet.title, detail: `${answered} of ${total} answered` }, 'questionnaire');
   }
+
+  // A report among the project's reports, and an owner pack kept for a period, by the name each is listed under and how it stands:
+  // prepared and waiting, or issued. One that a later one replaced is named by nothing.
+  for (const report of project.reports) {
+    if (report.status === 'superseded' || report.status === 'archived') continue;
+    add({ kind: 'report', id: report.id, title: report.title, detail: preparedReportSaid(project, report)?.toLowerCase() ?? (report.status === 'issued' ? `issued${report.signedBy ? ` by ${report.signedBy}` : ''}` : 'not issued') }, 'report');
+  }
+  for (const kept of ownerPacksKept(project)) add({ kind: 'report', id: kept.id, title: kept.title, detail: ownerPackStanding(project, kept).replace(/^./, (c) => c.toLowerCase()) }, 'report');
 
   const holding = (words: string[], whole: string, kind?: CalledKind) =>
     rows.filter((row) => (!kind || row.kind === kind) && words.every((word) => row.words.includes(word)) && (row.inHand || row.whole.includes(whole)));

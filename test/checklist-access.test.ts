@@ -220,9 +220,26 @@ describe('the daily timer, through the app', () => {
   it('runs with its secret and no sign-in: it is mounted ahead of the gate', async () => {
     const answer = await call('GET', '/api/cron/alerts', { authorization: `Bearer ${SECRET}` });
     assert.equal(answer.status, 200);
-    assert.deepEqual(Object.keys(answer.body).sort(), ['changed', 'failed', 'projects', 'raised', 'resolved']);
-    assert.equal(answer.body.failed, 0);
-    assert.ok(answer.body.projects >= 1);
+    // Every timed job answers under its own key, in the order it ran; the alert counts are the first.
+    assert.deepEqual(Object.keys(answer.body), ['alerts', 'tell', 'drive', 'reportDay', 'webhookRetry', 'lawWatch', 'fileSweep']);
+    assert.deepEqual(Object.keys(answer.body.alerts).sort(), ['changed', 'failed', 'projects', 'raised', 'resolved']);
+    assert.equal(answer.body.alerts.failed, 0);
+    assert.ok(answer.body.alerts.projects >= 1);
+    for (const [key, counts] of Object.entries(answer.body)) assert.ok(!('error' in (counts as object)) && !('notRun' in (counts as object)), `${key}: ${JSON.stringify(counts)}`);
+    // Nothing these reach is set up here, and each says so in place of doing anything.
+    assert.equal(answer.body.drive.notSetUp, 1);
+    assert.equal(answer.body.fileSweep.noModel, 1);
+  });
+
+  it('the shorter timers are behind the same secret', async () => {
+    for (const route of ['/api/cron/often', '/api/cron/hourly']) {
+      assert.equal((await call('GET', route, {})).status, 401, route);
+      assert.equal((await call('GET', route, { authorization: `Bearer ${owner()}` })).status, 401, route);
+    }
+    const often = await call('GET', '/api/cron/often', { authorization: `Bearer ${SECRET}` });
+    assert.deepEqual([often.status, Object.keys(often.body)], [200, ['tell', 'webhookRetry']]);
+    const hourly = await call('GET', '/api/cron/hourly', { authorization: `Bearer ${SECRET}` });
+    assert.deepEqual([hourly.status, Object.keys(hourly.body)], [200, ['drive']]);
   });
 
   it('brought nothing else out from behind sign-in, and its secret is no sign-in', async () => {
@@ -230,6 +247,8 @@ describe('the daily timer, through the app', () => {
       ['GET', '/api/cron'],
       ['GET', '/api/cron/alerts/more'],
       ['POST', '/api/cron/alerts'],
+      ['POST', '/api/cron/often'],
+      ['GET', '/api/cron/often/more'],
       ['GET', '/api/cron/anything'],
       ['GET', '/api/projects'],
       ['GET', `/api/projects/${project.id}`],

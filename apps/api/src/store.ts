@@ -10,7 +10,7 @@ import type {
   MemWatermark,
   Tenant,
 } from '@realytica/shared';
-import { deriveHealth, evaluateRevisits, migrateWorkspaceRole, syncAlerts, type ProjectAlert } from '@realytica/shared';
+import { deriveHealth, evaluateRevisits, migrateWorkspaceRole, syncAlerts, untakeTell, type ProjectAlert } from '@realytica/shared';
 import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 import type { DeviceRecord, PairCode } from './devices';
@@ -890,7 +890,16 @@ export class Store {
     // reports to revisit — is worked out before the write, so it is saved
     // with the change that caused it.
     const raised = new Map<string, ProjectAlert[]>();
+    // Who a filing or a decision concerns is written with it too, and what is due to leave the app is taken (`tell.ts`).
+    const tell = changed.length ? await import('./tell') : undefined;
+    const told = new Map<string, import('./tell').TellOut[]>();
     for (const project of changed) {
+      try {
+        const due = tell!.tellOnSave(project);
+        if (due.length) told.set(project.id, due);
+      } catch (err) {
+        console.warn(`[store] could not work out who to tell on ${project.id}: ${(err as Error).message}`);
+      }
       try {
         evaluateRevisits(project);
         const fresh = syncAlerts(project);
@@ -919,10 +928,22 @@ export class Store {
         if (this.writing.get(project.id) === out) this.writing.delete(project.id);
       });
       this.writing.set(project.id, out);
-      await put;
+      try {
+        await put;
+      } catch (err) {
+        // What was taken to tell people on a project not written is given back: this copy does not say it left, and the next save takes it again.
+        for (const unwritten of changed) {
+          const due = told.get(unwritten.id);
+          if (due && this.persistedAt.get(unwritten.id) !== unwritten.updatedAt) untakeTell(unwritten, due.flatMap((message) => message.ids));
+        }
+        throw err;
+      }
       this.persistedAt.set(project.id, project.updatedAt);
       this.graphOwed.set(project.id, revision);
       this.memoryOwed.add(project.id);
+      // Written, so what was taken to tell people may leave. No reply waits for it, and what cannot be sent is given back.
+      const due = told.get(project.id);
+      if (due) finishAfterReply(tell!.sendAfterSave(project, due));
     }
     // Shards for projects that are gone are dropped from the index here; the
     // documents themselves go with the project's own delete.
@@ -971,7 +992,7 @@ export class Store {
     this.catchUpGraph(true);
     this.remember(true);
 
-    // Then tell people. Sent after the write, so an alert nobody can open is never mailed.
+    // Then tell people of alerts. Sent after the write, so an alert nobody can open is never mailed.
     if (raised.size) {
       const { notifyRaised } = await import('./notify');
       for (const project of changed) {
@@ -979,6 +1000,8 @@ export class Store {
         if (fresh) await notifyRaised(project, fresh);
       }
     }
+    // And tell the systems that asked to be told: what the trail and the alerts of each written project say just happened.
+    if (changed.length) finishAfterReply(import('./integrations/observe').then(({ observeSaved }) => observeSaved(changed)));
   }
 
   /**

@@ -41,8 +41,10 @@ import WorkstreamPage from './pages/projects/departments/WorkstreamPage';
  */
 const About = lazy(() => import('./pages/About'));
 const Members = lazy(() => import('./pages/Members'));
+const Integrations = lazy(() => import('./pages/Integrations'));
 const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
+const LawWatch = lazy(() => import('./pages/LawWatch'));
 const Requests = lazy(() => import('./pages/Requests'));
 const ReportPrint = lazy(() => import('./pages/projects/ReportPrint'));
 const CostReportPrint = lazy(() => import('./pages/projects/CostReportPrint'));
@@ -180,6 +182,8 @@ export default function App() {
           <Route path="observability" element={<Navigate to="/portfolio" replace />} />
           <Route path="prompts" element={<Navigate to="/portfolio" replace />} />
           <Route path="members" element={<Members />} />
+          <Route path="law" element={<LawWatch />} />
+          <Route path="integrations" element={<Integrations />} />
           <Route path="about" element={<About />} />
           <Route path="*" element={<Navigate to="/portfolio" replace />} />
         </Route>

@@ -216,6 +216,7 @@ const CENTRE_SECTION: Record<string, string> = {
   'legal.approvals': 'approvals',
   'construction.progress': 'progress',
   'finance.budget': 'cost',
+  'procurement.boq': 'tenders',
 };
 
 /**
@@ -308,7 +309,7 @@ const SHARED_NAMES: Array<[ProjectCockpitPane, string[]]> = [
   ['actions', ['actions']],
   ['decisions', ['decisions']],
   ['assets', ['assets', 'phases', 'phases and assets', 'towers']],
-  ['reports', ['reports', 'report']],
+  ['reports', ['reports', 'report', 'owner pack', 'owner packs']],
   ['review', ['review', 'review table', 'review tables']],
   ['outgoing', ['outgoing', 'letters', 'letters and minutes']],
   ['drafts', ['drafts', 'ai drafts']],
@@ -324,6 +325,7 @@ const FUNCTION_ALSO: Record<string, string[]> = {
   'legal.approvals': ['nocs'],
   'construction.quality': ['technical dd', 'tdd'],
   'construction.site': ['visits', 'site visits'],
+  'procurement.boq': ['tender', 'tendering'],
 };
 
 /** The parts every function's page has, by the words people call them. */
@@ -340,6 +342,7 @@ const CENTRE_NAMES: Record<string, { after: string[]; alone: string[] }> = {
   approvals: { after: ['register'], alone: ['approvals register'] },
   progress: { after: ['milestones', 'board', 'site log'], alone: ['milestones', 'site log', 'progress board'] },
   cost: { after: ['cost report', 'packages'], alone: ['cost report'] },
+  tenders: { after: ['register', 'bidders', 'bids', 'stages'], alone: ['tender register', 'bidders', 'bid comparison'] },
 };
 
 let VOCABULARY: Map<string, Target[]> | undefined;
@@ -993,6 +996,9 @@ export function placeOfRecord(project: DdProject, id: string, here: ChatPlace = 
   if (decision) return { kind: 'decision', label: decision.title, open: { pane: 'decisions', extra: { item: decision.id } } };
   const report = project.reports.find((r) => r.id === id);
   if (report) return { kind: 'report', label: report.title, open: { pane: 'reports', extra: { item: report.id } } };
+  // A kept owner pack is listed among the reports, and opens there as it was prepared or issued.
+  const pack = (project.ownerPacks ?? []).find((kept) => kept.id === id);
+  if (pack) return { kind: 'report', label: pack.title, open: { pane: 'reports', extra: { item: pack.id } } };
   const asset = project.assets.find((a) => a.id === id);
   if (asset) return { kind: 'asset', label: asset.name, open: { pane: 'assets', extra: { assetId: asset.id } } };
 

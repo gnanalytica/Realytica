@@ -154,6 +154,13 @@ Writing is not deciding. Whether a value read off a document is accepted is a
 department's call on each project, and staff do not hold it by default: see
 [Departments](#departments).
 
+Analytics are for the firm's own people: a collaborator is refused on
+`/api/analytics`. Figures about one person are read by that person, and by
+somebody who leads a department on the project the work is on (by the team
+list or by their firm role), for that project only. A signer does not count as
+a lead here. A viewer reads no figures about a person, their own included. No
+figures are kept about a collaborator.
+
 A workspace always keeps at least one owner. The last one cannot demote or
 remove themselves — there is no way back into a workspace that has nobody who
 can administer it.
@@ -194,6 +201,19 @@ Three things follow from the grant rather than being written per route:
   projection is refused — whether the id came from the path or the body.
 - **Refusals are 404.** For the same reason as a project in another workspace:
   a 403 answers the question the caller was really asking.
+
+Tenders, bidders and bids are withheld unless the grant lists the scope
+`procurement`, which the team list writes for anybody given a role in
+Procurement. `allScopes` alone does not open them, and neither does the Budget
+and figures area. A Finance collaborator whose grant lacks Procurement cannot
+reach the route that accepts a tender's offer (404); the firm's own Finance
+lead or signer accepts.
+
+Kept owner packs, the report day, who was told of what (`tell`) and the
+connected folder are never on a collaborator's copy of a project. A paper the
+folder brought is on it without its folder path or link. A report the timer
+prepared is not on it until a person issues it, and an issued status report is
+on it without the checklist's lines.
 
 ### Who runs the deployment
 
@@ -289,6 +309,27 @@ line and records a payment. Issuing or reopening a Cost Report, issuing or
 withdrawing a bill's certificate, voiding a payment and removing a bill or a
 contract need a lead or signer in Finance, and answer 403 for anybody else
 (`allowed` in `routes/workspace.ts`).
+
+What a person is told (`/api/tell`) is their own by address. Nobody reads,
+marks or quiets for anybody else, whatever their role. Somebody working from a
+grant is told only of a paper, request or action their own copy of the project
+holds, and never of a checklist line. A viewer may quiet a project for
+themselves; that is a personal setting.
+
+The law and policy watch is the firm's own: a collaborator is refused every
+route with 403. Changing the list and asking for a look need an admin.
+Confirming or dismissing a change needs an admin or one of the firm's people
+who leads a department on a project, and a lead may put actions only on
+projects and departments they lead; a confirmation that names one they do not
+lead is refused whole and nothing is written. A lead's decision stands for the
+projects they lead only: the change waits for the rest until their leads decide
+or an admin closes it, and a project decided once is refused a second decision,
+an admin's included. The sidebar shows the entry to
+everybody, and a collaborator who opens it reads the refusal.
+
+An owner pack is issued or reopened by a lead or a signer of any department
+the project runs, as a letter is approved, not by Finance alone as a Cost
+Report is (`mayIssueOwnerPack`, `report-day.ts`).
 
 ### Who decides what a document states
 
@@ -443,8 +484,12 @@ them, for somebody who may.
 - Serve over HTTPS. A bearer token on plain HTTP is a bearer token anybody on
   the path can copy.
 - Set `REALYTICA_AUTH_BOOTSTRAP_EMAILS` **before** the first deploy, not after.
-- `/api/health` and `POST /api/devices/claim` are the only unauthenticated
-  routes. Health reports the auth mode so the web app knows whether to show the
+- The routes outside sign-in are `/api/health`, `POST /api/devices/claim`,
+  `/api/cron`, `/api/outside/hooks/*` and `/api/v1`. The timed routes under
+  `/api/cron` take only `CRON_SECRET`. The hooks check a provider's signature
+  and do nothing without their secrets. `/api/v1` is behind an API key
+  instead of a person's sign-in; a key is refused with 401 on every other
+  route. Health reports the auth mode so the web app knows whether to show the
   door, and with it the version, how many projects the instance holds, which
   graph store answers and the upload limits; claim trades a pairing code for
   a phone's token, ten tries a minute per address.

@@ -12,7 +12,7 @@
  * A workbook is opened under the same limit as any other (`workbookMayBeOpened`).
  */
 
-import { QuestionnaireTooLarge, workbookMayBeOpened } from './questionnaire-file';
+import { QuestionnaireTooLarge, WorkbookPartsTooLarge, workbookMayBeOpened } from './questionnaire-file';
 
 function cellText(value: unknown): string {
   if (value == null) return '';
@@ -30,6 +30,7 @@ export async function tableTextOf(file: { originalname?: string; buffer: Buffer 
   try {
     workbookMayBeOpened(file.buffer);
   } catch (err) {
+    if (err instanceof WorkbookPartsTooLarge) throw new Error(err.message);
     if (err instanceof QuestionnaireTooLarge) throw new Error('That workbook is too large to open: its sheets hold more than 4 MB.');
     throw err;
   }

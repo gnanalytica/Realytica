@@ -14,12 +14,17 @@ import { referenceRouter } from './routes/reference';
 import { librariesRouter, projectsRouter } from './routes/projects';
 import { projectMemoryRouter } from './routes/project-memory';
 import { reviewLibraryRouter, reviewTableRouter } from './routes/review-table';
+import { reportDayRouter } from './routes/report-day';
 import { outgoingRouter } from './routes/outgoing';
+import { procurementRouter } from './routes/procurement';
+import { templatesRouter } from './routes/templates';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { workRouter } from './routes/work';
+import { tellRouter } from './routes/tell';
 import { portfolioRouter } from './routes/portfolio';
+import { analyticsRouter } from './routes/analytics';
 import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
@@ -32,6 +37,10 @@ import { automationsEnabled } from './flows/enabled';
 import { membersRouter } from './routes/members';
 import { deviceClaimRouter, devicesRouter } from './routes/devices';
 import { cronRouter } from './routes/cron';
+import { connectorRouter } from './routes/connector';
+import { outsideHooksRouter, outsideRouter } from './routes/outside';
+import { fileSweepRouter } from './routes/file-sweep';
+import { integrationsRouter } from './routes/integrations';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -55,6 +64,8 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(securityHeaders());
 app.use(cors(corsPolicy()));
+// What an email or WhatsApp provider posts: ahead of the JSON reader, since each is checked by a signature over its bytes, and ahead of sign-in.
+app.use('/api/outside/hooks', outsideHooksRouter);
 app.use(express.json({ limit: '2mb' }));
 
 /*
@@ -122,6 +133,8 @@ app.use('/api/projects/:projectId', (req: Request, _res: Response, next: NextFun
 app.use('/api/devices/claim', limits.pairing, deviceClaimRouter);
 // The daily timer is the platform calling, not a person: it carries its own secret instead of a sign-in.
 app.use('/api/cron', cronRouter);
+// What an API key reads (`/api/v1`), a key refused everywhere else, and the firm's Integrations page behind its own sign-in check.
+app.use('/api', integrationsRouter);
 app.use('/api', authenticate);
 
 /*
@@ -168,13 +181,25 @@ app.use('/api/projects/:projectId/review', reviewTableRouter);
 // What goes out: making a draft or asking for its body asks a model once, so those two are budgeted as a model call is.
 app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method === 'POST' && (req.path === '/' || req.path.endsWith('/write')) ? limits.expensive(req, res, next) : next()));
 app.use('/api/projects/:projectId/outgoing', outgoingRouter);
+// The folder kept elsewhere that a project takes its files from: the firm's own people's, with its own guard.
+app.use('/api/projects/:projectId/connector', connectorRouter);
+app.use('/api/projects/:projectId/report-day', reportDayRouter);
+// Procurement › Tenders: bidders and what they quoted, with its own guard for a grant that does not name Procurement.
+app.use('/api/projects/:projectId/procurement', procurementRouter);
+// What the daily review suggested, for a lead or signer to accept or dismiss. It asks no model: the review runs on the timer.
+app.use('/api/projects/:projectId/daily-review', fileSweepRouter);
+app.use('/api/projects/:projectId/templates', (req, res, next) => (req.method === 'POST' ? limits.upload(req, res, next) : next()), templatesRouter);
 app.use('/api/projects', projectsRouter);
+app.use('/api/outside', outsideRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);
 app.use('/api/telemetry', needs('admin'), telemetryRouter);
 app.use('/api/prompts', needs('admin'), promptsRouter);
 app.use('/api/work', workRouter);
+app.use('/api/tell', tellRouter);
 app.use('/api/portfolio', portfolioRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/law-watch', (await import('./routes/law-watch')).lawWatchRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
 // member's business and changing one is the workspace's — the router carries
 // that split per route rather than being gated wholesale here.

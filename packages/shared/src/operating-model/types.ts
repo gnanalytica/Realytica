@@ -677,6 +677,8 @@ export interface EvidenceRecord {
   modelReadVersion?: number;
   /** A photograph chosen to print in the report on its own, beside the ones the observations cite. */
   inReport?: boolean;
+  /** Set while this paper is an outside party's reply nobody has confirmed: it answers no checklist line by its name until a person does. */
+  unconfirmedReply?: { requestId: string; replyId: string };
   createdAt: string;
   updatedAt: string;
   /**
@@ -731,6 +733,8 @@ export interface EvidenceAttachment {
    * read off a document waits to be accepted before anything relies on it.
    */
   shows?: { text: string; by: string; at: string; fromModel: boolean };
+  /** Where the file was taken from, when a connected folder brought it and no person dropped it. */
+  origin?: import('./connectors').FileOrigin;
 }
 
 export interface FindingRecord {
@@ -1961,6 +1965,13 @@ export interface ProjectRequest {
   answeredAt?: string;
   /** The checklist lines one request covers, when it was raised from a checklist: everything one party owes. */
   checklistItemIds?: string[];
+  /** Where it was last sent, when it left the firm by email or WhatsApp (`outside-replies.ts`). */
+  recipientEmail?: string;
+  recipientPhone?: string;
+  /** Each sending of it to the outside party, with the reference a reply names it by. */
+  dispatches?: import('./outside-replies').RequestDispatch[];
+  /** What the outside party sent back. A reply answers nothing until a person confirms it. */
+  replies?: import('./outside-replies').RequestReply[];
   createdAt: string;
   createdBy: string;
   updatedAt: string;
@@ -1986,6 +1997,10 @@ export interface DdProject {
   requests?: ProjectRequest[];
   /** The project's own checklist of papers, loaded from a list somebody sent. Absent on a project that has none. */
   checklist?: import('./checklist').ChecklistItem[];
+  /** The day of the month reports are prepared on without being asked, and what the timer has prepared. Absent on a project that never set one. */
+  reportDay?: import('./report-day').ReportDay;
+  /** Owner packs kept as they read when prepared, each waiting to be issued or issued and frozen. */
+  ownerPacks?: import('./report-day').KeptOwnerPack[];
   /** The lists of questions a due diligence put to the building, with their answers. */
   questionnaires?: import('./questionnaire').Questionnaire[];
   /** One-off data migrations already applied to this stored project. */
@@ -2182,8 +2197,12 @@ export interface DdProject {
   cost?: import('./cost').CostRegister;
   /** Finance › Budget: monthly Cost Reports — the editable figure of record for cost monitoring. See `cost-report.ts`. */
   costReports?: import('./cost-report').CostReportPeriod[];
+  /** Procurement › Tenders: each work package from tender papers to a signed contract, with its bidders. Withheld from a grant that does not name Procurement. See `tenders.ts`. */
+  procurement?: import('./tenders').ProcurementRegister;
   /** What the team should hear about; raised and resolved from the project's state. */
   alerts?: import('./alerts').ProjectAlert[];
+  /** The folder kept elsewhere that this project takes its files from. Absent on a project connected to none. */
+  connector?: import('./connectors').ProjectConnector;
   /** Meetings whose notes were kept: the day, who was there, where the words are stored and what was proposed from them. Never the words. See `meetings.ts`. */
   meetings?: import('./meetings').MeetingRecord[];
   /** Links between departments a person drew; the system's own are read on demand. */
@@ -2192,6 +2211,8 @@ export interface DdProject {
   reviewTable?: import('./review-table').ReviewTable;
   /** What goes out: letters, replies, requests for information and minutes, each a draft until a person approves it by name. See `outgoing.ts`. */
   outgoing?: import('./outgoing').OutgoingDraft[];
+  /** Who was told of what was filed, accepted or answered, and who has quieted the project. See `tell.ts`. */
+  tell?: import('./tell').TellState;
   createdAt: string;
   updatedAt: string;
 }

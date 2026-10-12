@@ -29,6 +29,7 @@
 
 import { alertsOfCopy } from './alerts';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
+import { reportsOfCopy } from './status-report';
 import type {
   ActionRecord,
   DdAssessment,
@@ -39,6 +40,11 @@ import type {
   RiskRecord,
   ScopeInstance,
 } from './types';
+
+/** Whether a grant names Procurement: it lists the scope of that name. The team list writes it for anybody given a role in the department. */
+export function grantNamesProcurement(grant: Pick<ProjectGrant, 'scopeKeys'>): boolean {
+  return grant.scopeKeys.includes('procurement');
+}
 
 /** What a reader is allowed, before any of it is applied. */
 export type ProjectAccess =
@@ -57,6 +63,7 @@ export type WithheldPart =
   | 'valuation'
   | 'reports'
   | 'commercials'
+  | 'procurement'
   | 'site_record'
   | 'conversation';
 
@@ -122,7 +129,9 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     if (overlaps(e.checkIds, checkIds)) return true;
     const narrower = (e.scopeInstanceIds?.length ?? 0) > 0 || (e.checkIds?.length ?? 0) > 0;
     return !narrower && overlaps(e.assessmentIds, assessmentIds);
-  });
+  })
+    // Where in the firm's folder a file came from is the firm's, as the folder is: the paper passes, its path and link there do not.
+    .map((e) => (e.attachments.some((file) => file.origin) ? { ...e, attachments: e.attachments.map(({ origin: _origin, ...file }) => file) } : e));
   const evidenceIds = new Set(evidence.map((e) => e.id));
   if (evidence.length < project.evidence.length) withheld.push('evidence');
 
@@ -166,7 +175,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const valuationRuns = area('valuation') ? project.valuationRuns : [];
   if (!area('valuation')) withheld.push('valuation');
 
-  const reports = area('reports') ? project.reports : [];
+  const reports = area('reports') ? reportsOfCopy(project.reports) : [];
   if (project.reports.length > 0 && !area('reports')) withheld.push('reports');
 
   const siteVisits = area('site_record') ? project.siteVisits : [];
@@ -191,6 +200,15 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const reportsKept = Boolean(project.costReports?.length);
   if (!commercial && (project.budget !== undefined || costKept || reportsKept)) withheld.push('commercials');
 
+  /*
+   * The tenders name every bidder and what each quoted. They are handed to a
+   * grant that names Procurement, by the scope of that name, and to no other:
+   * `allScopes` alone does not name it, since a grant written for every scope
+   * of a due diligence was not written to open the bids.
+   */
+  const tenders = grantNamesProcurement(grant);
+  if (!tenders && project.procurement?.tenders.length) withheld.push('procurement');
+
   const view: DdProject = {
     ...project,
     assessments,
@@ -205,6 +223,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     sheets,
     conversation,
     ...(commercial ? {} : { budget: undefined, cost: undefined, costReports: undefined }),
+    ...(tenders ? {} : { procurement: undefined }),
     // The fee is a commercial term between the firm and its client.
     ...(commercial ? {} : { engagements: (project.engagements ?? []).map(({ fee: _fee, ...e }) => e) }),
     // Requests name who else the firm is chasing. A collaborator sees the ones
@@ -214,6 +233,9 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     ),
     // A checklist names every party the firm is chasing, and for what.
     checklist: [],
+    // An owner pack is cost, meetings and the checklist on one paper, and the report day names who in the firm is told.
+    ownerPacks: [],
+    reportDay: undefined,
     // A screen result carries an indicative value, so it travels with the
     // valuation rather than with the site.
     ...(area('valuation') ? {} : { lastScreen: undefined, lastScreenResult: undefined }),
@@ -232,8 +254,12 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     reviewTable: undefined,
     // What the firm is drafting to send is its own until it sends it.
     outgoing: [],
+    // Who was told of what names every paper filed and every person told. A reader's own notices are read off the whole file, cut to this copy (`tell.ts`).
+    tell: undefined,
     // The site's own day-by-day entries, and the words of a voice note among them, are the firm's.
     siteLog: [],
+    // Which folder of the firm's the project reads, and what it left out of it, is the firm's.
+    connector: undefined,
     // The trail names everybody's actions across the whole project.
     audit: [],
     // So does the last instruction somebody gave the chat, and only staff can take it back.
@@ -271,6 +297,7 @@ export const WITHHELD_LABEL: Record<WithheldPart, string> = {
   valuation: 'the valuation on this project',
   reports: 'the reports on this project',
   commercials: 'the budget, contracts, bills and payments on this project',
+  procurement: 'the tenders, bidders and bids on this project',
   site_record: 'the site visits and sheets on this project',
   conversation: 'other people’s conversations on this project',
 };
@@ -330,6 +357,7 @@ const ASKED_ABOUT: Partial<Record<WithheldPart, RegExp>> = {
   decisions: /\b(decision|decisions|sign[- ]?off|signoff|go\/no[- ]?go|approval to proceed)\b/i,
   commercials:
     /\b(budget|cost of the deal|commercials?|spend|consideration|purchase price|running bills?|ra[- ]bills?|contractor[’']?s[’']? bills?|bills? (?:\w+ ){0,3}rais(?:ed?|es|ing)|rais(?:ed?|es|ing) (?:\w+ ){0,3}bills?|payment certificates?|retention (?:held|money)|work packages?|contract values?|cost to complete)\b/i,
+  procurement: /\b(tenders?|bidders?|bids?|quotes?|quoted|letter of acceptance|comparative statement|awarded?)\b/i,
   site_record: /\b(site visit|inspection|site record|master ?plan|sheet|survey)\b/i,
 };
 

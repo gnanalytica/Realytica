@@ -5,7 +5,8 @@
  * timer — an approval expiring or lapsed, a certified report flagged for
  * revisiting, work logged before the approvals that allow it, a milestone
  * behind as its date comes up or running late, a serious issue from site, an
- * action still open after the day it was due. Each condition has a key, so it
+ * action still open after the day it was due, a tender's stage past its date.
+ * Each condition has a key, so it
  * is raised once and resolved when the condition clears; a new one is what
  * goes out by email and to phones.
  */
@@ -16,6 +17,7 @@ import { approvalsRegister, constructionGate } from './approvals';
 import { actionsPastDue } from './meetings';
 import { progressSummary } from './progress';
 import { scheduleWatch } from './milestone-schedule';
+import { tenderStagesPastDue } from './tenders';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
@@ -113,6 +115,8 @@ export function alertConditions(project: DdProject, now = new Date()): Condition
   }
   // An action still open after its date: once for that date, to the person it is on and the lead.
   out.push(...actionsPastDue(project, now));
+  // A tender's stage still open after its date: once for that date, to the person it is with and Procurement's lead.
+  out.push(...tenderStagesPastDue(project, now));
   return out;
 }
 

@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { Navigate, useOutletContext, useSearchParams } from 'react-router-dom';
-import { REPORT_KIND_LABEL, cockpitPath, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
+import { REPORT_KIND_LABEL, cockpitPath, preparedReportSaid, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useMe } from '../../lib/useMe';
-import { Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
+import { Button, Card, CardBody, EmptyState, Field, Modal, Select, toneText, useToast } from '../../components/ui/kit';
+import { OwnerPacks } from './OwnerPacks';
 import { ReportEditor } from './ReportEditor';
 import Outgoing from './Outgoing';
 import { LETTERS_PART } from './cockpit/rail';
@@ -13,7 +14,7 @@ import { formatWhen } from './shared';
 
 /**
  * Everything that leaves the project as a document: DD / status reports from the
- * registers, the owner pack for a month, and letters / RFIs / minutes. One page, no sub-tabs.
+ * registers, the owner pack for a month or a quarter with the ones kept, and letters / RFIs / minutes. One page, no sub-tabs.
  */
 export default function Reports() {
   const { project, setProject, onOpenCited } = useOutletContext<ProjectOutlet>();
@@ -23,10 +24,10 @@ export default function Reports() {
   const [assessmentId, setAssessmentId] = useState('');
   const [busy, setBusy] = useState(false);
   const me = useMe();
-  // The month an owner pack is opened for: this one, until another is picked.
-  const [packMonth, setPackMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [params, setParams] = useSearchParams();
-  const view = project.reports.find((r) => r.id === params.get('report')) ?? project.reports[0];
+  // A report is named on the address by the list here (`report`) or by a link in a chat answer (`item`), which may name a kept owner pack instead.
+  const named = params.get('report') ?? params.get('item');
+  const view = project.reports.find((r) => r.id === named) ?? project.reports[0];
 
   const show = useCallback(
     (id: string) =>
@@ -69,18 +70,11 @@ export default function Reports() {
             <p className="text-[13px] text-ink-secondary">DD and status reports built from the registers on this project.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* The owner pack reads cost, meetings and the checklist, none of which an outside collaborator is handed. */}
-            {me && me.role !== 'collaborator' ? (
-              <div className="flex items-center gap-1.5">
-                <Input type="month" aria-label="Month of the owner pack" value={packMonth} onChange={(e) => setPackMonth(e.target.value)} className="w-[9.5rem]" />
-                <Button variant="secondary" className="shrink-0 whitespace-nowrap" disabled={!packMonth} onClick={() => window.open(`/projects/${project.id}/owner-pack/print?month=${packMonth}`, '_blank', 'noopener')}>
-                  Owner pack
-                </Button>
-              </div>
-            ) : null}
             <Button onClick={() => setOpen(true)}>Generate report</Button>
           </div>
         </div>
+        {/* The owner pack reads cost, meetings and the checklist, none of which an outside collaborator is handed. */}
+        {me && me.role !== 'collaborator' ? <OwnerPacks project={project} setProject={setProject} marked={named} /> : null}
         {project.reports.length === 0 ? (
           <Card>
             <EmptyState
@@ -108,6 +102,7 @@ export default function Reports() {
                     <span className="block font-medium">{REPORT_KIND_LABEL[r.kind]}</span>
                     <span className="text-[11px] text-ink-muted">
                       {(r.kind === 'status' ? statusReportPeriodSaid(r) : undefined) ?? formatWhen(r.generatedAt)}
+                      {preparedReportSaid(project, r) ? <span className={`block ${toneText('warning')}`}>{preparedReportSaid(project, r)}</span> : null}
                     </span>
                   </button>
                 ))}

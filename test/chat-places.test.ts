@@ -550,7 +550,7 @@ describe('the chat goes there', () => {
       return { p, sheet };
     };
     // Was: "“Tender queries” is open at its questions", beside a page that says the department is coming soon and shows none.
-    for (const department of ['procurement', 'commercial', 'design'] as const) {
+    for (const department of ['commercial', 'design'] as const) {
       const { p, sheet } = kept(department);
       assert.equal(applyProjectChat(p, 'open the Tender queries').assistantTurn.text, 'Nothing on this project is called “Tender queries”. Nothing moved.', department);
       for (const said of ['open the Tender queries', 'Open "Tender queries"', 'open the questionnaire']) {
@@ -558,8 +558,8 @@ describe('the chat goes there', () => {
         assert.ok(!out.navigations.some((nav) => nav.item === sheet.id) && !/open at its questions/.test(out.assistantTurn.text), `${department}: ${said}`);
       }
     }
-    // Engineering, Finance and Legal show the step, and theirs is named as it was.
-    for (const department of ['construction', 'finance', 'legal'] as const) {
+    // Engineering, Finance, Legal and Procurement show the step, and theirs is named as it was.
+    for (const department of ['construction', 'finance', 'legal', 'procurement'] as const) {
       const { p, sheet } = kept(department);
       const out = applyProjectChat(p, 'open the Tender queries');
       assert.deepEqual([out.assistantTurn.text, out.navigations.at(-1)?.item], ['“Tender queries” is open at its questions — 0 of 2 answered.', sheet.id], department);

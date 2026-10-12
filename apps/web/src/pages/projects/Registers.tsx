@@ -40,6 +40,7 @@ import {
   observationIsUseful,
   iso19650Completeness,
   iso19650Name,
+  originSaid,
   proposedFacts,
   readingLine,
   quotesForEvidence,
@@ -64,6 +65,7 @@ import { LiveRow } from './LiveRow';
 import { EvidenceProof } from './EvidenceProof';
 import { OutgoingFromPaper } from '../../components/outgoing/OutgoingStart';
 import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceDropZone';
+import { FolderConnect } from '../../components/project/FolderConnect';
 import { useStickyState } from '../../lib/useStickyState';
 import { AssignCell } from '../../components/AssignCell';
 import { MineToggle, useMine } from '../../components/MineToggle';
@@ -378,13 +380,14 @@ export function EvidenceRegister() {
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by title" className="w-full max-w-xs" />
         <MineToggle count={mineCount} on={mineOnly} onChange={setMineOnly} />
         <div className="flex-grow" />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <CreateButton
             kind="file_evidence"
             project={project}
             onCreated={setProject}
             initial={assessmentId ? { assessmentIds: [assessmentId] } : undefined}
           />
+          <FolderConnect project={project} onTaken={async () => setProject(await api.getProject(project.id))} />
           <EvidenceDropButton onPick={pick} />
         </div>
       </div>
@@ -619,6 +622,7 @@ export function EvidenceRegister() {
                                   {f.fileName}
                                 </button>
                                 {readingLine(f.reading) ? <p className="text-[11px] text-ink-muted">{readingLine(f.reading)}</p> : null}
+                                {f.origin ? <p className="truncate text-[11px] text-ink-muted" title={originSaid(f.origin)}>From {originSaid(f.origin)}</p> : null}
                                 {f.mimeType.startsWith('image/') ? (
                                   <>
                                     <CaptureStrip

@@ -23,6 +23,8 @@
  */
 
 import { approvalsRegister } from './approvals';
+import { checklistOwed } from './checklist';
+import { DEPARTMENT_SHORT } from './departments';
 import { ACTION_STATUS_LABEL, DECISION_STATUS_LABEL, FINDING_STATUS_LABEL, SEVERITY_LABEL } from './catalogs';
 import { acceptedFacts, proposedFacts } from './fact-review';
 import { meetingCalled, meetingDay, meetingItemStands, meetingOfRecord, meetingsHeld } from './meetings';
@@ -30,6 +32,7 @@ import { memPeople } from './mem-answer';
 import { memPointer, memoryDelta, type MemEntry } from './mem-delta';
 import { milestoneWatch } from './milestone-schedule';
 import { memoryFacts, type MemFact } from './mem-facts';
+import { isQuarter, quarterHolding, quarterMonthsSaid, quarterOfKey } from './quarters';
 import { sameEmail } from './tenancy';
 import type { ActionRecord, DdProject, DecisionRecord, GeneratedReport, ReportBlock, ReportBoundSource, ReportBoundSourceKind, ResolvedReportBlock } from './types';
 
@@ -109,12 +112,14 @@ export function statusPeriodSaid(period: StatusPeriod): string {
   if (lastDay <= firstDay) return meetingDay(firstDay);
   const wholeMonth = from.getUTCDate() === 1 && Date.parse(period.to) === Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1);
   if (wholeMonth) return `${MONTHS[from.getUTCMonth()]!.replace(/^./, (c) => c.toUpperCase())} ${from.getUTCFullYear()}`;
+  // A whole quarter by its three months. Its number depends on the year it is numbered in, which is said where that is known (`reportPeriodSaid`).
+  if (isQuarter(period)) return quarterMonthsSaid(period);
   const start = meetingDay(firstDay);
   return `${firstDay.slice(0, 4) === lastDay.slice(0, 4) ? start.replace(/ \d{4}$/, '') : start} to ${meetingDay(lastDay)}`;
 }
 
 const MAKES = /^(?:please\s+|can you\s+|could you\s+)?(?:write|draft|prepare|make|generate|create|put together|give me|send me|i need|we need|let me have)\b/i;
-const A_STATUS = /\bstatus(?:\s+(?:report|update|note))?\b|\b(?:weekly|monthly|progress)\s+(?:report|update)\b/i;
+const A_STATUS = /\bstatus(?:\s+(?:report|update|note))?\b|\b(?:weekly|monthly|quarterly|progress)\s+(?:report|update)\b/i;
 const NAMED_ONLY = /^(?:(?:this|last)\s+(?:week|month)(?:'s|’s)?\s+|weekly\s+|monthly\s+)?status\s+(?:report|update)\b/i;
 
 /** The status of one thing, "the status of the khata": a question about that thing, and no report on the project. */
@@ -177,6 +182,17 @@ export function statusPeriodAsked(project: DdProject, question: string, now = ne
     const monday = startOfWeek(now);
     return asked(new Date(monday.getTime() - 7 * DAY_MS), monday.toISOString());
   }
+  // A quarter: the one before this, this one so far, or one by its number. "Q2 FY 2026-27" is of the financial year, "Q3 2026" of the calendar year.
+  if (/\b(?:last|previous)\s+quarter\b/.test(q)) {
+    const quarter = quarterHolding(today, -1);
+    return asked(new Date(quarter.from), quarter.to);
+  }
+  // One by its number comes before the word "quarterly": "the quarterly report for Q1 FY 2026-27" names its quarter.
+  // A year written as a range, "2026-27", is a financial year with or without "FY" before it.
+  const numbered = /\bq([1-4])\s*(?:of\s+)?(fy\s*)?(?:20)?(\d{2})(-\d{2,4})?\b(?![\d:])/.exec(q);
+  const quarter = numbered ? quarterOfKey(`${numbered[2] || numbered[4] ? 'FY' : ''}20${numbered[3]}-Q${numbered[1]}`) : undefined;
+  if (quarter && Date.parse(quarter.from) <= now.getTime()) return asked(new Date(quarter.from), Date.parse(quarter.to) < now.getTime() ? quarter.to : until);
+  if (/\b(?:this\s+quarter|quarterly)\b/.test(q)) return asked(new Date(quarterHolding(today).from));
   if (/\blast\s+month\b/.test(q)) return asked(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1)), new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)).toISOString());
   if (/\b(?:this\s+month|monthly)\b/.test(q)) return asked(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)));
   if (/\btoday\b/.test(q)) return asked(today);
@@ -196,7 +212,7 @@ export function statusPeriodAsked(project: DdProject, question: string, now = ne
 /* The lines                                                              */
 /* ==================================================================== */
 
-export type StatusLineKind = 'paper' | 'approval' | 'decision' | 'action_done' | 'action_overdue' | 'finding' | 'meeting' | 'report' | 'action' | 'card' | 'values' | 'request' | 'milestone';
+export type StatusLineKind = 'paper' | 'approval' | 'decision' | 'action_done' | 'action_overdue' | 'finding' | 'meeting' | 'report' | 'action' | 'card' | 'values' | 'request' | 'checklist' | 'milestone';
 
 export interface StatusLine {
   kind: StatusLineKind;
@@ -224,6 +240,9 @@ export interface StatusReport {
   waiting: StatusLine[];
   next: StatusLine[];
 }
+
+/** How many papers a line about a checklist names; the rest are counted. */
+const CHECKLIST_NAMED = 3;
 
 const counted = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 const day = (iso: string): string => iso.slice(0, 10);
@@ -468,6 +487,23 @@ export function statusReport(project: DdProject, period: StatusPeriod, now = new
     waitingLines.push({ kind: 'request', what: `Asked for and not received: ${request.title.replace(/[.\s]+$/, '')}.`, when: day(request.sentAt ?? request.createdAt), who: request.recipient || 'nobody named', stands: 'asked for', behind: 'the request', recordId: request.id });
   }
 
+  // Papers on a checklist that are not in hand and nobody has been asked for: one line for each party that owes them.
+  // The ones asked for are a request, and are a line above already.
+  for (const party of checklistOwed(project, { now: now.toISOString() }).parties) {
+    const unasked = party.lines.filter((line) => line.status === 'pending');
+    if (!unasked.length) continue;
+    const desks = [...new Set(unasked.map((line) => line.item.department))];
+    const named = unasked.slice(0, CHECKLIST_NAMED).map((line) => line.item.title.replace(/[.\s]+$/, ''));
+    waitingLines.push({
+      kind: 'checklist',
+      what: `${counted(unasked.length, 'paper', 'papers')} on the checklist not in hand and not asked for: ${named.join('; ')}${unasked.length > named.length ? `, and ${unasked.length - named.length} more` : ''}.`,
+      when: unasked.map((line) => day(line.item.createdAt)).sort()[0],
+      who: party.owedBy ?? 'nobody named',
+      stands: CHECKLIST_STANDS,
+      behind: desks.length === 1 ? `the checklist of ${DEPARTMENT_SHORT[desks[0]!]}` : 'the checklists',
+    });
+  }
+
   /* ---- What comes next ---- */
   const next: StatusLine[] = [];
   for (const action of open) {
@@ -513,6 +549,43 @@ const SECTION: Record<string, { list: 'changed' | 'waiting' | 'next'; columns: s
   status_waiting: { list: 'waiting', columns: ['No.', 'Waiting', 'Since', 'On whom', 'Stands', 'Behind it'], empty: () => 'Nothing is waiting on anybody.' },
   status_next: { list: 'next', columns: ['No.', 'Next', 'By when', 'On whom', 'Stands', 'Behind it'], empty: () => 'Nothing on the record has a date ahead of it.' },
 };
+
+/** How a checklist line stands, and what is behind it: what tells one apart in a report that was issued. */
+const CHECKLIST_STANDS = 'not asked for';
+const CHECKLIST_BEHIND = /^the checklists?\b/;
+
+/**
+ * A project's reports as somebody working from a grant may read them.
+ *
+ * A report the timer prepared is the firm's to check first: it is left out
+ * until a person has issued it. And an issued status report keeps the whole
+ * file's lines as they read that day, the checklist's among them, which name
+ * every party the firm is chasing and for what. Their copy holds no
+ * checklist, so those lines are taken out of what was frozen, and the rest
+ * are numbered again. Nothing on the project itself is changed.
+ */
+export function reportsOfCopy(reports: readonly GeneratedReport[]): GeneratedReport[] {
+  const waits = (report: GeneratedReport): boolean => report.status === 'generated' || report.status === 'draft' || report.status === 'reviewed';
+  return reports
+    .filter((report) => !(report.generatedBy === 'system' && waits(report)))
+    .map((report) => {
+      if (report.kind !== 'status') return report;
+      const blocks = report.body.blocks.map((block) => {
+        const rows = block.frozenTable?.rows;
+        if (!rows || !isStatusSource(block.source?.kind)) return block;
+        const keep = rows.map((row) => !(row.cells[4] === CHECKLIST_STANDS && CHECKLIST_BEHIND.test(row.cells[5] ?? '')));
+        if (keep.every(Boolean)) return block;
+        const kept = <T>(list: readonly T[] | undefined): T[] | undefined => list?.filter((_, at) => keep[at]);
+        return {
+          ...block,
+          frozen: kept(block.frozen),
+          frozenRecordIds: kept(block.frozenRecordIds),
+          frozenTable: { ...block.frozenTable!, rows: kept(rows)!.map((row, at) => ({ ...row, cells: [String(at + 1), ...row.cells.slice(1)] })) },
+        };
+      });
+      return blocks.some((block, at) => block !== report.body.blocks[at]) ? { ...report, body: { ...report.body, blocks } } : report;
+    });
+}
 
 /** The lines of one section as code writes them, cut to the section's length. What a model is given to reword, and what its wording is held to. */
 export function statusSectionLines(project: DdProject, source: ReportBoundSource, now = new Date()): { lines: StatusLine[]; more: number; period: StatusPeriod } {
