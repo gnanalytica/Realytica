@@ -179,6 +179,15 @@ describe('a checklist sent to the project', () => {
     assert.equal(confirmed.status, 200);
     assert.equal(checklistSheet(confirmed.body.project as DdProject, { department: 'finance' }).received, 1);
     assert.equal((await call('PATCH', `${at}/${ids[1]}`, { evidenceId: 'ev_nothing' })).status, 400);
+    // A document set aside is one of the project's own, by an id of an id's length.
+    for (const body of [{ dismiss: 'ev_nothing' }, { dismiss: 'x'.repeat(81) }, { evidenceId: 'x'.repeat(81) }]) {
+      assert.equal((await call('PATCH', `${at}/${ids[1]}`, body)).status, 400, JSON.stringify(body).slice(0, 40));
+    }
+    const untouched = (await call('GET', `/api/projects/${project.id}`)).body.checklist.find((i: { id: string }) => i.id === ids[1]);
+    assert.equal(untouched.dismissed, undefined);
+    const setAside = await call('PATCH', `${at}/${ids[1]}`, { dismiss: logs.id });
+    assert.equal(setAside.status, 200);
+    assert.deepEqual(setAside.body.project.checklist.find((i: { id: string }) => i.id === ids[1]).dismissed, [logs.id]);
 
     const asked = await call('POST', `${at}/requests`, { department: 'finance', dueAt: '2026-10-30' });
     assert.equal(asked.status, 201);

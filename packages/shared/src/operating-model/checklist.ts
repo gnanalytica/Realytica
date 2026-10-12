@@ -77,13 +77,21 @@ function clean(text: string | null | undefined, max: number): string | undefined
   return out || undefined;
 }
 
-/** A name as it is compared: case, punctuation and a file's extension say nothing. */
+/**
+ * A name as it is compared: case and punctuation say nothing. What follows
+ * the last dot of a paper's name is part of the name: "Annexure A.1" and
+ * "Annexure A.2" are two papers, as "Rev.A" and "Rev.B" are.
+ */
 function fold(text: string | undefined): string {
   return (text ?? '')
     .toLowerCase()
-    .replace(/\.[a-z0-9]{1,5}$/, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
+}
+
+/** A file's name as it is compared: as any name, without the extension. An ending of digits alone, "Schedule 1.2", is no extension. */
+function foldFile(name: string | undefined): string {
+  return fold((name ?? '').trim().replace(/\.(?=[a-z0-9]{1,5}$)\d*[a-z][a-z0-9]*$/i, ''));
 }
 
 /** What makes two lines the same line: the paper, at the same stage, in the same package. */
@@ -404,9 +412,8 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
       skipped += 1;
       continue;
     }
-    if (items.length >= CHECKLIST_LIMITS.items) throw new Error(`A checklist holds ${CHECKLIST_LIMITS.items} lines at most.`);
     held.add(key);
-    const item: ChecklistItem = {
+    added.push({
       id: newId('chk'),
       department,
       ...line,
@@ -415,10 +422,11 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
       createdAt: at,
       createdBy: actor,
       updatedAt: at,
-    };
-    items.push(item);
-    added.push(item);
+    });
   }
+  // Counted before any line is put on the list: a list that does not fit leaves the project as it was.
+  if (items.length + added.length > CHECKLIST_LIMITS.items) throw new Error(`A checklist holds ${CHECKLIST_LIMITS.items} lines at most.`);
+  items.push(...added);
   if (added.length) audit(project, actor, 'checklist_added', added[0]!.id, added.length === 1 ? added[0]!.title : `${added.length} lines`);
   return { added, skipped };
 }
@@ -487,6 +495,7 @@ export function reopenChecklistItem(project: DdProject, itemId: string, actor: s
 /** A person says a document is not this paper. It is not offered for the line again, and does not answer it by name. */
 export function dismissChecklistMatch(project: DdProject, itemId: string, evidenceId: string, actor: string): ChecklistItem {
   const item = findItem(project, itemId);
+  if (!project.evidence.some((e) => e.id === evidenceId)) throw new Error(`Evidence ${evidenceId} not found`);
   if (!item.dismissed?.includes(evidenceId)) item.dismissed = [...(item.dismissed ?? []), evidenceId];
   if (item.received?.evidenceId === evidenceId) delete item.received;
   item.updatedAt = nowIso();
@@ -562,6 +571,11 @@ function namesOf(row: EvidenceRecord): string[] {
   return [row.title, row.documentType, row.fileName, ...row.attachments.map((a) => a.fileName)].filter((n): n is string => Boolean(n?.trim()));
 }
 
+/** Those names as they are compared. Only a file's name loses an extension: a title ending ".2" keeps it. */
+function foldedNamesOf(row: EvidenceRecord): Set<string> {
+  return new Set([fold(row.title), fold(row.documentType), foldFile(row.fileName), ...row.attachments.map((a) => foldFile(a.fileName))].filter(Boolean));
+}
+
 /**
  * Filed documents against the lines still open.
  *
@@ -581,7 +595,7 @@ function matchDocuments(open: readonly ChecklistItem[], documents: readonly Evid
 
   for (const row of documents) {
     const names = namesOf(row);
-    const folded = new Set(names.map(fold));
+    const folded = foldedNamesOf(row);
     for (const item of open) {
       if (sure.has(item.id) || item.dismissed?.includes(row.id)) continue;
       if (folded.has(fold(item.title)) && sameName.get(fold(item.title)) === 1) sure.set(item.id, row);

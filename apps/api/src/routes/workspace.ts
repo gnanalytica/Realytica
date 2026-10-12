@@ -2090,9 +2090,9 @@ const checklistPatchSchema = z.object({
   note: z.string().trim().max(CHECKLIST_LIMITS.note).nullable().optional(),
   /** In hand by a person's word, with the document where one is named; `false` takes it back. */
   received: z.boolean().optional(),
-  evidenceId: z.string().min(1).optional(),
+  evidenceId: z.string().min(1).max(80).optional(),
   /** A document that is not this paper. */
-  dismiss: z.string().min(1).optional(),
+  dismiss: z.string().min(1).max(80).optional(),
 });
 
 projectWorkspaceRouter.patch<Params & { itemId: string }>('/checklist/:itemId', async (req, res) => {

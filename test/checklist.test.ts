@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  CHECKLIST_LIMITS,
   CHECKLIST_NO_PACKAGE,
   CHECKLIST_NO_STAGE,
   addChecklistItem,
@@ -215,6 +216,35 @@ describe('a checklist on a project', () => {
     assert.equal(twice.skipped, 1);
   });
 
+  it('takes none of a list that does not fit: a refused import leaves the project as it was', () => {
+    const p = project();
+    const papers = (from: number, count: number) => Array.from({ length: count }, (_, i) => ({ title: `Paper ${from + i}` }));
+    addChecklistItems(p, 'finance', papers(0, 10), 'tester');
+    const was = structuredClone({ checklist: p.checklist, audit: p.audit, updatedAt: p.updatedAt });
+    // One line more than there is room for, the first of them already on the list.
+    assert.throws(() => addChecklistItems(p, 'finance', papers(9, CHECKLIST_LIMITS.items - 8), 'tester'), /holds 1000 lines at most/);
+    assert.deepEqual({ checklist: p.checklist, audit: p.audit, updatedAt: p.updatedAt }, was);
+    // Exactly what there is room for is taken, and then not one line more.
+    assert.equal(addChecklistItems(p, 'finance', papers(9, CHECKLIST_LIMITS.items - 9), 'tester').added.length, CHECKLIST_LIMITS.items - 10);
+    assert.equal(p.checklist!.length, CHECKLIST_LIMITS.items);
+    assert.throws(() => addChecklistItems(p, 'legal', [{ title: 'One more' }], 'tester'), /holds 1000 lines at most/);
+    assert.equal(p.checklist!.length, CHECKLIST_LIMITS.items);
+    // A list that is all on there already adds nothing and is not refused.
+    assert.deepEqual([addChecklistItems(p, 'finance', papers(0, 5), 'tester').skipped, p.checklist!.length], [5, CHECKLIST_LIMITS.items]);
+  });
+
+  it('keeps apart papers whose names differ only after a dot', () => {
+    const p = project();
+    const list = [{ title: 'Annexure A.1' }, { title: 'Annexure A.2' }, { title: 'Schedule 1.1' }, { title: 'Schedule 1.2' }, { title: 'Drawing list Rev.A' }, { title: 'Drawing list Rev.B' }];
+    const first = addChecklistItems(p, 'legal', list, 'tester');
+    assert.deepEqual([first.added.length, first.skipped], [6, 0]);
+    assert.deepEqual(p.checklist!.map((i) => i.title), list.map((l) => l.title));
+    // The same again, retyped, is still the same list.
+    assert.deepEqual(addChecklistItems(p, 'legal', [{ title: 'annexure  a.1' }, { title: 'SCHEDULE 1.2' }], 'tester').skipped, 2);
+    // And one cannot be renamed into the other.
+    assert.throws(() => patchChecklistItem(p, p.checklist![0]!.id, { title: 'Annexure A.2' }, 'tester'), /already on the checklist/);
+  });
+
   it('is added to, renamed, moved and cut a line at a time', () => {
     const p = project();
     const item = addChecklistItem(p, 'construction', { title: ' Facade details ', stage: 'Schematic', owedBy: 'Facade consultant' }, 'tester');
@@ -313,6 +343,30 @@ describe('a paper against the documents on file', () => {
     assert.equal(drawings.status, 'received');
     dismissChecklistMatch(p, drawings.item.id, wrong.id, 'tester');
     assert.equal(lineOf(checklistSheet(p), 'Structural drawings').status, 'pending');
+  });
+
+  it('is answered by the document of its own name and not by its neighbour: "Annexure A.2" filed does not mark "Annexure A.1"', () => {
+    const p = project();
+    addChecklistItems(p, 'legal', [{ title: 'Annexure A.1' }, { title: 'Annexure A.2' }, { title: 'Schedule 1.1' }, { title: 'Rev.A' }], 'tester');
+    const second = file(p, 'Annexure A.2');
+    const sheet = checklistSheet(p);
+    assert.deepEqual([lineOf(sheet, 'Annexure A.1').status, lineOf(sheet, 'Annexure A.2').status, lineOf(sheet, 'Annexure A.2').evidenceId], ['pending', 'received', second.id]);
+    assert.equal(sheet.received, 1);
+    // A file's own extension still says nothing, whatever the title it was filed under.
+    file(p, 'Scan 0041', 'Annexure A.1.PDF');
+    file(p, 'Scan 0042', 'schedule 1.1.xlsx');
+    file(p, 'Scan 0043', 'Rev.B.pdf');
+    const after = checklistSheet(p);
+    assert.deepEqual(['Annexure A.1', 'Schedule 1.1', 'Rev.A'].map((title) => lineOf(after, title).status), ['received', 'received', 'pending']);
+  });
+
+  it('refuses to set aside a document the project does not hold', () => {
+    const p = loaded();
+    const soil = lineOf(checklistSheet(p), 'Soil investigation report').item;
+    const was = structuredClone(soil);
+    assert.throws(() => dismissChecklistMatch(p, soil.id, 'ev_nothing', 'tester'), /Evidence ev_nothing not found/);
+    assert.throws(() => dismissChecklistMatch(p, soil.id, 'x'.repeat(5000), 'tester'), /not found/);
+    assert.deepEqual(soil, was);
   });
 
   it('does not choose between two lines of one name: the same paper at two stages is offered, not marked', () => {
@@ -474,7 +528,10 @@ describe('the papers still owed, in a line', () => {
     const p = owing();
     const grant = createProjectGrant({ email: 'sam@site.in' }, { id: 'grt_1', tenantId: 'ten_1', projectId: p.id, createdBy: 'tester' });
     const seen = projectView(p, { kind: 'granted', grant, email: 'sam@site.in' }).project;
+    assert.ok(p.checklist!.length > 0 && checklistOwed(p).owed > 0, 'there is a list, with papers owed, to be withheld');
+    assert.deepEqual(seen.checklist, [], 'the copy they are handed carries no line of it');
     assert.deepEqual(checklistOwed(seen), { total: 0, owed: 0, parties: [] });
+    assert.equal(checklistSheet(seen).total, 0);
   });
 });
 
