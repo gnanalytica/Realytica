@@ -101,7 +101,7 @@ export function verify(secret, headers, rawBody) {
 ### Delivery
 
 - Answer with any `2xx` within five seconds. Anything else is a failure, a redirect included: redirects are not followed.
-- A failed delivery is tried again by the daily timer, up to five attempts in all, with a longer wait after each (an hour, six hours, a day, two days; on a daily timer, the next run after that).
+- A failed delivery is tried again by a timer, up to five attempts in all, with a longer wait after each (an hour, six hours, a day, two days). The timer runs every ten minutes where the plan allows it (`/api/cron/often` in `vercel.json`) and with the daily run in any case, so with the daily run alone each retry lands on the next day's run after it is due. Nothing retries on the next event, and nothing is retried where `CRON_SECRET` is not set.
 - After the fifth failure the delivery is given up, the endpoint is marked **Failing**, the firm's owners and managers are emailed (when `REALYTICA_RESEND_API_KEY` is set), and nothing more is sent there. Events that happen while it is failing are not kept for later. A **Test** that goes through clears the mark.
 - An event can arrive twice, when two instances save the same project at the same moment. The `webhook-id` is the same both times.
 - Every delivery is on the Integrations page with its status, the receiver's answer and the number of attempts.
@@ -127,5 +127,5 @@ Only to a public address over `https`. An address inside the deployment's own ne
 | `apps/api/src/integrations/webhooks.ts` | The address check, signing, delivery and retry |
 | `apps/api/src/integrations/observe.ts` | The one place events leave from: a look at each project as the store saves it |
 | `apps/api/src/integrations/documents.ts` | The four documents all of this is kept in, outside the workspace document |
-| `apps/api/src/cron/webhook-retry.ts` | `retryWebhooks(now)`, for the daily timer |
+| `apps/api/src/cron/webhook-retry.ts` | `retryWebhooks(now)`, for the ten-minute and the daily timer |
 | `packages/shared/src/operating-model/integrations.ts` | Scopes, event names, and which events a saved project has had |

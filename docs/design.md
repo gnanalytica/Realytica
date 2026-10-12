@@ -65,6 +65,7 @@ Department marks are in `components/departments/icons.ts`.
 - **A paper opens over the work surface,** not over the whole screen, so the conversation stays in reach beside it (`EvidenceProof.tsx`). Escape closes it, and only it when nothing else is open over it. On a phone, which has no second pane, it covers the screen; held sideways its title, Download and Close stay on screen and the part under them scrolls.
 - **A citation is a chip in the sentence it supports,** carrying the paper's name and the page, and it opens that page (`chat/AnswerBody.tsx`). Punctuation written against a chip stays with it, a chip gives way on a narrow screen, and one whose record is not on the file stays visible and opens nothing.
 - **The chat's column takes dropped files** anywhere on it, not only on the message box.
+- **The chat's message box holds,** after the paperclip, camera and voice note, a speak button and its language (only where the browser recognises speech), and each answer ends with Read aloud (only where the browser speaks). Their one-line notices sit under the row, as the voice note's does.
 
 ## Checking a change
 

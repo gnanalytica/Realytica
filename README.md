@@ -4,7 +4,7 @@ An AI project office that everyone on a building project can work in or connect 
 
 It takes in every document, in English or any other language. It reads the latest laws and policy changes and works out the action items. It finds by itself where the project has issues and suggests them. For any data or document it tells the people concerned what the information is and what their action item is. It shows analytics and action items at each level: portfolio, project, department, function and person. It answers with sources, fills an empty template or questionnaire from everything on the project, and gives monthly or quarterly reports. People work in it directly, integrate with it, or use connectors from the tools they already have. Eventually it is voice enabled. A named person still accepts what counts.
 
-That is the product as it is defined. Not all of it is built: reading every language, watching the law, notifying on each document, connectors and voice are partly built or not yet. [What is built and what is not](docs/product.md#what-is-built-and-what-is-not) says which, line by line.
+That is the product as it is defined. Not all of it is built: reading every language, watching the law (listed pages only, and a person confirms), filling a template (Word and Excel), connectors and voice (asking and hearing in the web chat) are partly built, and several parts do nothing until a setting is given. [What is built and what is not](docs/product.md#what-is-built-and-what-is-not) says which, line by line.
 
 A project moves through **four stages** (Land, Pre-construction, Under construction, Completed), its work is divided into **departments** (Legal, Finance, Engineering, Commercial, Procurement, with Design worked inside Engineering), and each department holds **functions** — Title, Approvals, Valuation, Budget, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
 
@@ -17,7 +17,7 @@ A project moves through **four stages** (Land, Pre-construction, Under construct
 | Models | `packages/agents` — document reading, the chat, the project orchestrator, voice notes put into words |
 | Maps | `packages/site-intel` — public map layers, guidance values and place lookups |
 
-Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [how it looks and moves](docs/design.md) · [the API](docs/api.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md)
+Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [how it looks and moves](docs/design.md) · [the API](docs/api.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md) · [integrations](docs/integrations.md)
 
 ## Run it
 
@@ -46,9 +46,14 @@ Every variable is prefixed `REALYTICA_`, except the few a row marks as written i
 | `STORAGE_NAMESPACE` | The data generation, `v2` by default. |
 | `GOOGLE_MAPS_API_KEY` | Places and the satellite map. |
 | `UNBLOCKER_PROVIDER`, `UNBLOCKER_API_KEY` | Portal comparables search (99acres, MagicBricks). Written in full, with no prefix. |
-| `RESEND_API_KEY`, `ALERT_FROM`, `APP_URL` | Alert emails. Without them alerts stay in the app and on phones. |
+| `RESEND_API_KEY`, `ALERT_FROM`, `APP_URL` | Alert emails, the mail that tells people of papers filed and values decided, and the email that tells people a report prepared on the report day is ready to check. Without them all of these stay in the app and on phones, and prepared reports wait on the Reports page. Also the email that says a webhook endpoint is failing. |
+| `OUTSIDE_SECRET`, `INBOUND_EMAIL_DOMAIN`, `RESEND_WEBHOOK_SECRET`, `REQUEST_FROM` | Requests by email and their replies, with `RESEND_API_KEY`. Without them a request is only recorded, and the Send dialog says email is not set up. |
+| `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE`, `WHATSAPP_TEMPLATE_LANGUAGE`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_GRAPH_VERSION` | Requests by WhatsApp (Meta Cloud API) and their replies. Without them WhatsApp does nothing and says so. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | A Google Cloud service account's key file, as JSON or base64, with the Drive API enabled. A project's owner shares a Drive folder with that account's address and pastes the folder link under Documents > Connect a folder. Written in full, with no prefix. Without it the screen says the firm has not set this up. |
+| `CREDENTIAL_KEY` | Seals stored secrets: flow credentials and webhook signing secrets. Without it no webhook endpoint can be registered. |
+| `RATE_LIMIT_KEY` | Requests a minute for one API key under `/api/v1`. 120 by default. See [docs/integrations.md](docs/integrations.md). |
 | `EXPO_ACCESS_TOKEN` | Optional: authenticates push sends to the site app. |
-| `CRON_SECRET` | The secret Vercel sends with the daily timer that brings alerts up to date. Written in full, with no prefix. Without it the timer does nothing. |
+| `CRON_SECRET` | The secret Vercel sends with the timers. The daily one brings alerts up to date, prepares reports on a project's report day, reads the law and policy pages that are due and runs the daily review of each file; notices and webhook retries also come round every ten minutes, and connected folders every hour. Written in full, with no prefix. Without it no timer does anything. |
 | `AUTOMATIONS` | `on` mounts `/api/flows` and lets saved flows fire. Off by default, and the web app has no screen for flows. |
 | `ALLOWED_ORIGINS`, `RATE_LIMIT_API`, `RATE_LIMIT_MODEL`, `RATE_LIMIT_UPLOAD`, `RATE_LIMIT_PAIRING`, `OPERATORS` | Hardening; see [docs/runbooks/deployment.md](docs/runbooks/deployment.md) and, for `OPERATORS`, [docs/auth.md](docs/auth.md). |
 | `VITE_GOOGLE_CLIENT_ID`, `VITE_GOOGLE_MAPS_BROWSER_KEY` | Read when the web app is built, and written in full: the sign-in client, and an optional browser key for the map. |
@@ -68,7 +73,7 @@ apps/api            Express API: routes, auth, storage, the graph adapters, docu
 apps/web            The web app
 mobile/             The site app (Expo); its own package, outside the pnpm workspace
 packages/shared     The domain: projects, stages, departments, functions, checks, approvals,
-                    progress, cost, quick assessments, certified reports, alerts, links, the graph
+                    progress, cost, tenders, quick assessments, certified reports, alerts, links, the graph
 packages/agents     Model calls: document intelligence, the chat, the project orchestrator
 packages/site-intel Public map layers and place lookups
 test/               Every test, run by `pnpm test`; test/fixtures holds synthetic documents

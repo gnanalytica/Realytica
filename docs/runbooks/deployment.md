@@ -9,7 +9,7 @@ Aura, Google sign-in and a model gateway.
 
 | # | Account | What it buys | Free tier |
 |---|---|---|---|
-| 1 | **Vercel** | Hosting. You have this. | Hobby |
+| 1 | **Vercel** | Hosting. You have this. | Hobby, with the daily timer alone; the ten-minute and hourly timers need Pro (see [The timers](#the-timers)) |
 | 2 | **Vercel Blob** | Durable project store and uploaded documents. **Required in production** — without it every cold start starts from nothing. | included |
 | 3 | **OpenRouter** | Every model, one key, Anthropic wire format. | yes, plus `:free` models |
 | 4 | **Neo4j Aura** | The reasoning graph. **Required in production** — the app refuses to boot without it. | yes, pauses after 72h idle |
@@ -217,7 +217,7 @@ REALYTICA_MODEL_TRANSCRIPTION=...    # puts a voice note into words; needs a gat
 REALYTICA_AGENT_WEB_SEARCH=1     # lets research and explorer reach the web
 REALYTICA_AGENTS_DISABLED=1      # turns the agent layer off entirely
 REALYTICA_AUTOMATIONS=on         # mounts /api/flows and lets saved flows fire. Off by default; the web app has no screen for flows.
-REALYTICA_CREDENTIAL_KEY=...     # with automations: 32 bytes, hex or base64 (openssl rand -base64 32), to seal stored credentials
+REALYTICA_CREDENTIAL_KEY=...     # with automations or webhooks: 32 bytes, hex or base64 (openssl rand -base64 32), to seal stored credentials and webhook signing secrets
 REALYTICA_FLOW_ALLOW_HOSTS=...   # with automations: private hosts a flow's http step may reach, comma-separated
 REALYTICA_OCR_PAGES_AT_ONCE=2    # OCR workers at once, 1 to 8; unset, one a processor and at most three
 
@@ -303,35 +303,123 @@ finish late or late, a serious issue
 from site, an action past its date (which also goes to the person it is on).
 Phones receive pushes once paired and allowed.
 
-### The daily timer
+### The timers
 
 ```bash
 CRON_SECRET=...                  # 16 characters or more (openssl rand -hex 24). No REALYTICA_ prefix: Vercel reads this name itself.
 ```
 
-Alerts are worked out when a project is saved, and once a day by a Vercel cron
-job: `crons` in `vercel.json` calls `GET /api/cron/alerts` at `30 1 * * *`,
-which is 01:30 UTC and 07:00 in India (on the Hobby plan, some time in that
-hour). It brings every project's alerts up to date and writes only the projects
-whose alerts moved, so a milestone that came due or an approval that lapsed on
-a day nobody opened the project is raised, mailed and pushed that morning.
+`crons` in `vercel.json` is the one place the timers are declared. Do not
+declare them in `scripts/build-vercel-output.mjs` as well: Vercel refuses a
+deployment that declares a cron twice.
+
+| Path | Schedule | What it runs |
+|---|---|---|
+| `GET /api/cron/alerts` | `30 1 * * *` (01:30 UTC, 07:00 in India) | Everything, in turn: alerts, notices due (`tell`), connected folders (`drive`), the report day, webhook retries, the law and policy watch, the daily review |
+| `GET /api/cron/often` | `*/10 * * * *` | Notices due and webhook retries |
+| `GET /api/cron/hourly` | `5 * * * *` | Connected folders |
+
+**The two shorter timers need the Pro plan.** Vercel allows 100 cron jobs a
+project on every plan, but a Hobby account may run each once a day at most,
+some time within the hour named, and a deployment whose `vercel.json` holds an
+expression that runs more often fails ("Hobby accounts are limited to daily
+cron jobs"). Pro and Enterprise run to the minute, as often as once a minute.
+On Hobby, delete the `often` and `hourly` entries from `vercel.json`: the
+daily run does every job by itself, and what then waits for it is listed
+below.
+
+| | With the shorter timers (Pro) | With the daily run alone |
+|---|---|---|
+| Mail and push for a notice | Ten to twenty minutes after the first change | When the same project is next saved ten minutes or more after its first unsent notice; otherwise the next morning. The notice is in My work at once either way |
+| A file put in a connected Drive folder | Within the hour, 25 files a project a run | The next morning; at once with "Sync now" on Documents (10 files a press) |
+| A webhook delivery that failed | Tried again within ten minutes of when it is due (an hour, six hours, a day, two days after) | On the next morning's run after it is due. Nothing retries on the next event; a Test delivery from the Integrations page is the way to try an endpoint now |
+
+The daily run brings every project's alerts up to date and writes only the
+projects whose alerts moved, so a milestone that came due or an approval that
+lapsed on a day nobody opened the project is raised, mailed and pushed that
+morning. Then each other job runs in its own try and its own time, so one that
+fails never stops the rest. The function has 800 s; the run allows itself 740 s
+and does not start a job its time no longer covers. The two that ask a model
+(the law watch's proposals and the daily review) are last, so they are the
+ones passed over on a slow day, and the next run takes them up. The report day
+is the one job with no catch-up: it acts only on the day itself.
 
 Set `CRON_SECRET` in the Vercel project for Production. Vercel sends it as
-`Authorization: Bearer <CRON_SECRET>` with each cron call, and the route answers
+`Authorization: Bearer <CRON_SECRET>` with each cron call, and the routes answer
 401 to anything else, a deployment with no secret set included: without the
-variable the timer does nothing. Cron jobs run on the production deployment
-only, never on a preview. Vercel does not retry a failed call and may call
-twice, so a run is safe to repeat. To run it by hand:
+variable no timer does anything. Cron jobs run on the production deployment
+only, never on a preview. Vercel does not retry a failed call, may miss one and
+may call twice, so every job is safe to repeat. To run one by hand:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://<your-app>/api/cron/alerts
-# {"projects":4,"changed":1,"raised":1,"resolved":0,"failed":0}
+# {"alerts":{"projects":4,"changed":1,"raised":1,"resolved":0,"failed":0},
+#  "tell":{"projects":4,"messages":0,"notices":0,"mailed":0,"pushed":0,"failed":0},
+#  "drive":{"projects":0,...,"notSetUp":1},
+#  "reportDay":{"projects":0,"prepared":0,"told":0,"failed":0},
+#  "webhookRetry":{"due":0,"delivered":0,"failed":0,"gaveUp":0,"endpointsFailing":0,"told":0},
+#  "lawWatch":{"firms":1,"looked":0,"changed":0,"failed":0},
+#  "fileSweep":{"projects":4,...,"noModel":1}}
 ```
 
-`failed` counts projects that could not be read or written; each is named in
-the function's log on a `[cron]` line and is taken up again by the next run.
-The schedule is edited in `vercel.json`; the build copies it into the
-deployment's `config.json`.
+Each job answers its counts under its own key. `failed` counts what could not
+be read or written; each is named in the function's log on a `[cron]` line and
+is taken up again by the next run. A job that threw or ran past its time
+answers `{"error": "..."}`, and one the run had no time left to start answers
+`{"notRun": "..."}`. `notSetUp: 1` and `noModel: 1` mean the job did nothing
+because its setting is absent.
+
+### Settings the project office added
+
+Every variable the newer parts read, in one place. All are optional: each part
+says on its own screen that it is not set up, and does nothing, until its
+settings are given. Names are prefixed `REALYTICA_` except the two marked.
+
+| Variable | What it is for | Without it | Where to get it |
+|---|---|---|---|
+| `REALYTICA_RESEND_API_KEY` (existing) | Alert emails; the mail for notices of papers filed and values decided; the report-day email; request emails out and reading a received mail and its attachments; the email that a webhook endpoint is failing | No mail is sent or received. Alerts and notices stay in the app and on phones, prepared reports wait on the Reports page, the Send dialog says email is not set up, and a failing endpoint shows only as a badge | Resend › API Keys |
+| `REALYTICA_ALERT_FROM` (existing) | The sender of alert, notice and report-day mail, and of request mail when `REQUEST_FROM` is unset | The built-in alerts sender | An address on a domain verified in Resend |
+| `REALYTICA_APP_URL` (existing) | The link in every mail; also named in the law watch's User-Agent so a site can see who is reading | Links point at the production URL; the User-Agent carries the name only | The deployment's own address |
+| `REALYTICA_EXPO_ACCESS_TOKEN` (existing) | Authenticates push sends to paired phones, for alerts, notices and the report day | Pushes go unauthenticated, as before | Expo › Access tokens |
+| `CRON_SECRET` (existing; no prefix) | Lets Vercel call the three timed routes | No timer runs: no daily alerts, no notice mail except on a later save, no folder read except "Sync now", no report day, no webhook retry, no law watch, no daily review | `openssl rand -hex 24`, set in Vercel for Production |
+| `REALYTICA_API_KEY`, `REALYTICA_BASE_URL` (existing) | The model: the daily review, the law watch's proposed summary and actions, naming a template's unread blanks, answering in the question's language | The daily review does not run and its page says so; a law change is shown with its lines and no proposal; template blanks are read by rule alone; the chat answers by rule, in English | Section 3 above |
+| `REALYTICA_FLOW_ALLOW_HOSTS` (existing) | Private hosts the law watch's reader may reach, beside a flow's | A watched page on a host inside the deployment's network is refused | Your own host names |
+| `REALYTICA_CREDENTIAL_KEY` (existing) | Seals webhook signing secrets, beside flow credentials | No webhook endpoint can be registered: the Integrations page says "Webhooks are off" and names the variable. API keys work without it | `openssl rand -base64 32` |
+| `REALYTICA_RATE_LIMIT_KEY` (new) | Requests a minute for one API key under `/api/v1`, per instance | 120 | A number of your choosing |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` (new; no prefix) | Reads the Google Drive folders projects are connected to | The Connect a folder dialog says "The firm has not set this up.", connecting and syncing answer 503, the timed job answers `notSetUp: 1`, and Google is never called | Google Cloud › IAM › Service accounts › Keys, as the JSON file or base64 of it, on a Cloud project with the Drive API enabled |
+| `REALYTICA_OUTSIDE_SECRET` (new) | Signs the reference carried by every request sent to an outside party | Nothing is sent on either channel and no inbound message is accepted: the webhooks answer 503 | `openssl rand -hex 32` |
+| `REALYTICA_INBOUND_EMAIL_DOMAIN` (new) | The domain Resend receives mail for; the reply address is `reply-<reference>@` this domain | Email send answers 409 naming the variable and the Send dialog says "Email is not set up on this deployment." | Resend › Receiving: its `<id>.resend.app`, or your own domain with MX set |
+| `REALYTICA_RESEND_WEBHOOK_SECRET` (new) | Checks the signature on `POST /api/outside/hooks/resend` | That route answers 503 and no reply by email is taken in | The `whsec_` signing secret of the Resend webhook subscribed to `email.received` |
+| `REALYTICA_REQUEST_FROM` (new) | The From of request emails | `REALYTICA_ALERT_FROM`, then `Realytica <requests@INBOUND_EMAIL_DOMAIN>` | An address on a domain verified in Resend |
+| `REALYTICA_WHATSAPP_ACCESS_TOKEN`, `REALYTICA_WHATSAPP_PHONE_NUMBER_ID` (new) | Send the WhatsApp template and download a reply's media | WhatsApp send answers 409 and says it is not set up | Meta App Dashboard › WhatsApp › API Setup |
+| `REALYTICA_WHATSAPP_TEMPLATE` (new) | The name of an approved template with four positional body values, in order: project name, what is asked for, needed-by date, reference | WhatsApp does not send | Created and approved in Meta's WhatsApp Manager first |
+| `REALYTICA_WHATSAPP_TEMPLATE_LANGUAGE` (new) | The template's language code | `en` | As the template was created |
+| `REALYTICA_WHATSAPP_APP_SECRET` (new) | Checks `X-Hub-Signature-256` on `POST /api/outside/hooks/whatsapp` | That route answers 503 and no reply by WhatsApp is taken in | Meta App Dashboard › App settings › Basic |
+| `REALYTICA_WHATSAPP_VERIFY_TOKEN` (new) | Answers Meta's GET handshake at `/api/outside/hooks/whatsapp` | The handshake answers 403, so Meta will not save the webhook | A string of your choosing, typed into Meta's webhook form as well |
+| `REALYTICA_WHATSAPP_GRAPH_VERSION` (new) | The Graph API version called | `v23.0` | Meta's changelog |
+
+**Email both ways.** In Resend, add an inbound domain and a webhook for
+`email.received` pointing at `https://<app>/api/outside/hooks/resend`; copy its
+signing secret to `REALYTICA_RESEND_WEBHOOK_SECRET`.
+
+**WhatsApp.** In Meta's App Dashboard, set the WhatsApp webhook callback to
+`https://<app>/api/outside/hooks/whatsapp` with the verify token, subscribe to
+`messages`, and create a template with four body values (project, what is
+asked, needed by, reference).
+
+**Google Drive.** Create a service account, enable the Drive API on its Cloud
+project, and set the key. A project's owner then shares a folder with the
+service account's address, as a viewer, and pastes the folder link under
+Documents › Connect a folder.
+
+None of these has been run against the live service: Resend's inbound mail,
+Meta's Cloud API and Google Drive are each tested against a stand-in. After
+setting one up, try it once by hand: send one request by each channel and
+reply to it, connect one folder and press "Sync now", and send one Test
+delivery from the Integrations page. Preview and production share one store,
+so deploy a build that has these parts to production before using them on a
+preview against production data: an older production build would hand a
+collaborator fields it does not know to withhold.
 
 ## Data generations
 

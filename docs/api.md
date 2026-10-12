@@ -1,6 +1,6 @@
 # API
 
-Everything is under `/api`, JSON in and out, and needs `Authorization: Bearer <token>` — a Google ID token from the web app, or a device token (`rdt_…`) from the site app — except `GET /api/health` and `POST /api/devices/claim`. Errors are `{ "error": "…" }` written for a person to read.
+Everything is under `/api`, JSON in and out, and needs `Authorization: Bearer <token>` — a Google ID token from the web app, or a device token (`rdt_…`) from the site app — except `GET /api/health`, `POST /api/devices/claim`, the timed routes under `/api/cron` (behind `CRON_SECRET`), the provider webhooks under `/api/outside/hooks` (each behind its provider's signature) and `/api/v1` (behind an API key; see [For other systems](#for-other-systems)). Errors are `{ "error": "…" }` written for a person to read.
 
 Writes on a project need a role that allows them: workspace `write` capability for the API as a whole, then the department rule for department work (a lead, contributor or signer edits; a lead or signer decides). A project in another workspace is a 404, never a 403. Responses carrying a `project` are redacted to what the caller may see.
 
@@ -65,7 +65,7 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 | POST | `/projects/:id/milestones` | `{ template: true }` for the usual nine, or `{ rows: [{ name, weight, plannedFinish? }] }` |
 | PATCH, DELETE | `/projects/:id/milestones/:milestoneId` | `{ percent?, name?, weight?, plannedFinish? }` |
 | POST | `/projects/:id/milestones/import` | A schedule: multipart `file` (CSV, TSV or .xlsx, 4 MB) or `{ text }`, a header row then a row a milestone → `{ project, added, updated, unchanged, skipped: [{ line, name, reason }] }`. A milestone named again keeps its recorded progress. |
-| GET | `/cron/alerts` | The daily timer, outside sign-in: needs `Authorization: Bearer <CRON_SECRET>`, else 401. Brings every project's alerts up to date → `{ projects, changed, raised, resolved, failed }`. Safe to call twice. |
+| GET | `/cron/alerts` | The daily timer, outside sign-in: needs `Authorization: Bearer <CRON_SECRET>`, else 401. Brings every project's alerts up to date, then runs every other timed job; see [Timed routes](#timed-routes). Safe to call twice. |
 | GET | `/projects/:id/site` | The site app's whole view: project, role, milestones, progress, construction gate, recent log, construction alerts |
 | POST | `/projects/:id/site-log/photos` | Multipart `photos` (up to 6, 4 MB each) → `{ photos: [{ storageKey, fileName, mimeType }] }` |
 | POST | `/projects/:id/site-log` | `{ clientId, date, weather?, manpower?, workDone?, milestoneUpdates?, issues?, photos?, point? }`. Idempotent on `clientId`: a resend answers 200 with `duplicate: true`. |
@@ -104,7 +104,7 @@ A device token reaches only `GET /projects`, `GET /projects/:id/site`, the site 
 
 Checks and their fields (`/checks/:checkId`, `/checks/:checkId/fields`), assessments (`/assessments`), the registers (`/evidence`, `/findings`, `/risks`, `/actions`, `/decisions`, `/requests`), site visits and placed sheets (`/visits`, `/sheets`), the Value tab (`/value`, `/value/accept`, `/value/set-aside`, `/valuation`, `/comparables`, `/screen`), reports and their blocks (`/reports`), the chat (`/chat`, `/chat/files`, `/chat/voice` for whether a voice note can be put into words here, proposals; an undo is a message to `/chat`), plans (`/plans`, `/plans/:planId`, `/plans/:planId/stop`), a meeting's notes (`/meetings/:meetingId/notes`), questionnaires and observations (`/questionnaires`, `/observations`), a department's checklist of papers (`/checklist`, `/checklist/import`, `/checklist/requests`), reading a photograph (`/photographs/read`), the review table (`/review`), letters and minutes (`/outgoing`), the project's memory (`/memory`, `/memory/lint`), AI drafts and the orchestrator, the map (`/site-context`, `/gis-overlay`) and people on the project (`/people`). Each route file names its endpoints at the top: `apps/api/src/routes/`.
 
-The owner pack has no endpoint of its own. Its page (`/projects/:id/owner-pack/print?month=YYYY-MM`, or `?from=&to=` as two days) reads `GET /projects/:id` and builds the pack in the browser with `ownerPack` from `packages/shared`, on request, from the project as the caller is handed it. Nothing builds or sends one on a timer.
+The owner pack's page (`/projects/:id/owner-pack/print?month=YYYY-MM`, or `?from=&to=` as two days) reads `GET /projects/:id` and builds the pack in the browser with `ownerPack` from `packages/shared`, on request, from the project as the caller is handed it; `?pack=<id>` opens a kept pack exactly as it was prepared or issued. Keeping, issuing and the report day are under [Report day and kept owner packs](#report-day-and-kept-owner-packs).
 
 Deciding where a value read off a document stands needs a lead or signer in the department the value belongs to, and answers **403** with the department's name for anybody else, with nothing changed:
 
@@ -122,6 +122,98 @@ Deciding where a value read off a document stands needs a lead or signer in the 
 
 The chat takes only what the caller may decide and says in its reply what it left, and for which department; it does not answer 403. That holds for an approval typed or pressed, for a step of a plan that accepts, and for "File … under …". What is covered and what is not: [auth.md](auth.md#who-decides-what-a-document-states).
 
+## Report day and kept owner packs
+
+Under `/projects/:projectId/report-day`. The firm's own people only: a collaborator is answered 404.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/` | The report day setting, the kept owner packs, what waits to be issued, whether email is set up, the firm's people, and whether the caller may prepare or issue |
+| PUT | `/` | `{ day: 1-31, reports: ['status','owner_pack'], every: 'month'\|'quarter', quarters?: 'financial'\|'calendar', tell: [emails of the firm's own people, at most 12] }` or `{ clear: true }`. Lead or signer in a department of the project |
+| POST | `/packs` | Keep the owner pack for one period: `{ month: 'YYYY-MM' }` or `{ quarter: 'FY2026-Q2' \| '2026-Q3' }` or `{ from, to }`; with `{ issue: true, name? }` it is issued in the same step. Keeping needs lead, contributor or signer; issuing needs lead or signer. A project keeps at most 60, and none can be deleted |
+| POST | `/packs/:packId/refresh`, `/issue`, `/reopen` | Read a waiting pack from the record again (lead, contributor or signer); issue it under the caller's name, body `{ name? }`; return an issued pack to waiting (lead or signer for both) |
+
+## Procurement › Tenders
+
+Under `/projects/:projectId/procurement`. Stages, bidders and the estimate need a lead, contributor or signer in Procurement. The recommendation, the letter of acceptance, taking the letter back and removing a tender need a lead or signer in Procurement. Accepting or declining the offer needs a lead or signer in Finance. Refusals are 403 and name the department. The whole path is 404 to somebody working from a grant that does not name Procurement. Every write answers `{ project, ... }` with the caller's own copy of the project.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/` | Tenders with standing and comparison, what waits on Finance, the flag limits, and what the caller may do |
+| POST | `/tenders` | `{ workPackageId, estimate? }`. One tender a work package |
+| PATCH, DELETE | `/tenders/:tenderId` | `{ estimate: number or null }`; remove while it has no letter of acceptance |
+| PUT | `/tenders/:tenderId/stages/:stage` | `{ dueOn?, owner?, doneOn?, notNeeded? }`, `null` clears |
+| POST | `/tenders/:tenderId/bidders` | `{ name, quoted?, revised?, qualifications?, exclusions?, lines?: [{ item, amount }] }` |
+| PATCH, DELETE | `/tenders/:tenderId/bidders/:bidderId` | Change or remove a bidder |
+| PUT | `/tenders/:tenderId/recommendation` | `{ bidderId, text }` |
+| POST, DELETE | `/tenders/:tenderId/letter-of-acceptance` | `{ bidderId, value, letterOn, evidenceId? }` offers the value to Finance; DELETE takes it back while Finance has not accepted |
+| POST | `/tenders/:tenderId/offer/accept` | Writes PO issued, in place of what stood, on the newest draft Cost Report holding the package; refused when there is none |
+| POST | `/tenders/:tenderId/offer/decline`, `/offer/again` | `{ reason }`; offer a declined value again |
+
+## Templates
+
+Under `/projects/:projectId/templates`. The firm's own people only (a collaborator is answered 404). Reading and downloading need a place in the template's department; uploading and deciding need a lead, contributor or signer; removing needs a lead or signer.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/` | `?department=` — the templates this person may read, with counts, and whether a model is set up |
+| POST | `/` | Multipart: `file` (.docx or .xlsx, 4 MB at most), `department`, `title`. Finds the blanks. 201 `{ template, model }`. 413 when the file unpacks to more than may be opened; 400 when no blank is found or the file is another kind |
+| GET | `/:templateId` | `{ template: { rows: [{ field, status, offers }], summary }, model, mayEdit, mayDecide }` |
+| PUT | `/:templateId/fields` | `{ decisions: [{ fieldId, decision: accept \| type \| blank \| reopen, value? }] }`, 200 at most |
+| GET | `/:templateId/file?kind=filled \| sources \| original` | The same file filled, the PDF list of sources, or the file as sent. Taking the filled file out is noted on the audit trail, and a department viewer may |
+| DELETE | `/:templateId` | Remove it |
+
+## A connected folder
+
+Under `/projects/:projectId/connector`. The firm's own people only; a collaborator gets 404. The changing routes need a firm role that may write and a lead, signer or contributor role in at least one of the project's departments; otherwise 403.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/` | How the connected folder stands: `{ configured, kind, address?, connector?, mayChange }` |
+| PUT | `/` | Body `{ link }`. Connects the folder the link names after checking the service account can see it. 400 for a link that names no folder or a folder not shared; 503 where not set up |
+| POST | `/sync` | Reads the whole folder now, up to 10 files and 60 s. Answers the same shape plus `run: { takenIn, changed, skipped, waiting, failed, error? }`. 409 where no folder is connected or a read is under way |
+| DELETE | `/` | Disconnects. The papers taken stay |
+
+## The daily review
+
+Under `/projects/:projectId/daily-review`. Firm members only; 404 to a collaborator.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/` | The suggestions nobody has decided, whether a model is set up, when the project was last reviewed, and the departments this person decides in |
+| POST | `/:suggestionId/accept` | Body `{ as?: "finding" \| "risk" }`. Lead or signer of the suggestion's department; 403 otherwise, 409 if already decided. Answers with the project and `{ record: { type, id } }` |
+| POST | `/:suggestionId/dismiss` | Body `{ reason }` (3 to 300 characters). Same role. The matter is not raised again |
+
+## Requests to outside parties
+
+Under `/outside`. The firm's own people: collaborators get 404, writes need the write capability, and a request raised from a checklist needs an editor in that department.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/outside/status` | Which channels are set up |
+| POST | `/outside/projects/:projectId/requests/:requestId/send` | `{ channel: 'email' \| 'whatsapp', to }`. 409 naming the missing setting where the channel is not set up |
+| POST | `/outside/projects/:projectId/requests/:requestId/replies/:replyId/confirm`, `…/set-aside` | A person confirms a reply, or sets it aside. Nothing is marked received before |
+| GET | `/outside/tray`, `/outside/tray/:itemId/papers/:attachmentId` | Mail that named no open request or came from an unknown address |
+| POST | `/outside/tray/:itemId/file`, `/outside/tray/:itemId/discard` | `{ projectId, requestId? }` files it to a project; or discard |
+
+Ahead of sign-in, each behind its provider's signature: `POST /outside/hooks/resend` (Resend `email.received`, Svix signature, five-minute tolerance), `GET /outside/hooks/whatsapp` (Meta's handshake) and `POST /outside/hooks/whatsapp` (`X-Hub-Signature-256`). A channel not set up answers 503. One delivery is taken once. Caps: 10 papers a message, 25 MB each, 50 MB a message, 1 MB webhook body. No link in a message is fetched. There is no rate limit on these routes beyond the signature check and the body cap.
+
+## For other systems
+
+`GET /api/v1/projects`, `GET /api/v1/projects/:id`, `GET /api/v1/projects/:id/alerts` (`?state=all`), `GET /api/v1/projects/:id/reports`, `GET /api/v1/projects/:id/papers-owed` — API key only (`Authorization: Bearer rlk_…`), read-only, scopes `projects:read` / `reports:read` / `documents:read`; 401 unknown, revoked or expired key, 403 missing scope, 404 project not reachable, 429 over the key's limit. A key is refused with 401 on every other route. Reports are issued generated reports as metadata only. See [integrations.md](integrations.md).
+
+The firm's side, for an owner or manager (403 otherwise): `GET /api/integrations`, `POST /api/integrations/keys`, `DELETE /api/integrations/keys/:id`, `POST /api/integrations/endpoints`, `DELETE /api/integrations/endpoints/:id`, `POST /api/integrations/endpoints/:id/test`.
+
+## Timed routes
+
+Outside sign-in, each needing `Authorization: Bearer <CRON_SECRET>`, else 401. Vercel calls them (`crons` in `vercel.json`); each is safe to call twice. Every job answers under its own key with its counts, `{ error }` when it threw or outlasted its time, or `{ notRun }` when the run had no time left to start it; one job failing never stops the next.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/cron/alerts` | Once a day, 01:30 UTC. In order: `alerts` `{ projects, changed, raised, resolved, failed }`, `tell` `{ projects, messages, notices, mailed, pushed, failed }`, `drive` `{ projects, read, takenIn, changed, skipped, waiting, failed, busy, notReached, notSetUp }`, `reportDay` `{ projects, prepared, told, failed }`, `webhookRetry` `{ due, delivered, failed, gaveUp, endpointsFailing, told }`, `lawWatch` `{ firms, looked, changed, failed }`, `fileSweep` `{ projects, due, swept, raised, dropped, repeats, overCeiling, deferred, failed, tokens, noModel }`. The law watch writes to no project |
+| GET | `/cron/often` | Every ten minutes: `tell` and `webhookRetry` |
+| GET | `/cron/hourly` | Every hour: `drive` |
+
 ## Workspace
 
 | Method | Path | |
@@ -129,5 +221,17 @@ The chat takes only what the caller may decide and says in its reply what it lef
 | GET | `/health` | Up, the version, how many projects the instance holds, auth mode, graph store, upload limits — no sign-in |
 | GET, POST, PATCH, DELETE | `/members`, `/members/:email` | Who is in the workspace; invite; change a role or remove somebody; the auto-join domain |
 | GET | `/work` | What waits for me across projects |
+| GET | `/tell` | The caller's own notices across every project they reach, newest first (at most 200), with unread, the projects they have quieted, and `channels { email, push }` |
+| POST | `/tell/read` | `{ ids: string[] (1 to 500) \| 'all' }` — marks the caller's own notices read; 404 when ids are named and none is theirs |
+| PUT | `/tell/quiet/:projectId` | `{ quiet: boolean }` — quiets a project's mail and push for the caller, or stops; 404 for a project they cannot reach |
+| GET | `/analytics/portfolio` | The firm's projects side by side: forecast against budget from each project's last issued Cost Report with the movement since the one before, planned against projected completion and extension-of-time flags, papers owed by party, open alerts by kind, and what waits on the owner. Every figure carries the rows it counts (at most 200, with a `more` count), each with its source and where it opens |
+| GET | `/analytics/departments?project=<id>` | One project by department: decisions waiting for acceptance and the oldest's age, actions open and overdue, requests out and their age. 400 without a project id, 404 for a project that is not the firm's |
+| GET | `/analytics/people` | `{ generatedAt, people }`: for each person the caller may read, open work, overdue work, what they accepted in the last 30 days, and the median days a thing waited. People are listed by name; nothing ranks or scores them. All three analytics routes answer 403 to a collaborator, and a viewer gets an empty `people` list |
+| GET | `/law-watch` | The firm's watched sources, changes waiting and lately decided, and what the caller may do. Firm members only; a collaborator gets 403 |
+| POST, PUT, DELETE | `/law-watch/sources`, `/law-watch/sources/:sourceId` | Add, change or pause, and remove a source. Admin |
+| POST | `/law-watch/sources/:sourceId/look` | Read one source now. Admin |
+| GET | `/law-watch/changes/:changeId/pages` | The page's words before and after a change |
+| POST | `/law-watch/changes/:changeId/confirm` | Body `{ summary, projects: [{ projectId, actions: [{ department, title }] }] }`; puts the actions on those projects. A firm admin, or a department's lead for the departments they lead; 403 otherwise, 409 if already decided |
+| POST | `/law-watch/changes/:changeId/dismiss` | Body `{ why? }`; nothing reaches a project |
 | GET | `/libraries` | The check library |
 | GET, POST, PUT, DELETE | `/libraries/review`, `/libraries/review/:itemId` | The workspace's saved asks and playbooks for the review table |
