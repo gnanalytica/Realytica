@@ -2,18 +2,20 @@
  * The report day, as the daily timer runs it.
  *
  * `reportDay(now)` goes through every project that has set a report day
- * (`report-day.ts` in the shared package). On the day, in India time, it
- * prepares the status report, the owner pack or both for the period just
- * ended, each waiting to be issued, writes the project, and tells the people
- * the setting names that there is something to check. It issues nothing and
+ * (`report-day.ts` in the shared package). On the day, in India time, or on
+ * the first run after a day it missed, it prepares the status report, the
+ * owner pack or both for the period just ended, each waiting to be issued,
+ * writes the project, and tells the people the setting names that there is
+ * something to check. It issues nothing and
  * sends nothing to an owner: the people told are the firm's own, and an
  * address that is not one of theirs any more is passed over.
  *
  * Safe to run twice. What was prepared is kept on the project by its kind
  * and period, so a second run on the day prepares nothing; who was told is
- * kept beside it, so a second run tells nobody again, and a run that wrote
- * the reports and died before telling anybody is finished by the next. The
- * email carries a key the mail service refuses a second copy of for a day.
+ * kept beside it once somebody was, so a second run tells nobody again, and
+ * a run that wrote the reports and told nobody, because it died or the mail
+ * was refused, is finished by the next. The email carries a key the mail
+ * service refuses a second copy of for a day.
  *
  * A project is re-read from storage first, as the alert sweep does, and one
  * project failing is counted and leaves the rest to run. It never throws.
@@ -163,8 +165,13 @@ export async function reportDay(now: Date, source: ReportDaySource = fromStore):
       const untold = (project.reportDay?.prepared ?? []).filter((line) => line.from === period.from && line.to === period.to && !line.toldAt);
       if (!untold.length) continue;
       const told = await source.tell(project, untold, source.ownPeople(project, setting.tell));
-      noteReportsTold(project, untold, told, now.toISOString());
-      await source.save(project);
+      // Nobody told: nothing is noted, and the next run tells them.
+      if (!told.length) continue;
+      // The telling waited on the mail and push services. The project is read again, so what somebody saved meanwhile is not written over.
+      const latest = await source.fresh(id);
+      if (!latest) continue;
+      noteReportsTold(latest, untold, told, now.toISOString());
+      await source.save(latest);
       out.told += told.length;
     } catch (err) {
       out.failed += 1;

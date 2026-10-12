@@ -187,10 +187,12 @@ export function statusPeriodAsked(project: DdProject, question: string, now = ne
     const quarter = quarterHolding(today, -1);
     return asked(new Date(quarter.from), quarter.to);
   }
-  if (/\b(?:this\s+quarter|quarterly)\b/.test(q)) return asked(new Date(quarterHolding(today).from));
-  const numbered = /\bq([1-4])\s*(?:of\s+)?(fy\s*)?(?:20)?(\d{2})\b(?![\d:])/.exec(q);
-  const quarter = numbered ? quarterOfKey(`${numbered[2] ? 'FY' : ''}20${numbered[3]}-Q${numbered[1]}`) : undefined;
+  // One by its number comes before the word "quarterly": "the quarterly report for Q1 FY 2026-27" names its quarter.
+  // A year written as a range, "2026-27", is a financial year with or without "FY" before it.
+  const numbered = /\bq([1-4])\s*(?:of\s+)?(fy\s*)?(?:20)?(\d{2})(-\d{2,4})?\b(?![\d:])/.exec(q);
+  const quarter = numbered ? quarterOfKey(`${numbered[2] || numbered[4] ? 'FY' : ''}20${numbered[3]}-Q${numbered[1]}`) : undefined;
   if (quarter && Date.parse(quarter.from) <= now.getTime()) return asked(new Date(quarter.from), Date.parse(quarter.to) < now.getTime() ? quarter.to : until);
+  if (/\b(?:this\s+quarter|quarterly)\b/.test(q)) return asked(new Date(quarterHolding(today).from));
   if (/\blast\s+month\b/.test(q)) return asked(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1)), new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)).toISOString());
   if (/\b(?:this\s+month|monthly)\b/.test(q)) return asked(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)));
   if (/\btoday\b/.test(q)) return asked(today);
@@ -497,7 +499,7 @@ export function statusReport(project: DdProject, period: StatusPeriod, now = new
       what: `${counted(unasked.length, 'paper', 'papers')} on the checklist not in hand and not asked for: ${named.join('; ')}${unasked.length > named.length ? `, and ${unasked.length - named.length} more` : ''}.`,
       when: unasked.map((line) => day(line.item.createdAt)).sort()[0],
       who: party.owedBy ?? 'nobody named',
-      stands: 'not asked for',
+      stands: CHECKLIST_STANDS,
       behind: desks.length === 1 ? `the checklist of ${DEPARTMENT_SHORT[desks[0]!]}` : 'the checklists',
     });
   }
@@ -547,6 +549,43 @@ const SECTION: Record<string, { list: 'changed' | 'waiting' | 'next'; columns: s
   status_waiting: { list: 'waiting', columns: ['No.', 'Waiting', 'Since', 'On whom', 'Stands', 'Behind it'], empty: () => 'Nothing is waiting on anybody.' },
   status_next: { list: 'next', columns: ['No.', 'Next', 'By when', 'On whom', 'Stands', 'Behind it'], empty: () => 'Nothing on the record has a date ahead of it.' },
 };
+
+/** How a checklist line stands, and what is behind it: what tells one apart in a report that was issued. */
+const CHECKLIST_STANDS = 'not asked for';
+const CHECKLIST_BEHIND = /^the checklists?\b/;
+
+/**
+ * A project's reports as somebody working from a grant may read them.
+ *
+ * A report the timer prepared is the firm's to check first: it is left out
+ * until a person has issued it. And an issued status report keeps the whole
+ * file's lines as they read that day, the checklist's among them, which name
+ * every party the firm is chasing and for what. Their copy holds no
+ * checklist, so those lines are taken out of what was frozen, and the rest
+ * are numbered again. Nothing on the project itself is changed.
+ */
+export function reportsOfCopy(reports: readonly GeneratedReport[]): GeneratedReport[] {
+  const waits = (report: GeneratedReport): boolean => report.status === 'generated' || report.status === 'draft' || report.status === 'reviewed';
+  return reports
+    .filter((report) => !(report.generatedBy === 'system' && waits(report)))
+    .map((report) => {
+      if (report.kind !== 'status') return report;
+      const blocks = report.body.blocks.map((block) => {
+        const rows = block.frozenTable?.rows;
+        if (!rows || !isStatusSource(block.source?.kind)) return block;
+        const keep = rows.map((row) => !(row.cells[4] === CHECKLIST_STANDS && CHECKLIST_BEHIND.test(row.cells[5] ?? '')));
+        if (keep.every(Boolean)) return block;
+        const kept = <T>(list: readonly T[] | undefined): T[] | undefined => list?.filter((_, at) => keep[at]);
+        return {
+          ...block,
+          frozen: kept(block.frozen),
+          frozenRecordIds: kept(block.frozenRecordIds),
+          frozenTable: { ...block.frozenTable!, rows: kept(rows)!.map((row, at) => ({ ...row, cells: [String(at + 1), ...row.cells.slice(1)] })) },
+        };
+      });
+      return blocks.some((block, at) => block !== report.body.blocks[at]) ? { ...report, body: { ...report.body, blocks } } : report;
+    });
+}
 
 /** The lines of one section as code writes them, cut to the section's length. What a model is given to reword, and what its wording is held to. */
 export function statusSectionLines(project: DdProject, source: ReportBoundSource, now = new Date()): { lines: StatusLine[]; more: number; period: StatusPeriod } {
