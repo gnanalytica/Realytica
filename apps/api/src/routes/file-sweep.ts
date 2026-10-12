@@ -14,6 +14,11 @@
  * list or the firm role's default (`decidesFor`), and the shared function
  * does the refusing.
  *
+ * Accepting saves the project, which takes a while, before it writes what
+ * the review keeps. So what is kept is read again just before it is
+ * written, and only the one suggestion is changed on it. A save that fails
+ * leaves no record on this instance's copy of the project.
+ *
  * The review itself runs on the daily timer (`../cron/file-sweep.ts`). No
  * route here asks a model anything.
  */
@@ -102,6 +107,20 @@ async function held(res: Response, projectId: string): Promise<FileSweepState | 
   }
 }
 
+/**
+ * Take back what accepting a suggestion put on this instance's copy of the
+ * project: the record and its lines of the trail. Where nothing of it was
+ * written, the project is as it was before, moment and all; where it was,
+ * the project has moved again and its next save writes it without them.
+ */
+function takeBack(project: DdProject, made: { type: 'finding' | 'risk'; id: string }, before: { audit: number; updatedAt: string }, written: boolean): void {
+  const list: Array<{ id: string }> = made.type === 'risk' ? project.risks : project.findings;
+  const at = list.findIndex((held) => held.id === made.id);
+  if (at >= 0) list.splice(at, 1);
+  project.audit = project.audit.filter((event, n) => n < before.audit || event.entityId !== made.id);
+  project.updatedAt = written ? new Date().toISOString() : before.updatedAt;
+}
+
 fileSweepRouter.get('/', async (req, res) => {
   const project = projectOf(req, res);
   if (!project) return;
@@ -120,12 +139,37 @@ fileSweepRouter.post('/:suggestionId/accept', async (req, res) => {
   }
   const state = await held(res, project.id);
   if (!state) return;
+  const before = { audit: project.audit.length, updatedAt: project.updatedAt };
   try {
     const { record, suggestion } = acceptSweepSuggestion(project, state, id.data, { actor: actorOf(principalOf(req)), ...(parsed.data.as ? { as: parsed.data.as } : {}) }, decidesFor(req, project));
-    // The record first: a finding on the file with its suggestion still open is put right by a second answer, a suggestion marked accepted with no finding is not.
-    await store.save();
-    await writeSweepState(project.id, state);
-    res.json({ ...shown(req, project, state), project, record: { type: suggestion.record!.type, id: record.id } });
+    const made = { type: suggestion.record!.type, id: record.id };
+    // The record first: a suggestion marked accepted with no finding behind it could not be put right.
+    try {
+      await store.save();
+    } catch {
+      // Not written: the record does not stay on this copy for a later save to write with its suggestion still open.
+      takeBack(project, made, before, false);
+      res.status(503).json({ error: 'The project could not be saved just now. Nothing was changed; the suggestion is still open.' });
+      return;
+    }
+    // The save took a while. What the review keeps is read again, and only this one suggestion is changed on it:
+    // a decision somebody made on another meanwhile stays as they made it.
+    let latest: FileSweepState;
+    try {
+      latest = await readSweepState(project.id);
+      const now = latest.suggestions.find((other) => other.id === suggestion.id);
+      // Somebody answered this very one while the save was out: theirs stands, and this record is not a second one beside theirs.
+      if (now && now.status !== 'open') throw new Error(`This suggestion was ${now.status} already.`);
+      latest.suggestions = now ? latest.suggestions.map((other) => (other.id === suggestion.id ? suggestion : other)) : [...latest.suggestions, suggestion];
+      await writeSweepState(project.id, latest);
+    } catch (err) {
+      takeBack(project, made, before, true);
+      await store.save().catch(() => undefined);
+      if (err instanceof Error && / already\.$/.test(err.message)) fail(res, err);
+      else res.status(503).json({ error: 'The daily review’s suggestions could not be written just now. Nothing was changed; the suggestion is still open.' });
+      return;
+    }
+    res.json({ ...shown(req, project, latest), project, record: made });
   } catch (err) {
     fail(res, err);
   }

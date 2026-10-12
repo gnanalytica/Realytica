@@ -8,8 +8,11 @@
  * the month's last: "the 31st" is 30 April and 28 or 29 February. On that
  * day the report for the period just ended is prepared: the month before, or
  * the quarter before when the day falls in the month after a quarter ends
- * (January, April, July, October). What is prepared waits to be issued. A
- * timer issues nothing and sends nothing to an owner.
+ * (January, April, July, October). A day the timer missed is caught up by
+ * its next run: the latest period whose day has come is prepared, where the
+ * setting stood on that day and nothing was prepared for it. What is
+ * prepared waits to be issued. A timer issues nothing and sends nothing to
+ * an owner.
  *
  * **Quarters.** A quarter is three calendar months from the first of
  * January, April, July or October. The Indian financial year and the
@@ -23,9 +26,11 @@
  * (`owner-pack.ts`). Kept, it is the pack as it read on the day it was
  * prepared, with the project's name and place as they stood. Issued by a
  * named person, it is frozen: it opens as issued whatever the record has
- * done since. Reopening follows the Cost Report's rule: only an issued one
- * can be reopened, by a lead or a signer, it goes back to waiting, and the
- * trail keeps both.
+ * done since, under the period's name as it was numbered that day. Only an
+ * issued one can be reopened, by a lead or a signer. Reopening leaves the
+ * issued pack as it was sent and puts a copy of it beside it, waiting, to be
+ * read again and issued in its turn: what an owner was sent is never
+ * written over.
  */
 
 import { roleCanDecide, roleCanEdit } from './departments';
@@ -112,14 +117,30 @@ export function reportDayIn(day: number, year: number, month: number): number {
 }
 
 /**
- * The period to prepare a report for at a moment, or nothing when it is not
- * the day. Monthly: the month before the one it is in India. Quarterly: the
+ * The period to prepare a report for at a moment, or nothing when none is
+ * due. Monthly: the month before the one it is in India. Quarterly: the
  * quarter before, and only in the month after a quarter ends.
+ *
+ * On the report day it is that day's period. After it, it is still that
+ * period, so a day the timer missed is caught up by the next run: the latest
+ * report day that has come is the one that counts, and only where the
+ * setting stood on it (`setAt`). A day set since asks for nothing until its
+ * next, and so does a setting that does not say when it was made.
  */
-export function reportPeriodDue(setting: Pick<ReportDaySetting, 'day' | 'every'>, now: Date): StatusPeriod | undefined {
-  const { year, month, date } = indiaDay(now);
-  if (date !== reportDayIn(setting.day, year, month)) return undefined;
-  if (setting.every === 'quarter') return month % 3 === 0 ? quarterOf(year, month - 3) : undefined;
+export function reportPeriodDue(setting: Pick<ReportDaySetting, 'day' | 'every'> & Partial<Pick<ReportDaySetting, 'setAt'>>, now: Date): StatusPeriod | undefined {
+  const today = indiaDay(now);
+  // The month of the latest report day that has come: this one from its day on, the one before until then.
+  const come = today.date >= reportDayIn(setting.day, today.year, today.month);
+  const due = new Date(Date.UTC(today.year, today.month - (come ? 0 : 1), 1));
+  // Quarterly, that day falls only in the month after a quarter ends.
+  if (setting.every === 'quarter') due.setUTCMonth(due.getUTCMonth() - (due.getUTCMonth() % 3));
+  const [year, month] = [due.getUTCFullYear(), due.getUTCMonth()];
+  const day = reportDayIn(setting.day, year, month);
+  if (year !== today.year || month !== today.month || day !== today.date) {
+    const set = setting.setAt ? indiaDay(new Date(setting.setAt)) : undefined;
+    if (!set || Date.UTC(set.year, set.month, set.date) > Date.UTC(year, month, day)) return undefined;
+  }
+  if (setting.every === 'quarter') return quarterOf(year, month - 3);
   return { from: new Date(Date.UTC(year, month - 1, 1)).toISOString(), to: new Date(Date.UTC(year, month, 1)).toISOString() };
 }
 
@@ -174,6 +195,8 @@ export interface KeptOwnerPack {
   pack: OwnerPack;
   /** The project's name and place as they stood then: what the paper is headed with. */
   heading: { name: string; reference: string; place?: string };
+  /** Its period in words as it was numbered then: a quarter keeps the number it was issued under, whatever the project numbers by since. Absent on a pack kept before this was. */
+  periodSaid?: string;
   preparedAt: string;
   /** A person's address, or `system` for the timer. */
   preparedBy: string;
@@ -210,6 +233,7 @@ function readInto(kept: KeptOwnerPack, project: DdProject, period: StatusPeriod,
   // A copy with nothing shared with the record: the record moves, and this does not.
   kept.pack = copyOf(ownerPack(project, period, now));
   kept.title = packTitle(project, period);
+  kept.periodSaid = isQuarter(period) ? reportPeriodSaid(period, quarterYearOf(project)) : kept.pack.periodSaid;
   const place = [project.location, project.city].filter(Boolean).join(', ');
   kept.heading = { name: project.name, reference: project.reference, ...(place ? { place } : {}) };
   kept.preparedAt = now.toISOString();
@@ -255,16 +279,31 @@ export function issueOwnerPack(project: DdProject, packId: string, issuer: { act
   return kept;
 }
 
-/** Return an issued pack to waiting, as an issued Cost Report is returned to draft. */
+/**
+ * Reopen an issued pack. The issued one stays as it was sent. A copy of it
+ * is kept beside it, waiting, to be read again and issued in its turn; where
+ * one already waits for the period, that is the one handed back and no
+ * second is made. Returns the waiting pack.
+ */
 export function reopenOwnerPack(project: DdProject, packId: string, actor: string, at = new Date().toISOString()): KeptOwnerPack {
-  const kept = keptPack(project, packId);
-  if (kept.status !== 'issued') throw new Error('Only an issued owner pack can be reopened.');
-  kept.status = 'prepared';
-  delete kept.issuedAt;
-  delete kept.issuedBy;
-  delete kept.issuedName;
-  recordAuditEvent(project, { actor, action: 'reopen_owner_pack', entityType: 'owner_pack', entityId: kept.id, newValue: kept.title, at });
-  return kept;
+  const issued = keptPack(project, packId);
+  if (issued.status !== 'issued') throw new Error('Only an issued owner pack can be reopened.');
+  const waiting = (project.ownerPacks ?? []).find((held) => held.status === 'prepared' && samePeriod(held.pack.period, issued.pack.period));
+  if (waiting) return waiting;
+  if ((project.ownerPacks ?? []).length >= REPORT_DAY_LIMITS.kept) throw new Error(`A project keeps at most ${REPORT_DAY_LIMITS.kept} owner packs.`);
+  const open: KeptOwnerPack = {
+    id: `opk_${Math.random().toString(36).slice(2, 10)}${Date.parse(at).toString(36)}`,
+    title: issued.title,
+    status: 'prepared',
+    pack: copyOf(issued.pack),
+    heading: { ...issued.heading },
+    ...(issued.periodSaid ? { periodSaid: issued.periodSaid } : {}),
+    preparedAt: at,
+    preparedBy: actor,
+  };
+  project.ownerPacks = [...(project.ownerPacks ?? []), open];
+  recordAuditEvent(project, { actor, action: 'reopen_owner_pack', entityType: 'owner_pack', entityId: open.id, oldValue: issued.id, newValue: open.title, at });
+  return open;
 }
 
 /** How a kept pack stands, in a line: "Prepared 1 Oct 2026, waiting to be issued" or "Issued 3 Oct 2026 by …". */
@@ -310,8 +349,8 @@ export function preparedReportSaid(project: DdProject, report: Pick<GeneratedRep
 }
 
 /**
- * Prepare what a project's report day asks for at a moment: nothing when it
- * is not the day, and nothing a second time on the day. Returns what was
+ * Prepare what a project's report day asks for at a moment: nothing before
+ * the day has come, and nothing a second time for a period. Returns what was
  * prepared just now. A status report is a draft among the project's reports
  * that reads the record until a person issues it; an owner pack is kept as
  * it reads now. Neither is issued.
@@ -340,8 +379,9 @@ export function prepareReportsDue(project: DdProject, now = new Date()): Prepare
   return fresh;
 }
 
-/** Note who was told of the reports just prepared. */
+/** Note who was told of the reports just prepared. Where nobody was, nothing is noted: a later run tells them. */
 export function noteReportsTold(project: DdProject, lines: readonly PreparedReport[], told: readonly string[], at = new Date().toISOString()): void {
+  if (!told.length) return;
   for (const line of project.reportDay?.prepared ?? []) {
     if (!lines.some((fresh) => fresh.kind === line.kind && fresh.id === line.id && samePeriod(fresh, line))) continue;
     line.told = [...told];

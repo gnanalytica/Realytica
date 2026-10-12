@@ -37,6 +37,7 @@ import {
   reopenOwnerPack,
   reportDayIn,
   reportPeriodDue,
+  quarterYearOf,
   reportPeriodSaid,
   reportsWaiting,
   setReportDay,
@@ -46,6 +47,7 @@ import {
   mayIssueOwnerPack,
   mayPrepareOwnerPack,
   setTeamMember,
+  addRequest,
   applyProjectChat,
   type DdProject,
   type ProjectGrant,
@@ -104,6 +106,26 @@ describe('the day a report is prepared on', () => {
     assert.equal(reportPeriodDue(quarterly, india('2026-11-05')), undefined);
     assert.equal(reportPeriodDue(quarterly, india('2026-10-04')), undefined);
   });
+
+  it('is still owed after the day where the setting stood on it, so a missed run is caught up', () => {
+    const since = (day: string) => ({ setAt: india(day).toISOString() });
+    const monthly = { day: 1, every: 'month' as const, ...since('2026-08-15') };
+    assert.equal(span(reportPeriodDue(monthly, india('2026-10-02'))), '2026-09-01..2026-10-01', 'the day after');
+    assert.equal(span(reportPeriodDue(monthly, india('2026-10-31'))), '2026-09-01..2026-10-01', 'until the next day comes');
+    assert.equal(span(reportPeriodDue(monthly, india('2026-11-01'))), '2026-10-01..2026-11-01');
+    // The 28th: on 2 October the latest day that has come is 28 September, which asks for August.
+    assert.equal(span(reportPeriodDue({ ...monthly, day: 28 }, india('2026-10-02'))), '2026-08-01..2026-09-01');
+    // Quarterly, the day falls in October: owed from the 5th until the 5th of January.
+    const quarterly = { day: 5, every: 'quarter' as const, ...since('2026-08-15') };
+    assert.equal(span(reportPeriodDue(quarterly, india('2026-10-09'))), '2026-07-01..2026-10-01');
+    assert.equal(span(reportPeriodDue(quarterly, india('2026-12-20'))), '2026-07-01..2026-10-01');
+    assert.equal(span(reportPeriodDue(quarterly, india('2027-01-04'))), '2026-07-01..2026-10-01');
+    assert.equal(span(reportPeriodDue(quarterly, india('2027-01-05'))), '2026-10-01..2027-01-01');
+    // A day set after it passed asks for nothing until its next.
+    assert.equal(reportPeriodDue({ day: 1, every: 'month', ...since('2026-10-05') }, india('2026-10-06')), undefined);
+    assert.equal(span(reportPeriodDue({ day: 1, every: 'month', ...since('2026-10-05') }, india('2026-11-01'))), '2026-10-01..2026-11-01');
+    assert.equal(span(reportPeriodDue({ day: 1, every: 'month', ...since('2026-10-01') }, india('2026-10-02'))), '2026-09-01..2026-10-01', 'set on the day itself, after the timer ran');
+  });
 });
 
 describe('quarters', () => {
@@ -150,6 +172,11 @@ describe('quarters', () => {
     assert.equal(statusPeriodAsked(project, 'status report for this quarter', now).period.from, '2026-10-01T00:00:00.000Z');
     assert.equal(span(statusPeriodAsked(project, 'write a status report for Q2 FY 2026-27', now).period), '2026-07-01..2026-10-01');
     assert.equal(span(statusPeriodAsked(project, 'write a status report for Q1 2026', now).period), '2026-01-01..2026-04-01');
+    // A quarter by its number wins over the word "quarterly", and a year written as a range is a financial year.
+    assert.equal(span(statusPeriodAsked(project, 'Prepare the quarterly status report for Q1 FY 2026-27', now).period), '2026-04-01..2026-07-01');
+    assert.equal(span(statusPeriodAsked(project, 'status report for q1 of 2026-27', now).period), '2026-04-01..2026-07-01');
+    assert.equal(span(statusPeriodAsked(project, 'status report for Q2 2026-27', now).period), '2026-07-01..2026-10-01');
+    assert.equal(statusPeriodAsked(project, 'Prepare the quarterly status report', now).period.from, '2026-10-01T00:00:00.000Z', 'with no quarter named, this one so far');
   });
 });
 
@@ -272,7 +299,61 @@ describe('the timer', () => {
     assert.deepEqual(await reportDay(india('2026-10-01'), source), { projects: 2, prepared: 2, told: 0, failed: 2 });
     assert.equal(JSON.stringify(bad), was);
     assert.equal(good.ownerPacks!.length, 1);
-    assert.deepEqual(good.reportDay!.prepared!.map((line) => line.told), [[], []], 'nobody to tell is told once, and not asked again');
+    assert.deepEqual(good.reportDay!.prepared!.map((line) => [line.told, line.toldAt]), [[undefined, undefined], [undefined, undefined]], 'nobody was told, so nothing says anybody was');
+  });
+
+  it('tells on a later run where the first told nobody, and only then notes who was told', async () => {
+    const project = fresh();
+    setReportDay(project, { day: 1, reports: ['status'], every: 'month', tell: [LEAD] }, LEAD, india('2026-09-20').toISOString());
+    const { source, calls } = standIn([project]);
+    const tell = source.tell;
+    // The mail service refuses on the day.
+    source.tell = async (held, lines, to) => {
+      await tell(held, lines, to);
+      return [];
+    };
+    assert.deepEqual(await reportDay(india('2026-10-01'), source), { projects: 1, prepared: 1, told: 0, failed: 0 });
+    assert.deepEqual([project.reportDay!.prepared![0]!.told, project.reportDay!.prepared![0]!.toldAt], [undefined, undefined]);
+    assert.equal(calls.saves, 1, 'the reports are written, and nothing more');
+    source.tell = tell;
+    assert.deepEqual(await reportDay(india('2026-10-02'), source), { projects: 1, prepared: 0, told: 1, failed: 0 }, 'the next day’s run tells them');
+    assert.deepEqual(project.reportDay!.prepared![0]!.told, [LEAD]);
+    assert.deepEqual(await reportDay(india('2026-10-03'), source), { projects: 1, prepared: 0, told: 0, failed: 0 });
+    assert.equal(calls.told.length, 2);
+  });
+
+  it('prepares on its next run the report of a day it missed', async () => {
+    const project = fresh();
+    setReportDay(project, { day: 1, reports: ['status', 'owner_pack'], every: 'month', tell: [LEAD] }, LEAD, india('2026-09-20').toISOString());
+    const { source } = standIn([project]);
+    // The run of 1 October never happened.
+    assert.deepEqual(await reportDay(india('2026-10-02'), source), { projects: 1, prepared: 2, told: 1, failed: 0 });
+    assert.deepEqual(project.reportDay!.prepared!.map((line) => [line.kind, span(line)]), [['status', '2026-09-01..2026-10-01'], ['owner_pack', '2026-09-01..2026-10-01']]);
+    assert.deepEqual(await reportDay(india('2026-10-03'), source), { projects: 1, prepared: 0, told: 0, failed: 0 });
+  });
+
+  it('reads the project again after telling, so what somebody saved meanwhile is not written over', async () => {
+    const project = fresh();
+    setReportDay(project, { day: 1, reports: ['status'], every: 'month', tell: [LEAD] }, LEAD);
+    const { source } = standIn([project]);
+    const written: DdProject[] = [];
+    let reads = 0;
+    let elsewhere: DdProject | undefined;
+    source.fresh = async () => ((reads += 1) === 1 ? project : elsewhere);
+    source.save = async (held) => {
+      written.push(JSON.parse(JSON.stringify(held)) as DdProject);
+    };
+    source.tell = async (_held, _lines, to) => {
+      // While the mail service is answering, another instance saves a paper on the project as this run first wrote it.
+      elsewhere = JSON.parse(JSON.stringify(written[0])) as DdProject;
+      addChecklistItems(elsewhere, 'finance', [{ title: 'Saved by another instance' }], LEAD);
+      return [...to];
+    };
+    assert.deepEqual(await reportDay(india('2026-10-01'), source), { projects: 1, prepared: 1, told: 1, failed: 0 });
+    assert.equal(reads, 2);
+    assert.equal(written.length, 2);
+    assert.equal(written[1]!.checklist!.some((item) => item.title === 'Saved by another instance'), true, 'the second write holds what the other instance saved');
+    assert.deepEqual(written[1]!.reportDay!.prepared![0]!.told, [LEAD]);
   });
 });
 
@@ -313,16 +394,42 @@ describe('an owner pack that is kept', () => {
     assert.equal(JSON.stringify(project.ownerPacks!.find((held) => held.id === kept.id)!.pack), frozen);
   });
 
-  it('is reopened as a Cost Report is: only when issued, back to waiting, with the trail keeping both', () => {
+  it('is reopened only when issued: the issued one stays as it was sent, and a copy waits beside it', () => {
     const project = fresh();
+    addChecklistItems(project, 'finance', [{ title: 'Soil investigation report', owedBy: 'Geotechnical consultant' }], LEAD);
     const kept = keepOwnerPack(project, ownerPackPeriod({ month: '2026-09' }), LEAD, india('2026-10-02'));
     assert.throws(() => reopenOwnerPack(project, kept.id, LEAD), /Only an issued owner pack/);
-    issueOwnerPack(project, kept.id, { actor: LEAD });
+    issueOwnerPack(project, kept.id, { actor: LEAD, name: 'Asha Rao' });
+    const sent = JSON.stringify(kept);
     const open = reopenOwnerPack(project, kept.id, LEAD);
-    assert.deepEqual([open.status, open.issuedAt, open.issuedBy], ['prepared', undefined, undefined]);
+    assert.notEqual(open.id, kept.id);
+    assert.deepEqual([open.status, open.issuedAt, open.issuedBy, open.issuedName], ['prepared', undefined, undefined, undefined]);
+    assert.equal(JSON.stringify(open.pack), JSON.stringify(kept.pack), 'it begins as what was sent');
     assert.deepEqual(project.audit.slice(-3).map((event) => event.action), ['prepare_owner_pack', 'issue_owner_pack', 'reopen_owner_pack']);
-    refreshOwnerPack(project, kept.id, LEAD);
+
+    // Read again, the waiting one takes the record as it now is. What was sent does not move.
+    addChecklistItems(project, 'finance', [{ title: 'Column schedule', owedBy: 'Structural consultant' }], LEAD);
+    refreshOwnerPack(project, open.id, LEAD);
+    assert.match(JSON.stringify(open.pack), /Column schedule/);
+    assert.equal(JSON.stringify(project.ownerPacks!.find((held) => held.id === kept.id)), sent);
+    assert.throws(() => refreshOwnerPack(project, kept.id, LEAD), /is issued/);
+
+    assert.equal(reopenOwnerPack(project, kept.id, LEAD).id, open.id, 'one waits for a period at a time');
+    assert.equal(project.ownerPacks!.length, 2);
     assert.throws(() => issueOwnerPack(project, 'opk_none', { actor: LEAD }), /No owner pack by that id/);
+  });
+
+  it('keeps the name its period went by when it was kept, whatever the project numbers quarters by since', () => {
+    const project = fresh();
+    setReportDay(project, { day: 5, reports: ['owner_pack'], every: 'quarter', tell: [] }, LEAD);
+    const kept = keepOwnerPack(project, quarterOfKey('FY2026-Q2')!, LEAD, india('2026-10-03'));
+    issueOwnerPack(project, kept.id, { actor: LEAD });
+    assert.equal(kept.periodSaid, 'Q2 FY 2026-27 (July to September 2026)');
+    setReportDay(project, { day: 5, reports: ['owner_pack'], every: 'quarter', quarters: 'calendar', tell: [] }, LEAD);
+    assert.equal(reportPeriodSaid(kept.pack.period, quarterYearOf(project)), 'Q3 2026 (July to September 2026)', 'the project now numbers by the calendar year');
+    assert.deepEqual([kept.periodSaid, kept.title], ['Q2 FY 2026-27 (July to September 2026)', 'Owner pack — Canal Street offices, Q2 FY 2026-27 (July to September 2026)']);
+    assert.equal(reopenOwnerPack(project, kept.id, LEAD).periodSaid, 'Q2 FY 2026-27 (July to September 2026)');
+    assert.equal(keepOwnerPack(project, ownerPackPeriod({ month: '2026-09' }), LEAD).periodSaid, 'September 2026');
   });
 
   it('is issued by a lead or a signer, kept by those who may edit, and is nobody’s outside the firm', () => {
@@ -397,6 +504,25 @@ describe('the checklist of papers owed', () => {
     raiseChecklistRequests(project, { department: 'finance' }, LEAD);
     assert.deepEqual(lines(), []);
     assert.equal(statusReport(project, period, india('2026-10-12')).waiting.filter((line) => line.kind === 'request').length, 2);
+  });
+
+  it('is in no status report somebody working from a grant reads, and a report the timer prepared is not theirs until it is issued', () => {
+    const project = withList();
+    addRequest(project, { title: 'Latest tax paid receipt', recipient: 'sam@site.example', send: true }, LEAD);
+    setReportDay(project, { day: 1, reports: ['status'], every: 'month', tell: [] }, LEAD);
+    const [made] = prepareReportsDue(project, india('2026-10-01'));
+    const grant: ProjectGrant = { id: 'g1', tenantId: 't1', projectId: project.id, email: 'sam@site.example', role: 'contributor', allAssessments: true, assessmentIds: [], allScopes: true, scopeKeys: [], areas: ['reports'], createdAt: project.createdAt, createdBy: LEAD };
+    const copy = () => projectView(project, { kind: 'granted', grant, email: 'sam@site.example' }).project;
+    assert.deepEqual(copy().reports, [], 'prepared by the timer, and nobody has checked it');
+
+    issueReport(project, made!.id, LEAD);
+    const waiting = (on: DdProject) => on.reports[0]!.body.blocks.find((block) => block.source?.kind === 'status_waiting')!;
+    assert.match(JSON.stringify(waiting(project).frozenTable), /Column schedule/, 'the firm’s own report holds the checklist as it stood');
+    const theirs = waiting(copy());
+    assert.doesNotMatch(JSON.stringify(copy().reports), /Column schedule|Soil investigation report|Structural consultant|on the checklist/);
+    assert.deepEqual(theirs.frozenTable!.rows.map((row) => [row.cells[0], row.cells[1]]), [['1', 'Asked for and not received: Latest tax paid receipt.']]);
+    assert.deepEqual([theirs.frozen!.length, theirs.frozenRecordIds!.length], [1, 1]);
+    assert.match(JSON.stringify(waiting(project).frozenTable), /Column schedule/, 'and the project itself is not changed');
   });
 
   it('is read by the chat’s requirement tool, and is not there for somebody working from a grant', async () => {

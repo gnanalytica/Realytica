@@ -77,6 +77,20 @@ export const SWEEP_KIND_ASKED: Record<SweepKind, string> = {
 /** The kinds that set one entry against another, so a proposal of one cites at least two. */
 const SWEEP_PAIRED: ReadonlySet<SweepKind> = new Set(['papers_disagree', 'date_impossible', 'schedule_cost_differ']);
 
+/**
+ * The entries a kind is about: a proposal of it cites at least one of them.
+ * "An approval missing or lapsed" that rests on an action line alone is not
+ * about an approval, whatever it says.
+ */
+const SWEEP_CITES: Record<SweepKind, readonly SweepEntryKind[]> = {
+  papers_disagree: ['fact', 'waiting', 'approval'],
+  date_impossible: ['fact', 'waiting', 'schedule', 'milestone', 'approval', 'site_log', 'cost', 'action', 'decision', 'owed'],
+  approval_missing: ['approval'],
+  cost_unexplained: ['cost'],
+  schedule_cost_differ: ['cost', 'schedule', 'milestone'],
+  action_unowned: ['action'],
+};
+
 /** The department a kind falls to where a model names none the project uses. */
 const SWEEP_KIND_DESK: Record<SweepKind, DepartmentKey> = {
   papers_disagree: 'legal',
@@ -307,14 +321,19 @@ function costEntries(project: DdProject): Drafted[] {
 
 const NOBODY = /^(unassigned|tbc|tbd|none|n\/a|-)?$/i;
 
-function actionEntries(project: DdProject): Drafted[] {
+/** Open actions, the most pressing first: the overdue and the ones nobody is named for, then the newest. */
+function actionEntries(project: DdProject, now: Date): Drafted[] {
+  const today = now.toISOString().slice(0, 10);
+  const nobody = (action: DdProject['actions'][number]): boolean => NOBODY.test(action.owner?.trim() ?? '');
+  const pressing = (action: DdProject['actions'][number]): number => Number(Boolean(action.dueDate && action.dueDate.slice(0, 10) < today)) + Number(nobody(action));
   return project.actions
     .filter((action) => action.status !== 'closed')
+    .sort((a, b) => Number(pressing(b) > 0) - Number(pressing(a) > 0) || (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
     .map((action): Drafted => ({
       ref: action.id,
       kind: 'action',
       // Whether somebody is named, never who: a name is no part of any cross-check.
-      says: line(`${action.title}: ${NOBODY.test(action.owner?.trim() ?? '') ? 'nobody named for it' : 'somebody is named for it'}; ${action.dueDate ? `due ${day(action.dueDate)}` : 'no due date'}; ${ACTION_STATUS_LABEL[action.status]}`),
+      says: line(`${action.title}: ${nobody(action) ? 'nobody named for it' : 'somebody is named for it'}; ${action.dueDate ? `due ${day(action.dueDate)}` : 'no due date'}; ${ACTION_STATUS_LABEL[action.status]}`),
       ...(day(action.dueDate) ? { on: day(action.dueDate) } : {}),
     }));
 }
@@ -353,14 +372,29 @@ function owedEntries(project: DdProject, now: Date): Drafted[] {
   ];
 }
 
+const SEVERITY_RANK: Record<FindingSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+/**
+ * What is already raised. The section's lines are shared among findings,
+ * risks and alerts, one of each in turn and the gravest of each first, so no
+ * one of the three takes every line: a model told only of the findings would
+ * raise the risks and alerts again.
+ */
 function registerEntries(project: DdProject): Drafted[] {
-  return [
-    ...project.findings
-      .filter((finding) => finding.status !== 'closed' && !finding.screenClosedAt && !finding.duplicateOfId)
-      .map((finding): Drafted => ({ ref: finding.id, kind: 'finding', says: line(`Finding, ${SEVERITY_LABEL[finding.severity]}: ${finding.title}`) })),
-    ...project.risks.filter((risk) => risk.status !== 'closed' && !risk.screenClosedAt).map((risk): Drafted => ({ ref: risk.id, kind: 'risk', says: line(`Risk, ${SEVERITY_LABEL[risk.materiality]}: ${risk.title}`) })),
-    ...openAlerts(project).map((alert): Drafted => ({ ref: alert.id, kind: 'alert', says: line(`Alert: ${alert.title}. ${alert.detail}`), ...(alert.dueOn ? { on: alert.dueOn } : {}) })),
-  ];
+  const findings = project.findings
+    .filter((finding) => finding.status !== 'closed' && !finding.screenClosedAt && !finding.duplicateOfId)
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
+    .map((finding): Drafted => ({ ref: finding.id, kind: 'finding', says: line(`Finding, ${SEVERITY_LABEL[finding.severity]}: ${finding.title}`) }));
+  const risks = project.risks
+    .filter((risk) => risk.status !== 'closed' && !risk.screenClosedAt)
+    .sort((a, b) => SEVERITY_RANK[a.materiality] - SEVERITY_RANK[b.materiality])
+    .map((risk): Drafted => ({ ref: risk.id, kind: 'risk', says: line(`Risk, ${SEVERITY_LABEL[risk.materiality]}: ${risk.title}`) }));
+  const alerts = openAlerts(project).map((alert): Drafted => ({ ref: alert.id, kind: 'alert', says: line(`Alert: ${alert.title}. ${alert.detail}`), ...(alert.dueOn ? { on: alert.dueOn } : {}) }));
+  const out: Drafted[] = [];
+  for (let at = 0; at < Math.max(findings.length, risks.length, alerts.length); at += 1) {
+    for (const list of [findings, risks, alerts]) if (list[at]) out.push(list[at]);
+  }
+  return out;
 }
 
 function changeEntries(project: DdProject, since: string): Drafted[] {
@@ -384,7 +418,10 @@ const entryText = (entry: Pick<SweepEntry, 'mark' | 'says' | 'paper'>): string =
  * its papers with paper and page, what waits, the schedule and its warnings,
  * the approvals, the site log, cost since the last report, open actions and
  * decisions, papers owed, what is already raised, and what changed since
- * the last review.
+ * the last review. Where a section holds more than its lines, the newest
+ * and most pressing are the ones kept: values newest first, actions overdue
+ * or unowned first and then newest, and what is already raised shared among
+ * findings, risks and alerts.
  *
  * Pure, and bounded three ways: each section holds a set number of lines,
  * each line a set length, and lines come off the longest section until the
@@ -393,7 +430,8 @@ const entryText = (entry: Pick<SweepEntry, 'mark' | 'says' | 'paper'>): string =
 export function sweepBrief(project: DdProject, options: { now: Date; since?: string }): SweepBrief {
   const { now } = options;
   const since = options.since ?? new Date(now.getTime() - SWEEP_FIRST_LOOK_DAYS * 86_400_000).toISOString();
-  const facts = memoryFacts(project).held;
+  // The newest first: where a section is cut to its length, what was recorded last is what stays.
+  const facts = [...memoryFacts(project).held].sort((a, b) => (a.recordedAt < b.recordedAt ? 1 : a.recordedAt > b.recordedAt ? -1 : 0));
   const drafted: Record<SweepSectionKey, Drafted[]> = {
     facts: factEntries(project, facts.filter((fact) => fact.tag === 'approved'), 'fact'),
     waiting: factEntries(project, facts.filter((fact) => fact.tag === 'proposed'), 'waiting'),
@@ -401,7 +439,7 @@ export function sweepBrief(project: DdProject, options: { now: Date; since?: str
     approvals: approvalEntries(project, now),
     site_log: siteLogEntries(project),
     cost: costEntries(project),
-    actions: actionEntries(project),
+    actions: actionEntries(project, now),
     decisions: decisionEntries(project),
     owed: owedEntries(project, now),
     register: registerEntries(project),
@@ -497,7 +535,8 @@ function words(value: unknown, atMost: number): string {
  *
  * A proposal is dropped, whole, where it is not one of the kinds asked for,
  * says nothing, cites nothing, cites a mark that is no line of the brief it
- * was given, or sets one thing against another and cites only one. What is
+ * was given, cites no entry of a kind its own kind is about (`SWEEP_CITES`),
+ * or sets one thing against another and cites only one. What is
  * kept carries each cited entry as the brief wrote it, so a person reads the
  * record's words beside the model's. The department is one the project
  * uses: the model's where it named one, else the kind's own.
@@ -516,7 +555,8 @@ export function sweepProposalsHeld(project: DdProject, brief: SweepBrief, said: 
     const cited = marks.map((mark) => byMark.get(mark));
     const resolved = cited.filter((entry): entry is SweepEntry => Boolean(entry));
     const refs = new Set(resolved.map((entry) => entry.ref));
-    if (!kind || !statement || !why || !marks.length || marks.length > SWEEP_LIMITS.cites || resolved.length !== marks.length || (SWEEP_PAIRED.has(kind) && refs.size < 2) || kept.length >= SWEEP_PROPOSALS_AT_MOST) {
+    const fits = Boolean(kind) && resolved.some((entry) => SWEEP_CITES[kind!].includes(entry.kind));
+    if (!kind || !statement || !why || !marks.length || marks.length > SWEEP_LIMITS.cites || resolved.length !== marks.length || !fits || (SWEEP_PAIRED.has(kind) && refs.size < 2) || kept.length >= SWEEP_PROPOSALS_AT_MOST) {
       dropped += 1;
       continue;
     }
@@ -616,17 +656,31 @@ export function sameSweepMatter(a: Pick<SweepProposal, 'kind' | 'sources'>, b: P
   return within(mine, theirs) || within(theirs, mine);
 }
 
+/** Whether two are about the very same entries of the record, whatever kind each was called. */
+function sameSweepRefs(a: Pick<SweepProposal, 'sources'>, b: Pick<SweepProposal, 'sources'>): boolean {
+  const [mine, theirs] = [new Set(refsOf(a)), new Set(refsOf(b))];
+  return mine.size > 0 && mine.size === theirs.size && [...mine].every((ref) => theirs.has(ref));
+}
+
 /**
  * Keep the proposals that are new. One that is the same matter as a
  * suggestion already held is not raised: an open or accepted one is not
  * duplicated, and a dismissed one never comes back.
+ *
+ * What a dismissal silences is narrower than what an open suggestion covers.
+ * A person dismissed one thing, about the entries it cited: a proposal about
+ * those same entries stays silent, whichever kind a model calls it this
+ * time, and one that cites another entry beside them is another matter and
+ * is raised. An approval or the schedule is one entry for the life of the
+ * project, so a dismissal that covered everything citing it would silence
+ * every later problem with it.
  */
 export function sweepRaise(state: FileSweepState, proposals: readonly SweepProposal[], at: string): { raised: SweepSuggestion[]; repeats: number; dismissedBefore: number } {
   const raised: SweepSuggestion[] = [];
   let repeats = 0;
   let dismissedBefore = 0;
   for (const proposal of proposals) {
-    const twin = state.suggestions.find((held) => sameSweepMatter(held, proposal));
+    const twin = state.suggestions.find((held) => (held.status === 'dismissed' ? sameSweepRefs(held, proposal) : sameSweepMatter(held, proposal)));
     if (twin) {
       if (twin.status === 'dismissed') dismissedBefore += 1;
       else repeats += 1;

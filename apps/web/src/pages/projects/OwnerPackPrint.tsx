@@ -167,7 +167,7 @@ export default function OwnerPackPrint() {
           <p className="text-[12px] uppercase tracking-[0.14em] text-black/60">Owner pack</p>
           <h1 className="mt-2 text-[28px] font-semibold leading-tight tracking-tight">{heading.name}</h1>
           <p className="mt-1 text-[15px] text-black/70">{heading.place}</p>
-          <p className="mt-3 text-[18px] font-medium">{isQuarter(pack.period) ? reportPeriodSaid(pack.period, quarterYearOf(project)) : pack.periodSaid}</p>
+          <p className="mt-3 text-[18px] font-medium">{kept?.periodSaid ?? (isQuarter(pack.period) ? reportPeriodSaid(pack.period, quarterYearOf(project)) : pack.periodSaid)}</p>
           <p className="mt-1 text-[12px] text-black/60">
             {heading.reference} · Read from the project record as it stood on {meetingDay(pack.asOf)}. No line is written by a model.
           </p>

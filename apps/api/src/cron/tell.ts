@@ -9,13 +9,14 @@
  *
  * Safe to call twice: what is taken is marked taken and written before it is
  * sent, so a second run finds nothing, and the mail service is handed the
- * same key for the same message. One project failing is counted and leaves
+ * same key for the same message. A message that could not be sent has its
+ * notices given back, and a run a message's worth later tries it again. One project failing is counted and leaves
  * the rest of the run to finish.
  */
 
 import type { DdProject } from '@realytica/shared';
 import { store } from '../store';
-import { sendTold, tellOut, tellPeople, type TellOut } from '../tell';
+import { giveBackUnsent, sendTold, tellOut, tellPeople, type TellOut } from '../tell';
 
 /** What a sweep reads projects from and writes them to: the store, or a stand-in under test. */
 export interface TellSweepSource {
@@ -25,7 +26,9 @@ export interface TellSweepSource {
   due(project: DdProject, now: Date): TellOut[];
   /** Write the project, resolving once it is durable. */
   save(project: DdProject): Promise<void>;
-  send(project: DdProject, messages: TellOut[]): Promise<{ mailed: number; pushed: number }>;
+  send(project: DdProject, messages: TellOut[]): Promise<{ mailed: number; pushed: number; unsent?: string[] }>;
+  /** Give back the notices of messages that could not be sent, so a later run tries them again. */
+  giveBack?(project: DdProject, ids: string[], now: Date): Promise<void>;
 }
 
 const fromStore: TellSweepSource = {
@@ -40,6 +43,7 @@ const fromStore: TellSweepSource = {
     await store.save();
   },
   send: sendTold,
+  giveBack: (project, ids, now) => giveBackUnsent(project.id, ids, now),
 };
 
 /** Send every message that is due as of `now`. Counts: projects looked at, people sent a message, notices in them, mail and push that went, projects that failed. */
@@ -64,6 +68,7 @@ export async function sweepTell(now: Date, source: TellSweepSource = fromStore):
         throw err;
       }
       const sent = await source.send(project, due);
+      if (sent.unsent?.length) await source.giveBack?.(project, sent.unsent, now);
       out.messages += due.length;
       out.notices += due.reduce((n, message) => n + message.lines.length, 0);
       out.mailed += sent.mailed;

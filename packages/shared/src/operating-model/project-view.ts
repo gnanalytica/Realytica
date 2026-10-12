@@ -29,6 +29,7 @@
 
 import { alertsOfCopy } from './alerts';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
+import { reportsOfCopy } from './status-report';
 import type {
   ActionRecord,
   DdAssessment,
@@ -174,7 +175,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const valuationRuns = area('valuation') ? project.valuationRuns : [];
   if (!area('valuation')) withheld.push('valuation');
 
-  const reports = area('reports') ? project.reports : [];
+  const reports = area('reports') ? reportsOfCopy(project.reports) : [];
   if (project.reports.length > 0 && !area('reports')) withheld.push('reports');
 
   const siteVisits = area('site_record') ? project.siteVisits : [];

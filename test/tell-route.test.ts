@@ -14,6 +14,12 @@
  * mail a person, sent once however often the timer runs, to nobody who
  * quieted the project, and to nobody at all with no mail key set.
  *
+ * Marking and quieting read the project from storage first, so an instance
+ * whose copy is old writes nothing over what another saved. A save does not
+ * wait for the mail service; a message it refused is tried again by the
+ * timer; a push is made once; and a write that failed leaves nothing marked
+ * as sent.
+ *
  * The firm, the people, the projects and the papers are invented.
  */
 
@@ -54,6 +60,9 @@ const realFetch = globalThis.fetch;
 /** Every call that would have left for the mail service or the push service. */
 const mail: Array<{ to: string[]; subject: string; text: string; key: string | null; authorization: string | null }> = [];
 const push: Array<Array<{ to: string; title: string; body: string }>> = [];
+/** The mail service refusing what it is sent, or not answering until this settles. */
+let mailRefused = false;
+let mailWaits: Promise<void> | undefined;
 
 async function call(method: string, route: string, opts: { token?: string; body?: unknown } = {}): Promise<{ status: number; body: any }> {
   const res = await realFetch(`${base}${route}`, {
@@ -114,6 +123,8 @@ before(async () => {
     const headers = new Headers(init?.headers);
     if (url === 'https://api.resend.com/emails') {
       const sent = JSON.parse(String(init?.body)) as { to: string[]; subject: string; text: string };
+      if (mailWaits) await mailWaits;
+      if (mailRefused) return new Response(JSON.stringify({ message: 'Too many requests' }), { status: 429 });
       mail.push({ to: sent.to, subject: sent.subject, text: sent.text, key: headers.get('idempotency-key'), authorization: headers.get('authorization') });
       return new Response(JSON.stringify({ id: 'mail-1' }), { status: 200 });
     }
@@ -269,5 +280,147 @@ describe('what leaves the app', () => {
       send: async () => ({ mailed: 0, pushed: 0 }),
     });
     assert.deepEqual(swept, { projects: 2, messages: 0, notices: 0, mailed: 0, pushed: 0, failed: 1 });
+  });
+});
+
+/** What another instance's save leaves in storage: the project with a paper this instance has never seen. */
+async function savedElsewhere(title: string): Promise<void> {
+  const { storageAdapter } = await import('../apps/api/src/storage');
+  const stored = JSON.parse((await storageAdapter.getDocument(project.id, 'project.json'))!.toString('utf-8')) as DdProject & { storeRevision: number };
+  addEvidence(stored, { title, kind: 'document', status: 'expected' }, MANAGER);
+  stored.updatedAt = new Date(Date.now() + 1000).toISOString();
+  stored.storeRevision += 1;
+  await storageAdapter.putDocument(project.id, 'project.json', Buffer.from(JSON.stringify(stored)), 'application/json');
+}
+
+async function inStorage(): Promise<DdProject> {
+  const { storageAdapter } = await import('../apps/api/src/storage');
+  return JSON.parse((await storageAdapter.getDocument(project.id, 'project.json'))!.toString('utf-8')) as DdProject;
+}
+
+describe('marking and quieting on an instance whose copy is old', () => {
+  it('reads the project from storage first, so what another instance saved is kept', async () => {
+    await fileAs(LEAD, 'Khata extract');
+    await savedElsewhere('Saved by another instance');
+    assert.equal(project.evidence.some((row) => row.title === 'Saved by another instance'), false, 'this instance has not seen it');
+    const marked = await call('POST', '/api/tell/read', { token: owner(), body: { ids: 'all' } });
+    assert.equal(marked.status, 200);
+    assert.ok(marked.body.read >= 1);
+    const stored = await inStorage();
+    assert.equal(stored.evidence.some((row) => row.title === 'Saved by another instance'), true, 'the other instance’s paper is still in storage');
+    assert.equal(stored.tell!.notices!.filter((notice) => notice.to === OWNER).every((notice) => notice.readAt), true);
+
+    await savedElsewhere('Saved elsewhere again');
+    assert.equal((await call('PUT', `/api/tell/quiet/${project.id}`, { token: manager(), body: { quiet: true } })).status, 200);
+    const quieted = await inStorage();
+    assert.equal(quieted.evidence.some((row) => row.title === 'Saved elsewhere again'), true);
+    assert.deepEqual(quieted.tell!.quiet!.includes(MANAGER), true);
+    assert.equal((await call('PUT', `/api/tell/quiet/${project.id}`, { token: manager(), body: { quiet: false } })).status, 200);
+  });
+
+  it('writes nothing where storage does not answer', async () => {
+    const { store } = await import('../apps/api/src/store');
+    await fileAs(LEAD, 'Tax receipt');
+    const before = JSON.stringify(await inStorage());
+    const pullFresh = store.pullFresh.bind(store);
+    store.pullFresh = async () => {
+      throw new Error('storage did not answer');
+    };
+    try {
+      assert.deepEqual((await call('POST', '/api/tell/read', { token: owner(), body: { ids: 'all' } })).body, { read: 0 });
+      assert.equal((await call('PUT', `/api/tell/quiet/${project.id}`, { token: owner(), body: { quiet: true } })).status, 503);
+    } finally {
+      store.pullFresh = pullFresh;
+    }
+    assert.equal(JSON.stringify(await inStorage()), before);
+    assert.deepEqual((await call('GET', '/api/tell', { token: owner() })).body.quiet, []);
+    assert.deepEqual((await call('POST', '/api/tell/read', { token: owner(), body: { ids: 'all' } })).body, { read: 1 });
+  });
+});
+
+describe('sending, apart from the save', () => {
+  /** A paper filed long enough ago that what it told people is due the moment the project is next saved. */
+  async function fileADueOne(title: string): Promise<void> {
+    await fileAs(LEAD, title);
+    for (const notice of project.tell!.notices!) if (!notice.batchedAt && !notice.readAt) notice.at = new Date(Date.now() - TELL_BATCH_MS - 60_000).toISOString();
+    project.updatedAt = new Date().toISOString();
+  }
+
+  it('does not hold the save: the reply is out before the mail service answers', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
+    process.env.REALYTICA_RESEND_API_KEY = 'not-a-real-key';
+    mail.length = 0;
+    push.length = 0;
+    let release!: () => void;
+    mailWaits = new Promise<void>((resolve) => (release = resolve));
+    await fileADueOne('Conversion order');
+    await store.save();
+    assert.equal(mail.length, 0, 'the save came back with the mail service still silent');
+    assert.equal(project.tell!.notices!.some((notice) => !notice.batchedAt && !notice.readAt), false, 'what is due was taken with the save');
+    release();
+    mailWaits = undefined;
+    await afterReplyWorkDone();
+    assert.deepEqual(mail.map((sent) => sent.to).sort(), [[OWNER], [MANAGER]].sort());
+    assert.equal(push.length, 1);
+  });
+
+  it('gives back the notices of a message the mail service refused, and the timer sends it a message’s worth later', async () => {
+    const { sweepTell } = await import('../apps/api/src/cron/tell');
+    await call('POST', '/api/tell/read', { token: owner(), body: { ids: 'all' } });
+    await call('POST', '/api/tell/read', { token: manager(), body: { ids: 'all' } });
+    mail.length = 0;
+    push.length = 0;
+    await fileAs(LEAD, 'Layout plan');
+    mailRefused = true;
+    const at = afterAMessagesWorth();
+    const refused = await sweepTell(at);
+    mailRefused = false;
+    assert.deepEqual([refused.messages, refused.mailed, refused.pushed], [2, 0, 1]);
+    const stored = (await inStorage()).tell!.notices!.filter((notice) => !notice.readAt && !notice.batchedAt);
+    assert.deepEqual(stored.map((notice) => [notice.to, notice.unsent?.n]).sort(), [[MANAGER, 1], [OWNER, 1]].sort(), 'given back in storage, each marked as tried once');
+    assert.equal((await sweepTell(new Date(at.getTime() + 60_000))).messages, 0, 'not at once');
+    mail.length = 0;
+    push.length = 0;
+    const again = await sweepTell(new Date(at.getTime() + TELL_BATCH_MS + 60_000));
+    assert.deepEqual([again.messages, again.mailed, again.pushed], [2, 2, 0], 'mailed now, and the phone that was told is not told twice');
+    assert.equal(push.length, 0);
+  });
+
+  it('pushes a message once though two instances took the same notices', async () => {
+    const { sendTold } = await import('../apps/api/src/tell');
+    mail.length = 0;
+    push.length = 0;
+    const line = { id: 'tel_twice', projectId: project.id, projectName: project.name, projectReference: project.reference, kind: 'paper_filed' as const, at: new Date().toISOString(), by: LEAD, title: 'Filed: Layout plan', action: 'Read it.', read: false };
+    const message = { to: OWNER, lines: [line], key: 'tel_twice', ids: ['tel_twice'] };
+    const [one, two] = [await sendTold(project, [message]), await sendTold(project, [message])];
+    assert.deepEqual([one.pushed, two.pushed], [1, 0]);
+    assert.equal(push.length, 1);
+    assert.deepEqual(mail.map((sent) => sent.key), [`tell/${project.id}/tel_twice`, `tell/${project.id}/tel_twice`], 'the mail service is handed the same key both times');
+  });
+
+  it('does not keep what it took as sent where the write failed', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
+    mail.length = 0;
+    push.length = 0;
+    await fileADueOne('Betterment receipt');
+    const putDocument = storageAdapter.putDocument;
+    storageAdapter.putDocument = async (caseId, key, bytes, contentType) => {
+      if (key === 'project.json') throw new Error('storage did not take it');
+      return putDocument(caseId, key, bytes, contentType);
+    };
+    try {
+      await assert.rejects(store.save(), /storage did not take it/);
+    } finally {
+      storageAdapter.putDocument = putDocument;
+    }
+    await afterReplyWorkDone();
+    assert.equal(mail.length + push.length, 0, 'nothing left the app');
+    assert.equal(project.tell!.notices!.filter((notice) => !notice.batchedAt && !notice.readAt).length, 2, 'and this copy does not say it did');
+    await store.save();
+    await afterReplyWorkDone();
+    assert.equal(mail.length, 2, 'the next save that is written sends it');
   });
 });

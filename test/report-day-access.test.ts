@@ -241,9 +241,12 @@ describe('the report day and a kept owner pack', () => {
     assert.notEqual(next.body.pack.id, packId);
     assert.match(JSON.stringify(next.body.pack.pack), /Basic prices of cement/);
 
+    // Reopened, the issued pack stays as it was sent, and the one waiting for the period is the one handed back.
     const reopened = await call('POST', `${at()}/packs/${packId}/reopen`, { token: owner() });
-    assert.deepEqual([reopened.status, reopened.body.pack.status, reopened.body.pack.issuedBy], [200, 'prepared', undefined]);
-    assert.equal((await call('POST', `${at()}/packs/${packId}/reopen`, { token: owner() })).status, 400, 'only an issued pack is reopened');
+    assert.deepEqual([reopened.status, reopened.body.pack.id, reopened.body.pack.status, reopened.body.pack.issuedBy], [200, next.body.pack.id, 'prepared', undefined]);
+    const sent = reopened.body.project.ownerPacks.find((pack: { id: string }) => pack.id === packId);
+    assert.deepEqual([sent.status, sent.issuedName, JSON.stringify(sent.pack)], ['issued', 'Dev Menon', frozen]);
+    assert.equal((await call('POST', `${at()}/packs/${next.body.pack.id}/reopen`, { token: owner() })).status, 400, 'only an issued pack is reopened');
 
     const fresh = await call('POST', `${at()}/packs`, { token: owner(), body: { quarter: 'FY2026-Q1', issue: true, name: 'Dev Menon' } });
     assert.deepEqual([fresh.status, fresh.body.pack.status, fresh.body.pack.pack.periodSaid], [201, 'issued', 'April to June 2026']);
@@ -264,7 +267,7 @@ describe('the timer, against the store', () => {
     assert.deepEqual(await reportDay(new Date('2026-10-30T07:00:00+05:30')), { projects: 1, prepared: 0, told: 0, failed: 0 }, 'the 30th is not the day');
     assert.deepEqual(await reportDay(new Date('2026-10-31T07:00:00+05:30')), { projects: 1, prepared: 2, told: 0, failed: 0 });
     assert.equal(mailed.length, 0);
-    assert.deepEqual(live().reportDay!.prepared!.map((line) => [line.kind, line.from.slice(0, 10), line.told]), [['status', '2026-07-01', []], ['owner_pack', '2026-07-01', []]]);
+    assert.deepEqual(live().reportDay!.prepared!.map((line) => [line.kind, line.from.slice(0, 10), line.told]), [['status', '2026-07-01', undefined], ['owner_pack', '2026-07-01', undefined]], 'nobody was told, and nothing says anybody was');
     assert.equal(live().reports.at(-1)!.title, 'Status report — Mill Lane flats, Q3 2026 (July to September 2026)');
     assert.deepEqual(await reportDay(new Date('2026-10-31T21:00:00+05:30')), { projects: 1, prepared: 0, told: 0, failed: 0 });
 
