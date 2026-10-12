@@ -293,6 +293,17 @@ describe('the menu’s words are held in one place', () => {
     }
   });
 
+  it('calls what the firm sends by its heading wherever the page speaks of it, an empty page included', () => {
+    const rail = read('pages/projects/cockpit/rail.tsx');
+    assert.match(rail, /LETTERS_PART = \{ pane: 'outgoing', label: 'Letters' \}/);
+    const page = read('pages/projects/Outgoing.tsx');
+    const titles = [...page.matchAll(/<EmptyState\b[\s\S]{0,120}?title=(\{`[^`]*`\}|"[^"]*")/g)].map((m) => m[1]!);
+    assert.ok(titles.length >= 2);
+    for (const title of titles) assert.doesNotMatch(title, /Outgoing/, `an empty state is headed ${title}, under a heading that says Letters`);
+    assert.equal(titles.filter((title) => title.includes('${LETTERS_PART.label}')).length, 2, 'the two that name the part take the word from the heading');
+    assert.doesNotMatch(page, /['"`]Outgoing (?:is|could)/);
+  });
+
   it('covers every function of the menu', () => {
     const p = seedDemoProject();
     for (const menu of MENU_DEPARTMENTS) {

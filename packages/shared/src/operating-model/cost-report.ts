@@ -493,7 +493,10 @@ export function setCostReportChangeReason(
 ): CostReportPeriod {
   const report = costReportOf(project, reportId);
   assertDraft(report);
-  const pack = costRegister(project).workPackages.find((p) => p.id === workPackageId);
+  // A package taken off the register since the last report is still a line of what moved: "removed", and why.
+  const pack =
+    costRegister(project).workPackages.find((p) => p.id === workPackageId) ??
+    costReportIssuedBefore(project, report)?.rows.find((row) => row.workPackageId === workPackageId);
   if (!pack) throw new Error('No work package by that id.');
   const line = reason?.replace(/\s+/g, ' ').trim() ?? '';
   if (line.length > REASON_AT_MOST) throw new Error(`A reason is one line of ${REASON_AT_MOST} characters at most.`);

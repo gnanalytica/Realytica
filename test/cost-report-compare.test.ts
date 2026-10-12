@@ -29,6 +29,7 @@ import {
   largestCostMovements,
   previousCostReport,
   removeCostReportPackage,
+  removeWorkPackage,
   setCostReportChangeReason,
   startCostReport,
   updateCostReportRow,
@@ -263,6 +264,22 @@ describe('a typed reason for a change', () => {
     issueCostReport(p, august.id, WHO);
     assert.throws(() => setCostReportChangeReason(p, august.id, ids.structure, 'Why', WHO), /issued/i);
     assert.equal(costReportOf(p, august.id).changeReasons![ids.lifts], 'Moved to the fit-out contract');
+  });
+
+  it('can be given for a package taken off the register since the last report, which the comparison shows as removed', () => {
+    const { p, july, ids } = twoMonths('RYT-CC7');
+    removeWorkPackage(p, ids.lifts, WHO);
+    // September starts from the register as it is now: Lifts is on July's report and not on this one.
+    const september = startCostReport(p, { month: '2026-09-01' }, WHO);
+    assert.equal(previousCostReport(p, september.id)!.id, july.id);
+    assert.equal(changeOf(p, september.id, ids.lifts).status, 'removed');
+    setCostReportChangeReason(p, september.id, ids.lifts, 'Lifts moved to the fit-out contract', WHO);
+    assert.equal(changeOf(p, september.id, ids.lifts).reason, 'Lifts moved to the fit-out contract');
+    assert.equal(p.audit.at(-1)!.newValue, 'Lifts: Lifts moved to the fit-out contract');
+    setCostReportChangeReason(p, september.id, ids.lifts, null, WHO);
+    assert.equal(changeOf(p, september.id, ids.lifts).reason, undefined);
+    // Still refused for an id that is on neither the register nor the last report.
+    assert.throws(() => setCostReportChangeReason(p, september.id, 'wpk_nothing', 'Why', WHO), /No work package by that id\./);
   });
 });
 
