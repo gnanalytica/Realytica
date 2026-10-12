@@ -549,8 +549,9 @@ const scheduleUpload = multer({ storage: multer.memoryStorage(), limits: { fileS
 
 /**
  * Bring the project's schedule in from where it is kept. A milestone the
- * sheet names again has its dates moved and its recorded progress left alone;
- * the rows that could not be read come back with the reason.
+ * sheet names again has its dates moved and its recorded progress never
+ * lowered; the rows that could not be read come back with the reason, and
+ * what was assumed in reading the sheet comes back as notes.
  */
 projectWorkspaceRouter.post<Params>('/milestones/import', scheduleUpload.single('file'), async (req, res) => {
   const project = load(req, res);
@@ -562,13 +563,13 @@ projectWorkspaceRouter.post<Params>('/milestones/import', scheduleUpload.single(
       res.status(400).json({ error: 'Upload a CSV or Excel file, or paste the schedule.' });
       return;
     }
-    const { rows, skipped } = parseScheduleTable(text);
+    const { rows, skipped, notes } = parseScheduleTable(text);
     const result = importSchedule(project, rows, actorOf(principalOf(req)));
     if (result.added || result.updated) {
       touch(project);
       await store.save();
     }
-    res.json({ project, ...result, skipped });
+    res.json({ project, ...result, skipped, notes });
   } catch (err) {
     failed(res, err, 'Could not import that schedule');
   }

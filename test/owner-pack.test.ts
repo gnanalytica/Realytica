@@ -200,10 +200,10 @@ describe('where the project stands, and time', () => {
     const pack = ownerPack(p, SEPTEMBER, NOW);
     assert.deepEqual(said(partOf(pack, 'standing')).slice(2), [
       'Planned completion: 30 Apr 2027.',
-      'Projected completion at the current rate: 13 May 2027, about 13 days after the planned date.',
-      'An extension of time is likely: at the current rate the work finishes about 13 days late.',
+      'Projected completion at the current rate: 2 Jun 2027, about 33 days after the planned date.',
+      'An extension of time is likely: at the current rate the work finishes about 33 days late.',
     ]);
-    assert.deepEqual(said(partOf(pack, 'decisions')), ['Extension of time: at the current rate the work finishes about 13 days after the planned completion of 30 Apr 2027.']);
+    assert.deepEqual(said(partOf(pack, 'decisions')), ['Extension of time: at the current rate the work finishes about 33 days after the planned completion of 30 Apr 2027.']);
   });
 
   it('says there is no projection where no unfinished milestone has a rate', () => {
@@ -221,8 +221,8 @@ describe('where the project stands, and time', () => {
       part.lines.map((line) => [line.what, line.when, line.overdue ?? false]),
       [
         ['Foundation: 22 days late, 85% done.', '2026-09-20', true],
-        ['Plinth: Due in 8 days, 35% done, expected 72%. At the current rate it finishes about 14 days late.', '2026-10-20', false],
-        ['Superstructure: At the current rate it finishes about 74 days late.', '2027-02-28', false],
+        ['Plinth: Due in 8 days, 35% done, expected 72%. At the current rate it finishes about 29 days late.', '2026-10-20', false],
+        ['Superstructure: At the current rate it finishes about 94 days late.', '2027-02-28', false],
       ],
     );
     assert.equal(part.lines[0]!.source, 'the milestone, last reported 5 Oct 2026');

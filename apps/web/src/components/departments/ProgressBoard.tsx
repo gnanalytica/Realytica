@@ -139,6 +139,7 @@ function ScheduleImport({ project, onChanged, onClose }: { project: DdProject; o
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [skipped, setSkipped] = useState<ScheduleSkippedRow[]>([]);
+  const [notes, setNotes] = useState<string[]>([]);
 
   async function run(input: { file: File } | { text: string }) {
     setBusy(true);
@@ -147,7 +148,8 @@ function ScheduleImport({ project, onChanged, onClose }: { project: DdProject; o
       onChanged(res.project);
       toast(`${res.added} added, ${res.updated} updated${res.skipped.length ? `, ${res.skipped.length} skipped` : ''}.`, res.skipped.length ? 'warning' : 'good');
       setSkipped(res.skipped);
-      if (!res.skipped.length) onClose();
+      setNotes(res.notes);
+      if (!res.skipped.length && !res.notes.length) onClose();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not import', 'critical');
     } finally {
@@ -183,7 +185,7 @@ function ScheduleImport({ project, onChanged, onClose }: { project: DdProject; o
       }
     >
       <div className="space-y-2">
-        <p className="text-[13px] text-ink-secondary">CSV, Excel or a pasted table. Progress already recorded is kept.</p>
+        <p className="text-[13px] text-ink-secondary">CSV, Excel or a pasted table. Progress already recorded is never lowered.</p>
         <Textarea
           aria-label="Schedule table"
           value={text}
@@ -192,6 +194,15 @@ function ScheduleImport({ project, onChanged, onClose }: { project: DdProject; o
           placeholder={'Activity,Planned start,Planned finish,Weight\nPlinth,01-11-2026,30-11-2026,5'}
           className="font-mono text-[12px]"
         />
+        {notes.length ? (
+          <Callout tone="info" title="How the dates were read">
+            <ul className="space-y-0.5">
+              {notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          </Callout>
+        ) : null}
         {skipped.length ? (
           <Callout tone="warning" title={`${skipped.length} row${skipped.length === 1 ? '' : 's'} skipped`}>
             <ul className="space-y-0.5">

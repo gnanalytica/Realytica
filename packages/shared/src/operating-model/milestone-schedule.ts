@@ -43,13 +43,17 @@ function dayOf(n: number): string {
 
 const daysFrom = (from: string, to: string): number => dayNumber(to) - dayNumber(from);
 
+/** A date that is all numbers with the year last: which of the first two is the day, the date alone does not say. */
+const NUMBERS_YEAR_LAST = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})$/;
+
 /**
  * A date as schedules here write it, as YYYY-MM-DD: 2026-10-12, 12-10-2026,
  * 12/10/26, 12.10.2026, 12 Oct 2026, 12-Oct-26. Where a date is all numbers
- * and the year is last, the day comes before the month. Nothing when it is
- * not a day on the calendar.
+ * and the year is last, the day comes before the month, unless the sheet is
+ * known to write the month first. Nothing when it is not a day on the
+ * calendar.
  */
-export function readScheduleDay(raw: string): string | undefined {
+export function readScheduleDay(raw: string, monthFirst = false): string | undefined {
   const text = raw.trim();
   let year: number;
   let month: number;
@@ -57,8 +61,8 @@ export function readScheduleDay(raw: string): string | undefined {
   let found: RegExpExecArray | null;
   if ((found = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ].*)?$/.exec(text))) {
     [year, month, day] = [Number(found[1]), Number(found[2]), Number(found[3])];
-  } else if ((found = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})$/.exec(text))) {
-    [day, month, year] = [Number(found[1]), Number(found[2]), Number(found[3])];
+  } else if ((found = NUMBERS_YEAR_LAST.exec(text))) {
+    [day, month, year] = [Number(found[monthFirst ? 2 : 1]), Number(found[monthFirst ? 1 : 2]), Number(found[3])];
   } else if ((found = /^(\d{1,2})[-/. ]\s*([A-Za-z]{3,9})\.?,?[-/. ]\s*(\d{4}|\d{2})$/.exec(text))) {
     const name = found[2]!.toLowerCase();
     month = MONTHS.findIndex((m) => m.startsWith(name)) + 1;
@@ -82,7 +86,7 @@ export interface ScheduleImportRow {
   plannedStart?: string;
   plannedFinish: string;
   weight?: number;
-  /** 0..100. Taken for a milestone the project does not have yet. */
+  /** 0..100. Taken for a milestone the project does not have yet, and for one it has when it is more than is recorded. */
   percent?: number;
 }
 
@@ -124,12 +128,23 @@ const WEIGHT_COLUMNS = ['weight', 'weightage', 'weighting', 'share'];
 const PERCENT_COLUMNS = ['percentcomplete', 'complete', 'completed', 'percent', 'progress', 'actual', 'actualprogress', 'done', 'percentdone'];
 
 /**
+ * Whether a column of dates writes the month first. It does when some date
+ * in it can be read no other way, 10/25/2026, and none can only be read day
+ * first, 25/10/2026. A sheet is written one way throughout, so the whole
+ * column is then read month first: 10/12/2026 in it is 12 October.
+ */
+function monthFirstColumn(cells: readonly string[]): boolean {
+  const parts = cells.map((cell) => NUMBERS_YEAR_LAST.exec(cell.trim())).filter((found): found is RegExpExecArray => Boolean(found));
+  return parts.some((found) => Number(found[2]) > 12) && !parts.some((found) => Number(found[1]) > 12);
+}
+
+/**
  * Read a schedule from a table: a header row, then a row a milestone, with
  * tabs or commas between the cells and the columns in any order. A row with
  * no finish date that can be read is handed back with the reason, never left
- * out without a word.
+ * out without a word. `notes` says what was assumed in reading it.
  */
-export function parseScheduleTable(text: string): { rows: ScheduleImportRow[]; skipped: ScheduleSkippedRow[] } {
+export function parseScheduleTable(text: string): { rows: ScheduleImportRow[]; skipped: ScheduleSkippedRow[]; notes: string[] } {
   const lines = text
     .replace(/^﻿/, '')
     .split(/\r?\n/)
@@ -155,8 +170,16 @@ export function parseScheduleTable(text: string): { rows: ScheduleImportRow[]; s
 
   const table = lines.slice(1).map((line) => splitLine(line, delimiter));
   const number = (raw: string): number => Number(raw.replace(/[%,\s]/g, ''));
-  // Excel hands a percentage over as a fraction: a column that never passes 1 is one.
-  const fractions = iPercent >= 0 && table.every((cells) => !(cells[iPercent] ?? '').includes('%') && !(number(cells[iPercent] ?? '') > 1));
+  // Excel hands a percentage over as a fraction: a column that never passes 1 and has a value between 0 and 1 is one.
+  // A column of 0 and 1 alone is not: 1 there is one percent, as it is written.
+  const percents = iPercent >= 0 ? table.map((cells) => cells[iPercent] ?? '') : [];
+  const fractions = percents.every((cell) => !cell.includes('%') && !(number(cell) > 1)) && percents.some((cell) => cell !== '' && number(cell) > 0 && number(cell) < 1);
+  const startMonthFirst = iStart >= 0 && monthFirstColumn(table.map((cells) => cells[iStart] ?? ''));
+  const finishMonthFirst = monthFirstColumn(table.map((cells) => cells[iFinish] ?? ''));
+  const notes = [
+    ...(startMonthFirst ? ['The planned start dates were read with the month first, as 10/25/2026 is written.'] : []),
+    ...(finishMonthFirst ? ['The planned finish dates were read with the month first, as 10/25/2026 is written.'] : []),
+  ];
 
   const rows: ScheduleImportRow[] = [];
   const skipped: ScheduleSkippedRow[] = [];
@@ -170,10 +193,10 @@ export function parseScheduleTable(text: string): { rows: ScheduleImportRow[]; s
       return;
     }
     const finishText = cells[iFinish] ?? '';
-    const plannedFinish = readScheduleDay(finishText);
+    const plannedFinish = readScheduleDay(finishText, finishMonthFirst);
     if (!plannedFinish) return void skip(finishText ? `“${finishText}” is not a date.` : 'No planned finish.');
     const startText = iStart >= 0 ? (cells[iStart] ?? '') : '';
-    const plannedStart = startText ? readScheduleDay(startText) : undefined;
+    const plannedStart = startText ? readScheduleDay(startText, startMonthFirst) : undefined;
     if (startText && !plannedStart) return void skip(`“${startText}” is not a date.`);
     if (plannedStart && plannedStart > plannedFinish) return void skip('Planned start is after planned finish.');
     const weightText = iWeight >= 0 ? (cells[iWeight] ?? '') : '';
@@ -187,7 +210,7 @@ export function parseScheduleTable(text: string): { rows: ScheduleImportRow[]; s
     seen.add(key);
     rows.push({ name, ...(plannedStart ? { plannedStart } : {}), plannedFinish, ...(weight !== undefined ? { weight } : {}), ...(percent !== undefined ? { percent: Math.round(percent) } : {}) });
   });
-  return { rows, skipped };
+  return { rows, skipped, notes };
 }
 
 /** A milestone's name as two schedules would both write it: letters and digits, in lower case. */
@@ -215,8 +238,10 @@ export function replanMilestone(milestone: Milestone, dates: { plannedStart?: st
 
 /**
  * Put a schedule's rows on the project. A row whose name a milestone already
- * has, however it is spaced or cased, moves that milestone's dates and weight
- * and leaves its recorded progress as it is. Any other row is a new milestone.
+ * has, however it is spaced or cased, moves that milestone's dates and weight.
+ * Its recorded progress is never lowered: a percent higher than the one
+ * recorded is taken as a reading of the day of the import, and a lower one
+ * is left out. Any other row is a new milestone.
  */
 export function importSchedule(project: DdProject, rows: readonly ScheduleImportRow[], actor: string, at = new Date().toISOString()): { added: number; updated: number; unchanged: number } {
   const held = new Map((project.milestones ?? []).map((m) => [milestoneKey(m.name), m] as const));
@@ -234,6 +259,10 @@ export function importSchedule(project: DdProject, rows: readonly ScheduleImport
       milestone.weight = row.weight;
       moved = true;
     }
+    if (row.percent !== undefined && row.percent > milestone.percent) {
+      setMilestonePercent(project, milestone.id, row.percent, actor, at);
+      moved = true;
+    }
     if (!moved) {
       unchanged += 1;
       continue;
@@ -248,7 +277,7 @@ export function importSchedule(project: DdProject, rows: readonly ScheduleImport
     if (row.plannedStart) milestone.plannedStart = row.plannedStart;
     if (row.percent) setMilestonePercent(project, milestone.id, row.percent, actor, at);
   });
-  if (updated) recordAuditEvent(project, { actor, action: 'import_schedule', entityType: 'milestone', entityId: project.id, newValue: `${updated} milestone${updated === 1 ? '' : 's'} re-planned` });
+  if (updated) recordAuditEvent(project, { actor, action: 'import_schedule', entityType: 'milestone', entityId: project.id, newValue: `${updated} milestone${updated === 1 ? '' : 's'} updated` });
   return { added: added.length, updated, unchanged };
 }
 
@@ -296,18 +325,20 @@ export function progressReadings(project: Pick<DdProject, 'siteLog'>, milestone:
 }
 
 /**
- * The day a milestone reaches 100% if it goes on as its readings say: the
- * rate between the first reading and the last, carried on from the last.
- * Nothing with fewer readings than a rate needs, or when they do not rise.
+ * The day a milestone reaches 100% if it goes on as it has so far: the rate
+ * from the first reading to today, at the percent it stands at, carried on
+ * from today. Days with nothing reported count, so a milestone that has
+ * stood still since its last reading is slower for every one of them.
+ * Nothing with fewer readings than a rate needs, or when it has not risen.
  */
 export function projectedFinish(readings: ReadonlyArray<{ on: string; percent: number }>, percent: number, today: string): string | undefined {
   if (readings.length < PROJECTION_MIN_READINGS || percent >= 100) return undefined;
   const first = readings[0]!;
-  const last = readings[readings.length - 1]!;
-  const rate = (last.percent - first.percent) / daysFrom(first.on, last.on);
+  const elapsed = daysFrom(first.on, today);
+  if (!(elapsed > 0)) return undefined;
+  const rate = (percent - first.percent) / elapsed;
   if (!(rate > 0)) return undefined;
-  const finish = dayOf(dayNumber(last.on) + Math.ceil((100 - percent) / rate));
-  return finish < today ? today : finish;
+  return dayOf(dayNumber(today) + Math.ceil((100 - percent) / rate));
 }
 
 /** One milestone against its dates, on the day given. */

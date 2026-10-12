@@ -95,14 +95,14 @@ describe('a projected finish, at the current rate', () => {
     assert.equal(milestoneWatch(p, m, day('2026-10-12')).projectedFinish, undefined);
   });
 
-  it('carries the rate between the first reading and the last on from the last', () => {
+  it('carries the rate from the first reading to today on from today', () => {
     // 10% to 30% in ten days is two points a day: seventy more take thirty-five days, to 15 November.
-    const readings = (finish: string) => {
+    const readings = (finish: string, today = '2026-10-11') => {
       const { p, m } = withMilestone({ finish });
       setMilestonePercent(p, m.id, 10, PM, '2026-10-01T09:00:00.000Z');
       setMilestonePercent(p, m.id, 22, PM, '2026-10-06T09:00:00.000Z');
       setMilestonePercent(p, m.id, 30, PM, '2026-10-11T09:00:00.000Z');
-      return milestoneWatch(p, m, day('2026-10-12'));
+      return milestoneWatch(p, m, day(today));
     };
     const onTime = readings('2026-11-15');
     assert.deepEqual({ projected: onTime.projectedFinish, late: onTime.projectedDaysLate, level: onTime.level }, { projected: '2026-11-15', late: undefined, level: undefined });
@@ -112,6 +112,44 @@ describe('a projected finish, at the current rate', () => {
       { projected: '2026-11-15', late: 1, level: 'slipping', say: 'At the current rate it finishes about 1 day late.' },
     );
     assert.equal(readings('2026-11-10').projectedDaysLate, 5);
+    // A day on with nothing more reported: twenty points in eleven days, so seventy more take thirty-nine, to 20 November.
+    assert.equal(readings('2026-11-15', '2026-10-12').projectedFinish, '2026-11-20');
+  });
+
+  it('slows with every day nothing is reported: a milestone that has stood still is slipping, not finishing today', () => {
+    const stalled = (today: string) => {
+      const { p, m } = withMilestone({ finish: '2026-11-30' });
+      setMilestonePercent(p, m.id, 10, PM, '2026-10-01T09:00:00.000Z');
+      setMilestonePercent(p, m.id, 50, PM, '2026-10-11T09:00:00.000Z');
+      return milestoneWatch(p, m, day(today));
+    };
+    // On the day of the reading: four points a day, fifty more take thirteen days.
+    const fresh = stalled('2026-10-11');
+    assert.deepEqual({ projected: fresh.projectedFinish, late: fresh.projectedDaysLate, level: fresh.level }, { projected: '2026-10-24', late: undefined, level: undefined });
+    // Four weeks on at the same fifty percent: forty points in thirty-eight days, so fifty more take forty-eight, to 26 December.
+    const later = stalled('2026-11-08');
+    assert.deepEqual(
+      { projected: later.projectedFinish, late: later.projectedDaysLate, level: later.level, say: later.say },
+      { projected: '2026-12-26', late: 26, level: 'slipping', say: 'At the current rate it finishes about 26 days late.' },
+    );
+    // Between the two, the last day it still lands inside its date and the first it does not: forty points in 26 days, and in 27.
+    assert.deepEqual([stalled('2026-10-23').projectedFinish, stalled('2026-10-23').level], ['2026-11-20', undefined]);
+    assert.deepEqual([stalled('2026-10-31').projectedFinish, stalled('2026-10-31').level], ['2026-12-08', 'slipping']);
+    const turn = ['2026-10-27', '2026-10-28'].map((today) => [stalled(today).projectedFinish, stalled(today).projectedDaysLate]);
+    assert.deepEqual(turn, [
+      ['2026-11-29', undefined],
+      ['2026-12-01', 1],
+    ]);
+  });
+
+  it('is not offered on the day of the first reading, or before it', () => {
+    const { p, m } = withMilestone(far);
+    setMilestonePercent(p, m.id, 10, PM, '2026-10-11T09:00:00.000Z');
+    setMilestonePercent(p, m.id, 30, PM, '2026-10-12T09:00:00.000Z');
+    assert.equal(milestoneWatch(p, m, day('2026-10-11')).projectedFinish, undefined);
+    assert.equal(milestoneWatch(p, m, day('2026-10-10')).projectedFinish, undefined);
+    // The day after the first: twenty points in a day, seventy more take four.
+    assert.equal(milestoneWatch(p, m, day('2026-10-12')).projectedFinish, '2026-10-16');
   });
 
   it('is not offered when the readings do not rise', () => {
@@ -130,15 +168,15 @@ describe('a projected finish, at the current rate', () => {
       { on: '2026-10-11', percent: 30 },
     ], 'a site entry is a reading of its own day, not of the day it was filed');
     delete m.readings;
-    assert.equal(milestoneWatch(p, m, day('2026-10-12')).projectedFinish, '2026-11-15');
+    assert.equal(milestoneWatch(p, m, day('2026-10-11')).projectedFinish, '2026-11-15');
   });
 
   it('is added to the warning of a milestone that is also behind', () => {
     const { p, m } = withMilestone({ start: '2026-10-01', finish: '2026-10-21' });
     setMilestonePercent(p, m.id, 10, PM, '2026-10-01T09:00:00.000Z');
     setMilestonePercent(p, m.id, 30, PM, '2026-10-11T09:00:00.000Z');
-    const watch = milestoneWatch(p, m, day('2026-10-12'));
-    assert.deepEqual({ level: watch.level, say: watch.say }, { level: 'behind', say: 'Due in 9 days, 30% done, expected 55%. At the current rate it finishes about 25 days late.' });
+    const watch = milestoneWatch(p, m, day('2026-10-11'));
+    assert.deepEqual({ level: watch.level, say: watch.say }, { level: 'behind', say: 'Due in 10 days, 30% done, expected 50%. At the current rate it finishes about 25 days late.' });
   });
 });
 
@@ -171,12 +209,12 @@ describe('the project as a whole', () => {
     // One point in ten days: ninety-eight more take 980 days from 11 October 2026.
     setMilestonePercent(p, frame.id, 1, PM, '2026-10-01T09:00:00.000Z');
     setMilestonePercent(p, frame.id, 2, PM, '2026-10-11T09:00:00.000Z');
-    const watch = scheduleWatch(p, day('2026-10-12'));
+    const watch = scheduleWatch(p, day('2026-10-11'));
     assert.equal(watch.projectedCompletion, '2029-06-17');
     assert.equal(watch.extensionLikely, true);
     assert.match(watch.say!, /^Planned completion 2027-03-31\. At the current rate, about \d+ days later\.$/);
     assert.deepEqual(
-      scheduleAlerts(p, day('2026-10-12')).map((c) => [c.key, c.title]),
+      scheduleAlerts(p, day('2026-10-11')).map((c) => [c.key, c.title]),
       [
         [`slip:${frame.id}:2027-03-31`, 'Frame is likely to finish late'],
         ['eot:2027-03-31', 'Extension of time likely'],
@@ -188,7 +226,7 @@ describe('the project as a whole', () => {
     const { p, plinth } = twoMilestones();
     setMilestonePercent(p, plinth.id, 10, PM, '2026-10-01T09:00:00.000Z');
     setMilestonePercent(p, plinth.id, 30, PM, '2026-10-11T09:00:00.000Z');
-    const watch = scheduleWatch(p, day('2026-10-12'));
+    const watch = scheduleWatch(p, day('2026-10-11'));
     // The frame has no rate, so it is taken at its planned date.
     assert.deepEqual({ projected: watch.projectedCompletion, extension: watch.extensionLikely }, { projected: '2027-03-31', extension: false });
   });

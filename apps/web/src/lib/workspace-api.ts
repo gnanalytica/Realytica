@@ -116,7 +116,7 @@ export const workspaceApi = {
     request<{ project: DdProject }>(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'DELETE' }),
 
   importSchedule: (projectId: string, input: { file: File } | { text: string }) => {
-    type Imported = { project: DdProject; added: number; updated: number; unchanged: number; skipped: ScheduleSkippedRow[] };
+    type Imported = { project: DdProject; added: number; updated: number; unchanged: number; skipped: ScheduleSkippedRow[]; notes: string[] };
     if ('file' in input) {
       const body = new FormData();
       body.append('file', input.file);

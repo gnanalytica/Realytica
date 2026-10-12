@@ -63,7 +63,7 @@ const WORKBOOK_AT_MOST_BYTES = 4 * 1024 * 1024;
  * for itself: a file can say anything about its own size. The zip's index is
  * walked with every offset checked, as `docx-outline` walks a Word file's.
  */
-function workbookMayBeOpened(zip: Buffer): void {
+export function workbookMayBeOpened(zip: Buffer): void {
   const tooLarge = () => new QuestionnaireTooLarge('That workbook is too large to open as a questionnaire: its sheets hold more than 4 MB. Save the sheet of questions as a file of its own and send that.');
   // End of central directory: the last 22 bytes, plus up to 64 KB of comment.
   let end = -1;
