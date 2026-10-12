@@ -890,7 +890,16 @@ export class Store {
     // reports to revisit — is worked out before the write, so it is saved
     // with the change that caused it.
     const raised = new Map<string, ProjectAlert[]>();
+    // Who a filing or a decision concerns is written with it too, and what is due to leave the app is taken (`tell.ts`).
+    const tell = changed.length ? await import('./tell') : undefined;
+    const told = new Map<string, import('./tell').TellOut[]>();
     for (const project of changed) {
+      try {
+        const due = tell!.tellOnSave(project);
+        if (due.length) told.set(project.id, due);
+      } catch (err) {
+        console.warn(`[store] could not work out who to tell on ${project.id}: ${(err as Error).message}`);
+      }
       try {
         evaluateRevisits(project);
         const fresh = syncAlerts(project);
@@ -978,6 +987,10 @@ export class Store {
         const fresh = raised.get(project.id);
         if (fresh) await notifyRaised(project, fresh);
       }
+    }
+    for (const project of changed) {
+      const due = told.get(project.id);
+      if (due) await tell!.sendTold(project, due);
     }
   }
 

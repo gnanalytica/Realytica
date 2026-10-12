@@ -42,7 +42,7 @@ type Rec = Record<string, unknown>;
 const isRec = (value: unknown): value is Rec => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The parts of a project that are not the record a message changes: what was said, the trail of it, the clock, and what is worked out from the rest. */
-const NOT_THE_RECORD = new Set(['conversation', 'audit', 'updatedAt', 'lastUndo', 'health', 'alerts']);
+const NOT_THE_RECORD = new Set(['conversation', 'audit', 'updatedAt', 'lastUndo', 'health', 'alerts', 'tell']);
 /** A key that says when something was last touched and nothing of what it holds. */
 const CLOCK_KEYS = new Set(['updatedAt']);
 /** How far down plain fields are told apart below a record. Past this a value is one thing, put back whole. */
