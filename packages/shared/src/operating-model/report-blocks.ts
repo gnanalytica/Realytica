@@ -46,6 +46,7 @@ import { CAPTURE_PURPOSE_LABEL } from './capture';
 import { RISK_LABEL, observationStatement, observations, projectPhotos } from './observation-table';
 import { ANSWER_SOURCE_LABEL, questionStatus, questionnairesOf } from './questionnaire';
 import { remedialCostSummary } from './remedial';
+import { frozenFieldBlock, isFieldSource, isFrozenFieldBlock, resolveFieldBlock } from './report-fields';
 import { REQUIREMENT_STATUS_LABEL, requirementSheet } from './requirement-sheet';
 import { VISIT_LIMITATION_LABEL } from './site-visit';
 import { ENVIRONMENTAL_CONDITION_CAVEAT, ENVIRONMENTAL_CONDITION_LABEL, ricsConditionRating } from './standards';
@@ -90,6 +91,9 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'status_changed',
   'status_waiting',
   'status_next',
+  'fields',
+  'field_table',
+  'field_chart',
 ] as const;
 
 export function isReportBoundSource(value: unknown): value is ReportBoundSourceKind {
@@ -119,6 +123,9 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   status_changed: 'Status: what changed',
   status_waiting: 'Status: waiting, and on whom',
   status_next: 'Status: what comes next',
+  fields: 'Fields',
+  field_table: 'A table of fields',
+  field_chart: 'A chart of fields',
 };
 
 export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
@@ -143,6 +150,9 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   status_changed: 'What happened in the period: papers filed and read, values accepted, decisions, actions done and overdue, approvals that moved, findings raised. Each line with the record behind it.',
   status_waiting: 'What waits now and on whom: overdue and undated actions, decisions still to be made, cards and values nobody has accepted, papers asked for.',
   status_next: 'What has a date ahead of it: actions due, approvals running out, papers promised, milestones planned.',
+  fields: 'The fields named, each with where it stands and where its value came from. A value nobody has accepted prints as waiting.',
+  field_table: 'A table field, or the records of a set that repeats, with the columns chosen.',
+  field_chart: 'A chart of one column of a table or of a set that repeats. Only figures that stand are drawn.',
 };
 
 /* ==================================================================== */
@@ -174,6 +184,8 @@ function inScope(project: DdProject, assessmentIds: string[] | undefined): (ids:
 export function resolveReportBlock(project: DdProject, block: ReportBlock): ResolvedReportBlock {
   const source = block.source;
   if (block.origin === 'authored' || !source) {
+    // A block detached from fields keeps the table, the chart and the footnotes it had that day.
+    if (isFrozenFieldBlock(block)) return frozenFieldBlock(block);
     return { lines: block.text ? block.text.split('\n').filter(Boolean) : [], recordIds: [] };
   }
   const scoped = inScope(project, source.assessmentIds);
@@ -505,6 +517,12 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
     case 'status_next':
       return resolveStatusBlock(project, block);
 
+    // The three that read fields are read by the code that prints a field.
+    case 'fields':
+    case 'field_table':
+    case 'field_chart':
+      return resolveFieldBlock(project, source);
+
     case 'changes_since_previous': {
       const rows = project.assessments.filter((a) => a.priorAssessmentId);
       if (!rows.length) return { lines: [], recordIds: [], note: 'No assessment on this file supersedes an earlier one.' };
@@ -535,7 +553,7 @@ export function isLiveBlock(block: ReportBlock): boolean {
  * two is not hidden either; see `reportDrift`.
  */
 export function readReportBlock(project: DdProject, block: ReportBlock, frozen: boolean): ResolvedReportBlock {
-  if (frozen && block.frozen) return { lines: block.frozen, recordIds: block.frozenRecordIds ?? [], table: block.frozenTable };
+  if (frozen && block.frozen) return isFieldSource(block.source?.kind) ? frozenFieldBlock(block) : { lines: block.frozen, recordIds: block.frozenRecordIds ?? [], table: block.frozenTable };
   return resolveReportBlock(project, block);
 }
 

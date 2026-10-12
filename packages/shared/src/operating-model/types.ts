@@ -228,7 +228,9 @@ export type ReportKind =
   /** The financial report: valuation, questions answered, findings, documents. */
   | 'financial_dd'
   /** What changed over a period, what is waiting and on whom, and what comes next. See `status-report.ts`. */
-  | 'status';
+  | 'status'
+  /** One function's report, laid out by a template declared beside its fields. See `report-fields.ts`. */
+  | 'function';
 
 export type ReportStatus = 'draft' | 'generated' | 'reviewed' | 'issued' | 'superseded' | 'archived';
 
@@ -504,6 +506,35 @@ export interface FieldSet {
    * department's own facts about a party sit on the one party record.
    */
   extends?: string;
+  /** The reports this set's function hands over, each an ordered list of sections. See `report-fields.ts`. */
+  reports?: FieldReportTemplate[];
+}
+
+/**
+ * One section of a function's report.
+ *
+ * `fields` prints named fields with where each came from. `table` prints a
+ * table field, `records` the records of a set that repeats, `chart` draws
+ * one of either. `note` is a place for a person's own words, capped.
+ * `register` is a reading of the project's registers, as any report has. A
+ * field named by its key alone is a field of the set the template sits on.
+ */
+export type FieldReportSection =
+  | { heading: string; fields: Array<string | FieldAddress>; layout?: 'list' | 'table' }
+  | { heading: string; table: string | FieldAddress; columns?: string[] }
+  | { heading: string; records: string; columns?: string[] }
+  | { heading: string; chart: { of: string | FieldAddress | { records: string }; x: string; y: string; mark?: 'bar' | 'line' } }
+  | { heading: string; note: { maxLength: number; hint?: string } }
+  | { heading: string; register: ReportBoundSource };
+
+/** A report a function hands over: its sections in order. A person may then arrange them. */
+export interface FieldReportTemplate {
+  /** Never reused: a report made from it keeps this. */
+  id: string;
+  title: string;
+  /** The function it is of. Left out on a template declared on a field set, which is its set's. */
+  fn?: string;
+  sections: FieldReportSection[];
 }
 
 /** Where a field's value stands with a person. */
@@ -1305,6 +1336,8 @@ export interface GeneratedReport {
   body: ReportBody;
   generatedAt: string;
   generatedBy: string;
+  /** On a function's report: the template it was laid out from. */
+  templateId?: string;
   reviewer?: string;
   /**
    * Who signed it out, as they sign, and in what capacity. Set when the
@@ -1347,7 +1380,13 @@ export type ReportBoundSourceKind =
   /** The three sections of a status report: what changed in a period, what is waiting, what comes next. */
   | 'status_changed'
   | 'status_waiting'
-  | 'status_next';
+  | 'status_next'
+  /** Named fields, each with its standing and where its value came from. */
+  | 'fields'
+  /** A table field, or the records of a set that repeats, with chosen columns. */
+  | 'field_table'
+  /** A chart drawn from a table field or a set that repeats. */
+  | 'field_chart';
 
 /**
  * What a bound block asks the registers for.
@@ -1374,6 +1413,20 @@ export interface ReportBoundSource {
   to?: string;
   /** For a section of a status report: its lines as code wrote them, with no model's wording laid over them. */
   plain?: boolean;
+  /** `fields`: the fields printed, in order. With `from` and `to` and none named: every field decided in that period. */
+  addresses?: FieldAddress[];
+  /** `fields`: a table (the default) or a list of lines. */
+  layout?: 'list' | 'table';
+  /** `field_table`, `field_chart`: the table field read. */
+  address?: FieldAddress;
+  /** `field_table`, `field_chart`: the set that repeats read in place of a table field, by its id. */
+  records?: string;
+  /** `field_table`: the columns printed, by key. All of a table's, or a record's title and summary fields, when absent. */
+  columns?: string[];
+  /** `field_chart`: the column along the foot and the column drawn, by key. */
+  x?: string;
+  y?: string;
+  mark?: 'bar' | 'line';
 }
 
 export type ReportBlockOrigin = 'derived' | 'authored';
@@ -1408,6 +1461,15 @@ export interface ReportBlock {
   frozenRecordIds?: string[];
   /** The table as it stood when the report was issued. */
   frozenTable?: ReportTable;
+  /** On a block that reads fields: its footnotes, chart and note as they stood when it was issued or detached. */
+  frozenFootnotes?: ReportFootnote[];
+  frozenChart?: ReportChart;
+  frozenNote?: string;
+  /** What a detached block read, so putting it back reads the same fields. */
+  detachedSource?: ReportBoundSource;
+  /** On a person's note: the most characters it may hold, and what it is for. Set by the template that placed it. */
+  cap?: number;
+  hint?: string;
   /**
    * Set when a bound block was turned into prose, with the source it came
    * from. Recorded rather than erased: a reader is entitled to know that a
@@ -1452,7 +1514,23 @@ export interface ReportTable {
     evidenceIds?: string[];
     /** The row's words are a model's wording of the line code wrote. */
     worded?: boolean;
+    /** The field the row prints, on a block that reads fields. */
+    address?: FieldAddress;
   }>;
+}
+
+/** Where a printed value came from: a paper and its page, a public source and the day it was read, a person and the day. */
+export interface ReportFootnote {
+  n: number;
+  text: string;
+}
+
+/** A chart a block draws from fields. The same figures are in the block's table. */
+export interface ReportChart {
+  mark: 'bar' | 'line';
+  x: string;
+  y: string;
+  points: Array<{ label: string; value: number; said: string }>;
 }
 
 export interface ResolvedReportBlock {
@@ -1461,6 +1539,9 @@ export interface ResolvedReportBlock {
   table?: ReportTable;
   /** Said instead of inventing a line, when the registers have nothing to show. */
   note?: string;
+  /** On a block that reads fields: where each value came from, numbered as the values mark them. */
+  footnotes?: ReportFootnote[];
+  chart?: ReportChart;
 }
 
 export interface ReportBody {
@@ -2818,4 +2899,6 @@ export interface GenerateReportInput {
   /** For a status report: the period it covers, and who it is written for. The week so far when left out. */
   period?: { from: string; to: string };
   audience?: string;
+  /** For a function's report: the template it is laid out from, by id. */
+  template?: string;
 }

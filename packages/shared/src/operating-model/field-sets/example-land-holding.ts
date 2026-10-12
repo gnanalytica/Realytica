@@ -7,11 +7,32 @@
  * catalog for Title: a department's own file replaces it.
  */
 
-import type { FieldSet } from '../types';
+import type { FieldReportTemplate, FieldSet } from '../types';
 
 const FN = 'legal.title';
 const HOLDING = 'legal.title.holding';
 const OWNERS = 'legal.title.owners';
+const PARCEL_CHECK = 'land_site.parcel_identification';
+
+/**
+ * The report Title hands over on the holding: sections in order, each a
+ * block of fields, a table, a chart, or a place for a person's own words
+ * with a cap. Declared on the set below (`reports`); a person may then move,
+ * add and remove sections on the report itself.
+ */
+const HOLDING_REPORT: FieldReportTemplate = {
+  id: 'legal.title.holding.report',
+  title: 'Land holding report',
+  sections: [
+    { heading: 'The holding', fields: ['tenure', 'extent', 'extent_on_check', 'owners_count', 'value_at_rate', 'standing', 'seller', 'possession_verified'] },
+    { heading: 'Owners', records: OWNERS, columns: ['name', 'share_pct', 'capacity', 'guardian'] },
+    { heading: 'Shares held', chart: { of: { records: OWNERS }, x: 'name', y: 'share_pct' } },
+    { heading: 'Chain of title', table: 'chain' },
+    { heading: 'Conversion', fields: ['conversion_order_no', 'conversion_date'] },
+    { heading: 'The parcel check', fields: ['survey_numbers', 'extent_title', 'extent_survey', 'extent_khata'].map((field) => ({ fn: FN, set: PARCEL_CHECK, field })) },
+    { heading: 'Opinion on the holding', note: { maxLength: 800, hint: 'The signer’s view of the holding, in their own words.' } },
+  ],
+};
 
 export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
   {
@@ -19,6 +40,7 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
     fn: FN,
     title: 'Land holding',
     v: 1,
+    reports: [HOLDING_REPORT],
     optionSets: [
       {
         id: 'land_tenure',

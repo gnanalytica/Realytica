@@ -25,7 +25,6 @@ import {
   generateReport,
   recordAuditEvent,
   recordCheckFields,
-  editReportBlock,
   insertReportBlock,
   retuneReportBlock,
   patchAsset,
@@ -33,6 +32,7 @@ import {
   updateEvidenceStatus,
 } from './operations';
 import { logSiteEntry } from './progress';
+import { fieldSourceHeading } from './report-fields';
 import { siteEntryInput, type SiteEntryProposal } from './site-notes';
 import { LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
@@ -846,37 +846,21 @@ export function commitChatProposal(
     if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
     recordId = outcome.check.id;
   } else if (item.kind === 'edit_report') {
-    // A report edit card carries exactly one of three shapes, and none of
-    // them can write a bound block's text — the model may add prose, rewrite
-    // prose it or somebody else wrote, or change what a block asks the
-    // registers for. `editReportBlock` refuses the fourth case outright.
+    // A report edit card comes from a model, and a model writes no words into
+    // a report. What it may offer is what a section reads: the fields or the
+    // register behind it. Accepted, that changes a section's reading or adds
+    // a section a person then arranges. A card that carries words (one raised
+    // before this rule) is refused when somebody accepts it.
     const reportId = String(payload.reportId);
     const blockId = typeof payload.blockId === 'string' ? payload.blockId : '';
-    if (payload.source && blockId) {
-      const record = retuneReportBlock(project, reportId, blockId, payload.source as ReportBoundSource, actor);
-      recordId = record.id;
-    } else if (blockId) {
-      const record = editReportBlock(
-        project,
-        reportId,
-        blockId,
-        { text: typeof payload.text === 'string' ? payload.text : undefined, heading: typeof payload.heading === 'string' ? payload.heading : undefined },
-        actor,
-      );
-      recordId = record.id;
-    } else {
-      const record = insertReportBlock(
-        project,
-        reportId,
-        {
-          heading: typeof payload.heading === 'string' ? payload.heading : undefined,
-          text: typeof payload.text === 'string' ? payload.text : '',
-          afterBlockId: typeof payload.afterBlockId === 'string' ? payload.afterBlockId : undefined,
-        },
-        actor,
-      );
-      recordId = record.id;
+    if (typeof payload.text === 'string' || !payload.source) {
+      throw new Error('A report’s words are written by a person, not taken from a card. Write the note on the report yourself; a card may only change what a section reads.');
     }
+    const source = payload.source as ReportBoundSource;
+    const record = blockId
+      ? retuneReportBlock(project, reportId, blockId, source, actor)
+      : insertReportBlock(project, reportId, { heading: fieldSourceHeading(source), source, afterBlockId: typeof payload.afterBlockId === 'string' ? payload.afterBlockId : undefined }, actor);
+    recordId = record.id;
   } else if (item.kind === 'run_valuation') {
     const record = createValuationRun(project, actor);
     recordId = record.id;

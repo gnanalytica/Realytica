@@ -265,7 +265,7 @@ import { MEMORY_LINT_WAIT_MS, inTime, memoryAnswer, memoryContext, memoryUnder }
 import { readLint } from '../graph/mem/read';
 import { keepThought } from '../graph/mem/thought';
 import { CHAT_MESSAGE_AT_MOST, heldFile, meetingAsk, meetingTurn, meetingWords, readDroppedNotes } from '../meetings';
-import { wordStatusReport } from '../status-report';
+import { statusWordingOn, wordStatusReport } from '../status-report';
 import { planTurnFor, runPlan, stopPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
 import { runPlanStep, type PlanSetting, type StepDone } from '../runs/plan-steps';
 import { planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
@@ -2009,13 +2009,13 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
 
   /*
    * A status report just written is put in plainer words where a model is
-   * set up. The model is sent the report's lines and nothing else, and its
+   * set up and the firm has turned model wording on. The model is sent the report's lines and nothing else, and its
    * wording is kept only where it holds to the line it was made for: see
    * `wordStatusReport`. The reply in the chat is code's own either way.
    */
   const wrote = result.commands.includes('Wrote a status report') ? result.navigations.find((go) => go.target === 'reports')?.item : undefined;
-  if (wrote && capability.available && canvas === project) {
-    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: 'Putting the report in plain words' } satisfies AgentStep });
+  if (wrote && capability.available && canvas === project && statusWordingOn(project)) {
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: 'A model is putting the report in plain words' } satisfies AgentStep });
     await wordStatusReport(project, wrote);
   }
   // A letter, a reply, a request for information or minutes the rules just made: its body is written and the reply says how it stands. See `routes/outgoing.ts`.
@@ -4562,11 +4562,18 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const report = generateReport(
-    project,
-    { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req), period: parsed.data.period, audience: parsed.data.audience },
-    actorOf(req),
-  );
+  let report: ReturnType<typeof generateReport>;
+  try {
+    report = generateReport(
+      project,
+      { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req), period: parsed.data.period, audience: parsed.data.audience, template: parsed.data.template },
+      actorOf(req),
+    );
+  } catch (err) {
+    // A function's report names its template; one that is not declared is said, not written as an empty paper.
+    res.status(400).json({ error: err instanceof Error ? err.message : 'That report could not be written.' });
+    return;
+  }
   await persistPaneWrite(req, project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
   res.status(201).json(report);
 });

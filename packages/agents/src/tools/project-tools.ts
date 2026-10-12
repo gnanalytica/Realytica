@@ -28,7 +28,9 @@ import {
   findCheck,
   formatFieldValue,
   isBlank,
+  fieldSourceFault,
   isLiveBlock,
+  isReportBoundSource,
   openReportOf,
   reportIsFrozen,
   reportSummaryLine,
@@ -97,6 +99,7 @@ import {
   type ChatProposalKind,
   type CockpitPathExtra,
   type DdProject,
+  type ReportBoundSource,
   type ProjectCockpitPane,
   type ProjectGraphRagSource,
   type ScopeKey,
@@ -338,13 +341,18 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
   }
   if (kind === 'edit_report') {
     if (!str('reportId')) return 'edit_report needs reportId.';
-    const hasText = typeof payload.text === 'string';
     const hasSource = typeof payload.source === 'object' && payload.source !== null;
-    if (!hasText && !hasSource) return 'edit_report needs text (a paragraph) or source (what a live section reads).';
     // The rule this whole feature turns on, checked before a card is even
-    // queued: a model may add prose or retune a section, never restate what
-    // the registers say in its own words.
-    if (hasSource && !str('blockId')) return 'Changing what a section reads needs the blockId of that section.';
+    // queued: a report's words are a person's and its readings are code's.
+    // What a model may offer is what a section reads, never a sentence.
+    if (typeof payload.text === 'string' || typeof payload.heading === 'string') {
+      return 'A report’s words are written by a person, never by a model. Propose source instead: what a section reads, such as {kind:"fields", addresses:[{fn,set,field}]} with addresses from get_fields. A person arranges it and writes any note.';
+    }
+    if (!hasSource) return 'edit_report needs source: what a section reads. With blockId it changes that section; without, it adds a section.';
+    const source = payload.source as ReportBoundSource;
+    if (!isReportBoundSource(source.kind)) return `"${String(source.kind)}" is not something a report section can read.`;
+    const fault = fieldSourceFault(source);
+    if (fault) return fault;
   }
   if (kind === 'add_decision' && (!str('title') || !str('decisionType') || !str('decisionMaker') || !str('rationale'))) {
     return 'add_decision needs title, decisionType, decisionMaker, rationale.';
@@ -823,7 +831,7 @@ export function createProjectTools(
   const getReport = betaTool({
     name: 'get_report',
     description:
-      'Read a report before proposing any edit to it: status, whether it is frozen, and every block with its id, heading, whether it is live (reads the registers) or authored prose, and what it currently says. With no reportId this reads the open one. Call before propose_update kind=edit_report — a live block will refuse text.',
+      'Read a report before proposing any edit to it: status, whether it is frozen, and every block with its id, heading, whether it is live (reads the registers or the fields) or a person’s words, and what it currently says. With no reportId this reads the open one. Call before propose_update kind=edit_report. You never write a report’s words.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -879,7 +887,7 @@ export function createProjectTools(
         blockCount: report.body.blocks.length,
         note: frozen
           ? 'This report is frozen: it was issued and must not change. Propose generate_report for a fresh one rather than editing this.'
-          : 'A live block reads the registers and refuses text. To change what it says, propose edit_report {reportId, blockId, source}. To add prose, propose {reportId, text, heading?, afterBlockId?}. To rewrite prose somebody wrote, propose {reportId, blockId, text} and say what you changed.',
+          : 'A report’s words are a person’s: you write none of them. To change what a section reads, propose edit_report {reportId, blockId, source}. To add a section, propose {reportId, source, afterBlockId?}; for fields the source is {kind:"fields", addresses:[{fn,set,field}]}, {kind:"field_table", address or records, columns?} or {kind:"field_chart", address or records, x, y}.',
       });
     },
   });
@@ -1141,7 +1149,7 @@ export function createProjectTools(
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, source, and blockId to change what that section reads or afterBlockId to add a section after one}. source says what the section reads: a register kind, or fields as {kind:"fields", addresses:[{fn,set,field}]}, {kind:"field_table", address|records, columns?} or {kind:"field_chart", address|records, x, y}. You never write a report’s words: no text and no heading. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,

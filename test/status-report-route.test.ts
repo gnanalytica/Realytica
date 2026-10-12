@@ -5,7 +5,9 @@
  * `status-report.test.ts` proves the rules. This proves they are wired: that
  * "write the status …" in the chat writes a draft among the project's
  * reports and says it short with a way to open it; that no model words the
- * reply; that a model is asked once to reword the report's lines, is sent
+ * reply; that no model words the report either unless the firm has turned
+ * that on, and that turning it off takes the wording away; that with it on
+ * a model is asked once to reword the report's lines, is sent
  * the lines and nothing else, and has its wording kept only where it holds
  * to the line; that a section can be put back to plain words through the
  * route that tunes a section; and that the route that makes a report takes
@@ -127,6 +129,27 @@ after(() => {
   for (const name of ['REALYTICA_AUTH_MODE', 'REALYTICA_BASE_URL', 'REALYTICA_API_KEY', 'REALYTICA_MODEL_JUDGMENT', 'REALYTICA_DATA_DIR']) delete process.env[name];
 });
 
+const setting = (body?: unknown) => realFetch(`${base}/api/report-settings`, body === undefined ? undefined : { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+describe('a status report on a firm that has not turned model wording on', () => {
+  it('is written by code alone: no model is asked, and nothing says one was', async () => {
+    assert.deepEqual(await (await setting()).json(), { modelWording: false, maySet: true }, 'off until somebody turns it on');
+    const answer = await say('Write the status report for September 2026 for the owner');
+    const report = stored().reports.at(-1)!;
+    assert.equal(report.title, 'Status report for the owner — Northfield corner plot, September 2026');
+    assert.equal(asked, 0);
+    assert.ok(!answer.steps.some((label) => /plain words/.test(label)));
+    assert.ok(report.body.blocks.every((block) => block.wording === undefined));
+    stored().reports.length = 0;
+  });
+
+  it('is turned on by the firm, and only with a plain yes or no', async () => {
+    assert.equal((await setting({ modelWording: 'yes' })).status, 400);
+    assert.deepEqual(await (await setting({ modelWording: true })).json(), { modelWording: true, maySet: true });
+    assert.deepEqual(await (await setting()).json(), { modelWording: true, maySet: true });
+  });
+});
+
 describe('a status report asked for in the chat', () => {
   let report: GeneratedReport;
 
@@ -144,7 +167,7 @@ describe('a status report asked for in the chat', () => {
         'Every line in it names the record or paper behind it. Read it, edit it and issue it under your name.',
       ].join('\n'),
     );
-    assert.ok(answer.steps.includes('Putting the report in plain words'));
+    assert.ok(answer.steps.includes('A model is putting the report in plain words'), 'and where a model words it, the step says a model does');
   });
 
   it('has a model reword its lines once, from the lines alone, and keeps only the wording that holds', () => {
@@ -170,6 +193,20 @@ describe('a status report asked for in the chat', () => {
     const block = stored().reports[0]!.body.blocks[0]!;
     assert.deepEqual([block.source!.plain, block.source!.from, block.source!.to], [true, '2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z'], 'and kept the period');
     assert.equal(resolveReportBlock(stored(), block).table!.rows[0]!.cells[1], 'Filed and read: “Khata certificate” · accepted: Extent per khata 11,850 sq ft.');
+  });
+});
+
+describe('turning model wording off', () => {
+  it('takes the wording off a report not yet issued, and no model is asked again', async () => {
+    const changed = stored().reports[0]!.body.blocks[0]!;
+    assert.equal(changed.wording?.length, 1);
+    assert.deepEqual(await (await setting({ modelWording: false })).json(), { modelWording: false, maySet: true });
+    assert.equal(stored().reports[0]!.body.blocks[0]!.wording, undefined);
+    const before = asked;
+    const answer = await say('Write the status report for September 2026 for the lender');
+    assert.match(answer.assistantTurn.text, /status report for the lender/);
+    assert.equal(asked, before);
+    assert.ok(!answer.steps.some((label) => /plain words/.test(label)));
   });
 });
 
