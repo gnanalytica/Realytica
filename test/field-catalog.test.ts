@@ -112,9 +112,13 @@ describe('the catalog', () => {
   it('gives a function that is not built a page as soon as it has a sheet', () => {
     assert.equal(functionHasSheets('legal.title'), true);
     assert.deepEqual(functionSections('legal.title'), ['standing', 'sheet', 'chain', 'checks', 'documents', 'connections']);
-    assert.equal(functionHasSheets('legal.contracts'), false);
-    assert.equal(menuFunctions('legal').find((fn) => fn.key === 'legal.contracts')!.built, false);
-    assert.deepEqual(functionSections('legal.contracts'), []);
+    // Contracts is not built, and had no page until Law declared its sheets: now it is those sheets and its documents.
+    assert.equal(functionHasSheets('legal.contracts', buildFieldCatalog([])), false);
+    assert.equal(functionHasSheets('legal.contracts'), true);
+    assert.equal(menuFunctions('legal').find((fn) => fn.key === 'legal.contracts')!.built, true);
+    assert.deepEqual(functionSections('legal.contracts'), ['sheet', 'documents']);
+    // Which functions still have no sheet changes as catalogs arrive, so it is asked and not named: each stays one card.
+    for (const fn of menuFunctions('legal')) if (!fn.built) assert.deepEqual(functionSections(fn.key), []);
   });
 });
 

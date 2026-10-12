@@ -25,6 +25,7 @@ export interface FieldStatePack {
 }
 
 const KRERA = 'Karnataka Real Estate Regulatory Authority (General) Regulations, 2022';
+const KRERA_RULES = 'Karnataka Real Estate (Regulation and Development) Rules, 2017';
 
 export const FIELD_STATE_PACKS: Record<string, FieldStatePack> = {
   karnataka: {
@@ -37,6 +38,10 @@ export const FIELD_STATE_PACKS: Record<string, FieldStatePack> = {
       rera_architect_progress: { number: 'Form 5', signedBy: 'Architect', when: 'Quarterly', source: KRERA, verified: false },
       rera_engineer_cost: { number: 'Form 6', signedBy: 'Engineer', when: 'Quarterly', source: KRERA, verified: false },
       rera_annual_audit: { number: 'Form 7', signedBy: 'Chartered accountant', when: 'Annual', source: KRERA, verified: false },
+      rera_application: { number: 'Form A', signedBy: 'Promoter', when: 'Registration', source: KRERA_RULES, verified: false },
+      rera_declaration: { number: 'Form B', signedBy: 'Promoter', when: 'Registration', source: KRERA_RULES, verified: false },
+      rera_alteration_consent: { number: 'Form M', signedBy: 'Allottee', when: 'A change to the sanctioned plan', source: KRERA, verified: false },
+      rera_account_change: { number: 'Forms B1 to B4', signedBy: 'Promoter', when: 'A change of the designated account', source: KRERA, verified: false },
     },
   },
   'tamil nadu': { state: 'Tamil Nadu', groundSqft: 2400, forms: {} },
