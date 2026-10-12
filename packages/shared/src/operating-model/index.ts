@@ -85,6 +85,7 @@ export * from './team';
 export * from './vault';
 export * from './engineering';
 export * from './questionnaire';
+export * from './template-fill';
 export * from './observations';
 export * from './graph-impact';
 export * from './mem-delta';

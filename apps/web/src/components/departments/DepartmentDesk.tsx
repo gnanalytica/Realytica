@@ -25,6 +25,7 @@ import { ChecklistCard } from './ChecklistCard';
 import { EngineeringDashboard, RequirementSheetCard, SupportingDocumentsCard } from './EngineeringDesk';
 import { ObservationsCard } from './ObservationsCard';
 import { QuestionnaireCard } from './QuestionnaireCard';
+import { TemplateCard } from './TemplateCard';
 import { SitePhotos } from './SitePhotos';
 import { WorkstreamChecks, WorkstreamDocuments } from './WorkstreamRecords';
 
@@ -194,6 +195,7 @@ export function DepartmentDesk({
       ) : null}
 
       {step === 'questions' ? <QuestionnaireCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} /> : null}
+      {step === 'questions' ? <TemplateCard project={project} department={department} onOpenDocument={nav.openDocument} /> : null}
 
       {step === 'site' && nav.openSite ? (
         <>

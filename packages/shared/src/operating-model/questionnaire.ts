@@ -658,7 +658,7 @@ export function removeQuestion(project: DdProject, questionnaireId: string, ques
 /* ==================================================================== */
 
 /** What a question asks for, told by its words, and the values on file that answer it. */
-const ASKED_FOR: Array<{ asks: RegExp; keys: string[] }> = [
+export const ASKED_FOR: ReadonlyArray<{ asks: RegExp; keys: string[] }> = [
   { asks: /\bsurvey\s*(?:no|nos|number|numbers)\b|\bsy\.?\s*nos?\b/i, keys: ['survey_numbers'] },
   { asks: /\b(?:extent|site area|plot area|land area|area of the (?:land|site|plot|property))\b/i, keys: ['extent_title', 'extent_khata', 'extent_survey'] },
   { asks: /\b(?:owner|owned by|in whose name|title holder)\b/i, keys: ['owner'] },

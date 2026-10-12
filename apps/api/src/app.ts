@@ -15,6 +15,7 @@ import { librariesRouter, projectsRouter } from './routes/projects';
 import { projectMemoryRouter } from './routes/project-memory';
 import { reviewLibraryRouter, reviewTableRouter } from './routes/review-table';
 import { outgoingRouter } from './routes/outgoing';
+import { templatesRouter } from './routes/templates';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
@@ -168,6 +169,7 @@ app.use('/api/projects/:projectId/review', reviewTableRouter);
 // What goes out: making a draft or asking for its body asks a model once, so those two are budgeted as a model call is.
 app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method === 'POST' && (req.path === '/' || req.path.endsWith('/write')) ? limits.expensive(req, res, next) : next()));
 app.use('/api/projects/:projectId/outgoing', outgoingRouter);
+app.use('/api/projects/:projectId/templates', (req, res, next) => (req.method === 'POST' ? limits.upload(req, res, next) : next()), templatesRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);
