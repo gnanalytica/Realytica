@@ -10,6 +10,8 @@ import { EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AnswerBody } from './chat/AnswerBody';
 import { ChatList } from './chat/ChatList';
 import { boxAfter, composing, leftOutSaid, pasteIsFiles, stageFiles } from './chat/carried-question';
+import { ReadAloud } from './chat/ReadAloud';
+import { SpeakControls } from './chat/SpeakControls';
 import { PlanCard, openPlans, stopPlan, type PlanShown } from './chat/PlanCard';
 import { TurnChanges } from './chat/TurnChanges';
 import { chatDay, chatRows, followsThread, liveChatId, liveTurns, planDrawnUnder, planStepAsks } from './chat/chat-list';
@@ -385,6 +387,8 @@ function TurnBubble({
           </p>
         ) : null}
         <TurnTime at={turn.at} spend={turn.spend} />
+        {/* Read to the person only when they ask: nothing in the chat plays by itself. */}
+        <ReadAloud text={turn.text} nodes={nodes} rests={turn.restsOn} />
         {extras}
       </div>
     </div>
@@ -1320,6 +1324,8 @@ export function CopilotPanel({
             {allowAttach ? (
               <AttachControls disabled={!takesFiles} voice={voice} onCheckVoice={onCheckVoice} staged={files} onAdd={(next) => addFiles(next, true)} />
             ) : null}
+            {/* The words go into the box above and wait there for the person to send. */}
+            <SpeakControls text={text} onText={setText} disabled={disabled || busy} />
             <span className="flex-1" />
             {onOpenCommands && !compact ? (
               <span className="hidden pr-1 text-[11px] text-ink-muted sm:inline">
