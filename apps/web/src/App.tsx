@@ -41,6 +41,7 @@ import WorkstreamPage from './pages/projects/departments/WorkstreamPage';
  */
 const About = lazy(() => import('./pages/About'));
 const Members = lazy(() => import('./pages/Members'));
+const Integrations = lazy(() => import('./pages/Integrations'));
 const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Requests = lazy(() => import('./pages/Requests'));
@@ -180,6 +181,7 @@ export default function App() {
           <Route path="observability" element={<Navigate to="/portfolio" replace />} />
           <Route path="prompts" element={<Navigate to="/portfolio" replace />} />
           <Route path="members" element={<Members />} />
+          <Route path="integrations" element={<Integrations />} />
           <Route path="about" element={<About />} />
           <Route path="*" element={<Navigate to="/portfolio" replace />} />
         </Route>

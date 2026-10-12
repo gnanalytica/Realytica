@@ -32,6 +32,7 @@ import { automationsEnabled } from './flows/enabled';
 import { membersRouter } from './routes/members';
 import { deviceClaimRouter, devicesRouter } from './routes/devices';
 import { cronRouter } from './routes/cron';
+import { integrationsRouter } from './routes/integrations';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -122,6 +123,8 @@ app.use('/api/projects/:projectId', (req: Request, _res: Response, next: NextFun
 app.use('/api/devices/claim', limits.pairing, deviceClaimRouter);
 // The daily timer is the platform calling, not a person: it carries its own secret instead of a sign-in.
 app.use('/api/cron', cronRouter);
+// What an API key reads (`/api/v1`), a key refused everywhere else, and the firm's Integrations page behind its own sign-in check.
+app.use('/api', integrationsRouter);
 app.use('/api', authenticate);
 
 /*

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Home, Inbox, Info, Users, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Home, Inbox, Info, Plug, Users, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 
@@ -39,6 +39,7 @@ const PROJECT_ITEMS: NavItem[] = [
 const MORE_ITEMS: NavItem[] = [
   { to: '/work', label: 'My work', icon: CircleCheck, end: false },
   { to: '/libraries', label: 'Libraries', icon: BookOpen, end: false },
+  { to: '/integrations', label: 'Integrations', icon: Plug, end: false },
   { to: '/about', label: 'About', icon: Info, end: false },
 ];
 

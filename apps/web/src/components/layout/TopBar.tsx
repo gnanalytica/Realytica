@@ -30,6 +30,7 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/portfolio')) return 'Portfolio';
   if (pathname.startsWith('/requests')) return 'Requests';
   if (pathname.startsWith('/members')) return 'People';
+  if (pathname.startsWith('/integrations')) return 'Integrations';
   if (pathname.startsWith('/work')) return 'My work';
   return 'Realytica';
 }

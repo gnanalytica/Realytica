@@ -979,6 +979,8 @@ export class Store {
         if (fresh) await notifyRaised(project, fresh);
       }
     }
+    // And tell the systems that asked to be told: what the trail and the alerts of each written project say just happened.
+    if (changed.length) finishAfterReply(import('./integrations/observe').then(({ observeSaved }) => observeSaved(changed)));
   }
 
   /**
