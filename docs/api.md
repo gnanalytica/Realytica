@@ -113,6 +113,12 @@ Deciding where a value read off a document stands needs a lead or signer in the 
 | POST | `/projects/:id/evidence/:evidenceId/facts/review` | `{ keys, decision: "accept" \| "reject" \| "reopen", edit?, take? }`. The department whose function holds the document. |
 | POST | `/projects/:id/proposals/:proposalId/fields` | `{ keys, decision: "accept" \| "reject", values? }` on a card of check values. The check's department. |
 | POST | `/projects/:id/checks/:checkId/fields/:key/pick` | `{ proposalId }`, or `null` to keep what the check holds. The check's department. |
+| PUT | `/projects/:id/fields/values` | `{ set, record?, values }`. What a person types into a function's sheet. All or nothing. A role that edits in the function's department. |
+| POST | `/projects/:id/fields/decide` | `{ address, decision, value?, pick?, reason?, note? }`. `decision` is `accept`, `keep`, `set_aside`, `dispute`, `not_applicable` or `reopen`. A lead or signer of the function's department, but for `dispute`. |
+| POST | `/projects/:id/fields/accept-paper` | `{ fn, evidenceId }`. Accepts every value one paper offered to a function's sheets, but for the ones a person has to name. |
+| POST | `/projects/:id/fields/records` | `{ set, values }` adds a record to a set that repeats; `{ set, remove }` takes one off its list. |
+| PUT | `/projects/:id/fields/situation` | `{ fn, key, on }`. Puts a situation in play or takes it out. |
+| PUT | `/projects/:id/fields/section` | `{ set, section, reason, note? }`. Marks a section not applicable with one of five reasons, or with `null` asks it again. |
 | POST | `/projects/:id/proposals/:proposalId/accept`, `/set-aside` | The check's department when the card is check values. Any other card: anybody who may write. |
 | POST | `/projects/:id/value/accept`, `/value/set-aside` | `{ ids, record? }`. Finance. |
 | POST | `/projects/:id/comparables/decide` | `{ ids, decision: "accept" \| "reject" }`. Finance. |

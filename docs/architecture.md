@@ -53,6 +53,18 @@ A **project** is one JSON document (`DdProject`, `packages/shared/src/operating-
 
 The rules are in `stage-view.ts`, on top of `departments.ts`, which says the stages each function has work in (`stages` on a workstream: the example project's list, held to the example's spec files by a test) and, more narrowly, what it delivers at each (`deliverables`). The menu follows the first. `menuAt` is a project's menu at a stage. `functionsHoldingRecords` names the functions that already hold the project's records, which `menuAt` keeps on show at the stage the project stands at; it counts what the graph draws a function's `holds`, `certifies` and `assesses` edges from, once in hand, and a test holds it against those edges. `stageInView` is the stage a page opens at: a page that is one function's opens at a stage that function shows at, the project's own first. `placeAtStage` is where the page on screen goes when another stage is picked.
 
+## Fields
+
+Every function keeps fixed, typed fields, declared as data. `docs/fields.md` is the guide for whoever declares them; this is where the parts are.
+
+- **The catalog** (`field-registry.ts`). Every check's fields and every field set under `operating-model/field-sets/` are read through one door, as a `FieldSet` each. A field is named by its address (function, set, field, and the record where the set repeats). A new file of field sets is one line in `field-sets/index.ts`. `catalogFaults` and `catalogLimits` are what `test/field-catalog.test.ts` holds the catalog to.
+- **The engine** (`field-sheets.ts`). `resolveFields` works each field out once, when first asked, after all it reads: a mirror from its owner, a computed field from its formula, a status from its rules, across sets and functions. `readFunctionFields` is a function's page: what needs a person first, then its sheets, its records and the shared records they link to. The writers are `setFieldValues` (a person types), `proposeFieldValues` (a model or a paper offers) and `decideField`.
+- **Standing** (`check-fields.ts`). A value carries its state and where it came from. Only an accepted, typed or assumed value stands (`fieldStands`); `withComputed` and every reader of a check's values leave the rest out, so a proposed value reaches no formula, rule, report, graph node or memory fact.
+- **Units** (`units.ts`), **the rule table** (`rule-tables.ts`, rows in `field-sets/rule-rows.ts`) and **the state pack** (`field-sets/state-packs.ts`) are the one place for a conversion, a figure a law sets, and what differs by state.
+- **On a project.** `fieldSheets` holds each set's values and records by the set's id, and `situations` what is in play. Both are optional, and a project saved without them reads as it did. A check's values stay on the check.
+- **On screen.** `components/CheckFields.tsx` draws every kind, on a check and on a sheet; `components/fields/FieldSheets.tsx` is a function's Sheet part.
+- **Elsewhere.** The graph draws a `field_value` node for each value that stands, keyed by its address, with `same_as` from a mirror to the field it is entered on. Memory tells the same values as facts. A collaborator's copy holds a function's sheets only where their grant reaches the function.
+
 ## Storage
 
 | | Locally | On Vercel |
