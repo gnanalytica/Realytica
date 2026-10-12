@@ -279,11 +279,34 @@ export interface StartCostReportInput {
   to?: string;
   label?: string;
   note?: string;
-  /** Seed rows from the cost register's work packages. Default true. */
+  /** Seed rows from the last issued report, or the cost register's work packages on a first report. Default true. */
   seedPackages?: boolean;
 }
 
-/** Open a draft Cost Report for a month. */
+/** Cost Reports in the order of their periods; two for one period in the order they were started. */
+export const costReportPeriodOrder = (
+  a: Pick<CostReportPeriod, 'from' | 'to' | 'createdAt'>,
+  b: Pick<CostReportPeriod, 'from' | 'to' | 'createdAt'>,
+): number => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.createdAt.localeCompare(b.createdAt);
+
+/** The last Cost Report issued for a period before this one. */
+export function costReportIssuedBefore(
+  project: Pick<DdProject, 'costReports'>,
+  period: Pick<CostReportPeriod, 'from' | 'to' | 'createdAt'> & { id?: string },
+): CostReportPeriod | undefined {
+  return costReportsOf(project)
+    .filter((r) => r.id !== period.id && r.status === 'issued' && costReportPeriodOrder(r, period) < 0)
+    .sort(costReportPeriodOrder)
+    .at(-1);
+}
+
+/**
+ * Open a draft Cost Report for a month. It starts from the package rows of the
+ * last report issued for an earlier period, so nothing has moved until a
+ * figure is changed; the variation log and the typed reasons start empty. A
+ * package taken off the register since is left out. A project's first report
+ * starts from its work packages, with nothing ordered or paid.
+ */
 export function startCostReport(project: DdProject, input: StartCostReportInput, actor: string): CostReportPeriod {
   let from: string;
   let to: string;
@@ -300,7 +323,24 @@ export function startCostReport(project: DdProject, input: StartCostReportInput,
   const label = input.label?.trim() || costReportMonthLabel(from);
   const at = nowIso();
   const rows: CostReportPackageRow[] = [];
-  if (input.seedPackages !== false) {
+  const last = input.seedPackages !== false ? costReportIssuedBefore(project, { from, to, createdAt: at }) : undefined;
+  if (last) {
+    const onRegister = new Set(costRegister(project).workPackages.map((pack) => pack.id));
+    for (const held of last.rows) {
+      // A package taken off the register since is not carried: its row could not be kept in step with one.
+      if (!onRegister.has(held.workPackageId)) continue;
+      rows.push({
+        id: newId('crp'),
+        workPackageId: held.workPackageId,
+        ...(held.code ? { code: held.code } : {}),
+        name: held.name,
+        budget: held.budget,
+        poIssued: held.poIssued,
+        amountPaid: held.amountPaid,
+        anticipatedCost: held.anticipatedCost,
+      });
+    }
+  } else if (input.seedPackages !== false) {
     for (const pack of costRegister(project).workPackages) {
       const budget = pack.budget ?? 0;
       rows.push({

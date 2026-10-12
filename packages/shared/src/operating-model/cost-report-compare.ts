@@ -20,7 +20,7 @@
 
 import type { DdProject } from './types';
 import { billPosition, costRegister, type CostBill } from './cost';
-import { costReportOf, costReportsOf, costReportTotals, type CostReportPackageRow, type CostReportPeriod, type CostReportStatus } from './cost-report';
+import { costReportIssuedBefore, costReportOf, costReportTotals, type CostReportPackageRow, type CostReportPeriod, type CostReportStatus } from './cost-report';
 
 /** The figures of a package row that are compared, by the field that holds each. `variations` is the sum logged against it. */
 export type CostReportFigure = 'budget' | 'poIssued' | 'variations' | 'amountPaid' | 'anticipatedCost';
@@ -303,16 +303,9 @@ export function compareCostReports(previous: CostReportPeriod, current: CostRepo
   };
 }
 
-const periodOrder = (a: CostReportPeriod, b: CostReportPeriod): number =>
-  a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.createdAt.localeCompare(b.createdAt);
-
 /** The report a Cost Report is read against: the last one issued for an earlier period. */
 export function previousCostReport(project: Pick<DdProject, 'costReports'>, reportId: string): CostReportPeriod | undefined {
-  const current = costReportOf(project, reportId);
-  return costReportsOf(project)
-    .filter((r) => r.id !== current.id && r.status === 'issued' && periodOrder(r, current) < 0)
-    .sort(periodOrder)
-    .at(-1);
+  return costReportIssuedBefore(project, costReportOf(project, reportId));
 }
 
 /** What moved on a Cost Report since the one issued before it. Absent when none was. */

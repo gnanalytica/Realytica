@@ -39,7 +39,7 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 
 | Method | Path | |
 |---|---|---|
-| POST | `/cost-reports` | Start a month's Cost Report: `{ month? }` (any day in it; this month when left out) or `{ from, to }`, `label?`, `note?`, `seedPackages?` (rows from the register's work packages unless `false`) |
+| POST | `/cost-reports` | Start a month's Cost Report: `{ month? }` (any day in it; this month when left out) or `{ from, to }`, `label?`, `note?`, `seedPackages?` (unless `false`, rows from the last report issued for an earlier period, or from the register's work packages when there is none) |
 | PATCH | `/cost-reports/:reportId` | `{ note?, photoEvidenceIds? }`, or `{ issue: true }` or `{ reopen: true }` (*decides*) |
 | POST | `/cost-reports/:reportId/packages` | A ledger row: `{ name, code?, workPackageId?, budget?, poIssued?, amountPaid?, anticipatedCost?, note? }` |
 | PATCH, DELETE | `/cost-reports/:reportId/packages/:rowId` | Change or remove a row |
