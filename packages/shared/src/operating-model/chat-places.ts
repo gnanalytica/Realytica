@@ -330,6 +330,7 @@ const CENTRE_NAMES: Record<string, { after: string[]; alone: string[] }> = {
   chain: { after: ['chain'], alone: ['chain of title', 'title chain'] },
   approvals: { after: ['register'], alone: ['approvals register'] },
   progress: { after: ['milestones', 'board', 'site log'], alone: ['milestones', 'site log', 'progress board'] },
+  cost: { after: ['cost report', 'packages'], alone: ['cost report'] },
 };
 
 let VOCABULARY: Map<string, Target[]> | undefined;
