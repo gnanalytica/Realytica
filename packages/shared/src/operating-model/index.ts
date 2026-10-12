@@ -59,6 +59,7 @@ export * from './gis-overlay';
 export * from './revenue-map';
 export * from './project-requests';
 export * from './checklist';
+export * from './outside-replies';
 export * from './portfolio';
 export * from './fact-review';
 export * from './review';

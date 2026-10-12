@@ -677,6 +677,8 @@ export interface EvidenceRecord {
   modelReadVersion?: number;
   /** A photograph chosen to print in the report on its own, beside the ones the observations cite. */
   inReport?: boolean;
+  /** Set while this paper is an outside party's reply nobody has confirmed: it answers no checklist line by its name until a person does. */
+  unconfirmedReply?: { requestId: string; replyId: string };
   createdAt: string;
   updatedAt: string;
   /**
@@ -1961,6 +1963,13 @@ export interface ProjectRequest {
   answeredAt?: string;
   /** The checklist lines one request covers, when it was raised from a checklist: everything one party owes. */
   checklistItemIds?: string[];
+  /** Where it was last sent, when it left the firm by email or WhatsApp (`outside-replies.ts`). */
+  recipientEmail?: string;
+  recipientPhone?: string;
+  /** Each sending of it to the outside party, with the reference a reply names it by. */
+  dispatches?: import('./outside-replies').RequestDispatch[];
+  /** What the outside party sent back. A reply answers nothing until a person confirms it. */
+  replies?: import('./outside-replies').RequestReply[];
   createdAt: string;
   createdBy: string;
   updatedAt: string;

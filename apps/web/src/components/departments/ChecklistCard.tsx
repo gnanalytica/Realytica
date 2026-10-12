@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronRight, Circle, Clock, ListChecks, Plus, Send, Uplo
 import {
   CHECKLIST_NO_PACKAGE,
   REQUIREMENT_STATUS_LABEL,
+  checklistLinesReplied,
   checklistSheet,
   departmentRole,
   roleCanEdit,
@@ -173,8 +174,10 @@ function LineForm({ start, busy, submit, onSubmit, children }: { start: Checklis
 
 const draftOf = (item: ChecklistItem): ChecklistDraft => ({ title: item.title, stage: item.stage, package: item.package, owedBy: item.owedBy, note: item.note });
 
-function sublineOf(line: ChecklistLine): { text: string; critical?: boolean } {
+function sublineOf(line: ChecklistLine, repliedBy?: string): { text: string; critical?: boolean } {
   if (line.status === 'received') return { text: line.fileName ?? 'Marked in hand' };
+  // The party replied to the request. The line is in hand once a person confirms the reply, on the request.
+  if (line.status === 'requested' && repliedBy) return { text: `Answered by ${repliedBy} · waiting for a person to confirm` };
   if (line.status === 'requested') return { text: `Asked of ${line.askedOf ?? 'someone'}${line.dueAt ? ` · due ${day(line.dueAt)}${line.overdue ? ' (overdue)' : ''}` : ''}`, critical: line.overdue };
   return { text: line.item.owedBy ? `Owed by ${line.item.owedBy}` : 'Nobody named' };
 }
@@ -205,6 +208,7 @@ export function ChecklistCard({
   const me = useMe();
   const mayEdit = me ? me.role !== 'collaborator' && roleCanEdit(departmentRole(project, { email: me.email, workspaceRole: me.role }, department)) : false;
   const sheet = useMemo(() => checklistSheet(project, { department }), [project, department]);
+  const replied = useMemo(() => checklistLinesReplied(project), [project]);
   const documents = useMemo(() => project.evidence.filter((e) => e.attachments.length > 0 && !e.supersededById), [project.evidence]);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -361,7 +365,7 @@ export function ChecklistCard({
                         <ul className="divide-y divide-hairline">
                           {pack.lines.map((line) => {
                             const { item } = line;
-                            const sub = sublineOf(line);
+                            const sub = sublineOf(line, replied.get(item.id)?.reply.fromName ?? replied.get(item.id)?.reply.from);
                             const editing = mayEdit && open === item.id;
                             return (
                               <li key={item.id} className="px-3 py-2">

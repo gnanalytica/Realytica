@@ -32,6 +32,7 @@ import { automationsEnabled } from './flows/enabled';
 import { membersRouter } from './routes/members';
 import { deviceClaimRouter, devicesRouter } from './routes/devices';
 import { cronRouter } from './routes/cron';
+import { outsideHooksRouter, outsideRouter } from './routes/outside';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -55,6 +56,8 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(securityHeaders());
 app.use(cors(corsPolicy()));
+// What an email or WhatsApp provider posts: ahead of the JSON reader, since each is checked by a signature over its bytes, and ahead of sign-in.
+app.use('/api/outside/hooks', outsideHooksRouter);
 app.use(express.json({ limit: '2mb' }));
 
 /*
@@ -169,6 +172,7 @@ app.use('/api/projects/:projectId/review', reviewTableRouter);
 app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method === 'POST' && (req.path === '/' || req.path.endsWith('/write')) ? limits.expensive(req, res, next) : next()));
 app.use('/api/projects/:projectId/outgoing', outgoingRouter);
 app.use('/api/projects', projectsRouter);
+app.use('/api/outside', outsideRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);
 app.use('/api/telemetry', needs('admin'), telemetryRouter);
