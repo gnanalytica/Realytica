@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
-import { DEPARTMENT_SHORT, SEVERITY_LABEL, SWEEP_KIND_LABEL, SWEEP_LIMITS, cockpitPath, type DdProject, type SweepSource, type SweepSuggestion } from '@realytica/shared';
+import { DEPARTMENT_SHORT, SEVERITY_LABEL, SWEEP_KIND_LABEL, SWEEP_LIMITS, type DdProject, type SweepSource, type SweepSuggestion } from '@realytica/shared';
 import { dailyReviewApi, type DailyReviewShown } from '../../lib/daily-review-api';
 import { date } from '../../lib/format';
 import { severityTone } from '../../pages/projects/shared';
@@ -200,22 +198,8 @@ export function DailyReviewList({ project, onAccepted, onOpenPaper }: { project:
   );
 }
 
-/** The count on Overview: one line that opens the list. Nothing while there is nothing to decide. */
-export function DailyReviewCount({ project }: { project: DdProject }) {
-  const navigate = useNavigate();
-  const [shown] = useDailyReview(project.id);
-  const count = shown?.suggestions.length ?? 0;
-  if (!count) return null;
-  return (
-    <button
-      type="button"
-      onClick={() => navigate(cockpitPath(project.id, 'risks'))}
-      className="group/open flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl bg-surface px-3 py-2 text-left text-[13px] ring-1 ring-inset ring-ai/25 transition-colors duration-quick ease-state hover:bg-sunken/60 coarse:min-h-11"
-    >
-      <AiMark size="xs" />
-      <span className="font-medium text-ink">Suggested by the daily review</span>
-      <span className="min-w-0 flex-1 font-mono tabular-nums text-ink">{count}</span>
-      <ArrowRight size={12} className="shrink-0 text-ink-muted transition-transform duration-quick ease-state group-hover/open:translate-x-0.5" aria-hidden />
-    </button>
-  );
+/** How many suggestions wait on a project, for Overview's first line. Nothing for somebody working from a grant. */
+export function useDailyReviewCount(projectId: string): number {
+  const [shown] = useDailyReview(projectId);
+  return shown?.suggestions.length ?? 0;
 }

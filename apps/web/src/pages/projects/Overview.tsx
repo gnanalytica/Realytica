@@ -7,8 +7,6 @@ import {
   PROJECT_HEALTH_LABEL,
   QUICK_VERDICT_LABEL,
   approvalsRegister,
-  checklistFunction,
-  checklistOwed,
   cockpitPath,
   currentCertified,
   openAlerts,
@@ -21,18 +19,16 @@ import {
   type DepartmentDefinition,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { useMe } from '../../lib/useMe';
 import { AnimatedNumber, EASE_ENTER, Reveal, Stagger, StaggerItem, motion } from '../../lib/motion';
 import { Badge, Disclosure, Skeleton, TONE_FILL, cn, toneText } from '../../components/ui/kit';
-import { KeyFacts, NeedsDecisionCard, OpenItemsCard, RecentActivityCard } from '../../components/project/ProjectPanels';
-import { ProjectRequestsCard } from '../../components/project/RequestsPanel';
+import { KeyFacts, RecentActivityCard } from '../../components/project/ProjectPanels';
+import { ProjectBrief } from '../../components/project/ProjectBrief';
 import { EngagementsCard } from '../../components/project/EngagementEditor';
 import { VERDICT_TONE } from '../../components/departments/QuickAssessmentCard';
 import { DEPARTMENT_ICON } from '../../components/departments/icons';
 import { DepartmentsControl } from '../../components/departments/DepartmentsControl';
 import { StageRecord } from '../../components/departments/StageTimeline';
 import { DepartmentFigures } from '../../components/analytics/DepartmentFigures';
-import { DailyReviewCount } from '../../components/review/DailyReview';
 import { WORKSTREAM_PANE } from './cockpit/rail';
 import { formatWhen, healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -194,42 +190,6 @@ function AcrossProject({ project }: { project: DdProject }) {
 }
 
 /**
- * The papers still owed on the project's checklists, in a line: how many, and
- * the parties that owe the most. It opens the list, on the Documents part of
- * the department that holds the most of them.
- *
- * A checklist names every party the firm is chasing, so a collaborator is
- * handed none of it and sees no line.
- */
-function PapersOwed({ project }: { project: DdProject }) {
-  const navigate = useNavigate();
-  const me = useMe();
-  const owed = useMemo(() => checklistOwed(project), [project]);
-  if (!me || me.role === 'collaborator' || !owed.total) return null;
-  const fn = owed.department ? checklistFunction(owed.department) : undefined;
-  const most = owed.parties.slice(0, 3);
-  const others = owed.parties.length - most.length;
-  return (
-    <button
-      type="button"
-      disabled={!fn}
-      onClick={() => fn && navigate(cockpitPath(project.id, 'workstream', { workstream: fn, section: 'documents' }))}
-      className="group/open flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-xl bg-surface px-3 py-2 text-left text-[13px] ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick ease-state hover:bg-sunken/60 coarse:min-h-11"
-    >
-      <span className="font-medium text-ink">Papers owed</span>
-      <span className="font-mono tabular-nums text-ink">
-        {owed.owed}
-        <span className="text-ink-muted"> / {owed.total}</span>
-      </span>
-      <span className="min-w-0 flex-1 text-ink-secondary">
-        {owed.owed ? `${most.map((party) => `${party.owedBy ?? 'Nobody named'} ${party.lines.length}`).join(' · ')}${others > 0 ? ` · ${others} more` : ''}` : 'All in hand'}
-      </span>
-      <ArrowRight size={12} className="shrink-0 self-center text-ink-muted transition-transform duration-quick ease-state group-hover/open:translate-x-0.5" aria-hidden />
-    </button>
-  );
-}
-
-/**
  * The project's one summary page: where it stands in each department, the
  * engagements commissioned on it, where the site is, and what needs a person.
  *
@@ -258,16 +218,16 @@ export default function Overview() {
         </div>
       </Reveal>
 
+      {/* What a person asks first, before where the file stands: what needs them, what is slipping, what is owed, what changed in cost. */}
+      <Reveal>
+        <ProjectBrief project={project} />
+      </Reveal>
+
       <Reveal delay={0.05}>
         <StandingFigures project={project} />
       </Reveal>
 
       <AcrossProject project={project} />
-
-      <PapersOwed project={project} />
-
-      <DailyReviewCount project={project} />
-      <DepartmentFigures project={project} />
 
       <StageRecord project={project} stage={stage} onChanged={setProject} onOpen={(kind, id) => onOpenFromStage?.(kind, id)} />
 
@@ -293,6 +253,9 @@ export default function Overview() {
         </div>
       ) : null}
 
+      <DepartmentFigures project={project} />
+      <DepartmentFigures project={project} />
+
       <DepartmentsControl project={project} onSaved={setProject} />
 
       <EngagementsCard project={project} onSaved={setProject} />
@@ -306,13 +269,7 @@ export default function Overview() {
         <KeyFacts project={project} />
       </div>
 
-      <ProjectRequestsCard project={project} onChanged={setProject} />
-
-      <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
-        <OpenItemsCard project={project} />
-        <NeedsDecisionCard project={project} />
-        <RecentActivityCard project={project} />
-      </div>
+      <RecentActivityCard project={project} />
 
       {project.stageHistory.length > 1 ? (
         <Disclosure title="Stage history" count={project.stageHistory.length}>

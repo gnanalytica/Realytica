@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Mail, Send, X } from 'lucide-react';
-import { cockpitPath, requestAgeDays, requestStanding, type DdProject, type EvidenceRecord, type ProjectRequest, type ProjectRequestStatus } from '@realytica/shared';
+import { cockpitPath, requestStanding, type EvidenceRecord, type ProjectRequest, type ProjectRequestStatus } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../ui/kit';
+import { Badge, Button, Field, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../ui/kit';
 import { Avatar, dayMonth } from './ProjectPanels';
 import { RequestReplies, SendRequestModal } from './RequestOutside';
 
@@ -37,15 +37,66 @@ function statusBadge(row: RequestRow) {
   if (request.status === 'cancelled') return <Badge tone="neutral">Cancelled</Badge>;
   if (request.status === 'draft') return <Badge tone="neutral">Draft</Badge>;
   // The other side replied. It is answered once a person here confirms the reply.
-  if (requestStanding(request) === 'replied') return <Badge tone="info">Answered · to confirm</Badge>;
+  if (requestStanding(request) === 'replied') return <Badge tone="info">To confirm</Badge>;
   if (overdue) return <Badge tone="critical">Overdue since {dayMonth(request.dueAt)}</Badge>;
   if (request.dueAt) return <Badge tone={ageDays >= 5 ? 'warning' : 'neutral'}>Due {dayMonth(request.dueAt)}</Badge>;
   return <Badge tone={ageDays >= 5 ? 'warning' : 'neutral'}>{ageDays} day{ageDays === 1 ? '' : 's'}</Badge>;
 }
 
 /**
+ * The things done to one request that is still open: send it by email or
+ * WhatsApp, mark a draft sent, mark it answered, or cancel it.
+ */
+export function RequestActions({ projectId, request, onChanged }: { projectId: string; request: ProjectRequest; onChanged: () => void | Promise<void> }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function set(status: ProjectRequestStatus) {
+    setBusy(true);
+    try {
+      await api.patchRequest(projectId, request.id, { status });
+      await onChanged();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not update the request', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (request.status !== 'sent' && request.status !== 'draft') return null;
+  return (
+    <div className="flex shrink-0 flex-wrap gap-1">
+      <Button size="sm" icon={<Mail size={13} />} disabled={busy} onClick={() => setSending(true)}>
+        Send
+      </Button>
+      {request.status === 'draft' ? (
+        <Button size="sm" icon={<Send size={13} />} loading={busy} onClick={() => void set('sent')}>
+          Mark sent
+        </Button>
+      ) : (
+        <Button size="sm" icon={<Check size={13} />} loading={busy} onClick={() => void set('answered')}>
+          Mark answered
+        </Button>
+      )}
+      <button
+        type="button"
+        aria-label="Cancel the request"
+        title="Cancel the request"
+        disabled={busy}
+        onClick={() => void set('cancelled')}
+        className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11"
+      >
+        <X size={14} />
+      </button>
+      <SendRequestModal projectId={projectId} request={sending ? request : null} onClose={() => setSending(false)} onSent={onChanged} />
+    </div>
+  );
+}
+
+/**
  * Requests as a list a lead can work through: who owes what, since when, and
- * the two things done to a request, marking it answered or sending a draft.
+ * the things done to a request, sending it, marking it answered, confirming a reply.
  */
 export function RequestList({
   rows,
@@ -58,44 +109,24 @@ export function RequestList({
   showProject?: boolean;
   empty?: string;
 }) {
-  const toast = useToast();
-  const [busy, setBusy] = useState<string | null>(null);
-  const [sending, setSending] = useState<RequestRow | null>(null);
-
-  async function set(row: RequestRow, status: ProjectRequestStatus) {
-    setBusy(row.request.id);
-    try {
-      await api.patchRequest(row.projectId, row.request.id, { status });
-      await onChanged();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not update the request', 'critical');
-    } finally {
-      setBusy(null);
-    }
-  }
-
   if (rows.length === 0) return <p className="py-2 text-[13px] text-ink-muted">{empty ?? 'No requests.'}</p>;
   return (
-    <>
     <ul className="divide-y divide-hairline">
       {rows.map((row) => {
         const r = row.request;
-        const open = r.status === 'sent' || r.status === 'draft';
         return (
           <li key={r.id} className="flex flex-wrap items-center gap-3 py-2.5">
             <Avatar name={r.recipient} />
             <div className="min-w-0 flex-1 basis-40">
-              <p className="text-[13px] font-medium text-ink">
-                {r.title}
-              </p>
+              <p className="text-[13px] font-medium text-ink">{r.title}</p>
               <p className="text-[12px] text-ink-secondary">
                 {r.recipient}
                 {r.recipientRole ? ` · ${r.recipientRole}` : ''}
-                {r.sentAt ? ` · sent ${dayMonth(r.sentAt)}` : ''}
+                {r.sentAt ? ` · asked ${dayMonth(r.sentAt)}` : ''}
                 {showProject && row.projectName ? (
                   <>
                     {' · '}
-                    <Link to={cockpitPath(row.projectId, 'overview')} className="text-brand hover:underline">
+                    <Link to={cockpitPath(row.projectId, 'papers')} className="text-brand hover:underline">
                       {row.projectName}
                     </Link>
                   </>
@@ -103,39 +134,12 @@ export function RequestList({
               </p>
             </div>
             {statusBadge(row)}
-            {open ? (
-              <div className="flex shrink-0 gap-1">
-                <Button size="sm" icon={<Mail size={13} />} disabled={busy === r.id} onClick={() => setSending(row)}>
-                  Send
-                </Button>
-                {r.status === 'draft' ? (
-                  <Button size="sm" icon={<Send size={13} />} loading={busy === r.id} onClick={() => void set(row, 'sent')}>
-                    Mark sent
-                  </Button>
-                ) : (
-                  <Button size="sm" icon={<Check size={13} />} loading={busy === r.id} onClick={() => void set(row, 'answered')}>
-                    Answered
-                  </Button>
-                )}
-                <button
-                  type="button"
-                  aria-label="Cancel the request"
-                  title="Cancel the request"
-                  disabled={busy === r.id}
-                  onClick={() => void set(row, 'cancelled')}
-                  className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ) : null}
+            <RequestActions projectId={row.projectId} request={r} onChanged={onChanged} />
             <RequestReplies projectId={row.projectId} request={r} onChanged={onChanged} />
           </li>
         );
       })}
     </ul>
-    <SendRequestModal projectId={sending?.projectId ?? ''} request={sending?.request ?? null} onClose={() => setSending(null)} onSent={onChanged} />
-    </>
   );
 }
 
@@ -279,55 +283,5 @@ export function NewRequestModal({
         </p>
       </div>
     </Modal>
-  );
-}
-
-/** What this file is waiting on, and from whom — lives on the project overview. */
-export function ProjectRequestsCard({
-  project,
-  onChanged,
-}: {
-  project: DdProject;
-  onChanged: (project: DdProject) => void;
-}) {
-  const [creating, setCreating] = useState(false);
-  const rows = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const order = { sent: 0, draft: 1, answered: 2, cancelled: 3 } as const;
-    return (project.requests ?? [])
-      .map((request) => ({
-        projectId: project.id,
-        request,
-        ageDays: requestAgeDays(request),
-        overdue: request.status === 'sent' && Boolean(request.dueAt && request.dueAt < today),
-      }))
-      .sort((a, b) => order[a.request.status] - order[b.request.status] || b.ageDays - a.ageDays);
-  }, [project]);
-  const refresh = async () => onChanged(await api.getProject(project.id));
-  const open = rows.filter((r) => r.request.status === 'sent').length;
-  return (
-    <Card>
-      <CardHeader
-        icon={<Send size={15} className="text-brand" />}
-        title="Requests"
-        subtitle={rows.length ? `${open} waiting on others · ${rows.length} in all` : 'Nothing asked for yet'}
-        info="A request linked to an expected document closes itself when that document is filed."
-        action={
-          <Button size="sm" variant="primary" icon={<Send size={13} />} onClick={() => setCreating(true)}>
-            New request
-          </Button>
-        }
-      />
-      <CardBody>
-        <RequestList rows={rows} onChanged={refresh} empty="Record who was asked for what, and by when." />
-      </CardBody>
-      <NewRequestModal
-        open={creating}
-        onClose={() => setCreating(false)}
-        projects={[{ id: project.id, name: project.name, evidence: project.evidence }]}
-        initialProjectId={project.id}
-        onCreated={refresh}
-      />
-    </Card>
   );
 }

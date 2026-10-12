@@ -18,6 +18,7 @@ import { EvidenceRegister, FindingRegister } from './pages/projects/Registers';
 import SiteView from './pages/projects/SiteView';
 import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions';
 import Reports, { OutgoingRedirect } from './pages/projects/Reports';
+import PapersOwed from './pages/projects/PapersOwed';
 import ReviewTable from './pages/projects/ReviewTable';
 import Valuation from './pages/projects/Valuation';
 import AiDrafts from './pages/projects/AiDrafts';
@@ -157,6 +158,7 @@ export default function App() {
             <Route path="dd/:ddId" element={<DdWorkspace />} />
             <Route path="dd/:ddId/scopes/:scopeId" element={<ScopeWorkspace />} />
             <Route path="evidence" element={<EvidenceRegister />} />
+            <Route path="papers" element={<PapersOwed />} />
             <Route path="visits" element={<SiteView />} />
             {/* The page is called Site everywhere it is linked, so that is the
                 address people bookmark and paste. Without this it fell through

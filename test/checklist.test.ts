@@ -242,14 +242,14 @@ describe('a checklist on a project', () => {
     // The same again, retyped, is still the same list.
     assert.deepEqual(addChecklistItems(p, 'legal', [{ title: 'annexure  a.1' }, { title: 'SCHEDULE 1.2' }], 'tester').skipped, 2);
     // And one cannot be renamed into the other.
-    assert.throws(() => patchChecklistItem(p, p.checklist![0]!.id, { title: 'Annexure A.2' }, 'tester'), /already on the checklist/);
+    assert.throws(() => patchChecklistItem(p, p.checklist![0]!.id, { title: 'Annexure A.2' }, 'tester'), /already on the list/);
   });
 
   it('is added to, renamed, moved and cut a line at a time', () => {
     const p = project();
     const item = addChecklistItem(p, 'construction', { title: ' Facade details ', stage: 'Schematic', owedBy: 'Facade consultant' }, 'tester');
     assert.equal(item.title, 'Facade details');
-    assert.throws(() => addChecklistItem(p, 'construction', { title: 'facade details', stage: 'schematic' }, 'tester'), /already on the checklist/);
+    assert.throws(() => addChecklistItem(p, 'construction', { title: 'facade details', stage: 'schematic' }, 'tester'), /already on the list/);
     assert.throws(() => addChecklistItem(p, 'construction', { title: ' ' }, 'tester'), /Name the paper/);
 
     patchChecklistItem(p, item.id, { title: 'Facade details and samples', stage: 'Detailed design', package: 'Facade', owedBy: null, note: 'Mock-up photographs too' }, 'tester');
@@ -261,12 +261,12 @@ describe('a checklist on a project', () => {
 
     // A rename may not make two lines one.
     const other = addChecklistItem(p, 'construction', { title: 'Lift shaft details', stage: 'Detailed design', package: 'Facade' }, 'tester');
-    assert.throws(() => patchChecklistItem(p, other.id, { title: 'Facade details and samples' }, 'tester'), /already on the checklist/);
+    assert.throws(() => patchChecklistItem(p, other.id, { title: 'Facade details and samples' }, 'tester'), /already on the list/);
     assert.equal(other.title, 'Lift shaft details');
 
     removeChecklistItem(p, item.id, 'tester');
     assert.deepEqual(p.checklist!.map((i) => i.title), ['Lift shaft details']);
-    assert.throws(() => removeChecklistItem(p, item.id, 'tester'), /not on the checklist/);
+    assert.throws(() => removeChecklistItem(p, item.id, 'tester'), /not on the list/);
     assert.ok(p.audit.some((a) => a.entityType === 'checklist' && a.action === 'checklist_removed'));
   });
 

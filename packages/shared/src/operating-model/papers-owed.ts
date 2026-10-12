@@ -1,0 +1,280 @@
+/**
+ * Papers owed: one list of every paper a project is waiting for.
+ *
+ * Three records say a paper is owed. The checks expect documents
+ * (`requirement-sheet.ts`), a list somebody sent names more (`checklist.ts`),
+ * and a request asks a named person for something (`project-requests.ts`).
+ * They stay three records. On screen they are one list, by who owes the
+ * paper, each line standing in one of four places: not asked, asked for,
+ * answered and waiting for a person to confirm, or in hand.
+ *
+ * Nothing is stored here and nothing is changed: every line is read off the
+ * project as it was handed over, so somebody working from a grant is shown
+ * what their copy holds and no more.
+ */
+import { checklistSheet, type ChecklistLine } from './checklist';
+import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, type DepartmentKey } from './departments';
+import { checklistLinesReplied, repliesWaiting } from './outside-replies';
+import { requirementSheet, type RequirementItem } from './requirement-sheet';
+import type { DdProject, ProjectRequest } from './types';
+
+export type PaperStanding = 'not_asked' | 'asked' | 'answered' | 'in_hand';
+
+/** The four places a paper stands, in the words the screens use. */
+export const PAPER_STANDING_LABEL: Record<PaperStanding, string> = {
+  not_asked: 'Not asked',
+  asked: 'Asked for',
+  answered: 'To confirm',
+  in_hand: 'In hand',
+};
+
+/** The page's own name, wherever a screen, the chat or a link says it. */
+export const PAPERS_OWED = 'Papers owed';
+
+export interface PaperLine {
+  key: string;
+  /** Which record says it is owed: a document the checks expect, a line of a loaded list, or a request by itself. */
+  from: 'checks' | 'list' | 'request';
+  title: string;
+  department?: DepartmentKey;
+  /** Who owes it: the party a list names, else whoever was asked. */
+  party?: string;
+  standing: PaperStanding;
+  /** Where it sits in its own record: the discipline, or the stage and package. */
+  where?: string;
+  askedOn?: string;
+  dueAt?: string;
+  overdue?: boolean;
+  /** The open request it rides on. */
+  request?: ProjectRequest;
+  /** Who answered, where a reply waits. */
+  repliedBy?: string;
+  evidenceId?: string;
+  fileName?: string;
+  requirement?: RequirementItem;
+  checklist?: ChecklistLine;
+}
+
+export interface PaperParty {
+  key: string;
+  /** Absent: nobody is named for these. */
+  party?: string;
+  lines: PaperLine[];
+  notAsked: number;
+  asked: number;
+  answered: number;
+  overdue: number;
+}
+
+export interface PapersOwed {
+  /** What is not in hand, by who owes it. Whoever has a reply waiting comes first, nobody named last. */
+  parties: PaperParty[];
+  inHand: PaperLine[];
+  total: number;
+  owed: number;
+  notAsked: number;
+  asked: number;
+  answered: number;
+  overdue: number;
+}
+
+function fold(text: string | undefined): string {
+  return (text ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+const RANK: Record<PaperStanding, number> = { answered: 0, asked: 1, not_asked: 2, in_hand: 3 };
+
+function replied(request: ProjectRequest | undefined): string | undefined {
+  const reply = request ? repliesWaiting(request)[0] : undefined;
+  return reply ? (reply.fromName ?? reply.from) : undefined;
+}
+
+/**
+ * Every paper the project waits for, as one list.
+ *
+ * `department` narrows it to one desk: the documents its checks expect and
+ * the list loaded there. A request tied to neither belongs to no desk, so it
+ * shows only on the whole project's list.
+ *
+ * `outside` is somebody working from a grant. They are shown how a paper
+ * stood before: asked for or not, in hand or not. Who answered the firm, and
+ * that a reply waits, is the firm's own, as are its requests made by hand.
+ */
+export function papersOwed(project: DdProject, opts: { department?: DepartmentKey; now?: string; outside?: boolean } = {}): PapersOwed {
+  const today = (opts.now ?? new Date().toISOString()).slice(0, 10);
+  const requests = new Map((project.requests ?? []).map((request) => [request.id, request]));
+  const lines: PaperLine[] = [];
+  const claimed = new Set<string>();
+
+  for (const department of opts.department ? [opts.department] : DEPARTMENT_KEYS) {
+    for (const group of requirementSheet(project, { department, now: opts.now }).groups) {
+      for (const item of group.items) {
+        const request = item.requestId ? requests.get(item.requestId) : undefined;
+        if (request) claimed.add(request.id);
+        const repliedBy = opts.outside ? undefined : replied(request);
+        lines.push({
+          key: `c:${department}:${group.key}:${item.evidenceId ?? item.title}`,
+          from: 'checks',
+          title: item.title,
+          department,
+          standing: item.status === 'received' ? 'in_hand' : item.status === 'pending' ? 'not_asked' : repliedBy ? 'answered' : 'asked',
+          where: group.label,
+          requirement: item,
+          ...(item.askedOf ? { party: item.askedOf } : {}),
+          ...(request?.sentAt ? { askedOn: request.sentAt } : {}),
+          ...(item.dueAt ? { dueAt: item.dueAt } : {}),
+          ...(item.overdue && !repliedBy ? { overdue: true } : {}),
+          ...(request ? { request } : {}),
+          ...(repliedBy ? { repliedBy } : {}),
+          ...(item.status === 'received' && item.evidenceId ? { evidenceId: item.evidenceId } : {}),
+          ...(item.fileName ? { fileName: item.fileName } : {}),
+        });
+      }
+    }
+  }
+
+  const answeredLines = checklistLinesReplied(project);
+  for (const stage of checklistSheet(project, opts).stages) {
+    for (const pack of stage.packages) {
+      for (const line of pack.lines) {
+        const request = line.requestId ? requests.get(line.requestId) : undefined;
+        if (request) claimed.add(request.id);
+        const reply = opts.outside ? undefined : answeredLines.get(line.item.id)?.reply;
+        const party = line.item.owedBy ?? line.askedOf;
+        const where = [line.item.stage, line.item.package].filter(Boolean).join(' · ');
+        lines.push({
+          key: `l:${line.item.id}`,
+          from: 'list',
+          title: line.item.title,
+          department: line.item.department,
+          standing: line.status === 'received' ? 'in_hand' : line.status === 'pending' ? 'not_asked' : reply ? 'answered' : 'asked',
+          checklist: line,
+          ...(where ? { where } : {}),
+          ...(party ? { party } : {}),
+          ...(request?.sentAt ? { askedOn: request.sentAt } : {}),
+          ...(line.dueAt ? { dueAt: line.dueAt } : {}),
+          ...(line.overdue && !reply ? { overdue: true } : {}),
+          ...(request ? { request } : {}),
+          ...(reply ? { repliedBy: reply.fromName ?? reply.from } : {}),
+          ...(line.evidenceId ? { evidenceId: line.evidenceId } : {}),
+          ...(line.fileName ? { fileName: line.fileName } : {}),
+        });
+      }
+    }
+  }
+
+  if (!opts.department && !opts.outside) {
+    // A request that covers checklist lines, or answers a document a check expects, is already a line above.
+    const expected = new Set(lines.filter((line) => line.from === 'checks' && line.requirement?.evidenceId).map((line) => line.requirement!.evidenceId!));
+    for (const request of project.requests ?? []) {
+      if (request.status === 'cancelled' || claimed.has(request.id) || request.checklistItemIds?.length) continue;
+      if (request.evidenceId && expected.has(request.evidenceId)) continue;
+      const repliedBy = replied(request);
+      // A paper that was answered is waiting on the firm, not on them: it is not overdue.
+      const overdue = request.status === 'sent' && !repliedBy && Boolean(request.dueAt && request.dueAt.slice(0, 10) < today);
+      lines.push({
+        key: `r:${request.id}`,
+        from: 'request',
+        title: request.title,
+        party: request.recipient,
+        standing: request.status === 'answered' ? 'in_hand' : request.status === 'draft' ? 'not_asked' : repliedBy ? 'answered' : 'asked',
+        request,
+        ...(request.recipientRole ? { where: request.recipientRole } : {}),
+        ...(request.sentAt ? { askedOn: request.sentAt } : {}),
+        ...(request.dueAt ? { dueAt: request.dueAt } : {}),
+        ...(overdue ? { overdue: true } : {}),
+        ...(repliedBy ? { repliedBy } : {}),
+        ...(request.answeredByEvidenceId ? { evidenceId: request.answeredByEvidenceId } : {}),
+      });
+    }
+  }
+
+  const parties = new Map<string, PaperParty>();
+  for (const line of lines) {
+    if (line.standing === 'in_hand') continue;
+    const key = fold(line.party);
+    const held = parties.get(key) ?? { key, party: line.party, lines: [], notAsked: 0, asked: 0, answered: 0, overdue: 0 };
+    parties.set(key, held);
+    held.lines.push(line);
+    if (line.standing === 'not_asked') held.notAsked += 1;
+    if (line.standing === 'asked') held.asked += 1;
+    if (line.standing === 'answered') held.answered += 1;
+    if (line.overdue) held.overdue += 1;
+  }
+  for (const party of parties.values()) party.lines.sort((a, b) => RANK[a.standing] - RANK[b.standing] || Number(Boolean(b.overdue)) - Number(Boolean(a.overdue)));
+  const owing = [...parties.values()].sort((a, b) => Number(!a.party) - Number(!b.party) || b.answered - a.answered || b.overdue - a.overdue || b.lines.length - a.lines.length || a.key.localeCompare(b.key));
+  const owed = owing.reduce((n, party) => n + party.lines.length, 0);
+  return {
+    parties: owing,
+    inHand: lines.filter((line) => line.standing === 'in_hand'),
+    total: lines.length,
+    owed,
+    notAsked: owing.reduce((n, party) => n + party.notAsked, 0),
+    asked: owing.reduce((n, party) => n + party.asked, 0),
+    answered: owing.reduce((n, party) => n + party.answered, 0),
+    overdue: owing.reduce((n, party) => n + party.overdue, 0),
+  };
+}
+
+/** The list in a line, for a subtitle: "8 owed · 1 to confirm · 4 asked for · 3 not asked · 2 overdue". */
+export function papersOwedSaid(view: Pick<PapersOwed, 'total' | 'owed' | 'notAsked' | 'asked' | 'answered' | 'overdue'>): string {
+  if (!view.total) return 'Nothing asked for yet';
+  if (!view.owed) return `All ${view.total} in hand`;
+  return [`${view.owed} owed`, view.answered ? `${view.answered} to confirm` : '', view.asked ? `${view.asked} asked for` : '', view.notAsked ? `${view.notAsked} not asked` : '', view.overdue ? `${view.overdue} overdue` : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** The parties that owe the most, in a line: "Northgate Builders 4 · Lift vendor 1 · 2 more". */
+export function papersOwedBy(view: Pick<PapersOwed, 'parties'>, most = 3): string {
+  const named = [...view.parties].sort((a, b) => Number(!a.party) - Number(!b.party) || b.lines.length - a.lines.length);
+  const shown = named.slice(0, most).map((party) => `${party.party ?? 'Nobody named'} ${party.lines.length}`);
+  const others = named.length - shown.length;
+  return [...shown, ...(others > 0 ? [`${others} more`] : [])].join(' · ');
+}
+
+/** How one line stands, in a line under its name. */
+export function paperLineSaid(line: PaperLine, day: (iso: string) => string): string {
+  if (line.standing === 'in_hand') return line.fileName ?? (line.from === 'request' ? 'Answered' : 'Marked in hand');
+  if (line.standing === 'answered') return `Answered by ${line.repliedBy ?? 'them'} · waiting for you to confirm`;
+  if (line.standing === 'asked') return [`Asked${line.askedOn ? ` ${day(line.askedOn)}` : ''}`, line.dueAt ? `due ${day(line.dueAt)}${line.overdue ? ' (overdue)' : ''}` : ''].filter(Boolean).join(' · ');
+  return line.from === 'request' ? 'Drafted, not sent' : line.from === 'checks' ? 'A check expects it' : line.party ? 'On the list' : 'On the list, nobody named';
+}
+
+/**
+ * What is owed as plain text, to paste into a message: a party, then its
+ * papers, one a line. `only` keeps the lines standing one way.
+ */
+export function papersOwedText(view: Pick<PapersOwed, 'parties'>, day: (iso: string) => string, opts: { only?: PaperStanding } = {}): string {
+  const out: string[] = [];
+  for (const party of view.parties) {
+    const lines = party.lines.filter((line) => !opts.only || line.standing === opts.only);
+    if (!lines.length) continue;
+    out.push(`${party.party ?? 'Nobody named'} (${lines.length})`);
+    for (const line of lines) {
+      const stands = line.standing === 'asked' ? `asked${line.dueAt ? `, due ${day(line.dueAt)}${line.overdue ? ', overdue' : ''}` : ''}` : line.standing === 'answered' ? 'answered, to confirm' : 'not asked';
+      out.push(`- ${line.title} (${stands})`);
+    }
+    out.push('');
+  }
+  return out.join('\n').trimEnd();
+}
+
+function csvCell(value: string): string {
+  // A cell that opens with a sign a spreadsheet reads as a formula is given as text.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/** The whole list as a spreadsheet, after a byte-order mark so Excel reads Indian scripts. */
+export function papersOwedCsvFile(view: PapersOwed): string {
+  const rows = [['Owed by', 'Paper', 'Standing', 'Asked on', 'Due', 'Overdue', 'Department', 'Where', 'Document'].join(',')];
+  for (const line of [...view.parties.flatMap((party) => party.lines), ...view.inHand]) {
+    rows.push(
+      [line.party ?? '', line.title, PAPER_STANDING_LABEL[line.standing], line.askedOn?.slice(0, 10) ?? '', line.dueAt?.slice(0, 10) ?? '', line.overdue ? 'yes' : '', line.department ? DEPARTMENT_SHORT[line.department] : '', line.where ?? '', line.fileName ?? '']
+        .map(csvCell)
+        .join(','),
+    );
+  }
+  return `﻿${rows.join('\n')}\n`;
+}

@@ -362,7 +362,7 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
         what: `${line.item.title}${where ? ` (${where})` : ''}: ${line.status === 'requested' ? asked(line.dueAt, line.overdue) : 'not asked'}.`,
         ...(line.dueAt ? { when: line.dueAt.slice(0, 10) } : {}),
         ...(line.overdue ? { overdue: true } : {}),
-        source: `the checklist of ${DEPARTMENT_SHORT[line.item.department]}`,
+        source: `Papers owed, ${DEPARTMENT_SHORT[line.item.department]}`,
         recordId: line.item.id,
       });
     }
@@ -374,12 +374,12 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
       what: `${item.title}: ${item.status === 'requested' ? asked(item.dueAt, item.overdue) : 'not asked'}.`,
       ...(item.dueAt ? { when: item.dueAt.slice(0, 10) } : {}),
       ...(item.overdue ? { overdue: true } : {}),
-      source: `the requirement sheet${item.checks[0] ? `, expected by the check ${titled(item.checks[0].title)}` : ''}`,
+      source: `Papers owed${item.checks[0] ? `, expected by the check ${titled(item.checks[0].title)}` : ''}`,
       ...(item.evidenceId ? { recordId: item.evidenceId } : {}),
     });
   }
   const groups = [...parties.values()].sort((a, b) => Number(!a.owedBy) - Number(!b.owedBy) || b.lines.length - a.lines.length);
-  const nothingOwed = checklist.total + sheet.total ? 'Every paper on the checklist and the requirement sheet is in hand.' : 'No checklist is loaded, and the checks on the file expect no documents.';
+  const nothingOwed = checklist.total + sheet.total ? 'Every paper owed is in hand.' : 'No list of papers is loaded, and the checks on the file expect no documents.';
   const papers: OwnerPackPart[] = groups.length
     ? groups.map((party) => {
         const first = [...party.lines].sort((a, b) => Number(!a.overdue) - Number(!b.overdue));

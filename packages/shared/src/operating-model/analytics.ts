@@ -372,9 +372,9 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
           detail: line.status === 'requested' ? `Asked for${line.dueAt ? `, due ${meetingDay(line.dueAt)}` : ''}` : 'Not asked for yet',
           ...(line.dueAt ? { when: line.dueAt } : {}),
           ...(line.overdue ? { overdue: true } : {}),
-          source: `the ${DEPARTMENT_SHORT[desk]} checklist`,
-          pane: 'department',
-          extra: { department: desk },
+          source: `Papers owed, ${DEPARTMENT_SHORT[desk]}`,
+          pane: 'papers',
+          extra: { item: `l:${line.item.id}` },
         });
       }
     }

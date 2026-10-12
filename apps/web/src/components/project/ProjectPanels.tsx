@@ -10,8 +10,7 @@ import {
   type DdProject,
   type FindingRecord,
 } from '@realytica/shared';
-import { AiMark, Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
-import { Stagger, StaggerItem } from '../../lib/motion';
+import { Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
 
 /* ==================================================================== */
 /* Small formatting helpers                                              */
@@ -124,52 +123,6 @@ export function KeyFacts({ project, className }: { project: DdProject; className
 /* Open items, waiting on, decisions, activity                           */
 /* ==================================================================== */
 
-const SEVERITY_WORD: Record<FindingRecord['severity'], { word: string; className: string }> = {
-  critical: { word: 'Critical', className: 'text-critical' },
-  high: { word: 'Major', className: 'text-warning' },
-  medium: { word: 'Moderate', className: 'text-ink-secondary' },
-  low: { word: 'Minor', className: 'text-ink-muted' },
-};
-
-export function OpenItemsCard({ project, className, limit = 5 }: { project: DdProject; className?: string; limit?: number }) {
-  const findings = openFindings(project);
-  const shown = findings.slice(0, limit);
-  return (
-    <Card className={className}>
-      <CardHeader
-        title="Open items"
-        subtitle={`${findings.length} finding${findings.length === 1 ? '' : 's'} open`}
-        action={
-          <Link to={cockpitPath(project.id, 'findings')} className="text-[12px] font-medium text-brand">
-            All findings
-          </Link>
-        }
-      />
-      <CardBody>
-        {shown.length === 0 ? (
-          <p className="text-[13px] text-ink-muted">Nothing open. Findings appear here as checks are recorded.</p>
-        ) : (
-          <ul className="divide-y divide-hairline">
-            {shown.map((f) => (
-              <li key={f.id}>
-                <Link
-                  to={cockpitPath(project.id, 'findings', { findingId: f.id })}
-                  className="flex items-baseline justify-between gap-3 py-2 text-[13px] hover:text-brand"
-                >
-                  <span className="min-w-0 text-ink">{f.title}</span>
-                  <span className={cn('shrink-0 text-[12px] font-medium', SEVERITY_WORD[f.severity].className)}>
-                    {SEVERITY_WORD[f.severity].word}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardBody>
-    </Card>
-  );
-}
-
 export function WaitingOnCard({
   project,
   className,
@@ -212,43 +165,6 @@ export function WaitingOnCard({
             ))}
           </ul>
         )}
-      </CardBody>
-    </Card>
-  );
-}
-
-export function NeedsDecisionCard({ project, className }: { project: DdProject; className?: string }) {
-  const proposals = (project.chatProposals ?? []).filter((p) => p.status === 'proposed');
-  const drafts = (project.aiDrafts ?? []).filter((d) => d.status === 'draft' || d.status === 'in_review');
-  const total = proposals.length + drafts.length;
-  const rows = [
-    ...proposals.map((p) => ({ id: p.id, title: p.title, href: `/projects/${project.id}` })),
-    ...drafts.map((d) => ({ id: d.id, title: d.title, href: cockpitPath(project.id, 'drafts') })),
-  ].slice(0, 5);
-  return (
-    <Card className={cn(total > 0 && 'ring-[1.5px] ring-ai/50', className)}>
-      <CardHeader
-        title="Needs your decision"
-        icon={total > 0 ? <AiMark size="xs" /> : undefined}
-        subtitle={total ? `${total} proposal${total === 1 ? '' : 's'} waiting` : 'Nothing waiting'}
-      />
-      <CardBody>
-        {rows.length === 0 ? (
-          <p className="text-[13px] text-ink-muted">Nothing is waiting for a person.</p>
-        ) : (
-          <Stagger as="ul" className="divide-y divide-hairline">
-            {rows.map((row) => (
-              <StaggerItem as="li" key={row.id} className="flex items-center gap-3 py-2">
-                <AiMark size="xs" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.title}</span>
-                <Link to={row.href} className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-brand hover:bg-brand-soft">
-                  Review
-                </Link>
-              </StaggerItem>
-            ))}
-          </Stagger>
-        )}
-        <p className="mt-3 text-[11px] text-ink-muted">Only people change the record. AI proposals wait for a decision.</p>
       </CardBody>
     </Card>
   );

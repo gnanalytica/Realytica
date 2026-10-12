@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import {
   Building2,
   ChevronDown,
@@ -14,6 +14,7 @@ import {
   Users,
   Waypoints,
   Workflow,
+  Inbox,
 } from 'lucide-react';
 import {
   DEPARTMENT_KEYS,
@@ -63,7 +64,7 @@ import { useMe } from '../../../lib/useMe';
  * name.
  */
 
-export type CockpitSectionKey = 'overview' | DepartmentKey | 'documents' | 'review' | 'registers' | 'reports' | 'people' | 'graph';
+export type CockpitSectionKey = 'overview' | DepartmentKey | 'documents' | 'papers' | 'review' | 'registers' | 'reports' | 'people' | 'graph';
 
 export interface CockpitTab {
   pane: ProjectCockpitPane;
@@ -95,6 +96,8 @@ export interface CockpitSection {
 export const SECTIONS: CockpitSection[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard, home: 'overview', tabs: [{ pane: 'overview', label: 'Overview', icon: LayoutDashboard }] },
   { key: 'documents', label: 'Documents', icon: FileStack, home: 'evidence', tabs: [{ pane: 'evidence', label: 'Documents', icon: FileStack }] },
+  // What the project waits for from others, and what they sent back. It names every party the firm chases, so it is the firm's own.
+  { key: 'papers', label: 'Papers owed', icon: Inbox, home: 'papers', staffOnly: true, tabs: [{ pane: 'papers', label: 'Papers owed', icon: Inbox }] },
   { key: 'review', label: 'Review', icon: Table2, home: 'review', staffOnly: true, tabs: [{ pane: 'review', label: 'Review', icon: Table2 }] },
   {
     key: 'registers',
@@ -384,7 +387,7 @@ export function ProjectPicker({
   // Day-to-day work is in a department. Review and the registers stay on their
   // routes (and Overview links) but are not listed here — they crowded the
   // quiet group beside Documents / Outgoing / People / Graph.
-  const pickerShared = new Set<CockpitSectionKey>(['documents', 'reports', 'people', 'graph']);
+  const pickerShared = new Set<CockpitSectionKey>(['documents', 'papers', 'reports', 'people', 'graph']);
   const shared: PickerItem[] = SECTIONS.filter(
     (section) => pickerShared.has(section.key) && (!section.staffOnly || staff),
   ).map((section) => ({

@@ -170,8 +170,8 @@ describe('across projects', () => {
       [undefined, 1, 1],
     ]);
     const row = papers.parties[0]!.papers.rows[0]!;
-    assert.equal(row.source, 'the Engineering checklist');
-    assert.equal(row.pane, 'department');
+    assert.equal(row.source, 'Papers owed, Engineering');
+    assert.equal(row.pane, 'papers');
   });
 
   it('counts a paper asked for and past its date as overdue for the party it was asked of', () => {

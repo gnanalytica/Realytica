@@ -23,7 +23,7 @@ import { CertifiedPanel } from '../../../components/departments/CertifiedPanel';
 import { Connections } from '../../../components/departments/Connections';
 import { WorkstreamChecks, WorkstreamDocuments, WorkstreamEngagements } from '../../../components/departments/WorkstreamRecords';
 import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegister';
-import { ChecklistCard } from '../../../components/departments/ChecklistCard';
+import { PapersOwedCard } from '../../../components/papers/PapersOwedCard';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
 import { BudgetDesk } from '../../../components/budget/BudgetDesk';
 import { TenderDesk } from '../../../components/procurement/TenderDesk';
@@ -321,8 +321,8 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
       icon: FileStack,
       body: (
         <div className="space-y-4">
-          {/* The department's checklist of papers owed: one list, on the Documents part of each of its functions. */}
-          <ChecklistCard project={project} department={ws.department} onChanged={setProject} onOpenDocument={openHere} />
+          {/* The department's papers owed: one list, on the Documents part of each of its functions. */}
+          <PapersOwedCard project={project} department={ws.department} onChanged={setProject} onOpenDocument={openHere} onOpenCheck={nav.openCheck} />
           <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={openHere} marked={lit} landed={(part === 'documents' || openId) && landing ? visit : null} />
         </div>
       ),

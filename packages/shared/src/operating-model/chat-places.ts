@@ -121,6 +121,7 @@ function extraOfFunction(key: string): CockpitPathExtra {
 const PANE_WORD: Partial<Record<ProjectCockpitPane, string>> = {
   overview: 'Overview',
   evidence: 'Documents',
+  papers: 'Papers owed',
   dd: 'Checks',
   scope: 'Checks',
   findings: 'Findings',
@@ -146,7 +147,7 @@ export const SHARED_PLACE_WORDS: ReadonlyArray<[ProjectCockpitPane, string]> = O
  * one project is not shown them, by the menu or by the chat. Kept beside the
  * menu's own list in `rail.tsx` and `ProjectCommandBar.tsx`.
  */
-export const FIRM_ONLY_PANES: ReadonlySet<ProjectCockpitPane> = new Set<ProjectCockpitPane>(['review', 'outgoing', 'people']);
+export const FIRM_ONLY_PANES: ReadonlySet<ProjectCockpitPane> = new Set<ProjectCockpitPane>(['review', 'outgoing', 'people', 'papers']);
 
 /**
  * A place in a word or two, as the menu writes it: "Title", "Legal",
@@ -303,6 +304,7 @@ interface Target {
 const SHARED_NAMES: Array<[ProjectCockpitPane, string[]]> = [
   ['overview', ['overview', 'project overview', 'home', 'map', 'maps']],
   ['evidence', ['documents', 'document vault', 'vault', 'evidence', 'files', 'docs']],
+  ['papers', ['papers owed', 'what is owed', 'requirement sheet', 'checklist', 'requests', 'missing documents']],
   ['dd', ['registers', 'checks', 'dd', 'dds', 'due diligence', 'assessments']],
   ['findings', ['findings']],
   ['risks', ['risks', 'risks and actions']],

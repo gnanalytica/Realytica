@@ -2041,7 +2041,7 @@ async function readChecklist(file: Express.Multer.File | undefined, pasted: stri
       throw err;
     }
   }
-  if (!/\.(?:csv|tsv|txt|md)$/.test(name)) throw new Error('A checklist is read from an .xlsx, .csv, .tsv or .txt file, or from pasted text.');
+  if (!/\.(?:csv|tsv|txt|md)$/.test(name)) throw new Error('A list is read from an .xlsx, .csv, .tsv or .txt file, or from pasted text.');
   return parseChecklist(file.buffer.toString('utf8'), { csv: name.endsWith('.csv') });
 }
 
@@ -2065,7 +2065,7 @@ projectWorkspaceRouter.post<Params>('/checklist/import', checklistUpload.single(
     await store.save();
     res.status(201).json({ project, added: added.length, skipped });
   } catch (err) {
-    failed(res, err, 'Could not read that checklist');
+    failed(res, err, 'Could not read that list');
   }
 });
 
@@ -2154,7 +2154,7 @@ projectWorkspaceRouter.post<Params>('/checklist/requests', async (req, res) => {
   if (!project) return;
   const parsed = checklistAskSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Say which department’s checklist, and a date as YYYY-MM-DD where one is given.' });
+    res.status(400).json({ error: 'Say which department’s list, and a date as YYYY-MM-DD where one is given.' });
     return;
   }
   if (!mayChangeChecklist(req, res, project, parsed.data.department)) return;
@@ -2162,7 +2162,7 @@ projectWorkspaceRouter.post<Params>('/checklist/requests', async (req, res) => {
     const { requests, unassigned } = raiseChecklistRequests(project, parsed.data, actorOf(principalOf(req)));
     if (requests.length) {
       const papers = requests.reduce((n, r) => n + (r.checklistItemIds?.length ?? 0), 0);
-      noteProjectEdit(project, `Asked ${requests.length === 1 ? requests[0]!.recipient : `${requests.length} parties`} for ${papers} paper${papers === 1 ? '' : 's'} on the checklist.`, { actor: actorOf(principalOf(req)), citedNodeIds: requests.map((r) => r.id) });
+      noteProjectEdit(project, `Asked ${requests.length === 1 ? requests[0]!.recipient : `${requests.length} parties`} for ${papers} paper${papers === 1 ? '' : 's'} owed.`, { actor: actorOf(principalOf(req)), citedNodeIds: requests.map((r) => r.id) });
     }
     touch(project);
     await store.save();

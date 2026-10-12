@@ -615,7 +615,7 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     if (differs.length) said.push(listed(differs));
     if (waiting) said.push(`${plural(waiting, 'value')} waiting for ${decides ? 'you' : 'a lead or signer'} to check.`);
     if (!said.length) {
-      if (item && line) said.push(line.how === 'offered' ? `It may be “${item.title}” on the checklist.` : `It answers “${item.title}” on the checklist.`);
+      if (item && line) said.push(line.how === 'offered' ? `It may be “${item.title}” on Papers owed.` : `It answers “${item.title}” on Papers owed.`);
       else if (request) said.push(asked?.how === 'offered' ? `It came in reply to the request “${request.title}”.` : `It answers the request “${request.title}”.`);
       else if (action) said.push(`It touches your action “${action.title}”.`);
     }
@@ -677,7 +677,7 @@ const KIND_COUNTED: Record<TellEventKind, [string, string]> = {
   paper_filed: ['paper filed', 'papers filed'],
   value_accepted: ['value accepted', 'values accepted'],
   value_changed: ['value changed', 'values changed'],
-  line_answered: ['checklist line in hand', 'checklist lines in hand'],
+  line_answered: ['paper owed now in hand', 'papers owed now in hand'],
   request_answered: ['request answered', 'requests answered'],
   request_replied: ['reply to a request', 'replies to requests'],
 };
