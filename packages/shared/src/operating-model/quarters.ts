@@ -27,9 +27,20 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 /** The quarter that begins in a month of a year. A month before January or after December is read into the year beside it. */
 export const quarterOf = (year: number, month: number): Period => ({ from: new Date(Date.UTC(year, month, 1)).toISOString(), to: new Date(Date.UTC(year, month + 3, 1)).toISOString() });
 
-/** The quarter a moment falls in, or the one so many quarters before or after it. */
+/**
+ * The day it is in India at a moment, as `YYYY-MM-DD`: what "today" means
+ * wherever a day is compared with one. India keeps one time all year, five
+ * and a half hours ahead of UTC, so from midnight to half past five there
+ * the UTC day is still yesterday.
+ */
+export function indiaToday(now: Date): string {
+  return new Date(now.getTime() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/** The quarter a moment falls in by the day it is in India, or the one so many quarters before or after it. */
 export function quarterHolding(at: Date, shift = 0): Period {
-  return quarterOf(at.getUTCFullYear(), Math.floor(at.getUTCMonth() / 3) * 3 + shift * 3);
+  const [year, month] = indiaToday(at).split('-').map(Number) as [number, number];
+  return quarterOf(year, Math.floor((month - 1) / 3) * 3 + shift * 3);
 }
 
 /** Whether a period is one whole quarter. */

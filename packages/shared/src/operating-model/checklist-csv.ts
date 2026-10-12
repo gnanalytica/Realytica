@@ -8,9 +8,9 @@ import type { ChecklistSheet } from './checklist';
 import { REQUIREMENT_STATUS_LABEL } from './requirement-sheet';
 
 function csvCell(value: string): string {
-  // A cell that opens with a sign a spreadsheet reads as a formula is given as text.
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
-  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  // A cell that opens with a sign a spreadsheet reads as a formula is given as text. A tab or a carriage return before the sign is dropped on opening, so they count as one.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function checklistCsv(sheet: ChecklistSheet): string {
@@ -39,4 +39,13 @@ export function checklistCsv(sheet: ChecklistSheet): string {
     }
   }
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * The checklist as the file that is downloaded: the same lines after a
+ * byte-order mark, which is what tells Excel the file is UTF-8. Without it a
+ * title in Devanagari or Kannada opens as broken letters.
+ */
+export function checklistCsvFile(sheet: ChecklistSheet): string {
+  return `\uFEFF${checklistCsv(sheet)}`;
 }

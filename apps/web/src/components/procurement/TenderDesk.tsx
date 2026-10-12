@@ -21,6 +21,7 @@ import {
   cockpitPath,
   costRegister,
   departmentRole,
+  indiaToday,
   moneySaid,
   roleCanDecide,
   roleCanEdit,
@@ -44,7 +45,7 @@ import { TenderOffers } from './TenderOffers';
 
 type Run = (fallback: string, work: () => Promise<{ project: DdProject }>) => Promise<boolean>;
 
-const today = (): string => new Date().toISOString().slice(0, 10);
+const today = (): string => indiaToday(new Date());
 
 function daySaid(day?: string): string {
   return day ? new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '';
@@ -361,7 +362,7 @@ function Bidders({ project, tender, mayEdit, busy, run }: { project: DdProject; 
                       <td className="py-2 pr-3 text-right font-mono tabular-nums text-ink">{money(bid.revised)}</td>
                       <td className="py-2 pr-3 text-right text-ink-secondary">{bid.againstEstimate === undefined ? '—' : tenderPercentSaid(bid.againstEstimate)}</td>
                       <td className={cn('py-2 pr-3 text-right', bid.flagged ? 'font-medium text-[var(--status-warning-text)]' : 'text-ink-secondary')}>
-                        {bid.againstOthers === undefined ? '—' : tenderPercentSaid(bid.againstOthers)}
+                        {bid.againstOthers === undefined ? '—' : tenderPercentSaid(bid.againstOthers, bid.flagged ? TENDER_BID_FLAG_PERCENT : undefined)}
                       </td>
                       {mayEdit ? (
                         <td className="py-1.5 text-right">

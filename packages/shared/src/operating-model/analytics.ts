@@ -43,6 +43,7 @@ import { departmentRole, projectDepartments } from './team';
 import { allChecks } from './engagements';
 import { documentWorkstream } from './vault';
 import { meetingDay, meetingOfRecord } from './meetings';
+import { indiaToday } from './quarters';
 import { requestAgeDays } from './project-requests';
 import { myWorkOn, ownedBy, sortWork, WORK_KIND_LABEL, type WorkItem, type WorkPerson } from './my-work';
 
@@ -259,7 +260,7 @@ const PROGRESS_PLACE = { pane: 'workstream', extra: { workstream: 'construction.
 /** The firm's projects read side by side, on the day given. */
 export function acrossProjects(projects: readonly DdProject[], now: Date): AcrossProjects {
   const iso = now.toISOString();
-  const today = iso.slice(0, 10);
+  const today = indiaToday(now);
   const at = now.getTime();
 
   const costLines: AcrossCostLine[] = [];
@@ -529,7 +530,7 @@ function filedAt(evidence: EvidenceRecord, before?: string): string {
  */
 export function departmentAnalytics(project: DdProject, now: Date): DepartmentAnalytics {
   const iso = now.toISOString();
-  const today = iso.slice(0, 10);
+  const today = indiaToday(now);
   const at = now.getTime();
   const menu = menuDepartmentsOf(projectDepartments(project));
   type Bucket = { waiting: AnalyticsRow[]; waitingCount: number; actions: AnalyticsRow[]; requests: AnalyticsRow[] };

@@ -126,6 +126,45 @@ describe('the stages of a tender', () => {
     assert.equal(project.audit.at(-1)?.action, 'set_tender_stage');
   });
 
+  it('are not done after a later stage that is done already', () => {
+    const { project, tender } = tendered();
+    setTenderStage(project, tender.id, 'documents_ready', { doneOn: '2026-10-01' }, ACTOR, NOW);
+    setTenderStage(project, tender.id, 'issued', { doneOn: '2026-10-03' }, ACTOR, NOW);
+    assert.throws(() => setTenderStage(project, tender.id, 'documents_ready', { doneOn: '2026-10-10' }, ACTOR, NOW), /Tender documents ready cannot be done after issued to bidders, done 2026-10-03/);
+    assert.equal(stageOf(tender, 'documents_ready').doneOn, '2026-10-01', 'the day it was done is kept');
+    // Up to the day the next was done, it may be moved.
+    assert.equal(setTenderStage(project, tender.id, 'documents_ready', { doneOn: '2026-10-03' }, ACTOR, NOW).doneOn, '2026-10-03');
+    assert.equal(setTenderStage(project, tender.id, 'documents_ready', { doneOn: '2026-09-28' }, ACTOR, NOW).doneOn, '2026-09-28');
+    // The next stage is still worked without anybody untangling the days.
+    setTenderStage(project, tender.id, 'queries', { notNeeded: true }, ACTOR, NOW);
+    assert.equal(setTenderStage(project, tender.id, 'bids_received', { doneOn: '2026-10-05' }, ACTOR, NOW).doneOn, '2026-10-05');
+  });
+
+  it('gone without hold no other stage’s date', () => {
+    const { project, tender } = tendered();
+    setTenderStage(project, tender.id, 'queries', { dueOn: '2026-10-25' }, ACTOR, NOW);
+    assert.throws(() => setTenderStage(project, tender.id, 'bids_received', { dueOn: '2026-10-20' }, ACTOR, NOW), /cannot be due before queries and addenda/);
+    setTenderStage(project, tender.id, 'documents_ready', { doneOn: '2026-10-01' }, ACTOR, NOW);
+    setTenderStage(project, tender.id, 'issued', { doneOn: '2026-10-03' }, ACTOR, NOW);
+    setTenderStage(project, tender.id, 'queries', { notNeeded: true }, ACTOR, NOW);
+    assert.equal(setTenderStage(project, tender.id, 'bids_received', { dueOn: '2026-10-20' }, ACTOR, NOW).dueOn, '2026-10-20');
+    // Nor an earlier stage's: issued may be due after the day queries would have been.
+    assert.equal(setTenderStage(project, tender.id, 'bids_received', { dueOn: '2026-10-30' }, ACTOR, NOW).dueOn, '2026-10-30');
+    assert.equal(setTenderStage(project, tender.id, 'issued', { dueOn: '2026-10-28' }, ACTOR, NOW).dueOn, '2026-10-28');
+  });
+
+  it('take today as the day it is in India', () => {
+    // Two in the morning of 13 October in India is still the 12th in UTC.
+    const night = new Date('2026-10-12T20:30:00.000Z');
+    const { project, tender } = tendered();
+    assert.equal(setTenderStage(project, tender.id, 'documents_ready', { doneOn: '2026-10-13' }, ACTOR, night).doneOn, '2026-10-13');
+    assert.throws(() => setTenderStage(project, tender.id, 'issued', { doneOn: '2026-10-14' }, ACTOR, night), /done on a day that has come/);
+    setTenderStage(project, tender.id, 'issued', { dueOn: '2026-10-12' }, ACTOR, night);
+    assert.deepEqual(tenderStanding(tendersOf(project)[0]!, night).late, ['issued'], 'due the 12th is past its date once the 13th has begun in India');
+    assert.equal(tenderStagesPastDue(project, night).length, 1);
+    assert.deepEqual(tenderStanding(tendersOf(project)[0]!, new Date('2026-10-12T18:00:00.000Z')).late, [], 'and not at half past eleven that night');
+  });
+
   it('are done in order: one waits on every stage before it', () => {
     const { project, tender } = tendered();
     assert.throws(() => setTenderStage(project, tender.id, 'issued', { doneOn: '2026-10-02' }, ACTOR, NOW), /Tender documents ready comes first: mark it done\./);
@@ -212,12 +251,28 @@ describe('the comparison of bids', () => {
     assert.deepEqual(three(at).flags, [], 'exactly at the limit is not past it');
     assert.deepEqual(three(100_000 * (1 - TENDER_BID_FLAG_PERCENT / 100)).flags, [], 'nor exactly at it below');
     const above = three(at + 0.01);
-    assert.deepEqual(above.flags.map((flag) => [flag.name, flag.say]), [['Bidder C', 'Bidder C differs from the others by 15%, above the median.']]);
+    assert.deepEqual(above.flags.map((flag) => [flag.name, flag.say]), [['Bidder C', 'Bidder C differs from the others by 15.00001%, above the median.']]);
     assert.deepEqual(above.bids.map((bid) => bid.flagged), [false, false, true]);
     const below = three(82_000);
     assert.deepEqual(below.flags.map((flag) => flag.say), ['Bidder C differs from the others by 18%, below the median.']);
     assert.equal(Math.round(below.flags[0]!.percent), -18);
     assert.equal(three(81_750).flags[0]!.say, 'Bidder C differs from the others by 18.3%, below the median.');
+  });
+
+  it('writes a flagged figure to as many places as show it past the limit, so it never reads as the limit', () => {
+    const just = three(115_010);
+    assert.equal(just.flags[0]!.say, 'Bidder C differs from the others by 15.01%, above the median.');
+    assert.equal(tenderPercentSaid(just.bids[2]!.againstOthers!, TENDER_BID_FLAG_PERCENT), '15.01% above', 'the cell of a flagged bid');
+    assert.equal(three(84_990).flags[0]!.say, 'Bidder C differs from the others by 15.01%, below the median.');
+    assert.equal(three(115_040).flags[0]!.say, 'Bidder C differs from the others by 15.04%, above the median.', 'not rounded down to the limit either');
+    // A bid exactly at the limit is not flagged and reads as the limit; no flagged one reads the same.
+    const at = three(115_000);
+    assert.deepEqual(at.flags, []);
+    assert.equal(tenderPercentSaid(at.bids[2]!.againstOthers!), '15% above');
+    // Far enough past, a flagged figure is written as any other.
+    assert.equal(tenderPercentSaid(15.1, TENDER_BID_FLAG_PERCENT), '15.1% above');
+    assert.equal(tenderPercentSaid(-18, TENDER_BID_FLAG_PERCENT), '18% below');
+    assert.equal(tenderPercentSaid(25.004, TENDER_LINE_FLAG_PERCENT), '25.004% above');
   });
 
   it('says how far and which way, and never what to make of it', () => {
