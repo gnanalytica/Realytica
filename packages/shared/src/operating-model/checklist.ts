@@ -561,9 +561,9 @@ export const CHECKLIST_NO_PACKAGE = 'No package';
 
 const HELD: ReadonlySet<string> = new Set(['received', 'validated', 'used']);
 
-/** A document on file: in hand, with its file, and not replaced by a later one. */
+/** A document on file: in hand, with its file, not replaced by a later one, and not an outside reply still waiting for a person. */
 function filed(row: EvidenceRecord): boolean {
-  return HELD.has(row.status) && row.attachments.length > 0 && !row.supersededById;
+  return HELD.has(row.status) && row.attachments.length > 0 && !row.supersededById && !row.unconfirmedReply;
 }
 
 /** Every name a document goes by: its title, what it was read as, and its files' names. */

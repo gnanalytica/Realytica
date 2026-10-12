@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { Button, Callout, Card, CardBody, CardHeader, PageHeader, Skeleton } from '../components/ui/kit';
 import { NewRequestModal, RequestList } from '../components/project/RequestsPanel';
+import { ToSortCard } from '../components/project/RequestOutside';
 
 /**
  * Everything the firm is waiting on, across every file.
@@ -72,6 +73,7 @@ export default function Requests() {
               </CardBody>
             </Card>
           ) : null}
+          <ToSortCard projects={projects} requests={data.requests} onFiled={refresh} />
           {groups.closed.length ? (
             <Card>
               <CardHeader title="Closed recently" />

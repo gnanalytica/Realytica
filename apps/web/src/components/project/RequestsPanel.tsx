@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Send, X } from 'lucide-react';
-import { cockpitPath, requestAgeDays, type DdProject, type EvidenceRecord, type ProjectRequest, type ProjectRequestStatus } from '@realytica/shared';
+import { Check, Mail, Send, X } from 'lucide-react';
+import { cockpitPath, requestAgeDays, requestStanding, type DdProject, type EvidenceRecord, type ProjectRequest, type ProjectRequestStatus } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../ui/kit';
 import { Avatar, dayMonth } from './ProjectPanels';
+import { RequestReplies, SendRequestModal } from './RequestOutside';
 
 /** Roles an outside professional holds on a file, as a firm names them. */
 export const PROFESSIONAL_ROLES = [
@@ -35,6 +36,8 @@ function statusBadge(row: RequestRow) {
   if (request.status === 'answered') return <Badge tone="good">Answered {dayMonth(request.answeredAt)}</Badge>;
   if (request.status === 'cancelled') return <Badge tone="neutral">Cancelled</Badge>;
   if (request.status === 'draft') return <Badge tone="neutral">Draft</Badge>;
+  // The other side replied. It is answered once a person here confirms the reply.
+  if (requestStanding(request) === 'replied') return <Badge tone="info">Answered · to confirm</Badge>;
   if (overdue) return <Badge tone="critical">Overdue since {dayMonth(request.dueAt)}</Badge>;
   if (request.dueAt) return <Badge tone={ageDays >= 5 ? 'warning' : 'neutral'}>Due {dayMonth(request.dueAt)}</Badge>;
   return <Badge tone={ageDays >= 5 ? 'warning' : 'neutral'}>{ageDays} day{ageDays === 1 ? '' : 's'}</Badge>;
@@ -57,6 +60,7 @@ export function RequestList({
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
+  const [sending, setSending] = useState<RequestRow | null>(null);
 
   async function set(row: RequestRow, status: ProjectRequestStatus) {
     setBusy(row.request.id);
@@ -72,6 +76,7 @@ export function RequestList({
 
   if (rows.length === 0) return <p className="py-2 text-[13px] text-ink-muted">{empty ?? 'No requests.'}</p>;
   return (
+    <>
     <ul className="divide-y divide-hairline">
       {rows.map((row) => {
         const r = row.request;
@@ -79,7 +84,7 @@ export function RequestList({
         return (
           <li key={r.id} className="flex flex-wrap items-center gap-3 py-2.5">
             <Avatar name={r.recipient} />
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-40">
               <p className="text-[13px] font-medium text-ink">
                 {r.title}
               </p>
@@ -100,6 +105,9 @@ export function RequestList({
             {statusBadge(row)}
             {open ? (
               <div className="flex shrink-0 gap-1">
+                <Button size="sm" icon={<Mail size={13} />} disabled={busy === r.id} onClick={() => setSending(row)}>
+                  Send
+                </Button>
                 {r.status === 'draft' ? (
                   <Button size="sm" icon={<Send size={13} />} loading={busy === r.id} onClick={() => void set(row, 'sent')}>
                     Mark sent
@@ -121,10 +129,13 @@ export function RequestList({
                 </button>
               </div>
             ) : null}
+            <RequestReplies projectId={row.projectId} request={r} onChanged={onChanged} />
           </li>
         );
       })}
     </ul>
+    <SendRequestModal projectId={sending?.projectId ?? ''} request={sending?.request ?? null} onClose={() => setSending(null)} onSent={onChanged} />
+    </>
   );
 }
 
@@ -264,7 +275,7 @@ export function NewRequestModal({
           <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} rows={3} />
         </Field>
         <p className={cn('text-[12px] text-ink-muted')}>
-          This records the request; it does not send email.
+          This records the request. Send it by email or WhatsApp from its row.
         </p>
       </div>
     </Modal>
