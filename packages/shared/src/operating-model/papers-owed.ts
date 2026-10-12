@@ -8,14 +8,22 @@
  * paper, each line standing in one of four places: not asked, asked for,
  * answered and waiting for a person to confirm, or in hand.
  *
+ * The list is shown a department at a time, on the Documents part of that
+ * department's functions. A project has no page of its own for it: Overview
+ * counts what is owed across the departments, and each count opens the
+ * department that holds it (`paperPlace`).
+ *
  * Nothing is stored here and nothing is changed: every line is read off the
  * project as it was handed over, so somebody working from a grant is shown
  * what their copy holds and no more.
  */
+import { checklistFunction, papersOwedOpen } from './chat-places';
 import { checklistSheet, type ChecklistLine } from './checklist';
+import { cockpitPath, type ProjectCockpitPane } from './cockpit';
 import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, type DepartmentKey } from './departments';
 import { checklistLinesReplied, repliesWaiting } from './outside-replies';
 import { requirementSheet, type RequirementItem } from './requirement-sheet';
+import type { CockpitPathExtra } from './sitting';
 import type { DdProject, ProjectRequest } from './types';
 
 export type PaperStanding = 'not_asked' | 'asked' | 'answered' | 'in_hand';
@@ -28,7 +36,7 @@ export const PAPER_STANDING_LABEL: Record<PaperStanding, string> = {
   in_hand: 'In hand',
 };
 
-/** The page's own name, wherever a screen, the chat or a link says it. */
+/** The list's own name, wherever a screen or a notice says it. */
 export const PAPERS_OWED = 'Papers owed';
 
 export interface PaperLine {
@@ -92,9 +100,10 @@ function replied(request: ProjectRequest | undefined): string | undefined {
 /**
  * Every paper the project waits for, as one list.
  *
- * `department` narrows it to one desk: the documents its checks expect and
- * the list loaded there. A request tied to neither belongs to no desk, so it
- * shows only on the whole project's list.
+ * `department` narrows it to one desk, which is how a screen shows it: the
+ * documents its checks expect and the list loaded there. A request tied to
+ * neither belongs to no desk, so it is counted only across the whole project
+ * and is worked on the firm's Requests.
  *
  * `outside` is somebody working from a grant. They are shown how a paper
  * stood before: asked for or not, in hand or not. Who answered the firm, and
@@ -225,14 +234,6 @@ export function papersOwedSaid(view: Pick<PapersOwed, 'total' | 'owed' | 'notAsk
     .join(' · ');
 }
 
-/** The parties that owe the most, in a line: "Northgate Builders 4 · Lift vendor 1 · 2 more". */
-export function papersOwedBy(view: Pick<PapersOwed, 'parties'>, most = 3): string {
-  const named = [...view.parties].sort((a, b) => Number(!a.party) - Number(!b.party) || b.lines.length - a.lines.length);
-  const shown = named.slice(0, most).map((party) => `${party.party ?? 'Nobody named'} ${party.lines.length}`);
-  const others = named.length - shown.length;
-  return [...shown, ...(others > 0 ? [`${others} more`] : [])].join(' · ');
-}
-
 /** How one line stands, in a line under its name. */
 export function paperLineSaid(line: PaperLine, day: (iso: string) => string): string {
   if (line.standing === 'in_hand') return line.fileName ?? (line.from === 'request' ? 'Answered' : 'Marked in hand');
@@ -277,4 +278,57 @@ export function papersOwedCsvFile(view: PapersOwed): string {
     );
   }
   return `﻿${rows.join('\n')}\n`;
+}
+
+/* ==================================================================== */
+/* Where a paper is worked                                               */
+/* ==================================================================== */
+
+/** Where a paper owed is worked: a page of its project, or the firm's Requests. */
+export type PapersPlace = { pane: ProjectCockpitPane; extra?: CockpitPathExtra } | { firm: 'requests' };
+
+/**
+ * Where one paper is worked: the Documents part of the department that holds
+ * it, with `item` the line to open there.
+ *
+ * A request made by hand belongs to no department, and a department with no
+ * function laid out in parts shows no list. What was asked of somebody there
+ * is worked on the firm's Requests, which lists the replies to confirm first.
+ */
+export function paperPlace(line: Pick<PaperLine, 'department' | 'request'>, item?: string): PapersPlace {
+  if (line.department && (checklistFunction(line.department) || !line.request)) return papersOwedOpen(line.department, item);
+  return { firm: 'requests' };
+}
+
+/** The address of that place. */
+export function papersPlacePath(projectId: string, place: PapersPlace): string {
+  return 'firm' in place ? '/requests' : cockpitPath(projectId, place.pane, place.extra);
+}
+
+/**
+ * The department a request belongs to: that of the lines of a list it
+ * covers, or the first whose checks expect the document it asks for. A
+ * request made by hand for neither belongs to none.
+ */
+export function requestDepartment(project: DdProject, request: Pick<ProjectRequest, 'checklistItemIds' | 'evidenceId'>): DepartmentKey | undefined {
+  const line = request.checklistItemIds?.length ? (project.checklist ?? []).find((item) => request.checklistItemIds!.includes(item.id)) : undefined;
+  if (line) return line.department;
+  if (!request.evidenceId) return undefined;
+  return DEPARTMENT_KEYS.find((department) => requirementSheet(project, { department }).groups.some((group) => group.items.some((item) => item.evidenceId === request.evidenceId)));
+}
+
+/** Where a request is worked: its department's Documents, or the firm's Requests when it belongs to none. */
+export function requestPlace(project: DdProject, request: ProjectRequest): PapersPlace {
+  return paperPlace({ department: requestDepartment(project, request), request });
+}
+
+/** The place that holds the most of some papers, or none for no papers. Held equally, a department comes before the firm's Requests, and then whichever holds the first of them. */
+export function papersHeldAt(lines: readonly PaperLine[]): PapersPlace | undefined {
+  const held = new Map<string, { place: PapersPlace; n: number }>();
+  for (const line of lines) {
+    const place = paperPlace(line);
+    const key = JSON.stringify(place);
+    held.set(key, { place, n: (held.get(key)?.n ?? 0) + 1 });
+  }
+  return [...held.values()].sort((a, b) => b.n - a.n || Number('firm' in a.place) - Number('firm' in b.place))[0]?.place;
 }

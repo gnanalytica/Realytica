@@ -30,7 +30,7 @@ import type { CockpitPathExtra } from './sitting';
 import type { WorkspaceRole } from './tenancy';
 import { sameEmail } from './tenancy';
 import { waitingOnCanvas } from './cockpit';
-import { functionOfDocument } from './chat-places';
+import { functionOfDocument, papersOwedOpen } from './chat-places';
 import { checklistOwed } from './checklist';
 import { requirementSheet } from './requirement-sheet';
 import { compareCostReports, costReportDecisions } from './cost-report-compare';
@@ -373,8 +373,8 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
           ...(line.dueAt ? { when: line.dueAt } : {}),
           ...(line.overdue ? { overdue: true } : {}),
           source: `Papers owed, ${DEPARTMENT_SHORT[desk]}`,
-          pane: 'papers',
-          extra: { item: `l:${line.item.id}` },
+          // The line, open on its department's Documents.
+          ...papersOwedOpen(line.item.department, `l:${line.item.id}`),
         });
       }
     }

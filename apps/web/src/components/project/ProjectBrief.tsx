@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
-import { cockpitPath, projectBrief, reachesEveryProject, type BriefLine, type DdProject } from '@realytica/shared';
+import { papersPlacePath, projectBrief, reachesEveryProject, type BriefLine, type DdProject } from '@realytica/shared';
 import { useMe } from '../../lib/useMe';
 import { useDailyReviewCount } from '../review/DailyReview';
 import { AiMark, cn, toneText } from '../ui/kit';
@@ -10,7 +10,8 @@ import { AiMark, cn, toneText } from '../ui/kit';
  * What a person running the project asks first, in four lines: what needs
  * them, what is slipping, what is owed, what changed in cost.
  *
- * Each part of a line opens the page that holds it. The daily review's
+ * Each part of a line opens the page that holds it: a count of papers owed
+ * opens the Documents of the department holding them. The daily review's
  * suggestions are one more thing that needs a person, so they are a part of
  * the first line and not a line of their own.
  */
@@ -21,7 +22,7 @@ export function ProjectBrief({ project }: { project: DdProject }) {
   const lines = useMemo(() => projectBrief(project, new Date(), { outside }), [project, outside]);
   const suggested = useDailyReviewCount(project.id);
   if (!me) return null;
-  const go = (open: BriefLine['open']) => navigate(cockpitPath(project.id, open.pane, open.extra));
+  const go = (open: BriefLine['open']) => navigate(papersPlacePath(project.id, open));
   return (
     <section aria-label="What needs attention" className="divide-y divide-hairline rounded-2xl bg-surface shadow-card ring-1 ring-[var(--ring)]">
       {lines.map((line) => {

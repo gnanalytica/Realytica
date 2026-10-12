@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronRight, Circle, Clock, Copy, Download, Inbox, MailQuestion, Plus, Send, Upload, X } from 'lucide-react';
 import {
   CHECK_RESULT_LABEL,
-  DEPARTMENT_SHORT,
   PAPERS_OWED,
   PAPER_STANDING_LABEL,
   departmentRole,
@@ -12,7 +10,6 @@ import {
   papersOwedCsvFile,
   papersOwedSaid,
   papersOwedText,
-  projectDepartments,
   reachesEveryProject,
   requirementSheet,
   roleCanEdit,
@@ -25,11 +22,10 @@ import {
   type PaperStanding,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { outsideApi } from '../../lib/outsideApi';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, Modal, Select, Textarea, cn, useToast, type Tone } from '../ui/kit';
-import { NewRequestModal, RequestActions } from '../project/RequestsPanel';
+import { RequestActions } from '../project/RequestsPanel';
 import { RequestReplies } from '../project/RequestOutside';
 
 const STANDING_TONE: Record<PaperStanding, Tone> = { not_asked: 'neutral', asked: 'warning', answered: 'info', in_hand: 'good' };
@@ -56,7 +52,7 @@ function download(name: string, text: string) {
 /* Loading a list                                                        */
 /* ==================================================================== */
 
-function LoadDialog({ project, department, desk, open, onClose, onDone }: { project: DdProject; department: DepartmentKey; desk?: React.ReactNode; open: boolean; onClose: () => void; onDone: (next: DdProject) => void }) {
+function LoadDialog({ project, department, open, onClose, onDone }: { project: DdProject; department: DepartmentKey; open: boolean; onClose: () => void; onDone: (next: DdProject) => void }) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -97,7 +93,6 @@ function LoadDialog({ project, department, desk, open, onClose, onDone }: { proj
       }
     >
       <div className="space-y-3">
-        {desk}
         <button
           type="button"
           onClick={() => input.current?.click()}
@@ -204,13 +199,14 @@ const draftOf = (item: ChecklistItem): ChecklistDraft => ({ title: item.title, s
 /* ==================================================================== */
 
 /**
- * Papers owed: every paper the project waits for, as one list by who owes it.
+ * Papers owed: every paper a department waits for, as one list by who owes it.
  *
  * The documents the checks expect, the lines of a list somebody sent and the
  * requests made by hand are three records and one list here. A line says
  * where it stands (not asked, asked for, answered and waiting to be
  * confirmed, in hand) and carries what can be done to it: ask, confirm a
- * reply, mark in hand. `department` narrows it to one desk.
+ * reply, mark in hand. It is one department's list, shown on the Documents
+ * of that department's functions.
  */
 export function PapersOwedCard({
   project,
@@ -222,7 +218,7 @@ export function PapersOwedCard({
   onOpenCheck,
 }: {
   project: DdProject;
-  department?: DepartmentKey;
+  department: DepartmentKey;
   /** The function whose checks start the list when a desk has none. */
   startWorkstream?: string;
   /** A line to open on arrival, by its key. */
@@ -237,12 +233,10 @@ export function PapersOwedCard({
   const mayEdit = (desk: DepartmentKey | undefined): boolean => Boolean(me && desk && roleCanEdit(departmentRole(project, { email: me.email, workspaceRole: me.role }, desk)));
   const view = useMemo(() => papersOwed(project, { department, outside: !staff }), [project, department, staff]);
   const documents = useMemo(() => project.evidence.filter((e) => e.attachments.length > 0 && !e.supersededById), [project.evidence]);
-  // The desks a list can be loaded on: this one, or every desk of the project the person may edit.
-  const desks = (department ? [department] : projectDepartments(project)).filter((desk) => staff && mayEdit(desk));
-  const [desk, setDesk] = useState<DepartmentKey | undefined>(desks[0]);
+  // The desk a list is loaded on, for somebody of the firm who may edit it.
+  const desk = staff && mayEdit(department) ? department : undefined;
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [asking, setAsking] = useState(false);
   const [closed, setClosed] = useState<Set<string>>(new Set(['in-hand']));
   const [open, setOpen] = useState<string | null>(marked ?? null);
   const [linked, setLinked] = useState('');
@@ -260,7 +254,7 @@ export function PapersOwedCard({
   const all = view.parties.flatMap((party) => party.lines);
   const chosen = all.filter((line) => picked.has(line.key) && askable(line));
   const unnamed = chosen.filter((line) => !line.party).length;
-  const startable = department && startWorkstream && mayEdit(department) && !requirementSheet(project, { department }).total;
+  const startable = startWorkstream && mayEdit(department) && !requirementSheet(project, { department }).total;
 
   function toggle(keys: string[], on: boolean) {
     setPicked((was) => {
@@ -342,29 +336,10 @@ export function PapersOwedCard({
   }
 
   // An outside collaborator with nothing on their copy is shown no empty card.
-  if (!view.total && !desks.length) return null;
-
-  const deskPicker =
-    desks.length > 1 ? (
-      <label className="block text-micro text-ink-secondary">
-        Desk
-        <Select value={desk} onChange={(e) => setDesk(e.target.value as DepartmentKey)} className="mt-1">
-          {desks.map((key) => (
-            <option key={key} value={key}>
-              {DEPARTMENT_SHORT[key]}
-            </option>
-          ))}
-        </Select>
-      </label>
-    ) : null;
+  if (!view.total && !desk) return null;
 
   const actions = (
     <div className="flex flex-wrap items-center gap-1.5">
-      {staff && !department ? (
-        <Button size="sm" variant="ghost" icon={<Send size={13} />} onClick={() => setAsking(true)}>
-          New request
-        </Button>
-      ) : null}
       {desk ? (
         <>
           <Button size="sm" variant="ghost" icon={<Plus size={13} />} onClick={() => setAdding(true)}>
@@ -394,7 +369,7 @@ export function PapersOwedCard({
     const canExpand = editable || line.from === 'checks' || Boolean(line.request && staff);
     const item = line.checklist?.item;
     const suggestion = line.checklist?.suggestion;
-    const said = [paperLineSaid(line, day), !department && line.department ? DEPARTMENT_SHORT[line.department] : '', line.where, item?.note].filter(Boolean).join(' · ');
+    const said = [paperLineSaid(line, day), line.where, item?.note].filter(Boolean).join(' · ');
     return (
       <li key={line.key} className="px-3 py-2">
         <div className="flex items-start gap-2.5">
@@ -574,7 +549,6 @@ export function PapersOwedCard({
               })
             }
           >
-            {deskPicker}
             <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
               Cancel
             </Button>
@@ -647,36 +621,8 @@ export function PapersOwedCard({
             </Button>
           </div>
         ) : null}
-        {staff && !department ? <ToSortLine /> : null}
       </CardBody>
-      {desk ? <LoadDialog project={project} department={desk} desk={deskPicker} open={loading} onClose={() => setLoading(false)} onDone={onChanged} /> : null}
-      {staff && !department ? (
-        <NewRequestModal open={asking} onClose={() => setAsking(false)} projects={[{ id: project.id, name: project.name, evidence: project.evidence }]} initialProjectId={project.id} onCreated={refresh} />
-      ) : null}
+      {desk ? <LoadDialog project={project} department={desk} open={loading} onClose={() => setLoading(false)} onDone={onChanged} /> : null}
     </Card>
-  );
-}
-
-/** Mail nobody could place on a request waits for the whole firm, on Requests: one line says how much, and opens it. */
-function ToSortLine() {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    let live = true;
-    outsideApi.tray().then(
-      (res) => live && setCount(res.items.length),
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
-  if (!count) return null;
-  return (
-    <Link to="/requests#unsorted" className="flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken/60 coarse:min-h-11">
-      <span className="min-w-0 flex-1">
-        <span className="font-medium text-ink">To sort</span> · {count} message{count === 1 ? '' : 's'} from outside that named no request
-      </span>
-      <ChevronRight size={14} className="shrink-0 text-ink-muted" aria-hidden />
-    </Link>
   );
 }

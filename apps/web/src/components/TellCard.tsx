@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, BellOff } from 'lucide-react';
-import { cockpitPath, type TellLine } from '@realytica/shared';
+import { cockpitPath, papersPlacePath, type TellLine } from '@realytica/shared';
 import { relativeTime } from '../lib/format';
 import { tellApi } from '../lib/tell-api';
 import { useAsync } from '../lib/useAsync';
@@ -19,13 +19,16 @@ import { AiMark, Button, Callout, Card, CardHeader, Dot, cn } from './ui/kit';
 /** The rows shown before the rest are asked for: the newest, which is what a person came for. */
 const SHOWN = 6;
 
-/** Where a notice opens: the paper, at the page its value is on. */
-/** Where a notice opens: the paper it is about, or Papers owed when a request or a line of the list was answered. */
-const OWED_KINDS: ReadonlySet<TellLine['kind']> = new Set(['request_answered', 'request_replied', 'line_answered']);
-
+/**
+ * Where a notice opens. A paper owed that came in, or a request answered or
+ * replied to, opens the Documents of the department it belongs to, where the
+ * reply is confirmed on its line; a request that belongs to no department
+ * opens the firm's Requests. Anything else opens the paper, at the page its
+ * value is on.
+ */
 function linkFor(line: TellLine): string {
-  if (line.evidenceId && !OWED_KINDS.has(line.kind)) return cockpitPath(line.projectId, 'evidence', { evidenceId: line.evidenceId, ...(line.page ? { page: String(line.page) } : {}) });
-  return cockpitPath(line.projectId, OWED_KINDS.has(line.kind) ? 'papers' : 'overview');
+  if (line.open) return papersPlacePath(line.projectId, line.open);
+  return line.evidenceId ? cockpitPath(line.projectId, 'evidence', { evidenceId: line.evidenceId, ...(line.page ? { page: String(line.page) } : {}) }) : cockpitPath(line.projectId, 'overview');
 }
 
 export function TellCard() {

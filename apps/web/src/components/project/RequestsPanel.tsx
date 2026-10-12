@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Mail, Send, X } from 'lucide-react';
-import { cockpitPath, requestStanding, type EvidenceRecord, type ProjectRequest, type ProjectRequestStatus } from '@realytica/shared';
+import { cockpitPath, papersPlacePath, requestStanding, type EvidenceRecord, type PapersPlace, type ProjectRequest, type ProjectRequestStatus } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Field, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../ui/kit';
 import { Avatar, dayMonth } from './ProjectPanels';
@@ -29,6 +29,8 @@ export interface RequestRow {
   request: ProjectRequest;
   ageDays: number;
   overdue: boolean;
+  /** Where the request is worked on its project: its department's Documents. A request that belongs to no department is worked here. */
+  open?: PapersPlace;
 }
 
 function statusBadge(row: RequestRow) {
@@ -126,7 +128,7 @@ export function RequestList({
                 {showProject && row.projectName ? (
                   <>
                     {' · '}
-                    <Link to={cockpitPath(row.projectId, 'papers')} className="text-brand hover:underline">
+                    <Link to={row.open && !('firm' in row.open) ? papersPlacePath(row.projectId, row.open) : cockpitPath(row.projectId, 'overview')} className="text-brand hover:underline">
                       {row.projectName}
                     </Link>
                   </>

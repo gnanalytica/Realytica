@@ -148,7 +148,6 @@ import {
 } from './meetings';
 import { asksForStatusReport, statusDraftBroughtTo, statusDraftFor, statusNothingSaid, statusPeriodAsked, statusReport, statusSaid } from './status-report';
 import { asksForOutgoing, outgoingAsked } from './outgoing';
-import { papersOwed } from './papers-owed';
 import { draftToSendSaid } from './plans';
 import { questionnaireDepartment, questionnaireSummary } from './questionnaire';
 import { runValuationApproaches } from './valuation-run';
@@ -161,7 +160,6 @@ export const PROJECT_COCKPIT_PANES = [
   'dd',
   'scope',
   'evidence',
-  'papers',
   'visits',
   'findings',
   'risks',
@@ -367,8 +365,6 @@ function panePath(projectId: string, pane: ProjectCockpitPane, extra?: CockpitPa
         ['evidence', extra?.evidenceId],
         ['page', extra?.page],
       ]);
-    case 'papers':
-      return withQuery(`${base}/papers`, [['line', extra?.item]]);
     case 'visits':
       return withQuery(`${base}/visits`, [['item', extra?.item]]);
     case 'findings':
@@ -862,10 +858,6 @@ function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
     case 'drafts': {
       const pending = project.aiDrafts.filter((d) => d.status === 'draft' || d.status === 'in_review' || d.status === 'accepted').length;
       return pending ? `${name} are open — ${plural(pending, 'draft')} to review.` : `${name} are open. None to review.`;
-    }
-    case 'papers': {
-      const owed = papersOwed(project);
-      return owed.owed ? `${name} are open — ${owed.owed} owed${owed.answered ? `, ${owed.answered} to confirm` : ''}.` : `${name} are open. Nothing is owed.`;
     }
     case 'visits':
       return 'The site is open — the map, what is nearby, and the visits.';

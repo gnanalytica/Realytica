@@ -40,6 +40,7 @@ import { allChecks } from './engagements';
 import { acceptedFacts, factReview, standingFacts, waitingReadings } from './fact-review';
 import { projectLinks } from './links';
 import { ownedBy } from './my-work';
+import { paperPlace, requestPlace, type PapersPlace } from './papers-owed';
 import { departmentOfPaper } from './review';
 import { departmentRole, projectDepartments } from './team';
 import { documentWorkstream } from './vault';
@@ -562,6 +563,8 @@ export interface TellLine {
   waiting?: number;
   evidenceId?: string;
   page?: number;
+  /** Where a paper owed or a request is worked: its department's Documents, or the firm's Requests for a request that belongs to none. */
+  open?: PapersPlace;
   read: boolean;
 }
 
@@ -658,7 +661,7 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     const item = (project.checklist ?? []).find((held) => held.id === notice.checklistItemId);
     if (!item) return undefined;
     const paper = item.received?.evidenceId ? project.evidence.find((held) => held.id === item.received!.evidenceId) : undefined;
-    return { ...base, title: `In hand: ${item.title}`, ...(paper ? { detail: `Marked against ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read it.' : 'See that it is on file.' };
+    return { ...base, title: `In hand: ${item.title}`, ...(paper ? { detail: `Marked against ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read it.' : 'See that it is on file.', open: paperPlace(item) };
   }
 
   const request = (project.requests ?? []).find((held) => held.id === notice.requestId);
@@ -667,10 +670,10 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     // The reply this line of the trail recorded, by who sent it and when. Their words are not repeated: they wait on a person.
     const reply = (request.replies ?? []).find((held) => held.receivedAt === notice.at && `${OUTSIDE_ACTOR}${held.from}` === notice.by);
     const papers = reply?.attachments.length ?? 0;
-    return { ...base, title: `Reply: ${request.title}`, detail: papers ? `${plural(papers, 'paper')} came with it, waiting to be confirmed.` : 'Words alone, with no paper.', action: 'Confirm it answers the request, or set it aside.' };
+    return { ...base, title: `Reply: ${request.title}`, detail: papers ? `${plural(papers, 'paper')} came with it, waiting to be confirmed.` : 'Words alone, with no paper.', action: 'Confirm it answers the request, or set it aside.', open: requestPlace(project, request) };
   }
   const paper = request.answeredByEvidenceId ? project.evidence.find((held) => held.id === request.answeredByEvidenceId) : undefined;
-  return { ...base, title: `Answered: ${request.title}`, ...(paper ? { detail: `With ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read what came.' : 'See what came.' };
+  return { ...base, title: `Answered: ${request.title}`, ...(paper ? { detail: `With ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read what came.' : 'See what came.', open: requestPlace(project, request) };
 }
 
 const KIND_COUNTED: Record<TellEventKind, [string, string]> = {

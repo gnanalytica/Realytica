@@ -171,7 +171,7 @@ describe('across projects', () => {
     ]);
     const row = papers.parties[0]!.papers.rows[0]!;
     assert.equal(row.source, 'Papers owed, Engineering');
-    assert.equal(row.pane, 'papers');
+    assert.deepEqual([row.pane, row.extra?.workstream, row.extra?.section], ['workstream', 'construction.progress', 'documents']);
   });
 
   it('counts a paper asked for and past its date as overdue for the party it was asked of', () => {

@@ -1,6 +1,10 @@
 /**
  * Papers owed: the one list a project's three records of what is owed make
- * on screen, and the four lines Overview opens with.
+ * on screen, a department at a time, and the four lines Overview opens with.
+ *
+ * A project has no page of its own for the list. Every count, notice and
+ * request row opens the Documents of the department that holds the paper,
+ * and a request that belongs to no department opens the firm's Requests.
  *
  * The documents the checks expect, the lines of a loaded list and the
  * requests made by hand stay three records. Here they are read as one list
@@ -11,8 +15,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  FIRM_ONLY_PANES,
   PAPERS_OWED,
+  PROJECT_COCKPIT_PANES,
   PAPER_STANDING_LABEL,
   addAction,
   addChecklistItems,
@@ -21,22 +25,27 @@ import {
   addRequest,
   applyProjectChat,
   checklistSheet,
-  cockpitPath,
   createProject,
   ensureWorkstreamChecks,
   paperLineSaid,
+  paperPlace,
   papersOwed,
-  papersOwedBy,
   papersOwedCsvFile,
   papersOwedSaid,
+  papersPlacePath,
+  portfolioView,
   projectBrief,
   raiseChecklistRequests,
   recordDispatch,
   recordReply,
   receiveChecklistItem,
+  requestDepartment,
+  requestPlace,
   requirementSheet,
+  tellSaid,
   type DdProject,
   type PaperLine,
+  type PapersPlace,
 } from '@realytica/shared';
 
 const LEAD = 'lead@example.com';
@@ -127,7 +136,6 @@ describe('papers owed, as one list', () => {
     );
     // Inside a party the reply to confirm leads, then what is asked for, then what is not.
     assert.deepEqual(view.parties[0]!.lines.map((line) => line.standing), ['answered', 'asked', 'not_asked', 'not_asked']);
-    assert.equal(papersOwedBy(view), 'Hill Builders 4 · Lift vendor 1 · Fire consultant 1 · 1 more');
   });
 
   it('does not call a paper overdue once it is answered: it waits on the firm, not on them', () => {
@@ -172,23 +180,82 @@ describe('papers owed, as one list', () => {
   });
 });
 
-describe('the place, as the menu and the chat name it', () => {
-  it('opens by name for the firm’s own people, with how much is owed', () => {
+const ENGINEERING = '/projects/prj_1/w/construction.progress?part=documents';
+const FINANCE = '/projects/prj_1/w/finance.budget?part=documents';
+const at = (place: PapersPlace | undefined): string => (place ? papersPlacePath('prj_1', place) : 'nowhere');
+
+describe('where a paper owed is worked', () => {
+  it('is the Documents of the department that holds it, and never a page of the project’s own', () => {
+    assert.ok(!(PROJECT_COCKPIT_PANES as readonly string[]).includes('papers'));
     const p = worked();
-    for (const said of ['open Papers owed', 'open the checklist', 'show the requirement sheet', 'open requests']) {
-      const out = applyProjectChat(p, said);
-      assert.equal(out.navigations.at(-1)?.target, 'papers', said);
-      assert.equal(out.assistantTurn.text, `${PAPERS_OWED} are open — 7 owed, 1 to confirm.`, said);
-    }
-    assert.equal(applyProjectChat(project(), 'open Papers owed').assistantTurn.text, `${PAPERS_OWED} are open. Nothing is owed.`);
-    assert.equal(cockpitPath('prj_1', 'papers'), '/projects/prj_1/papers');
-    assert.equal(cockpitPath('prj_1', 'papers', { item: 'l:chk_1' }), '/projects/prj_1/papers?line=l%3Achk_1');
+    assert.equal(at(paperPlace(lineOf(p, 'Cube test results'))), ENGINEERING);
+    assert.equal(at(paperPlace(lineOf(p, 'Bank guarantee'))), FINANCE);
+    // A line can be named, to open on arrival.
+    assert.equal(at(paperPlace(lineOf(p, 'Cube test results'), 'l:chk_1')), `${ENGINEERING}&item=l%3Achk_1`);
+    // A department with no function laid out in parts shows no list: its own page for a line nobody was asked for.
+    assert.equal(at(paperPlace({ department: 'design' })), '/projects/prj_1/d/construction');
   });
 
-  it('is the firm’s own page: a collaborator is told so, and nothing moves', () => {
-    assert.ok(FIRM_ONLY_PANES.has('papers'));
-    const out = applyProjectChat(worked(), 'open Papers owed', { outside: true });
-    assert.equal(out.assistantTurn.text, `${PAPERS_OWED} is the firm’s own page. Nothing moved.`);
+  it('sends a request to the department of the lines it covers, and one that belongs to none to the firm’s Requests', () => {
+    const p = worked();
+    const covering = p.requests!.find((request) => request.checklistItemIds?.length)!;
+    assert.equal(requestDepartment(p, covering), 'construction');
+    assert.equal(at(requestPlace(p, covering)), ENGINEERING);
+    const byHand = p.requests!.find((request) => request.title === 'Crane hire quote')!;
+    assert.equal(requestDepartment(p, byHand), undefined);
+    assert.equal(at(requestPlace(p, byHand)), '/requests');
+    // The firm's list of requests carries the place with each row.
+    const rows = portfolioView([p], NOW).requests;
+    assert.deepEqual(rows.map((row) => [row.request.title, papersPlacePath('prj_1', row.open)]).sort(), [
+      ['Crane hire quote', '/requests'],
+      ['Fire NOC renewal copy', '/requests'],
+      ['Lift shop drawings', ENGINEERING],
+      ['Pour cards for the raft', ENGINEERING],
+    ]);
+  });
+
+  it('opens a notice of a reply where the reply is confirmed', () => {
+    const p = worked();
+    const replied = p.requests!.find((request) => request.replies?.length)!;
+    const reply = replied.replies![0]!;
+    const line = tellSaid(p, { id: 'tn_1', to: LEAD, at: reply.receivedAt, kind: 'request_replied', by: `outside:${reply.from}`, why: [], requestId: replied.id });
+    assert.equal(line?.action, 'Confirm it answers the request, or set it aside.');
+    assert.equal(at(line?.open), ENGINEERING);
+    // The paper standing "To confirm" is on that department's list, so Confirm is one step from the notice.
+    assert.equal(lineOf(p, 'Pour cards for the raft', { department: 'construction', now: NOW }).standing, 'answered');
+    const byHand = p.requests!.find((request) => request.title === 'Crane hire quote')!;
+    assert.equal(at(tellSaid(p, { id: 'tn_2', to: LEAD, at: NOW, kind: 'request_answered', by: LEAD, why: [], requestId: byHand.id })?.open), '/requests');
+    const inHand = p.checklist!.find((item) => item.title === 'Insurance policy')!;
+    assert.equal(at(tellSaid(p, { id: 'tn_3', to: LEAD, at: NOW, kind: 'line_answered', by: LEAD, why: [], checklistItemId: inHand.id })?.open), FINANCE);
+  });
+});
+
+describe('the list, as the chat names it', () => {
+  const WORDS = ['open Papers owed', 'open the checklist', 'show the requirement sheet', 'open requests'];
+
+  it('opens the Documents of the department a person is in', () => {
+    const p = worked();
+    for (const said of WORDS) {
+      const onBudget = applyProjectChat(structuredClone(p), said, { place: { pane: 'workstream', department: 'finance', fn: 'finance.budget' } });
+      assert.deepEqual([onBudget.navigations.at(-1)?.target, onBudget.navigations.at(-1)?.workstream, onBudget.navigations.at(-1)?.section], ['workstream', 'finance.budget', 'documents'], said);
+      const onLegal = applyProjectChat(structuredClone(p), said, { place: { pane: 'department', department: 'legal' } });
+      assert.deepEqual([onLegal.navigations.at(-1)?.workstream, onLegal.navigations.at(-1)?.section], ['legal.title', 'documents'], said);
+    }
+  });
+
+  it('opens the department whose list has the most owed from Overview, and names no page where no list is loaded', () => {
+    for (const said of WORDS) {
+      const out = applyProjectChat(worked(), said);
+      assert.deepEqual([out.navigations.at(-1)?.workstream, out.navigations.at(-1)?.section], ['construction.progress', 'documents'], said);
+      const bare = applyProjectChat(project(), said);
+      assert.deepEqual(bare.navigations, [], said);
+      assert.match(bare.assistantTurn.text, /Nothing moved\.$/, said);
+    }
+  });
+
+  it('names no page for somebody working from a grant, whose copy holds no list', () => {
+    const copy: DdProject = { ...worked(), checklist: undefined, requests: [] };
+    const out = applyProjectChat(copy, 'open Papers owed', { outside: true });
     assert.deepEqual(out.navigations, []);
   });
 });
@@ -201,12 +268,35 @@ describe('the four lines Overview opens with', () => {
     const lines = projectBrief(p, new Date(NOW));
     assert.deepEqual(lines.map((line) => line.key), ['needs', 'slipping', 'owed']);
     const [needs, slipping, owed] = lines;
-    assert.deepEqual(needs!.parts.map((part) => [part.text, part.open.pane]), [['1 reply to confirm', 'papers'], ['1 action overdue', 'actions']]);
+    // The reply waits on a line of Engineering's list, so that is where the part opens: Confirm is one step away.
+    assert.deepEqual(needs!.parts.map((part) => [part.text, at(part.open)]), [['1 reply to confirm', ENGINEERING], ['1 action overdue', '/projects/prj_1/risks']]);
     assert.deepEqual(slipping!.parts.map((part) => [part.text, part.tone]), [['1 late', 'critical']]);
-    assert.equal(slipping!.parts[0]!.open.extra?.workstream, 'construction.progress');
+    assert.equal(at(slipping!.parts[0]!.open), '/projects/prj_1/w/construction.progress?part=progress');
     assert.equal(owed!.label, PAPERS_OWED);
-    assert.deepEqual(owed!.parts.map((part) => part.text), ['7 owed', '1 overdue', '4 not asked', 'Hill Builders 4 · Lift vendor 1 · Fire consultant 1 · 1 more']);
-    assert.ok(owed!.parts.every((part) => part.open.pane === 'papers'));
+    // Each count and each party opens the department holding most of those papers; a request made by hand, which no department holds, opens Requests.
+    assert.deepEqual(owed!.parts.map((part) => [part.text, at(part.open)]), [
+      ['7 owed', ENGINEERING],
+      ['1 overdue', ENGINEERING],
+      ['4 not asked', ENGINEERING],
+      ['Hill Builders 4', ENGINEERING],
+      ['Lift vendor 1', ENGINEERING],
+      ['Fire consultant 1', '/requests'],
+      ['1 more', ENGINEERING],
+    ]);
+    // The line's own arrow goes to the department holding the most owed.
+    assert.equal(at(owed!.open), ENGINEERING);
+  });
+
+  it('names where each reply waits when they wait in more than one place', () => {
+    const p = worked();
+    const byHand = p.requests!.find((request) => request.title === 'Crane hire quote')!;
+    recordDispatch(p, byHand.id, { channel: 'email', to: 'hire@hill.example', at: '2026-10-02T05:00:00.000Z', by: LEAD, reference: 'CCCCC-dddddd', expiresAt: '2026-12-01T00:00:00.000Z' });
+    recordReply(p, byHand.id, { channel: 'email', from: 'hire@hill.example', receivedAt: '2026-10-11T05:00:00.000Z', deliveryId: 'd-2', text: 'Quote attached.', attachments: [] });
+    const needs = projectBrief(p, new Date(NOW))[0]!;
+    assert.deepEqual(needs.parts.map((part) => [part.text, at(part.open)]), [
+      ['1 reply to confirm in Engineering', ENGINEERING],
+      ['1 reply to confirm on Requests', '/requests'],
+    ]);
   });
 
   it('says one plain line for each where there is nothing to act on', () => {
@@ -214,15 +304,17 @@ describe('the four lines Overview opens with', () => {
     assert.deepEqual(lines.map((line) => [line.key, line.parts.length, line.quiet]), [
       ['needs', 0, 'Nothing waits for you.'],
       ['slipping', 0, 'No schedule yet. Bring it in on Progress.'],
-      ['owed', 0, 'Nothing asked for yet. Load the list of papers.'],
+      ['owed', 0, 'Nothing asked for yet. Load the list of papers on a department’s Documents.'],
     ]);
+    // With nothing owed the line still opens a department's Documents, where a list is loaded.
+    assert.match(at(lines[2]!.open), /^\/projects\/prj_1\/w\/[a-z.]+\?part=documents$/);
   });
 
   it('leaves the firm’s papers owed and its replies out for somebody working from a grant', () => {
     const lines = projectBrief(worked(), new Date(NOW), { outside: true });
     assert.deepEqual(lines.map((line) => line.key), ['needs', 'slipping']);
     assert.ok(!JSON.stringify(lines).includes('Hill Builders'));
-    assert.ok(!lines.some((line) => line.parts.some((part) => part.open.pane === 'papers')));
+    assert.ok(!lines.some((line) => line.parts.some((part) => /part=documents|^\/requests/.test(at(part.open)))));
   });
 
   it('has no cost line until a Cost Report is issued, and none at all for a copy handed no cost', () => {

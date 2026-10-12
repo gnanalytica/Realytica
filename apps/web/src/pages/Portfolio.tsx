@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { reachesEveryProject } from '@realytica/shared';
+import { papersPlacePath, reachesEveryProject } from '@realytica/shared';
 import { useMe } from '../lib/useMe';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Bell, CalendarDays, CircleAlert, Columns3, FolderTree, Inbox, LayoutTemplate, List, Plus, Search, TriangleAlert } from 'lucide-react';
@@ -222,7 +222,7 @@ function PortfolioFigure({
  * others, and what falls due in the next two weeks.
  */
 export default function Portfolio() {
-  // Papers owed is the firm's own page; somebody working from a grant is taken to the project instead.
+  // A request opens on its department's Documents, or on the firm's Requests when it belongs to none; somebody working from a grant is taken to the project instead.
   const me = useMe();
   const staff = me ? reachesEveryProject(me.role) : false;
   const navigate = useNavigate();
@@ -478,12 +478,12 @@ export default function Portfolio() {
             />
             <CardBody>
               {data.waitingOn.length === 0 ? (
-                <p className="text-[13px] text-ink-muted">Nothing is waiting on others. Ask from a project’s Papers owed.</p>
+                <p className="text-[13px] text-ink-muted">Nothing is waiting on others. Ask from a department’s Documents.</p>
               ) : (
                 <ul className="divide-y divide-hairline">
-                  {data.waitingOn.slice(0, 6).map(({ request, projectName, projectId, ageDays, overdue }) => (
+                  {data.waitingOn.slice(0, 6).map(({ request, projectName, projectId, ageDays, overdue, open }) => (
                     <li key={request.id}>
-                      <Link to={staff ? `/projects/${projectId}/papers` : `/projects/${projectId}`} className="flex items-center gap-3 py-2">
+                      <Link to={staff ? papersPlacePath(projectId, open) : `/projects/${projectId}`} className="flex items-center gap-3 py-2">
                         <Avatar name={request.recipient} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[13px] font-medium text-ink">{request.recipient}</p>

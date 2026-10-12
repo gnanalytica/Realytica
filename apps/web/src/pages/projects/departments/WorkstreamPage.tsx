@@ -322,7 +322,7 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
       body: (
         <div className="space-y-4">
           {/* The department's papers owed: one list, on the Documents part of each of its functions. */}
-          <PapersOwedCard project={project} department={ws.department} onChanged={setProject} onOpenDocument={openHere} onOpenCheck={nav.openCheck} />
+          <PapersOwedCard project={project} department={ws.department} marked={part === 'documents' ? item : null} onChanged={setProject} onOpenDocument={openHere} onOpenCheck={nav.openCheck} />
           <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={openHere} marked={lit} landed={(part === 'documents' || openId) && landing ? visit : null} />
         </div>
       ),

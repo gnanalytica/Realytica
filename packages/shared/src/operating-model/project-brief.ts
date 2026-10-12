@@ -4,25 +4,28 @@
  *
  * Overview opens with them. Every line is read off records other pages
  * already keep, and each part of a line opens the page that holds it, so
- * nothing here is a second place to work. It is read off the project as it
- * was handed over: somebody working from a grant gets the lines their copy
- * can answer, and never the firm's list of papers owed.
+ * nothing here is a second place to work. Papers are owed to a department:
+ * a count or a party opens the Documents part of the department holding most
+ * of those papers, and a request that belongs to none opens the firm's
+ * Requests. It is read off the project as it was handed over: somebody
+ * working from a grant gets the lines their copy can answer, and never the
+ * firm's papers owed.
  */
-import { PROJECT_COCKPIT_PANES, waitingOnCanvas } from './cockpit';
+import { papersOwedOpen } from './chat-places';
+import { waitingOnCanvas } from './cockpit';
 import { moneySaid } from './cost';
 import { costReportDecisions } from './cost-report-compare';
 import { costReportIssuedBefore, costReportTotals, costReportsOf } from './cost-report';
 import { scheduleWatch } from './milestone-schedule';
-import { PAPERS_OWED, papersOwed, papersOwedBy } from './papers-owed';
-import type { CockpitPathExtra } from './sitting';
+import { DEPARTMENT_SHORT, menuDepartment } from './departments';
+import { PAPERS_OWED, paperPlace, papersHeldAt, papersOwed, type PaperLine, type PapersPlace } from './papers-owed';
+import { projectDepartments } from './team';
 import type { DdProject } from './types';
-
-type Pane = (typeof PROJECT_COCKPIT_PANES)[number];
 
 export interface BriefPart {
   text: string;
   tone?: 'critical' | 'warning';
-  open: { pane: Pane; extra?: CockpitPathExtra };
+  open: PapersPlace;
 }
 
 export interface BriefLine {
@@ -32,7 +35,7 @@ export interface BriefLine {
   parts: BriefPart[];
   /** What the line says when there is nothing to act on, and where that still opens. */
   quiet: string;
-  open: { pane: Pane; extra?: CockpitPathExtra };
+  open: PapersPlace;
 }
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
@@ -46,6 +49,22 @@ const PROGRESS = { pane: 'workstream', extra: { workstream: 'construction.progre
 const BUDGET = { pane: 'workstream', extra: { workstream: 'finance.budget' } } as const;
 
 /**
+ * The replies that wait to be confirmed, each part opening the page its
+ * Confirm is on: one part where they all wait in one place, otherwise one
+ * for each place, named.
+ */
+function repliesToConfirm(lines: readonly PaperLine[]): BriefPart[] {
+  const places = new Map<string, { place: PapersPlace; where: string; n: number }>();
+  for (const line of lines) {
+    const place = paperPlace(line);
+    const where = 'firm' in place || !line.department ? 'on Requests' : `in ${DEPARTMENT_SHORT[menuDepartment(line.department)]}`;
+    const key = JSON.stringify(place);
+    places.set(key, { place, where, n: (places.get(key)?.n ?? 0) + 1 });
+  }
+  return [...places.values()].map(({ place, where, n }) => ({ text: `${plural(n, 'reply to confirm', 'replies to confirm')}${places.size > 1 ? ` ${where}` : ''}`, open: place }));
+}
+
+/**
  * The brief for a project on a day. `outside` is somebody working from a
  * grant: they are not shown the firm's papers owed or its replies.
  */
@@ -53,6 +72,7 @@ export function projectBrief(project: DdProject, now: Date, opts: { outside?: bo
   const today = now.toISOString().slice(0, 10);
   const lines: BriefLine[] = [];
   const owed = opts.outside ? undefined : papersOwed(project, { now: now.toISOString() });
+  const owing = owed?.parties.flatMap((party) => party.lines) ?? [];
 
   // What needs a person: what waits to be accepted, replies to confirm, decisions to make, actions past their date.
   const waiting = waitingOnCanvas(project);
@@ -64,7 +84,7 @@ export function projectBrief(project: DdProject, now: Date, opts: { outside?: bo
     label: 'Needs you',
     parts: [
       ...(waiting.total && first ? [{ text: `${waiting.total} to accept`, open: { pane: first.pane, ...(first.extra ? { extra: first.extra } : {}) } }] : []),
-      ...(owed?.answered ? [{ text: plural(owed.answered, 'reply to confirm', 'replies to confirm'), open: { pane: 'papers' as const } }] : []),
+      ...repliesToConfirm(owing.filter((line) => line.standing === 'answered')),
       ...(decisions ? [{ text: plural(decisions, 'decision to make', 'decisions to make'), open: { pane: 'decisions' as const } }] : []),
       ...(late ? [{ text: plural(late, 'action overdue', 'actions overdue'), tone: 'critical' as const, open: { pane: 'actions' as const } }] : []),
     ],
@@ -93,22 +113,28 @@ export function projectBrief(project: DdProject, now: Date, opts: { outside?: bo
     open: PROGRESS,
   });
 
-  // What is owed: the papers the project waits for, and who owes the most.
+  // What is owed: the papers the project waits for, and who owes the most. Each count opens the department holding most of those papers.
   if (owed) {
-    const by = papersOwedBy(owed);
+    // With nothing owed the line still opens somewhere a list can be read or loaded: where the papers in hand are, or the first department with a list.
+    const first = projectDepartments(project).map((department) => papersOwedOpen(department)).find((place) => place.pane === 'workstream');
+    const most = papersHeldAt(owing) ?? papersHeldAt(owed.inHand) ?? first ?? { pane: 'evidence' };
+    const at = (lines: PaperLine[]): PapersPlace => papersHeldAt(lines) ?? most;
+    const named = [...owed.parties].sort((a, b) => Number(!a.party) - Number(!b.party) || b.lines.length - a.lines.length);
+    const shown = named.slice(0, 3);
     lines.push({
       key: 'owed',
       label: PAPERS_OWED,
       parts: owed.owed
         ? [
-            { text: `${owed.owed} owed`, open: { pane: 'papers' } },
-            ...(owed.overdue ? [{ text: `${owed.overdue} overdue`, tone: 'critical' as const, open: { pane: 'papers' as const } }] : []),
-            ...(owed.notAsked ? [{ text: `${owed.notAsked} not asked`, open: { pane: 'papers' as const } }] : []),
-            ...(by ? [{ text: by, open: { pane: 'papers' as const } }] : []),
+            { text: `${owed.owed} owed`, open: most },
+            ...(owed.overdue ? [{ text: `${owed.overdue} overdue`, tone: 'critical' as const, open: at(owing.filter((line) => line.overdue)) }] : []),
+            ...(owed.notAsked ? [{ text: `${owed.notAsked} not asked`, open: at(owing.filter((line) => line.standing === 'not_asked')) }] : []),
+            ...shown.map((party) => ({ text: `${party.party ?? 'Nobody named'} ${party.lines.length}`, open: at(party.lines) })),
+            ...(named.length > shown.length ? [{ text: `${named.length - shown.length} more`, open: at(named.slice(shown.length).flatMap((party) => party.lines)) }] : []),
           ]
         : [],
-      quiet: owed.total ? `All ${owed.total} in hand.` : 'Nothing asked for yet. Load the list of papers.',
-      open: { pane: 'papers' },
+      quiet: owed.total ? `All ${owed.total} in hand.` : 'Nothing asked for yet. Load the list of papers on a department’s Documents.',
+      open: most,
     });
   }
 

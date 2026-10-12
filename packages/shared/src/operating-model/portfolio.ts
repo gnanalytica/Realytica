@@ -9,6 +9,7 @@
 
 import { toProjectSummary } from './operations';
 import { currentEngagement } from './engagements';
+import { requestPlace, type PapersPlace } from './papers-owed';
 import { requestAgeDays, waitingOn } from './project-requests';
 import type { ChatProposalKind, DdProject, ProjectRequest, ProjectSummary } from './types';
 
@@ -27,6 +28,8 @@ export interface PortfolioWaiting {
   request: ProjectRequest;
   ageDays: number;
   overdue: boolean;
+  /** Where the request is worked: its department's Documents, or the firm's Requests when it belongs to none. */
+  open: PapersPlace;
 }
 
 export type PortfolioDueKind = 'request' | 'action' | 'visit' | 'report';
@@ -111,11 +114,12 @@ export function portfolioView(
         request,
         ageDays: requestAgeDays(request, now),
         overdue: request.status === 'sent' && Boolean(request.dueAt && request.dueAt < today),
+        open: requestPlace(project, request),
       });
     }
 
     for (const item of waitingOn(project, now)) {
-      waiting.push({ projectId: project.id, projectName: project.name, ...item });
+      waiting.push({ projectId: project.id, projectName: project.name, ...item, open: requestPlace(project, item.request) });
       if (inWindow(item.request.dueAt)) {
         upcoming.push({ projectId: project.id, projectName: project.name, date: item.request.dueAt, label: item.request.title, kind: 'request', refId: item.request.id });
       }

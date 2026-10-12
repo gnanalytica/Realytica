@@ -12,7 +12,7 @@ Writes on a project need a role that allows them: workspace `write` capability f
 | POST | `/projects` | Create one: name, type, location, city, `currentStage`, `departments`, optional first `engagement` |
 | GET, PATCH, DELETE | `/projects/:id` | Read, change particulars, delete (with its documents and graph) |
 | POST | `/projects/:id/stage` | Move the project or a phase to a step; the history keeps the reason |
-| GET | `/portfolio` | The firm's projects, decisions waiting, requests out, the next 14 days |
+| GET | `/portfolio` | The firm's projects, decisions waiting, requests out, the next 14 days. Each request row carries `open`: the Documents part of the department it belongs to (`{ pane, extra }`), or `{ firm: 'requests' }` for a request that belongs to no department |
 
 ## Departments and people
 
@@ -221,7 +221,7 @@ Outside sign-in, each needing `Authorization: Bearer <CRON_SECRET>`, else 401. V
 | GET | `/health` | Up, the version, how many projects the instance holds, auth mode, graph store, upload limits — no sign-in |
 | GET, POST, PATCH, DELETE | `/members`, `/members/:email` | Who is in the workspace; invite; change a role or remove somebody; the auto-join domain |
 | GET | `/work` | What waits for me across projects |
-| GET | `/tell` | The caller's own notices across every project they reach, newest first (at most 200), with unread, the projects they have quieted, and `channels { email, push }` |
+| GET | `/tell` | The caller's own notices across every project they reach, newest first (at most 200), with unread, the projects they have quieted, and `channels { email, push }`. A notice of a paper owed or a request carries `open`, the same place a request row does |
 | POST | `/tell/read` | `{ ids: string[] (1 to 500) \| 'all' }` — marks the caller's own notices read; 404 when ids are named and none is theirs |
 | PUT | `/tell/quiet/:projectId` | `{ quiet: boolean }` — quiets a project's mail and push for the caller, or stops; 404 for a project they cannot reach |
 | GET | `/analytics/portfolio` | The firm's projects side by side: forecast against budget from each project's last issued Cost Report with the movement since the one before, planned against projected completion and extension-of-time flags, papers owed by party, open alerts by kind, and what waits on the owner. Every figure carries the rows it counts (at most 200, with a `more` count), each with its source and where it opens |

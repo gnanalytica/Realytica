@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useMemo, useState } from 'react';
 import { requestStanding } from '@realytica/shared';
 import { Plus } from 'lucide-react';
 import { api } from '../lib/api';
@@ -19,13 +18,6 @@ const replied = (row: { request: Parameters<typeof requestStanding>[0] }): boole
 export default function Requests() {
   const { data, error, loading, refresh } = useAsync(() => api.portfolio(), []);
   const [creating, setCreating] = useState(false);
-  // A link from a project's Papers owed lands on the tray.
-  const { hash } = useLocation();
-  const toSort = useRef<HTMLDivElement>(null);
-  const loaded = Boolean(data);
-  useEffect(() => {
-    if (loaded && hash === '#unsorted') toSort.current?.scrollIntoView({ block: 'start' });
-  }, [loaded, hash]);
 
   const groups = useMemo(() => {
     const rows = data?.requests ?? [];
@@ -68,9 +60,7 @@ export default function Requests() {
               </CardBody>
             </Card>
           ) : null}
-          <div id="unsorted" ref={toSort}>
-            <ToSortCard projects={projects} requests={data.requests} onFiled={refresh} />
-          </div>
+          <ToSortCard projects={projects} requests={data.requests} onFiled={refresh} />
           {groups.overdue.length ? (
             <Card className="ring-2 ring-critical/30">
               <CardHeader title="Overdue" subtitle={`${groups.overdue.length} past their due date`} />
@@ -86,7 +76,7 @@ export default function Requests() {
                 rows={groups.open}
                 onChanged={refresh}
                 showProject
-                empty="Nothing is waiting on others. Ask for a paper from a project’s Papers owed, or with New request."
+                empty="Nothing is waiting on others. Ask for a paper from a department’s Documents, or with New request."
               />
             </CardBody>
           </Card>
