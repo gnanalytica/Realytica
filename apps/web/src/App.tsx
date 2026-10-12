@@ -43,6 +43,7 @@ import WorkstreamPage from './pages/projects/departments/WorkstreamPage';
 const About = lazy(() => import('./pages/About'));
 const Members = lazy(() => import('./pages/Members'));
 const Integrations = lazy(() => import('./pages/Integrations'));
+const Setup = lazy(() => import('./pages/Setup'));
 const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const LawWatch = lazy(() => import('./pages/LawWatch'));
@@ -186,6 +187,7 @@ export default function App() {
           <Route path="members" element={<Members />} />
           <Route path="law" element={<LawWatch />} />
           <Route path="integrations" element={<Integrations />} />
+          <Route path="setup" element={<Setup />} />
           <Route path="about" element={<About />} />
           <Route path="*" element={<Navigate to="/portfolio" replace />} />
         </Route>

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, LAW_ACTIONS_A_PROJECT, STAGES, lawDay, type DepartmentKey, type LawChange, type LawProposedAction, type LawSource, type LawSourceInput, type StageKey } from '@realytica/shared';
+import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, LAW_ACTIONS_A_PROJECT, STAGES, lawDay, reachesEveryProject, type DepartmentKey, type LawChange, type LawProposedAction, type LawSource, type LawSourceInput, type StageKey } from '@realytica/shared';
 import { lawWatchApi, type LawWaiting, type LawWatchShown } from '../lib/law-watch-api';
 import { useAsync } from '../lib/useAsync';
+import { useMe } from '../lib/useMe';
 import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, Checkbox, Disclosure, Field, Input, Modal, PageHeader, Select, Skeleton, Textarea, useToast } from '../components/ui/kit';
 
 /**
@@ -201,7 +202,10 @@ function decidedLine(change: LawChange): string {
 }
 
 export default function LawWatch() {
-  const { data: loaded, error, loading } = useAsync(() => lawWatchApi.open(), []);
+  // The watch is the firm's own people's: somebody working from a grant is told so, and nothing is asked of the server for them.
+  const me = useMe();
+  const staff = me ? reachesEveryProject(me.role) : false;
+  const { data: loaded, error, loading } = useAsync(() => (staff ? lawWatchApi.open() : Promise.resolve(null)), [staff]);
   const [fresh, setFresh] = useState<LawWatchShown | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<LawSource | 'new' | null>(null);
@@ -240,10 +244,16 @@ export default function LawWatch() {
           ) : null
         }
       />
-      <p className="text-[13px] text-ink-secondary">Watches the pages listed here only. Not legal advice.</p>
+      {me && !staff ? (
+        <Callout tone="neutral" title="Law and policy is for the firm’s own people">
+          An action that comes of a change in the law is on the project it was added to.
+        </Callout>
+      ) : (
+        <p className="text-[13px] text-ink-secondary">Watches the pages listed here only. Not legal advice.</p>
+      )}
 
       {error ? <Callout tone="critical" title="Could not load the watch">{error}</Callout> : null}
-      {loading && !data ? <Skeleton className="h-64 w-full rounded-xl" /> : null}
+      {staff && loading && !data ? <Skeleton className="h-64 w-full rounded-xl" /> : null}
 
       {data ? (
         <>

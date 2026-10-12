@@ -100,6 +100,8 @@ export * from './report-day';
 export * from './checklist-csv';
 export * from './papers-owed';
 export * from './project-brief';
+export * from './setup';
+export * from './workspace-menu';
 export * from './plans';
 export * from './turn-changes';
 export * from './review-table';

@@ -174,7 +174,7 @@ export function SendRequestModal({ projectId, request, onClose, onSent }: { proj
           <Input value={to} onChange={(e) => setTo(e.target.value)} type={channel === 'email' ? 'email' : 'tel'} placeholder={channel === 'email' ? 'name@firm.example' : '+91 90000 00000'} />
         </Field>
         <p className="text-[12px] text-ink-muted">
-          {status && !ready ? `${OUTSIDE_CHANNEL_LABEL[channel]} is not set up on this deployment.` : 'Their reply comes back here and waits for you to confirm it.'}
+          {status && !ready ? `${OUTSIDE_CHANNEL_LABEL[channel]} is not set up yet. Set up says what is needed.` : 'Their reply comes back here and waits for you to confirm it.'}
         </p>
       </div>
     </Modal>
@@ -228,7 +228,7 @@ export function ToSortCard({ projects, requests, onFiled }: { projects: Array<{ 
       />
       <CardBody>
         {items.length === 0 ? (
-          <p className="py-2 text-[13px] text-ink-muted">{listening ? 'Replies that cannot be placed wait here.' : 'Inbound email and WhatsApp are not set up on this deployment.'}</p>
+          <p className="py-2 text-[13px] text-ink-muted">{listening ? 'Replies that cannot be placed wait here.' : 'Replies by email and WhatsApp are not set up, so nothing arrives here. Set up says what is needed.'}</p>
         ) : (
           <ul className="divide-y divide-hairline">
             {items.map((item) => (

@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Home, Inbox, Info, Plug, Scale, Users, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Home, Inbox, Info, Plug, Scale, SlidersHorizontal, Users, X } from 'lucide-react';
+import { workspacePlaces, type WorkspacePlaceKey } from '@realytica/shared';
 import { cn } from '../ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
+import { useMe } from '../../lib/useMe';
 
 export interface SidebarProps {
   collapsed: boolean;
@@ -18,31 +20,34 @@ interface NavItem {
   label: string;
   icon: typeof FolderTree;
   end: boolean;
+  group: 'work' | 'more';
   /** Addresses that are also this place: a project's own pages belong to the portfolio it was opened from. */
   also?: string;
 }
 
 /*
- * The firm's work first: its projects, what it is waiting on from others, and
- * the people it works with. Setup and reference sit below the rule.
+ * The firm's work first: its projects, what is on my own name, what it is
+ * waiting on from others, and the people it works with. Reference and how
+ * the workspace is set up sit below the rule.
  *
- * Portfolio and Projects were two entries here for one set of projects, shown
- * as a board by stage in one and as a list in the other. The portfolio now
- * has both views, and this is one entry.
+ * The list and who is shown each entry are in `@realytica/shared`
+ * (`workspace-menu.ts`), where a test holds them: an entry a person cannot
+ * use is not listed for them. Here each gets its mark.
  */
-const PROJECT_ITEMS: NavItem[] = [
-  { to: '/portfolio', label: 'Portfolio', icon: Home, end: false, also: '/projects' },
-  { to: '/requests', label: 'Requests', icon: Inbox, end: false },
-  { to: '/members', label: 'People', icon: Users, end: false },
-  { to: '/law', label: 'Law and policy', icon: Scale, end: false },
-];
+const PLACE_ICON: Record<WorkspacePlaceKey, typeof FolderTree> = {
+  portfolio: Home,
+  work: CircleCheck,
+  requests: Inbox,
+  members: Users,
+  law: Scale,
+  libraries: BookOpen,
+  setup: SlidersHorizontal,
+  integrations: Plug,
+  about: Info,
+};
 
-const MORE_ITEMS: NavItem[] = [
-  { to: '/work', label: 'My work', icon: CircleCheck, end: false },
-  { to: '/libraries', label: 'Libraries', icon: BookOpen, end: false },
-  { to: '/integrations', label: 'Integrations', icon: Plug, end: false },
-  { to: '/about', label: 'About', icon: Info, end: false },
-];
+/** A project's own pages belong to the portfolio it was opened from. */
+const ALSO: Partial<Record<WorkspacePlaceKey, string>> = { portfolio: '/projects' };
 
 function NavGroup({
   items,
@@ -121,6 +126,9 @@ function NavGroup({
  */
 export default function Sidebar({ collapsed: preferred, forceCollapsed = false, onToggleCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const collapsed = preferred || forceCollapsed;
+  // Until the server has said who this is, only what everybody is shown is listed.
+  const me = useMe();
+  const items: NavItem[] = workspacePlaces(me?.role).map((place) => ({ to: place.to, label: place.label, icon: PLACE_ICON[place.key], end: false, group: place.group, ...(ALSO[place.key] ? { also: ALSO[place.key] } : {}) }));
   /*
    * Escape closes it, and the page behind it stops scrolling while it is
    * open. A drawer without either is one a keyboard user cannot dismiss and
@@ -207,8 +215,8 @@ export default function Sidebar({ collapsed: preferred, forceCollapsed = false, 
           labels are already visible and scrolling matters more.
         */}
         <nav className={cn('flex-1 space-y-0.5 px-2 py-3', collapsed ? 'overflow-y-auto lg:overflow-visible' : 'overflow-y-auto')}>
-          <NavGroup items={PROJECT_ITEMS} collapsed={collapsed} />
-          <NavGroup items={MORE_ITEMS} collapsed={collapsed} heading="More" />
+          <NavGroup items={items.filter((item) => item.group === 'work')} collapsed={collapsed} />
+          <NavGroup items={items.filter((item) => item.group === 'more')} collapsed={collapsed} heading="More" />
         </nav>
 
         <div className="border-t border-hairline p-3">

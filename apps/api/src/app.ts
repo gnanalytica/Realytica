@@ -41,6 +41,7 @@ import { connectorRouter } from './routes/connector';
 import { outsideHooksRouter, outsideRouter } from './routes/outside';
 import { fileSweepRouter } from './routes/file-sweep';
 import { integrationsRouter } from './routes/integrations';
+import { setupRouter } from './routes/setup';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -199,6 +200,7 @@ app.use('/api/work', workRouter);
 app.use('/api/tell', tellRouter);
 app.use('/api/portfolio', portfolioRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/setup', setupRouter);
 app.use('/api/law-watch', (await import('./routes/law-watch')).lawWatchRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
 // member's business and changing one is the workspace's — the router carries
