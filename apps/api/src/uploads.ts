@@ -12,7 +12,7 @@
 import type multer from 'multer';
 
 const MAX_FILES_PER_UPLOAD = 10;
-const LOCAL_MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const LOCAL_MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 /**
  * Vercel rejects a request body over 4.5 MB at the platform edge, before the

@@ -33,6 +33,7 @@ import { automationsEnabled } from './flows/enabled';
 import { membersRouter } from './routes/members';
 import { deviceClaimRouter, devicesRouter } from './routes/devices';
 import { cronRouter } from './routes/cron';
+import { connectorRouter } from './routes/connector';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -169,6 +170,8 @@ app.use('/api/projects/:projectId/review', reviewTableRouter);
 // What goes out: making a draft or asking for its body asks a model once, so those two are budgeted as a model call is.
 app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method === 'POST' && (req.path === '/' || req.path.endsWith('/write')) ? limits.expensive(req, res, next) : next()));
 app.use('/api/projects/:projectId/outgoing', outgoingRouter);
+// The folder kept elsewhere that a project takes its files from: the firm's own people's, with its own guard.
+app.use('/api/projects/:projectId/connector', connectorRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);
