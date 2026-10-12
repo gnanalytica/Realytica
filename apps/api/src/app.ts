@@ -32,6 +32,7 @@ import { automationsEnabled } from './flows/enabled';
 import { membersRouter } from './routes/members';
 import { deviceClaimRouter, devicesRouter } from './routes/devices';
 import { cronRouter } from './routes/cron';
+import { fileSweepRouter } from './routes/file-sweep';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -168,6 +169,8 @@ app.use('/api/projects/:projectId/review', reviewTableRouter);
 // What goes out: making a draft or asking for its body asks a model once, so those two are budgeted as a model call is.
 app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method === 'POST' && (req.path === '/' || req.path.endsWith('/write')) ? limits.expensive(req, res, next) : next()));
 app.use('/api/projects/:projectId/outgoing', outgoingRouter);
+// What the daily review suggested, for a lead or signer to accept or dismiss. It asks no model: the review runs on the timer.
+app.use('/api/projects/:projectId/daily-review', fileSweepRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);
