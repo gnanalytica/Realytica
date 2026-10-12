@@ -1,8 +1,8 @@
 /**
  * Monthly Cost Report as a printable document (Save as PDF).
  *
- * Outside the app shell so what prints is the report — cover plus the three
- * table sheets — and not the navigation around it.
+ * Outside the app shell so what prints is the report — cover, what moved since
+ * the last report, and the table sheets — and not the navigation around it.
  */
 
 import { useEffect, useMemo } from 'react';
@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { Spinner } from '../../components/ui/kit';
+import { SinceLastReportPrint } from '../../components/budget/SinceLastReport';
 
 function money(amount: number, currency: DdProject['currency']): string {
   return moneySaid(amount, currency);
@@ -180,7 +181,11 @@ export default function CostReportPrint() {
         </dl>
       </section>
 
-      <Sheet title="Executive summary — Budget vs PO issued vs Amount paid" page={1} of={6}>
+      <Sheet title="Since last report" page={1} of={7}>
+        <SinceLastReportPrint project={project} report={report} />
+      </Sheet>
+
+      <Sheet title="Executive summary — Budget vs PO issued vs Amount paid" page={2} of={7}>
         <MoneyTable
           report={report}
           currency={project.currency}
@@ -192,7 +197,7 @@ export default function CostReportPrint() {
         />
       </Sheet>
 
-      <Sheet title="Executive summary — Budget vs Anticipated cost" page={2} of={6}>
+      <Sheet title="Executive summary — Budget vs Anticipated cost" page={3} of={7}>
         <MoneyTable
           report={report}
           currency={project.currency}
@@ -210,7 +215,7 @@ export default function CostReportPrint() {
         ) : null}
       </Sheet>
 
-      <Sheet title="Budget details — Package ledger" page={3} of={6}>
+      <Sheet title="Budget details — Package ledger" page={4} of={7}>
         <MoneyTable
           report={report}
           currency={project.currency}
@@ -223,7 +228,7 @@ export default function CostReportPrint() {
         />
       </Sheet>
 
-      <Sheet title="Cause of project cost increment — Variation log" page={4} of={6}>
+      <Sheet title="Cause of project cost increment — Variation log" page={5} of={7}>
         {(report.variations ?? []).length ? (
           <table className="w-full border-collapse text-left text-[12px]">
             <thead>
@@ -248,7 +253,7 @@ export default function CostReportPrint() {
         )}
       </Sheet>
 
-      <Sheet title="Basic price adjustments" page={5} of={6}>
+      <Sheet title="Basic price adjustments" page={6} of={7}>
         {(report.basicPriceAdjustments ?? []).length ? (
           <table className="w-full border-collapse text-left text-[12px]">
             <thead>
@@ -279,7 +284,7 @@ export default function CostReportPrint() {
         )}
       </Sheet>
 
-      <ProgressPhotoSheet project={project} report={report} page={6} of={6} />
+      <ProgressPhotoSheet project={project} report={report} page={7} of={7} />
     </div>
   );
 }

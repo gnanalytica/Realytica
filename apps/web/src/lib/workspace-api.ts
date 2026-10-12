@@ -167,6 +167,12 @@ export const workspaceApi = {
       { method: 'DELETE' },
     ),
 
+  setCostReportChangeReason: (projectId: string, reportId: string, workPackageId: string, reason: string | null) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/change-reasons/${workPackageId}`,
+      { method: 'PUT', body: JSON.stringify({ reason }) },
+    ),
+
   addCostReportVariation: (
     projectId: string,
     reportId: string,

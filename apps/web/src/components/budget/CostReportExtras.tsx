@@ -16,7 +16,7 @@ import {
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, Input, cn, useToast } from '../ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Input, Select, cn, useToast } from '../ui/kit';
 
 function money(amount: number, currency: DdProject['currency']): string {
   return moneySaid(amount, currency);
@@ -59,6 +59,8 @@ function VariationLog({
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [contingency, setContingency] = useState(false);
+  const [packageId, setPackageId] = useState('');
+  const packageNames = new Map(report.rows.map((r) => [r.workPackageId, [r.code, r.name].filter(Boolean).join(' · ')]));
   const rows = report.variations ?? [];
   const total = rows.reduce((s, r) => s + r.amount, 0);
 
@@ -75,6 +77,7 @@ function VariationLog({
           await workspaceApi.addCostReportVariation(project.id, report.id, {
             description: description.trim(),
             amount: n,
+            ...(packageNames.has(packageId) ? { workPackageId: packageId } : {}),
             contingencyDrawn: contingency,
           })
         ).project,
@@ -82,6 +85,7 @@ function VariationLog({
       setDescription('');
       setAmount('');
       setContingency(false);
+      setPackageId('');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not add the variation', 'critical');
     } finally {
@@ -102,6 +106,17 @@ function VariationLog({
             <label className="text-[12px] text-ink-secondary">
               Amount
               <Input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="mt-1 w-28" />
+            </label>
+            <label className="text-[12px] text-ink-secondary">
+              Package
+              <Select value={packageId} onChange={(e) => setPackageId(e.target.value)} className="mt-1 w-44">
+                <option value="">None</option>
+                {[...packageNames].map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
             </label>
             <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-secondary">
               <input type="checkbox" checked={contingency} onChange={(e) => setContingency(e.target.checked)} />
@@ -124,7 +139,12 @@ function VariationLog({
           <tbody>
             {rows.map((row: CostReportVariation) => (
               <tr key={row.id} className="border-b border-hairline/70">
-                <td className="py-1.5 pr-2 text-ink">{row.description}</td>
+                <td className="py-1.5 pr-2 text-ink">
+                  {row.description}
+                  {row.workPackageId && packageNames.has(row.workPackageId) ? (
+                    <span className="ml-2 text-ink-muted">{packageNames.get(row.workPackageId)}</span>
+                  ) : null}
+                </td>
                 <td className="py-1.5 pr-2 text-ink-secondary">{row.contingencyDrawn ? 'Contingency' : 'Budget'}</td>
                 <td className="py-1.5 text-right tabular-nums">{money(row.amount, project.currency)}</td>
                 {mayEdit ? (

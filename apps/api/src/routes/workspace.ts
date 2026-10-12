@@ -23,6 +23,7 @@
  * POST   /cost-reports/:reportId/packages add a package row
  * PATCH  /cost-reports/:reportId/packages/:rowId
  * DELETE /cost-reports/:reportId/packages/:rowId
+ * PUT    /cost-reports/:reportId/change-reasons/:workPackageId  why a package moved since the last report
  * GET    /site                            the site app's view of the project
  * POST   /site-log                        a day's entry from site (idempotent on the phone's id)
  * POST   /site-log/photos                 photographs for an entry, before it is filed
@@ -72,6 +73,7 @@ import {
   removeCostReportPackage,
   removeCostReportVariation,
   setBillLines,
+  setCostReportChangeReason,
   setCostReportNote,
   setCostReportPhotos,
   startCostReport,
@@ -692,6 +694,27 @@ projectWorkspaceRouter.delete<Params & { reportId: string; rowId: string }>('/co
   }
 });
 
+const costReportChangeReason = z.object({ reason: z.string().max(400).nullable() });
+
+projectWorkspaceRouter.put<Params & { reportId: string; workPackageId: string }>('/cost-reports/:reportId/change-reasons/:workPackageId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = costReportChangeReason.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the reason, or null to clear it.' });
+    return;
+  }
+  try {
+    setCostReportChangeReason(project, req.params.reportId, req.params.workPackageId, parsed.data.reason, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not save that reason');
+  }
+});
 
 const dayField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const signedMoney = z.number().finite().max(1e13);
