@@ -24,6 +24,7 @@
  */
 
 import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, DECISION_STATUS_LABEL, DECISION_TYPE_LABEL } from './catalogs';
+import { rupeesSaid } from './units';
 import { chatPlaceLabel } from './chat-places';
 import { DEPARTMENT_SHORT, MENU_DEPARTMENTS, menuFunctions } from './departments';
 import { allChecks } from './engagements';
@@ -108,11 +109,7 @@ function dayOf(iso: string): string {
 
 const grouped = (n: number): string => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
-function rupees(n: number): string {
-  if (n >= 1e7) return `Rs ${grouped(n / 1e7)} Cr`;
-  if (n >= 1e5) return `Rs ${grouped(n / 1e5)} lakh`;
-  return `Rs ${grouped(n)}`;
-}
+const rupees = (n: number): string => rupeesSaid(n);
 
 /** A fact's value as a person reads it: the record's own way of writing it where it has one, else by the form its key takes. */
 function valueOf(fact: MemFact): string {

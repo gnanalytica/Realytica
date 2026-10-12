@@ -24,6 +24,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  recordCheckFields,
+  setFieldValues,
   addAction,
   addAsset,
   addBill,
@@ -281,6 +283,12 @@ function filledProject(): DdProject {
   applyProjectChat(project, 'Give me a briefing');
   project.conversation.at(-1)!.citedNodeIds = [finding.id];
   commitAiDraft(project, proposeAiDrafts(project).find((d) => d.kind === 'action')!.id);
+  // A function's sheet holds a value, and one of its fields mirrors a check's: the field value node and its `same_as`.
+  const parcelCheck = project.assessments.flatMap((a) => a.scopes.flatMap((sc) => sc.checks)).find((c) => c.definitionId === 'land_site.parcel_identification');
+  assert.ok(parcelCheck, 'the fixture has the parcel check the example sheet mirrors');
+  recordCheckFields(project, parcelCheck.id, { extent_title: 6273 }, 'tester');
+  setFieldValues(project, { set: 'legal.title.holding' }, { extent: '1 acre 22 guntas', tenure: 'freehold' }, 'tester');
+
   return project;
 }
 

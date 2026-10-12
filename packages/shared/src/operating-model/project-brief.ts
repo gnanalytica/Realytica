@@ -12,6 +12,7 @@
  * firm's papers owed.
  */
 import { papersOwedOpen } from './chat-places';
+import { fieldsNeeding } from './field-sheets';
 import { waitingOnCanvas } from './cockpit';
 import { moneySaid } from './cost';
 import { costReportDecisions } from './cost-report-compare';
@@ -65,6 +66,22 @@ function repliesToConfirm(lines: readonly PaperLine[]): BriefPart[] {
 }
 
 /**
+ * What the functions' sheets need of a person: values to accept and disputes
+ * to settle, each part opening the sheet of the function that has the most.
+ * Empty fields and failing rules are the sheet's own to show; they are work
+ * to do, and this line is what waits on a decision.
+ */
+function fieldParts(project: DdProject, now: Date): BriefPart[] {
+  const needing = fieldsNeeding(project, now);
+  const part = (count: (row: (typeof needing)[number]) => number, one: string, many: string, tone?: 'critical'): BriefPart[] => {
+    const total = needing.reduce((sum, row) => sum + count(row), 0);
+    const most = [...needing].sort((a, b) => count(b) - count(a))[0];
+    return total && most ? [{ text: plural(total, one, many), ...(tone ? { tone } : {}), open: { pane: 'workstream' as const, extra: { workstream: most.fn, section: 'sheet' } } }] : [];
+  };
+  return [...part((row) => row.counts.proposed + row.counts.situation, 'value to accept', 'values to accept'), ...part((row) => row.counts.disputed, 'value disputed', 'values disputed', 'critical')];
+}
+
+/**
  * The brief for a project on a day. `outside` is somebody working from a
  * grant: they are not shown the firm's papers owed or its replies.
  */
@@ -84,6 +101,7 @@ export function projectBrief(project: DdProject, now: Date, opts: { outside?: bo
     label: 'Needs you',
     parts: [
       ...(waiting.total && first ? [{ text: `${waiting.total} to accept`, open: { pane: first.pane, ...(first.extra ? { extra: first.extra } : {}) } }] : []),
+      ...fieldParts(project, now),
       ...repliesToConfirm(owing.filter((line) => line.standing === 'answered')),
       ...(decisions ? [{ text: plural(decisions, 'decision to make', 'decisions to make'), open: { pane: 'decisions' as const } }] : []),
       ...(late ? [{ text: plural(late, 'action overdue', 'actions overdue'), tone: 'critical' as const, open: { pane: 'actions' as const } }] : []),

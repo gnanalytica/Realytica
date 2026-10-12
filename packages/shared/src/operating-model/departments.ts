@@ -22,6 +22,7 @@
  */
 
 import { LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { functionHasSheets } from './field-registry';
 import type { DdProject, LifecycleStage } from './types';
 
 /* ==================================================================== */
@@ -532,7 +533,8 @@ export function menuFunctions(menu: DepartmentKey, at?: MenuStage): MenuFunction
     purpose: w.purpose,
     department: w.department,
     workstreams: [w.key],
-    built: w.status === 'live',
+    // Built, or holding sheets of its own: a function with a field set has a page to open.
+    built: w.status === 'live' || functionHasSheets(w.key),
   }));
   if (under !== menuDepartment('design')) return shown(own);
   const design = departmentDefinition('design');
@@ -544,7 +546,7 @@ export function menuFunctions(menu: DepartmentKey, at?: MenuStage): MenuFunction
       purpose: design.purpose,
       department: design.key,
       workstreams: design.workstreams.map((w) => w.key),
-      built: design.workstreams.some((w) => w.status === 'live'),
+      built: design.workstreams.some((w) => w.status === 'live' || functionHasSheets(w.key)),
     },
     ...own,
   ]);

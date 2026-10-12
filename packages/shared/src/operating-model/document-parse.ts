@@ -22,6 +22,7 @@
  */
 
 import type { DocumentKind } from '../types';
+import { SQM_PER_ACRE, SQM_PER_GUNTA, SQM_PER_SQFT, rupeesSaid } from './units';
 import { normalizeDigits } from '../script';
 import type { EvidenceKind, FindingSeverity, ScopeKey } from './types';
 
@@ -624,15 +625,8 @@ function parseAmount(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function displayInr(n: number): string {
-  if (n >= 1e7) return `Rs ${(n / 1e7).toLocaleString('en-IN', { maximumFractionDigits: 2 })} Cr`;
-  if (n >= 1e5) return `Rs ${(n / 1e5).toLocaleString('en-IN', { maximumFractionDigits: 2 })} lakh`;
-  return `Rs ${n.toLocaleString('en-IN')}`;
-}
-
-const SQM_PER_ACRE = 4046.8564224;
-const SQM_PER_GUNTA = 101.17141056;
-const SQM_PER_SQFT = 0.09290304;
+/** Rupees as a person says them. Lakh and crore are written in one place (`units.ts`). */
+const displayInr = (n: number): string => rupeesSaid(n);
 
 /** An area phrase to square metres, or null. Understands acres and guntas. */
 function areaToSqm(value: string, unit: string): number | null {

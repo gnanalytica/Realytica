@@ -28,9 +28,13 @@
  */
 
 import { alertsOfCopy } from './alerts';
+import { scopesOfWorkstreams } from './departments';
+import { fieldCatalog, sharedSetsOf } from './field-registry';
+import { SHARED_FN } from './field-sets/shared-records';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
 import { reportsOfCopy } from './status-report';
 import type {
+  CheckFieldValue,
   ActionRecord,
   DdAssessment,
   DdProject,
@@ -89,6 +93,14 @@ export function fullView(project: DdProject): ProjectView {
   const writable = new Set<string>();
   for (const a of project.assessments) for (const s of a.scopes) for (const c of s.checks) writable.add(c.id);
   return { project, complete: true, withheld: [], writableCheckIds: writable };
+}
+
+/** Whether a grant reaches a function's sheets: it names one of the scopes the function's checks sit in. A function with no checks is reached by no grant. */
+export function fieldFunctionsInReach(grant: Pick<ProjectGrant, 'allScopes' | 'scopeKeys'>): (fn: string) => boolean {
+  return (fn) => {
+    const scopes = scopesOfWorkstreams([fn]);
+    return scopes.length > 0 && (grant.allScopes || scopes.some((scope) => (grant.scopeKeys as string[]).includes(scope)));
+  };
 }
 
 export function projectView(project: DdProject, access: ProjectAccess): ProjectView {
@@ -265,6 +277,43 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     // So does the last instruction somebody gave the chat, and only staff can take it back.
     lastUndo: undefined,
   };
+
+  /*
+   * A function's sheets go with the scopes the grant names: the sheets of a
+   * function are handed over where one of the scopes its checks sit in is.
+   * A shared record goes only where a function in reach links to it. A value
+   * keeps its citation only where the paper it cites is on this copy.
+   */
+  const inReach = fieldFunctionsInReach(grant);
+  const catalog = fieldCatalog();
+  const sharedInReach = new Set([...catalog.sheets.keys()].filter(inReach).flatMap((fn) => sharedSetsOf(fn, catalog).map((set) => set.id)));
+  const uncited = (value: CheckFieldValue): CheckFieldValue => {
+    const cited = value.origin?.kind === 'paper' ? value.origin.evidenceId : value.sourceEvidenceId;
+    const other = value.other?.filter((o) => o.origin.kind !== 'paper' || evidenceIds.has(o.origin.evidenceId));
+    const kept = other ? { ...value, other } : value;
+    if (!cited || evidenceIds.has(cited)) return kept;
+    const { origin: _origin, sourceEvidenceId: _source, page: _page, quote: _quote, ...rest } = kept;
+    return rest;
+  };
+  const copied = (values: Record<string, CheckFieldValue>) => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, uncited(value)]));
+  if (project.fieldSheets) {
+    const kept = Object.entries(project.fieldSheets).filter(([id]) => {
+      const set = catalog.sets.get(id);
+      return set ? (set.fn === SHARED_FN ? sharedInReach.has(id) : inReach(set.fn)) : false;
+    });
+    view.fieldSheets = Object.fromEntries(kept.map(([id, sheet]) => [id, { ...sheet, values: copied(sheet.values), ...(sheet.records ? { records: sheet.records.map((record) => ({ ...record, values: copied(record.values) })) } : {}) }]));
+    if (kept.length < Object.keys(project.fieldSheets).length) withheld.push('assessments');
+  }
+  if (project.situations) {
+    // A situation is said only where a function in reach answers to it, and never with the paper that suggested it where that paper is not here.
+    const told = new Set<string>();
+    for (const fn of catalog.sheets.keys()) if (inReach(fn)) for (const set of catalog.sheets.get(fn) ?? []) for (const situation of set.situations ?? []) told.add(situation.scope === 'function' ? `${fn}:${situation.key}` : situation.key);
+    view.situations = Object.fromEntries(
+      Object.entries(project.situations)
+        .filter(([key]) => told.has(key))
+        .map(([key, state]) => [key, state.suggestedBy && !evidenceIds.has(state.suggestedBy.evidenceId) ? { state: state.state, by: state.by, at: state.at } : state]),
+    );
+  }
 
   // An alert is written from the whole file: an overdue action's says what the action is and the meeting it came from.
   // This copy keeps the alerts its own records raise, in its own words (`alertsOfCopy`), so none tells of what was taken out above.

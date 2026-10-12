@@ -35,6 +35,10 @@
  */
 
 import { allChecks } from './engagements';
+import { fieldIsDerived, standingValues } from './check-fields';
+import { addressKey } from './field-registry';
+import { FIELD_SETS } from './field-sets';
+import { standingFieldLines } from './field-sheets';
 import { MENU_DEPARTMENTS, functionDepartment, functionKey, workstreamOfCheck } from './departments';
 import type { DocumentFact, FactForm } from './document-parse';
 import { acceptedFacts, proofOf, proposedFacts, standingFacts } from './fact-review';
@@ -197,7 +201,8 @@ let catalogue: Map<string, KeyRule[]> | undefined;
 function catalogueFields(key: string): readonly KeyRule[] {
   if (!catalogue) {
     catalogue = new Map();
-    for (const definition of CHECK_DEFINITIONS) {
+    // Every field the catalog declares: a check's, and a function sheet's.
+    for (const definition of [...CHECK_DEFINITIONS, ...FIELD_SETS]) {
       for (const field of definition.fields ?? []) {
         const form = CHECK_FORM[field.kind];
         if (!form) continue;
@@ -545,13 +550,45 @@ function paperFacts(project: DdProject, row: EvidenceRecord, trail: Trail): Told
   return told;
 }
 
+/**
+ * What the functions' sheets hold that stands: one fact for each field, under
+ * the field's address, with who accepted it and the paper it was read from.
+ * A value that waits or is disputed is left out, and so is one that is
+ * worked out from others or read from where it is entered.
+ */
+function sheetFacts(project: DdProject): Told[] {
+  return standingFieldLines(project).flatMap((line): Told[] => {
+    if (fieldIsDerived(line.def) || !CHECK_FORM[line.def.kind]) return [];
+    const paper = line.value.origin?.kind === 'paper' ? line.value.origin : undefined;
+    return [
+      {
+        slot: `field::${addressKey(line.address)}`,
+        tag: 'approved',
+        key: line.def.key,
+        label: line.def.label,
+        value: line.value.value,
+        unit: line.def.dimension === 'area' ? 'sqm' : line.def.unit,
+        display: line.text,
+        aboutId: project.id,
+        ...placeOf(line.address.fn),
+        recordedAt: line.value.at,
+        by: line.value.acceptedBy ?? line.value.by,
+        at: line.value.acceptedAt ?? line.value.at,
+        source: paper?.evidenceId ?? line.value.sourceEvidenceId ?? project.id,
+        page: paper?.page ?? line.value.page,
+        quote: paper?.quote ?? line.value.quote,
+      },
+    ];
+  });
+}
+
 /** What is recorded on the checks: each field's value with who recorded it, and each result. */
 function checkFacts(project: DdProject, trail: Trail): Told[] {
   const told: Told[] = [];
   for (const check of allChecks(project)) {
     const place = placeOf(workstreamOfCheck(check.definitionId));
     const fields = new Map(checkSchema(check).fields.map((field) => [field.key, field]));
-    for (const [key, held] of Object.entries(check.fields ?? {})) {
+    for (const [key, held] of Object.entries(standingValues(check.fields))) {
       const field = fields.get(key);
       const form = field ? CHECK_FORM[field.kind] : undefined;
       // A field that holds a table, a list, a paragraph or a sum worked out from the others holds no value of its own.
@@ -860,6 +897,7 @@ export function memoryFacts(project: DdProject): MemFacts {
   const told = [
     ...project.evidence.flatMap((row) => [...kindFacts(project, row, trail), ...paperFacts(project, row, trail)]),
     ...checkFacts(project, trail),
+    ...sheetFacts(project),
     ...projectFacts(project, trail),
     ...recordFacts(project, trail),
     ...siteFacts(project),

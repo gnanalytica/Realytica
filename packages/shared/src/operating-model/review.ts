@@ -10,9 +10,10 @@
  */
 
 import { paperCarries, type DocumentFact } from './document-parse';
+import { offerPaperToSheets } from './field-sheets';
 import type { ChatProposal, DdProject, EvidenceRecord } from './types';
 import { findCheck, recordAuditEvent, recordCheckFields } from './operations';
-import { isBlank } from './check-fields';
+import { isBlank, standingField, standingValues } from './check-fields';
 import { acceptedOneAtATime, factReview, stands, toReopen, valueOnPaper } from './fact-review';
 import { commitChatProposal, rejectChatProposal } from './wizard';
 import { decidedOnACheck, factFillProposals, pendingFactProposals } from './document-intake';
@@ -258,7 +259,7 @@ function contested(project: DdProject, card: ChatProposal, key: string): boolean
   const value = String(nowOffered(project, card, key).value);
   let held: unknown;
   try {
-    const field = findCheck(project, checkId).check.fields?.[key];
+    const field = standingField(findCheck(project, checkId).check.fields?.[key]);
     held = isBlank(field) ? undefined : field!.value;
   } catch {
     return false;
@@ -447,6 +448,8 @@ export function reviewFacts(
     if (offer.length) {
       const source = { fileName: evidence.attachments[0]?.fileName ?? evidence.title, evidenceId: evidence.id, documentLabel: evidence.documentType ?? evidence.title };
       project.chatProposals.push(...factFillProposals(project, offer, source, actor, [], { differences: true }));
+      // And to every sheet that reads this kind of paper, where each waits again for that function's lead or signer.
+      offerPaperToSheets(project, evidence.id, offer);
     }
   }
 
@@ -641,7 +644,7 @@ export function waitingOnCheck(project: DdProject, checkId: string): CheckWaitin
   let held: Record<string, unknown> = {};
   try {
     const { check } = findCheck(project, checkId);
-    held = Object.fromEntries(Object.entries(check.fields ?? {}).filter(([, v]) => !isBlank(v)).map(([k, v]) => [k, v!.value]));
+    held = Object.fromEntries(Object.entries(standingValues(check.fields)).filter(([, v]) => !isBlank(v)).map(([k, v]) => [k, v!.value]));
   } catch {
     return { fields: [], results: [], other: [] };
   }

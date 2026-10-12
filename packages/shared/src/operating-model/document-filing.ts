@@ -22,7 +22,7 @@
  */
 
 import { chatPlaceLabel, functionOfDocument, functionRank, functionSections, functionsNamed, openPlace, placeOfRecord, titleWords, type ChatPlace, type PlaceOpen } from './chat-places';
-import { formatFieldValue } from './check-fields';
+import { formatFieldValue, standingField } from './check-fields';
 import type { WaitingEntry } from './cockpit';
 import {
   MENU_DEPARTMENTS,
@@ -412,7 +412,7 @@ export function documentDisagreements(project: DdProject, evidence: EvidenceReco
       if (assessment.status === 'archived') continue;
       for (const check of assessment.scopes.flatMap((s) => s.checks)) {
         const def = checkSchema(check).fields.find((f) => f.key === fact.key);
-        const held = check.fields?.[fact.key];
+        const held = standingField(check.fields?.[fact.key]);
         if (!def || !held || held.sourceEvidenceId === evidence.id || !differsOnCheck(project, check, def, fact)) continue;
         const from = held.sourceEvidenceId ? project.evidence.find((e) => e.id === held.sourceEvidenceId) : undefined;
         found.push({

@@ -78,6 +78,22 @@ import {
   checkFieldReading,
   findCheck,
   recordCheckFields,
+  SHARED_FN,
+  FieldRefused,
+  acceptAllFromPaper,
+  addFieldRecord,
+  decideField,
+  departmentRole,
+  fieldFunctionsInReach,
+  fieldSet,
+  removeFieldRecord,
+  roleCanEdit,
+  setFieldValues,
+  setSectionNotApplicable,
+  setSituation,
+  type FieldValueDecision,
+  type FieldWriteOptions,
+  type NaReason,
   detachReportBlock,
   editReportBlock,
   insertReportBlock,
@@ -279,6 +295,12 @@ import {
   editReportBlockBodySchema,
   generateReportBodySchema,
   recordCheckFieldsBodySchema,
+  setFieldValuesBodySchema,
+  decideFieldBodySchema,
+  acceptPaperFieldsBodySchema,
+  fieldRecordBodySchema,
+  situationBodySchema,
+  sectionNaBodySchema,
   insertReportBlockBodySchema,
   moveReportBlockBodySchema,
   retuneReportBlockBodySchema,
@@ -3472,6 +3494,180 @@ projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
     res.json({ checkId: outcome.check.id, ...outcome.reading, project });
   } catch (err) {
     fail(res, err);
+  }
+});
+
+/* ==================================================================== */
+/* Field sets: a function's sheets                                       */
+/* ==================================================================== */
+
+/**
+ * What every route below asks first: the project, whether this caller's
+ * reach takes in the function, and what their role there lets them do.
+ *
+ * A collaborator reaches a function's sheets where their grant names one of
+ * the scopes its checks sit in, the same test their copy of the project is
+ * cut by; outside it the sheet is not there to be written to. Who may change
+ * a value is the department role: a lead, contributor or signer edits, and
+ * only a lead or signer makes a value count.
+ */
+function fieldSeat(req: Request, res: Response, fn: string | undefined): { project: DdProject; options: FieldWriteOptions } | undefined {
+  const project = findProject(req.params.projectId!);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return undefined;
+  }
+  const access = accessTo(req, project);
+  const reached = access.ok && (access.access.kind === 'full' || (fn !== undefined && fn !== SHARED_FN && fieldFunctionsInReach(access.access.grant)(fn)));
+  if (!reached) {
+    res.status(404).json({ error: 'Not found' });
+    return undefined;
+  }
+  const me = principalOf(req);
+  const person = { email: me.email, workspaceRole: me.role };
+  return { project, options: { mayDecide: decidesFor(req, project), mayEdit: (department) => roleCanEdit(departmentRole(project, person, department)) } };
+}
+
+function failField(res: Response, err: unknown): void {
+  if (err instanceof FieldRefused) res.status(400).json({ error: err.message });
+  else fail(res, err);
+}
+
+/** What a person types into a sheet. All or nothing. */
+projectsRouter.put('/:projectId/fields/values', async (req, res) => {
+  const parsed = setFieldValuesBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  const seat = fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    const outcome = setFieldValues(seat.project, { set: set.id, record: parsed.data.record }, parsed.data.values, actorOf(req), seat.options);
+    if (outcome.rejected.length) {
+      res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
+      return;
+    }
+    await persistPaneWrite(req, seat.project, `Recorded ${outcome.written.length} value${outcome.written.length === 1 ? '' : 's'} on ${set.title}.`);
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** A person's decision on one field: accept, keep, set aside, dispute, not applicable, reopen. */
+projectsRouter.post('/:projectId/fields/decide', async (req, res) => {
+  const parsed = decideFieldBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.address.set);
+  const seat = fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    const { address, decision, ...input } = parsed.data;
+    decideField(seat.project, { ...address, fn: set.fn }, decision, actorOf(req), input, seat.options);
+    const label = set.fields.find((field) => field.key === address.field)?.label ?? address.field;
+    await persistPaneWrite(req, seat.project, `${FIELD_DECISION_SAID[decision]} “${label}” on ${set.title}.`);
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+const FIELD_DECISION_SAID: Record<FieldValueDecision, string> = {
+  accept: 'Accepted',
+  keep: 'Kept',
+  set_aside: 'Set aside',
+  dispute: 'Disputed',
+  not_applicable: 'Marked not applicable',
+  reopen: 'Reopened',
+};
+
+/** Accept every value one paper offered to a function's sheets, but for the ones a person has to name. */
+projectsRouter.post('/:projectId/fields/accept-paper', async (req, res) => {
+  const parsed = acceptPaperFieldsBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const seat = fieldSeat(req, res, parsed.data.fn);
+  if (!seat) return;
+  try {
+    const out = acceptAllFromPaper(seat.project, parsed.data.fn, parsed.data.evidenceId, actorOf(req), seat.options);
+    if (out.accepted.length) await persistPaneWrite(req, seat.project, `Accepted ${out.accepted.length} value${out.accepted.length === 1 ? '' : 's'} from one paper.`, { citedEvidenceIds: [parsed.data.evidenceId] });
+    res.json({ project: seat.project, accepted: out.accepted.length, left: out.left.length });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Add a record to a set that repeats, or with `remove` take one off its list. */
+projectsRouter.post('/:projectId/fields/records', async (req, res) => {
+  const parsed = fieldRecordBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  // A shared record is the project's own: staff add one from whichever function they are on.
+  const seat = fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    if (parsed.data.remove) {
+      removeFieldRecord(seat.project, set.id, parsed.data.remove, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, `Took a record off ${set.title}.`);
+      res.json({ project: seat.project });
+      return;
+    }
+    const out = addFieldRecord(seat.project, set.id, parsed.data.values, actorOf(req), seat.options);
+    if (out.rejected.length) {
+      res.status(400).json({ error: out.rejected.map((r) => r.error).join(' '), rejected: out.rejected });
+      return;
+    }
+    await persistPaneWrite(req, seat.project, `Added a record to ${set.title}.`);
+    res.json({ project: seat.project, recordId: out.record?.id });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Put a situation in play or take it out. Taking it out deletes nothing. */
+projectsRouter.put('/:projectId/fields/situation', async (req, res) => {
+  const parsed = situationBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const seat = fieldSeat(req, res, parsed.data.fn);
+  if (!seat) return;
+  try {
+    setSituation(seat.project, parsed.data.fn, parsed.data.key, parsed.data.on, actorOf(req), seat.options);
+    await persistPaneWrite(req, seat.project, parsed.data.on ? 'Put a situation in play.' : 'Took a situation out of play.');
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Mark a section of a sheet not applicable with one of the five reasons, or with `null` ask it again. */
+projectsRouter.put('/:projectId/fields/section', async (req, res) => {
+  const parsed = sectionNaBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  const seat = fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    setSectionNotApplicable(seat.project, set.id, parsed.data.section, parsed.data.reason as NaReason | null, actorOf(req), { ...seat.options, note: parsed.data.note });
+    await persistPaneWrite(req, seat.project, parsed.data.reason === null ? `Reopened a section of ${set.title}.` : `Marked a section of ${set.title} not applicable.`);
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
   }
 });
 

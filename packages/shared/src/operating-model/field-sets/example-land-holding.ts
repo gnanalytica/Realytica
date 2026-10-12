@@ -1,0 +1,185 @@
+/**
+ * The worked example of a field set: Legal › Title's land holding, and the
+ * owners of it as a set that repeats.
+ *
+ * It is here to show every part of the field system once, on a function that
+ * already exists, and it is what docs/fields.md walks through. It is not the
+ * catalog for Title: a department's own file replaces it.
+ */
+
+import type { FieldSet } from '../types';
+
+const FN = 'legal.title';
+const HOLDING = 'legal.title.holding';
+const OWNERS = 'legal.title.owners';
+
+export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
+  {
+    id: HOLDING,
+    fn: FN,
+    title: 'Land holding',
+    v: 1,
+    optionSets: [
+      {
+        id: 'land_tenure',
+        label: 'Tenure',
+        options: [
+          { key: 'freehold', label: 'Freehold', tone: 'good' },
+          { key: 'leasehold', label: 'Leasehold', tone: 'info' },
+          { key: 'government_grant', label: 'Government grant', tone: 'warning' },
+          { key: 'inam', label: 'Inam', tone: 'warning' },
+          { key: 'unknown', label: 'Not known', tone: 'neutral', retired: true },
+        ],
+      },
+      {
+        id: 'title_event',
+        label: 'Event',
+        options: [
+          { key: 'sale', label: 'Sale' },
+          { key: 'gift', label: 'Gift' },
+          { key: 'partition', label: 'Partition' },
+          { key: 'inheritance', label: 'Inheritance' },
+          { key: 'mortgage', label: 'Mortgage', tone: 'warning' },
+          { key: 'release', label: 'Release', tone: 'good' },
+        ],
+      },
+    ],
+    situations: [
+      {
+        key: 'agricultural_land',
+        label: 'Agricultural land',
+        scope: 'project',
+        hint: 'The land is, or was, recorded as agricultural.',
+        proposeFrom: { documentTypes: ['RTC (record of rights)', 'DC conversion order'] },
+      },
+    ],
+    sections: [
+      { key: 'holding', label: 'Holding' },
+      { key: 'history', label: 'History' },
+      { key: 'conversion', label: 'Conversion', showWhen: { situation: 'agricultural_land' } },
+      { key: 'notes', label: 'Notes', tier: 'expert' },
+    ],
+    fields: [
+      { key: 'tenure', label: 'Tenure', kind: 'enum', control: 'tiles', optionSet: 'land_tenure', section: 'holding' },
+      {
+        key: 'extent',
+        label: 'Extent held',
+        kind: 'area',
+        dimension: 'area',
+        enterIn: ['acre', 'gunta', 'cent', 'sqm', 'sqft', 'hectare'],
+        section: 'holding',
+        from: 'Sale deed',
+        fromTypes: ['Sale deed', 'Mother deed'],
+        factKey: 'extent_title',
+        proof: 'expected',
+      },
+      {
+        key: 'extent_on_check',
+        label: 'Extent per title, on the parcel check',
+        kind: 'area',
+        unit: 'sqm',
+        section: 'holding',
+        sameAs: { fn: FN, set: 'land_site.parcel_identification', field: 'extent_title' },
+        required: false,
+      },
+      {
+        key: 'owners_count',
+        label: 'Owners',
+        kind: 'computed',
+        section: 'holding',
+        formula: { op: 'records', set: OWNERS, reduce: 'count' },
+      },
+      {
+        key: 'value_at_rate',
+        label: 'Extent at the rate applied in Valuation',
+        kind: 'computed',
+        dimension: 'money',
+        currency: 'INR',
+        section: 'holding',
+        formula: {
+          op: 'multiply',
+          left: { op: 'field', key: 'extent' },
+          right: { op: 'field', key: 'rate_per_sqm', at: { fn: 'finance.valuation', set: 'indicative_valuation.comparable_inputs', field: 'rate_per_sqm' } },
+        },
+      },
+      {
+        key: 'standing',
+        label: 'Holding record',
+        kind: 'status',
+        section: 'holding',
+        cases: [
+          {
+            when: { kind: 'compare', fields: ['extent', 'extent_on_check'], tolerance: 0.01, say: 'The extent held is {a} and the parcel check records {b}: {divergence} apart.', severity: 'high' },
+            label: 'Extent differs from the parcel check',
+            tone: 'critical',
+          },
+          { when: { kind: 'require', fields: ['tenure'], say: 'Tenure is not recorded.', severity: 'medium' }, label: 'Tenure not recorded', tone: 'warning' },
+        ],
+        otherwise: { label: 'In order', tone: 'good' },
+      },
+      { key: 'seller', label: 'Seller', kind: 'ref', target: 'party', section: 'holding', required: false },
+      { key: 'possession_verified', label: 'Possession verified on site', kind: 'boolean', control: 'tick', section: 'holding', required: false },
+      {
+        key: 'chain',
+        label: 'Chain of title',
+        kind: 'table',
+        display: 'timeline',
+        section: 'history',
+        required: false,
+        columns: [
+          { key: 'on', label: 'Date', kind: 'date' },
+          { key: 'event', label: 'Event', kind: 'enum', optionSet: 'title_event' },
+          { key: 'from', label: 'From', kind: 'text' },
+          { key: 'to', label: 'To', kind: 'text' },
+        ],
+      },
+      { key: 'mother_deed', label: 'Mother deed', kind: 'evidence', accepts: 'document', viewer: 'deed', section: 'history', required: false },
+      {
+        key: 'conversion_order_no',
+        label: 'Conversion order number',
+        kind: 'text',
+        section: 'conversion',
+        tier: 'situational',
+        showWhen: { situation: 'agricultural_land' },
+        from: 'DC conversion order',
+        fromTypes: ['DC conversion order'],
+        factKey: 'conversion_order_number',
+      },
+      {
+        key: 'conversion_date',
+        label: 'Converted on',
+        kind: 'date',
+        section: 'conversion',
+        tier: 'situational',
+        showWhen: { situation: 'agricultural_land' },
+        from: 'DC conversion order',
+        fromTypes: ['DC conversion order'],
+      },
+      { key: 'access_confidence', label: 'Confidence in the access', kind: 'number', control: 'scale', min: 1, max: 5, section: 'notes', tier: 'expert', required: false },
+      { key: 'remarks', label: 'Remarks', kind: 'longtext', maxLength: 300, section: 'notes', tier: 'expert', required: false },
+    ],
+    rules: [
+      { kind: 'compare', fields: ['extent', 'extent_on_check'], tolerance: 0.01, say: 'The extent held is {a} and the parcel check records {b}: {divergence} apart, outside {tolerance}.', severity: 'high' },
+    ],
+  },
+  {
+    id: OWNERS,
+    fn: FN,
+    title: 'Owners',
+    v: 1,
+    records: { of: 'owner', titleField: 'name', summaryFields: ['share_pct', 'capacity'] },
+    fields: [
+      { key: 'name', label: 'Name', kind: 'text', suggest: 'party', fromTypes: ['Sale deed'], factKey: 'purchaser' },
+      { key: 'share_pct', label: 'Share', kind: 'percent', max: 100, precision: 2 },
+      { key: 'capacity', label: 'Holds as', kind: 'enum', control: 'segmented', options: ['individual', 'karta of an HUF', 'company', 'trust', 'minor through a guardian'] },
+      {
+        key: 'guardian',
+        label: 'Guardian',
+        kind: 'text',
+        tier: 'situational',
+        showWhen: { field: { fn: FN, set: OWNERS, field: 'capacity' }, is: 'equals', value: 'minor through a guardian' },
+      },
+    ],
+    rules: [],
+  },
+];

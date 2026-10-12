@@ -1,4 +1,5 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
+import { optionSetById } from './field-registry';
 import { createEngagement, currentEngagement } from './engagements';
 import { reconcileRequests } from './project-requests';
 import { reconcileChecklistRequests } from './checklist';
@@ -718,7 +719,7 @@ export function recordCheckFields(
       rejected.push({ key, error: `“${check.title}” has no field called "${key}". It records: ${fields.map((f) => f.key).join(', ')}.` });
       continue;
     }
-    const parsed = validateFieldValue(def, raw);
+    const parsed = validateFieldValue(def, raw, { optionSet: optionSetById, state: project.jurisdiction });
     if ('error' in parsed) {
       rejected.push({ key, error: parsed.error });
       continue;
@@ -754,6 +755,8 @@ export function recordCheckFields(
       ...(sourceEvidenceId ? { sourceEvidenceId } : {}),
       ...(cited?.page ? { page: cited.page } : {}),
       ...(cited?.quote ? { quote: cited.quote.slice(0, 220) } : {}),
+      // What was typed, where it was more than the figure kept: "1 acre 22 guntas".
+      ...('entered' in parsed && parsed.entered ? { entered: parsed.entered } : {}),
     };
   }
 

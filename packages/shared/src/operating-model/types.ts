@@ -318,10 +318,259 @@ export type CheckFieldKind =
    * photograph, a certificate. The value is an evidence id, so the file is
    * held once and cited from everywhere rather than re-uploaded per check.
    */
-  | 'evidence';
+  | 'evidence'
+  /**
+   * A link to something entered once elsewhere: a party, a parcel, a work
+   * package, a document, an approval, a milestone, or one record of a field
+   * set that repeats (an owner, a case). The value is that thing's id, so it
+   * is never typed a second time. `target` says which register.
+   */
+  | 'ref'
+  /**
+   * A standing worked out by the rule engine from other fields: the first of
+   * its `cases` whose rule fires gives the label and the tone. Never written.
+   * A standing a person sets by hand is an `enum`.
+   */
+  | 'status';
 
 /** How a choice or a switch is drawn. Presentation only — the data is the same. */
-export type CheckFieldControl = 'dropdown' | 'radio' | 'segmented' | 'switch' | 'checkbox';
+export type CheckFieldControl = 'dropdown' | 'radio' | 'segmented' | 'switch' | 'checkbox' | 'tiles' | 'tick' | 'scale';
+
+/* --- The field system (docs/fields.md) ------------------------------- */
+
+/**
+ * Where a field is: the function it belongs to, the set that holds it (a
+ * check definition's id, or a field set's), and its key. `column` names one
+ * column of a table field; `record` one row of a set that repeats.
+ */
+export interface FieldAddress {
+  fn: string;
+  set: string;
+  field: string;
+  column?: string;
+  record?: string;
+}
+
+export type Dimension = 'area' | 'length' | 'volume' | 'mass' | 'money' | 'time' | 'count' | 'ratio';
+export type Tone = 'good' | 'warning' | 'critical' | 'neutral' | 'info';
+export type FieldCurrency = 'INR' | 'USD' | 'AED' | 'EUR';
+
+export interface OptionDef {
+  key: string;
+  label: string;
+  tone?: Tone;
+  /** No longer offered. A value saved under it still reads. */
+  retired?: true;
+}
+
+/** A list of choices shared by several fields. */
+export interface OptionSet {
+  id: string;
+  label: string;
+  options: OptionDef[];
+}
+
+/** What a `ref` field links to: a register that exists, or the records of a field set that repeats. */
+export type RefTarget = 'party' | 'parcel' | 'building' | 'unit' | 'drawing' | 'approval' | 'matter' | 'contract' | 'account' | 'package' | 'document' | 'milestone' | { set: string };
+
+/** Where one side of a `match` table takes its list from: a field of every record of a set, a column of another table, or a register. */
+export type MatchList = { records: string; field: string } | { table: FieldAddress; column: string } | { target: RefTarget };
+
+/** One side of a `match` table: the column that holds its item, what the list is called, and where the list comes from. */
+export interface MatchSide {
+  column: string;
+  label: string;
+  of: MatchList;
+}
+
+/**
+ * One dated row of a rule table: a rate, a limit, a threshold or a period,
+ * as a regulation states it for a place and a set of conditions.
+ *
+ * A figure that a law sets is never a constant in a field. It is a row here,
+ * with where it applies, when it is in force and where it is written, so a
+ * change in the law is a new row and not a formula nobody knows went stale.
+ * A row nobody has checked against its source says so, and the screen says
+ * so beside every value worked out from it.
+ */
+export interface RuleRow {
+  /** What it is, by a key formulas name: `rera_deposit_share`, `far_limit`. */
+  key: string;
+  label: string;
+  jurisdiction: { state?: string; city?: string; authority?: string };
+  /** The conditions it applies under, each a value or a band: zone, road width band, plot band, occupancy, height band, grade. */
+  when?: Record<string, string | { min?: number; max?: number }>;
+  value: number;
+  unit?: string;
+  /** In force from this day, and until `to` where it has been replaced. */
+  from: string;
+  to?: string;
+  source: { regulation: string; clause?: string; page?: number; url?: string };
+  verified: boolean;
+  verifiedBy?: string;
+  verifiedOn?: string;
+}
+
+/** A rule row a value was worked out from. */
+export interface RuleCitation {
+  key: string;
+  label: string;
+  value: number;
+  unit?: string;
+  from: string;
+  source: RuleRow['source'];
+  verified: boolean;
+}
+
+/** A condition inside a formula: two amounts compared, or what a field holds. */
+export type FormulaCondition =
+  | { left: CheckFormula; is: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne'; right: CheckFormula }
+  | { field: string; at?: FieldAddress; is: 'set' | 'true' | 'false' | 'equals' | 'in'; value?: unknown }
+  | { all: FormulaCondition[] }
+  | { any: FormulaCondition[] };
+
+/** A condition on one row of a table or one record of a set. */
+export interface RowCondition {
+  column: string;
+  is: 'set' | 'true' | 'false' | 'equals' | 'in' | 'gt' | 'lt';
+  value?: unknown;
+}
+
+/** The rows a formula runs over: a table field of its own set, or the records of a set that repeats. */
+export type FormulaRows = { table: string } | { records: string };
+
+/** How much of a sheet a field is: always shown, shown when its condition holds, or folded until asked for. */
+export type FieldTier = 'core' | 'situational' | 'expert';
+
+/**
+ * Something true of a project, or of one function of it, that brings more
+ * fields into play: a minor among the owners, agricultural land, a joint
+ * development. Set by a person, or proposed from a paper and accepted.
+ */
+export interface Situation {
+  key: string;
+  label: string;
+  scope: 'project' | 'function';
+  hint?: string;
+  /** What suggests it: a kind of paper on file, or a field holding a value. */
+  proposeFrom?: { documentTypes?: string[]; field?: FieldAddress };
+  /** Where it follows from what is recorded, nobody is asked: it is in play exactly when this holds ("more than one owner"). */
+  derive?: ShowWhen;
+}
+
+/** When a field or a section shows. */
+export type ShowWhen =
+  | { situation: string }
+  | { field: FieldAddress; is: 'set' | 'true' | 'false' | 'equals' | 'in' | 'gt' | 'lt'; value?: unknown }
+  /** Over the records of a set that repeats: any, none, or at least `n`, of those meeting `where`. */
+  | { records: string; is: 'any' | 'none' | 'at_least'; n?: number; where?: RowCondition }
+  | { all: ShowWhen[] }
+  | { any: ShowWhen[] };
+
+/** A named part of a sheet. A field joins one by naming its key in `section`. */
+export interface FieldSection {
+  key: string;
+  label: string;
+  tier?: FieldTier;
+  showWhen?: ShowWhen;
+}
+
+/**
+ * The fields one function keeps, declared as data.
+ *
+ * A check's fields are one holder and a function's sheet is another; both are
+ * read through the registry (`field-registry.ts`). A set with `records` is
+ * one that repeats: owners, parcels, cases. Each record is a small sheet of
+ * its own, and the page lists them by `titleField` with `summaryFields` as
+ * chips.
+ */
+export interface FieldSet {
+  id: string;
+  /** The function it belongs to: a workstream key, as `legal.title`. */
+  fn: string;
+  title: string;
+  v: number;
+  fields: CheckFieldDef[];
+  rules: CheckInsightRule[];
+  sections?: FieldSection[];
+  records?: { of: string; titleField: string; summaryFields: string[] };
+  /** The situations this set's fields answer to. Declared here so a catalog is one file. */
+  situations?: Situation[];
+  /** The shared lists this set's fields choose from. */
+  optionSets?: OptionSet[];
+  /**
+   * Adds this set's fields to a set that repeats declared elsewhere (a
+   * shared record: party, parcel, unit), in place of making a sheet. The
+   * department's own facts about a party sit on the one party record.
+   */
+  extends?: string;
+}
+
+/** Where a field's value stands with a person. */
+export type FieldState = 'empty' | 'proposed' | 'accepted' | 'typed' | 'disputed' | 'not_applicable' | 'assumed';
+
+/** Why a field or a section does not apply: one of five, so a report can print it and nobody writes a sentence. */
+export type NaReason = 'not_in_this_project' | 'not_at_this_stage' | 'done_by_another_party' | 'exempt' | 'no_such_paper';
+
+export const NA_REASONS: readonly NaReason[] = ['not_in_this_project', 'not_at_this_stage', 'done_by_another_party', 'exempt', 'no_such_paper'];
+
+export const NA_REASON_LABEL: Record<NaReason, string> = {
+  not_in_this_project: 'Not in this project',
+  not_at_this_stage: 'Not at this stage',
+  done_by_another_party: 'Done by another party',
+  exempt: 'Exempt',
+  no_such_paper: 'No such paper',
+};
+
+/**
+ * A usual value that stands in until the real one is known: thirty years of
+ * title search in Karnataka, a notice period under a form of contract. The
+ * first whose condition holds is taken. It is shown as assumed, feeds what
+ * is worked out, and gives way the moment a value is typed or accepted.
+ */
+export interface DefaultRule {
+  when?: ShowWhen;
+  value: string | number | boolean;
+  from: 'state_pack' | 'contract' | 'firm' | 'catalog';
+  /** Where the usual value is written. Required unless it is the firm's own. */
+  cite?: string;
+}
+
+/** Where a value came from. */
+export type FieldOrigin =
+  | { kind: 'paper'; evidenceId: string; page: number; quote: string; reader: 'parser' | 'model'; proof?: 'page_text' | 'second_reader' | 'unverified' }
+  | { kind: 'external'; source: string; url?: string; asOf: string; quote?: string }
+  | { kind: 'field'; address: FieldAddress }
+  | { kind: 'person' }
+  | { kind: 'default'; from: DefaultRule['from']; cite?: string };
+
+/** One record of a set that repeats. */
+export interface FieldRecord {
+  id: string;
+  values: Record<string, CheckFieldValue>;
+  createdAt: string;
+  by: string;
+  /** Taken off the list. Kept, with who took it off. */
+  removed?: { by: string; at: string };
+}
+
+/** What a project holds for one field set. */
+export interface StoredFieldSheet {
+  values: Record<string, CheckFieldValue>;
+  records?: FieldRecord[];
+  /** Sections marked not applicable, each with the reason. */
+  na?: Record<string, { reason: NaReason | string; note?: string; by: string; at: string }>;
+}
+
+/** Whether a situation is in play on a project, and who said so. */
+export interface SituationState {
+  /** `proposed` waits for a person, and brings no field into play until accepted. */
+  state: 'on' | 'off' | 'proposed';
+  by: string;
+  at: string;
+  /** The paper and page that suggested it. */
+  suggestedBy?: { evidenceId: string; page?: number; quote?: string };
+}
 
 /**
  * How strongly a value must be backed by something on file.
@@ -341,7 +590,31 @@ export type CheckFieldProof = 'required' | 'expected' | 'none';
  * can see what it computes. Every leaf is either a field key or a literal.
  */
 export type CheckFormula =
-  | { op: 'field'; key: string }
+  /** With `at`, the field is read from another set or another function (`resolveFields`). */
+  | { op: 'field'; key: string; at?: FieldAddress }
+  /** Over the records of a set that repeats: how many there are, or one numeric field of theirs summed. */
+  | { op: 'records'; set: string; reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct'; field?: string }
+  /** The least or the most of several amounts. One that is not known is left out. */
+  | { op: 'min' | 'max'; of: CheckFormula[] }
+  | { op: 'if'; when: FormulaCondition; then: CheckFormula; else: CheckFormula }
+  /** One column summed, or the rows counted, over the rows that meet a condition. */
+  | { op: 'sum_if'; over: FormulaRows; column: string; where: RowCondition }
+  | { op: 'count_if'; over: FormulaRows; where: RowCondition }
+  /**
+   * A figure a regulation sets, read from the rule table: the row for the
+   * project's place in force on a day, under conditions taken from fields.
+   * `on` names a date field; without it the day is today.
+   */
+  | { op: 'rate'; table: string; on?: string; where?: Record<string, { field: string } | { value: string | number }> }
+  /** The yearly rate of return of dated cash flows held in a table, as a percentage. */
+  | { op: 'irr'; over: FormulaRows; date: string; amount: string }
+  /** Dated cash flows discounted to the first of them, at a yearly rate given as a percentage. */
+  | { op: 'npv'; rate: CheckFormula; over: FormulaRows; date: string; amount: string }
+  /** A date field as a day number, so days can be added to it or two dates compared. A computed field that yields a date turns it back. */
+  | { op: 'date'; key: string; at?: FieldAddress }
+  | { op: 'today' }
+  | { op: 'add_days'; date: CheckFormula; days: CheckFormula }
+  | { op: 'add_months'; date: CheckFormula; months: CheckFormula }
   | { op: 'const'; value: number }
   | { op: 'add' | 'subtract' | 'multiply' | 'divide'; left: CheckFormula; right: CheckFormula }
   /** `100 * (left - right) / right`, the shape most DD variances take. */
@@ -394,6 +667,59 @@ export interface CheckFieldDef {
   /** Numeric guards, checked on write so an impossible figure is refused at the door. */
   min?: number;
   max?: number;
+
+  /* --- the field system: every member optional, absent reads as before --- */
+
+  /** The section of the sheet it sits in, by key. */
+  section?: string;
+  tier?: FieldTier;
+  showWhen?: ShowWhen;
+  /** What is measured. The value is kept in the dimension's base unit (sqm, m, the field's currency) with what was typed beside it. */
+  dimension?: Dimension;
+  /** The units a person may type in. Defaults to every unit of the dimension. */
+  enterIn?: string[];
+  currency?: FieldCurrency;
+  /** Decimal places shown. */
+  precision?: number;
+  /** A shared list, by id. `options` stays for a list used once. */
+  optionSet?: string;
+  /** What a text field completes from: an option set's id, or a register (`party`, `parcel`, …). */
+  suggest?: string;
+  /** `ref` only: what it links to. */
+  target?: RefTarget;
+  /** Read here, entered there. Never writable here. */
+  sameAs?: FieldAddress;
+  /** `status` only. The first case whose rule fires gives the label and tone; none firing is `otherwise`. */
+  cases?: Array<{ when: CheckInsightRule; label: string; tone: Tone }>;
+  otherwise?: { label: string; tone: Tone };
+  /** `evidence` only: how the file is shown. */
+  viewer?: 'pdf' | 'image' | 'drawing' | 'deed' | 'ifc';
+  /** `table` only: drawn as a timeline, as two columns matched, or as a chart. */
+  display?: 'timeline' | 'match' | 'chart';
+  /** `display: 'match'`: the two lists paired. Whatever of either list no row pairs is left over, and needs a person. */
+  match?: { left: MatchSide; right: MatchSide };
+  /** `display: 'chart'`: the columns drawn. */
+  chart?: { x: string; y: string; mark?: 'bar' | 'line' };
+  /** `computed` only: the formula gives a day, and the value is kept as a date. */
+  yields?: 'date';
+  /** `longtext`: the most a person may write. Required on a field set; 600 where a check leaves it out. */
+  maxLength?: number;
+  /** No longer asked. A value saved under it is kept and shown as no longer asked. */
+  retired?: true;
+  /** The version of its set that introduced it. */
+  since?: number;
+  /** The kinds of paper that state it, by the register's document type. A paper of one of these kinds filed on the project offers its value here. */
+  fromTypes?: string[];
+  /** The key a paper's reading files the value under, where it is not this field's own. */
+  factKey?: string;
+  /** Usual values, first match wins. One that applies stands in as `assumed` until a real value arrives. */
+  defaults?: DefaultRule[];
+  /** A must-field only while this holds. Absent, it follows `required`. */
+  requiredWhen?: ShowWhen;
+  /** `date` only: a day that runs out. Past it, or within `leadDays` of it, the function's page says so. */
+  expires?: { leadDays: number };
+  /** Choices once offered and no longer. A value saved under one still reads; a new one is refused. */
+  retiredOptions?: string[];
 }
 
 /** Anything a caller may write into a field. Mirrors `CheckFieldValue['value']`. */
@@ -412,6 +738,30 @@ export interface CheckFieldValue {
   quote?: string;
   at: string;
   by: string;
+
+  /* --- the field system: absent members read as before ------------------ */
+
+  /** Absent reads as `accepted` where the value cites a paper, `typed` where it does not. */
+  state?: FieldState;
+  origin?: FieldOrigin;
+  /** What was typed, in the unit it was typed in: a deed's "1 acre 22 guntas" prints that way. */
+  entered?: { value: number; unit: string; text?: string };
+  /** Who or what proposed it: a person's name, `model`, or `parser`. */
+  proposedBy?: string;
+  acceptedBy?: string;
+  acceptedAt?: string;
+  /** Other values stated for this field. One here waits beside the value held; with `state: 'disputed'` neither stands. */
+  other?: Array<{ value: CheckFieldValue['value']; origin: FieldOrigin; proposedBy?: string; at?: string; entered?: { value: number; unit: string; text?: string } }>;
+  /** Values a person set aside here, so the same reading is not offered a second time. */
+  declined?: Array<{ value: CheckFieldValue['value']; by: string; at: string }>;
+  /** Why it does not apply, where `state` is `not_applicable`: one of five keys. A value saved with words of its own still reads. */
+  naReason?: NaReason | string;
+  /** A person's short note beside the reason. */
+  naNote?: string;
+  /** The version of the set the value was saved under. */
+  v?: number;
+  /** The rule rows a worked-out value was read from. Never stored: set when the value is resolved. */
+  cites?: RuleCitation[];
 }
 
 /**
@@ -428,7 +778,18 @@ export interface CheckInsightRule {
    * carpet figure beside it; a quoted carpet area does not, and a plain
    * `require` would nag on both.
    */
-  kind: 'compare' | 'before' | 'require' | 'require_if' | 'row_expired' | 'row_missing';
+  /**
+   * `at_least` and `at_most` are the directional ones: the first field must
+   * reach the second, or must not pass it. `compare` cannot say "consents
+   * must reach two-thirds", only that two figures differ.
+   */
+  kind: 'compare' | 'before' | 'require' | 'require_if' | 'row_expired' | 'row_missing' | 'at_least' | 'at_most';
+  /** The rule exists only while this holds. Read by a sheet; a check's own rules carry none. */
+  when?: ShowWhen;
+  /** A key in `fields` that is another set's field, by its address: a rule may read another function. */
+  at?: Record<string, FieldAddress>;
+  /** `compare`, `at_least`, `at_most`: a figure in place of the second field. */
+  against?: number;
   /** The field keys the rule reads, in the order the template names them. */
   fields: string[];
   /** Relative tolerance for `compare`. Defaults to 1%. */
@@ -2187,6 +2548,14 @@ export interface DdProject {
   departments?: import('./departments').DepartmentKey[];
   /** Who works on it, and their role in each department. */
   team?: import('./team').TeamMember[];
+  /**
+   * What each field set holds on this project, by the set's id. Absent on a
+   * project saved before field sets; a set saved under an id nothing declares
+   * any more is kept as it is.
+   */
+  fieldSheets?: Record<string, StoredFieldSheet>;
+  /** The situations in play, by key. A function's own is kept under `<fn>:<key>`. */
+  situations?: Record<string, SituationState>;
   /** Reports signed by named professionals, each the figure of record for its workstream. */
   certifiedReports?: import('./certified').CertifiedReport[];
   /** Construction › Progress: the milestones the work reports against. */

@@ -32,6 +32,7 @@
  */
 
 import type { AuditEvent, DdProject, EvidenceRecord } from './types';
+import { standingField } from './check-fields';
 import type { DepartmentKey } from './departments';
 import { DEPARTMENT_SHORT, FUNCTION_SHORT, functionKey, withDepartment, workstreamDefinition, workstreamOfCheck } from './departments';
 import type { WorkspaceRole } from './tenancy';
@@ -234,7 +235,7 @@ function plain(value: unknown): value is string | number | boolean {
 /** The checks holding another value under this key, read off some other paper or typed by hand. */
 function checksThatDiffer(project: DdProject, key: string, value: unknown, evidenceId: string) {
   return allChecks(project).filter((check) => {
-    const held = check.fields?.[key];
+    const held = standingField(check.fields?.[key]);
     return held !== undefined && plain(held.value) && held.sourceEvidenceId !== evidenceId && !sameValue(held.value, value);
   });
 }
@@ -641,7 +642,7 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     const said: string[] = [];
     if (notice.kind === 'value_changed' && notice.was) said.push(`${notice.was} stood before.`);
     const other = against ? allChecks(project).find((check) => check.id === against.checkId) : undefined;
-    const held = other && notice.factKey ? other.fields?.[notice.factKey]?.value : undefined;
+    const held = other && notice.factKey ? standingField(other.fields?.[notice.factKey])?.value : undefined;
     if (other && plain(held)) said.push(`“${other.title}” in ${DEPARTMENT_SHORT[against!.department]} holds ${String(held)}.`);
     else if (feeds) {
       const rests = checkTitle(feeds.checkId);

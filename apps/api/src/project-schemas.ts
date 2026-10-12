@@ -734,3 +734,26 @@ export const fieldPickBodySchema = z.object({
 export const waitingAcceptBodySchema = z.object({
   payload: z.record(z.unknown()).optional(),
 });
+
+/* --- Field sets (docs/fields.md) -------------------------------------- */
+
+const fieldAddressSchema = z.object({ fn: z.string().max(80), set: z.string().min(1).max(120), field: z.string().min(1).max(80), record: z.string().max(80).optional() });
+
+export const setFieldValuesBodySchema = z.object({ set: z.string().min(1).max(120), record: z.string().max(80).optional(), values: z.record(z.string(), z.unknown()) });
+
+export const decideFieldBodySchema = z.object({
+  address: fieldAddressSchema,
+  decision: z.enum(['accept', 'keep', 'set_aside', 'dispute', 'not_applicable', 'reopen']),
+  value: z.unknown().optional(),
+  pick: z.number().int().min(0).optional(),
+  reason: z.string().max(40).optional(),
+  note: z.string().max(120).optional(),
+});
+
+export const acceptPaperFieldsBodySchema = z.object({ fn: z.string().min(1).max(80), evidenceId: z.string().min(1).max(120) });
+
+export const fieldRecordBodySchema = z.object({ set: z.string().min(1).max(120), values: z.record(z.string(), z.unknown()).default({}), remove: z.string().max(80).optional() });
+
+export const situationBodySchema = z.object({ fn: z.string().min(1).max(80), key: z.string().min(1).max(80), on: z.boolean() });
+
+export const sectionNaBodySchema = z.object({ set: z.string().min(1).max(120), section: z.string().max(80), reason: z.string().max(40).nullable(), note: z.string().max(120).optional() });

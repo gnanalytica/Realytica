@@ -6,6 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
+import { offerPaperToSheets } from './field-sheets';
 import { dropAsItStands, proofOf, proposeOnRow, standingAsRead, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
@@ -595,6 +596,7 @@ export function proposalsFromIngest(
       // A paper put on its row as it was read (`landed`) has been in front of people since. A value set aside or corrected there
       // meanwhile is what the paper states now, so its checks are offered the row as it stands, never the reading as it was read.
       out.push(...factFillProposals(project, dropAsItStands(project, file).standing, source, actor, out, { differences: true }));
+      offerPaperToSheets(project, classified.evidence?.id, dropAsItStands(project, file).standing);
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }

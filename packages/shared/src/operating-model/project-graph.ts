@@ -69,7 +69,9 @@ import {
   type ProjectGraphEdgeKind,
   type ProjectGraphNodeKind,
 } from './project-ontology';
-import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
+import type { DdProject, FieldAddress, ProjectGraphEdge, ProjectGraphNode } from './types';
+import { addressKey } from './field-registry';
+import { standingFieldLines } from './field-sheets';
 import {
   DEPARTMENT_KEYS,
   DEPARTMENT_ROLE_LABEL,
@@ -171,6 +173,7 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
   addRegisters(project, b);
   addProperty(project, b);
   addStructure(project, b);
+  addFieldValues(project, b);
   addDeliberation(project, b);
 
   // The dangling guard. Buffered to here rather than checked at each call
@@ -1068,6 +1071,38 @@ function billLineDetail(line: BillLine, sits: { bill: string; workPackage?: stri
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+/**
+ * The fields of the functions' sheets: one node for each value that stands,
+ * keyed by the field's address.
+ *
+ * A value that waits for a person or is disputed is not drawn: the graph is
+ * what the file knows, and nobody has said it knows that yet. A field that
+ * mirrors another is joined to the one it is entered on, the check's own
+ * node where that field is a check's, so a walk from either arrives at the
+ * same fact. A value read off a paper rests on that paper.
+ */
+function addFieldValues(project: DdProject, b: Builder): void {
+  const pid = project.id;
+  const idOf = (address: FieldAddress) => `${pid}::field::${addressKey(address)}`;
+  const lines = standingFieldLines(project);
+  for (const line of lines) {
+    const id = idOf(line.address);
+    b.node('field_value', id, `${line.def.label}: ${line.text}`.slice(0, 120), line.where, { key: addressKey(line.address), status: line.def.kind === 'status' ? String(line.value.value) : 'accepted' });
+    const fn = functionNodeId(pid, functionKey(line.address.fn));
+    if (b.has(fn)) b.edge(fn, id, 'holds');
+    const paper = line.value.origin?.kind === 'paper' ? line.value.origin.evidenceId : line.value.sourceEvidenceId;
+    if (paper && b.has(paper)) b.edge(id, paper, 'supported_by');
+  }
+  for (const line of lines) {
+    if (!line.sameAs) continue;
+    const owner = idOf(line.sameAs);
+    // The field it mirrors is another sheet's node, or the check that holds it.
+    const check = project.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks)).find((c) => c.definitionId === line.sameAs!.set && c.fields?.[line.sameAs!.field]);
+    if (b.has(owner)) b.edge(idOf(line.address), owner, 'same_as');
+    else if (check && b.has(check.id)) b.edge(idOf(line.address), check.id, 'same_as');
+  }
 }
 
 function addDeliberation(project: DdProject, b: Builder): void {

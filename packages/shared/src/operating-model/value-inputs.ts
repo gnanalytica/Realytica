@@ -36,7 +36,7 @@
 import type { CheckInstance, DdAssessment, DdProject, EvidenceRecord } from './types';
 import type { DocumentFact } from './document-parse';
 import { CHECK_FIELDS } from './check-schemas';
-import { isBlank } from './check-fields';
+import { isBlank, standingField } from './check-fields';
 import { factReview, standingFacts, waitingReadings } from './fact-review';
 import { createAssessment, recordAuditEvent, recordCheckFields } from './operations';
 import { patchProject } from './capabilities';
@@ -752,7 +752,7 @@ function recordedOf(project: DdProject, target: ValueTarget): RecordedValue | nu
       ...(from.factKey && !hit ? { factKey: from.factKey } : {}),
     };
   }
-  const held = currentCheck(project, target.definitionId)?.fields?.[target.key];
+  const held = standingField(currentCheck(project, target.definitionId)?.fields?.[target.key]);
   if (!held || isBlank(held)) return null;
   if (typeof held.value === 'string' && held.value.trim()) {
     const text = held.value.trim();

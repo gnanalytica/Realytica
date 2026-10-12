@@ -59,6 +59,7 @@ import {
   standingAmongRead,
   standingFacts,
   waitingAsRead,
+  offerPaperToSheets,
 } from '@realytica/shared';
 import { mergeModelReading, needsModelReading, readIngestLocally } from './intake';
 import { PAPERS_AT_ONCE, together } from './together';
@@ -366,6 +367,8 @@ export async function readOntoRegister(
        * reading of its paper.
        */
       cards.push(...factFillProposals(project, standingAmongRead(evidence, doc), source, actor, cards));
+      // The same standing values go to every sheet that reads this kind of paper, each to wait there for a person.
+      offerPaperToSheets(project, evidence.id, standingAmongRead(evidence, doc));
       cards.push(...flagFindingProposals(project, doc.flags, source, actor, cards));
     }
     cards.push(...placeProposalsFromIngest(project, [file], actor).filter((p) => !cards.some((c) => c.title === p.title)));

@@ -16,7 +16,7 @@ import { checkSchema } from './operations';
 import { acceptedFacts, standingFacts, settled, waitingReadings } from './fact-review';
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS } from './libraries';
 import { SCOPE_LABEL } from './catalogs';
-import { formatFieldValue, isBlank } from './check-fields';
+import { formatFieldValue, isBlank, standingField } from './check-fields';
 import { createChatProposal } from './wizard';
 import { documentAnswers, type DocumentFact, type DocumentFlag } from './document-parse';
 import { surveyPieces } from './revenue-map';
@@ -232,7 +232,7 @@ function fieldTakes(def: CheckFieldDef, value: unknown): boolean {
  * set aside is not raised again each time the paper is read.
  */
 export function differsOnCheck(project: DdProject, check: CheckInstance, def: CheckFieldDef, fact: DocumentFact): boolean {
-  const held = check.fields?.[fact.key];
+  const held = standingField(check.fields?.[fact.key]);
   if (isBlank(held) || Array.isArray(held!.value) || def.kind === 'computed') return false;
   if (statesTheSame(fact.key, held!.value, fact.value, isMeasure(def)) || !fieldTakes(def, fact.value)) return false;
   // On a site of several parcels the check may hold one parcel's number and the paper state another's. Where both are the
@@ -282,7 +282,7 @@ export function factFillProposals(
     for (const fact of facts) {
       const def = fields.find((f) => f.key === fact.key);
       if (!def || def.kind === 'computed') continue;
-      const held = seated.check.fields?.[fact.key];
+      const held = standingField(seated.check.fields?.[fact.key]);
       if (!isBlank(held) && !(options.differences && differsOnCheck(project, seated.check, def, fact))) continue;
       if (alreadyProposed(project, seated.check.id, def, fact.value, [...pending, ...out])) continue;
       if (!fieldTakes(def, fact.value)) continue;

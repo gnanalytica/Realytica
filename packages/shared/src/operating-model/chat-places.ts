@@ -27,6 +27,7 @@
  */
 
 import type { ProjectCockpitPane } from './cockpit';
+import { functionHasSheets } from './field-registry';
 import {
   DEPARTMENT_SHORT,
   MENU_DEPARTMENTS,
@@ -231,10 +232,12 @@ const CENTRE_SECTION: Record<string, string> = {
  * to land on.
  */
 export function functionSections(key: string): string[] {
-  if (workstreamDefinition(key)?.status !== 'live') return [];
+  const sheet = functionHasSheets(key) ? ['sheet'] : [];
+  // A function that is not built and has sheets of its own is those sheets and its documents.
+  if (workstreamDefinition(key)?.status !== 'live') return sheet.length && workstreamDefinition(key) ? [...sheet, 'documents'] : [];
   if (paneOfFunction(key) !== 'workstream' || key === 'construction.quality') return [];
   const centre = CENTRE_SECTION[key];
-  return ['standing', ...(centre ? [centre] : []), 'checks', 'documents', 'connections'];
+  return ['standing', ...sheet, ...(centre ? [centre] : []), 'checks', 'documents', 'connections'];
 }
 
 /**
