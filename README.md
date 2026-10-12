@@ -48,6 +48,7 @@ Every variable is prefixed `REALYTICA_`, except the few a row marks as written i
 | `UNBLOCKER_PROVIDER`, `UNBLOCKER_API_KEY` | Portal comparables search (99acres, MagicBricks). Written in full, with no prefix. |
 | `RESEND_API_KEY`, `ALERT_FROM`, `APP_URL` | Alert emails. Without them alerts stay in the app and on phones. |
 | `EXPO_ACCESS_TOKEN` | Optional: authenticates push sends to the site app. |
+| `CRON_SECRET` | The secret Vercel sends with the daily timer that brings alerts up to date. Written in full, with no prefix. Without it the timer does nothing. |
 | `AUTOMATIONS` | `on` mounts `/api/flows` and lets saved flows fire. Off by default, and the web app has no screen for flows. |
 | `ALLOWED_ORIGINS`, `RATE_LIMIT_API`, `RATE_LIMIT_MODEL`, `RATE_LIMIT_UPLOAD`, `RATE_LIMIT_PAIRING`, `OPERATORS` | Hardening; see [docs/runbooks/deployment.md](docs/runbooks/deployment.md) and, for `OPERATORS`, [docs/auth.md](docs/auth.md). |
 | `VITE_GOOGLE_CLIENT_ID`, `VITE_GOOGLE_MAPS_BROWSER_KEY` | Read when the web app is built, and written in full: the sign-in client, and an optional browser key for the map. |

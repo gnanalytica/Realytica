@@ -18,6 +18,7 @@
  * POST   /milestones                      add milestones, or the usual set
  * PATCH  /milestones/:milestoneId
  * DELETE /milestones/:milestoneId
+ * POST   /milestones/import               bring a schedule in: a pasted table, CSV or Excel
  * POST   /cost-reports                    start a monthly Cost Report
  * PATCH  /cost-reports/:reportId          note / issue / reopen
  * POST   /cost-reports/:reportId/packages add a package row
@@ -62,10 +63,13 @@ import {
   costReportTotals,
   costSummary,
   importCostReportRows,
+  importSchedule,
   issueCostReport,
   parseCostReportTable,
+  parseScheduleTable,
   recordPayment,
   reopenCostReport,
+  replanMilestone,
   removeBill,
   removeContract,
   removeCostReportBasicPrice,
@@ -149,6 +153,7 @@ import { readOntoRegister } from '../documents/register-read';
 import { QUESTIONNAIRE_FILE_SAID, questionnairePdf, questionnaireXlsx, readQuestionnaireFile } from '../documents/questionnaire-file';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 import { withSentFileName } from '../uploads';
+import { tableTextOf } from '../documents/table-file';
 
 type Params = { projectId: string };
 
@@ -494,7 +499,7 @@ projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:mil
     if (parsed.data.name) milestone.name = parsed.data.name;
     if (parsed.data.weight) milestone.weight = parsed.data.weight;
     if (parsed.data.plannedFinish === null) delete milestone.plannedFinish;
-    else if (parsed.data.plannedFinish) milestone.plannedFinish = parsed.data.plannedFinish;
+    else if (parsed.data.plannedFinish) replanMilestone(milestone, { plannedFinish: parsed.data.plannedFinish });
     milestone.updatedAt = new Date().toISOString();
     milestone.updatedBy = actor;
     touch(project);
@@ -518,6 +523,35 @@ projectWorkspaceRouter.delete<Params & { milestoneId: string }>('/milestones/:mi
   touch(project);
   await store.save();
   res.json({ project });
+});
+
+const scheduleUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1 } });
+
+/**
+ * Bring the project's schedule in from where it is kept. A milestone the
+ * sheet names again has its dates moved and its recorded progress left alone;
+ * the rows that could not be read come back with the reason.
+ */
+projectWorkspaceRouter.post<Params>('/milestones/import', scheduleUpload.single('file'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  try {
+    const text = req.file ? await tableTextOf(req.file) : typeof req.body?.text === 'string' ? req.body.text : '';
+    if (!text.trim()) {
+      res.status(400).json({ error: 'Upload a CSV or Excel file, or paste the schedule.' });
+      return;
+    }
+    const { rows, skipped } = parseScheduleTable(text);
+    const result = importSchedule(project, rows, actorOf(principalOf(req)));
+    if (result.added || result.updated) {
+      touch(project);
+      await store.save();
+    }
+    res.json({ project, ...result, skipped });
+  } catch (err) {
+    failed(res, err, 'Could not import that schedule');
+  }
 });
 
 /* ==================================================================== */

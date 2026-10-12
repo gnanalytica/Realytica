@@ -63,6 +63,8 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 |---|---|---|
 | POST | `/projects/:id/milestones` | `{ template: true }` for the usual nine, or `{ rows: [{ name, weight, plannedFinish? }] }` |
 | PATCH, DELETE | `/projects/:id/milestones/:milestoneId` | `{ percent?, name?, weight?, plannedFinish? }` |
+| POST | `/projects/:id/milestones/import` | A schedule: multipart `file` (CSV, TSV or .xlsx, 4 MB) or `{ text }`, a header row then a row a milestone → `{ project, added, updated, unchanged, skipped: [{ line, name, reason }] }`. A milestone named again keeps its recorded progress. |
+| GET | `/cron/alerts` | The daily timer, outside sign-in: needs `Authorization: Bearer <CRON_SECRET>`, else 401. Brings every project's alerts up to date → `{ projects, changed, raised, resolved, failed }`. Safe to call twice. |
 | GET | `/projects/:id/site` | The site app's whole view: project, role, milestones, progress, construction gate, recent log, construction alerts |
 | POST | `/projects/:id/site-log/photos` | Multipart `photos` (up to 6, 4 MB each) → `{ photos: [{ storageKey, fileName, mimeType }] }` |
 | POST | `/projects/:id/site-log` | `{ clientId, date, weather?, manpower?, workDone?, milestoneUpdates?, issues?, photos?, point? }`. Idempotent on `clientId`: a resend answers 200 with `duplicate: true`. |

@@ -298,9 +298,40 @@ REALYTICA_EXPO_ACCESS_TOKEN=...          # optional; authenticates push sends
 
 Alerts go only to a department's lead and signer, and only for what is worth
 interrupting someone over: an approval expiring or lapsed, a certified report
-to revisit, work logged before it is allowed, a late milestone, a serious issue
+to revisit, work logged before it is allowed, a milestone behind, likely to
+finish late or late, a serious issue
 from site, an action past its date (which also goes to the person it is on).
 Phones receive pushes once paired and allowed.
+
+### The daily timer
+
+```bash
+CRON_SECRET=...                  # 16 characters or more (openssl rand -hex 24). No REALYTICA_ prefix: Vercel reads this name itself.
+```
+
+Alerts are worked out when a project is saved, and once a day by a Vercel cron
+job: `crons` in `vercel.json` calls `GET /api/cron/alerts` at `30 1 * * *`,
+which is 01:30 UTC and 07:00 in India (on the Hobby plan, some time in that
+hour). It brings every project's alerts up to date and writes only the projects
+whose alerts moved, so a milestone that came due or an approval that lapsed on
+a day nobody opened the project is raised, mailed and pushed that morning.
+
+Set `CRON_SECRET` in the Vercel project for Production. Vercel sends it as
+`Authorization: Bearer <CRON_SECRET>` with each cron call, and the route answers
+401 to anything else, a deployment with no secret set included: without the
+variable the timer does nothing. Cron jobs run on the production deployment
+only, never on a preview. Vercel does not retry a failed call and may call
+twice, so a run is safe to repeat. To run it by hand:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://<your-app>/api/cron/alerts
+# {"projects":4,"changed":1,"raised":1,"resolved":0,"failed":0}
+```
+
+`failed` counts projects that could not be read or written; each is named in
+the function's log on a `[cron]` line and is taken up again by the next run.
+The schedule is edited in `vercel.json`; the build copies it into the
+deployment's `config.json`.
 
 ## Data generations
 

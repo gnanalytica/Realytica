@@ -38,6 +38,7 @@ import type {
   ObservationPatch,
   ProjectAlert,
   ProjectLink,
+  ScheduleSkippedRow,
   TeamMember,
 } from '@realytica/shared';
 import { fetchWithAuth, request } from './api';
@@ -111,6 +112,16 @@ export const workspaceApi = {
 
   removeMilestone: (projectId: string, milestoneId: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'DELETE' }),
+
+  importSchedule: (projectId: string, input: { file: File } | { text: string }) => {
+    type Imported = { project: DdProject; added: number; updated: number; unchanged: number; skipped: ScheduleSkippedRow[] };
+    if ('file' in input) {
+      const body = new FormData();
+      body.append('file', input.file);
+      return request<Imported>(`/projects/${projectId}/milestones/import`, { method: 'POST', body });
+    }
+    return request<Imported>(`/projects/${projectId}/milestones/import`, json({ text: input.text }));
+  },
 
   startCostReport: (
     projectId: string,
