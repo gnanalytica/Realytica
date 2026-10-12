@@ -57,7 +57,20 @@ export class QuestionnaireTooLarge extends Error {}
 const WORKBOOK_AT_MOST_BYTES = 4 * 1024 * 1024;
 
 /**
- * Refuses a workbook whose sheets unpack to more than may be opened.
+ * How much every other part of a workbook may unpack to, together: styles,
+ * pictures, anything the file carries. The workbook reader unpacks all of
+ * them, read or not: 300 KB of file held a part of 300 MB and took 805 MB to
+ * open. Pictures hardly pack, so an honest file of 4 MB stays far under this.
+ */
+const WORKBOOK_PARTS_AT_MOST_BYTES = 16 * 1024 * 1024;
+
+/** A workbook whose parts beside its sheets are too large to open. Its message is whole: it is said as it is. */
+export class WorkbookPartsTooLarge extends QuestionnaireTooLarge {}
+
+/**
+ * Refuses a workbook whose sheets unpack to more than may be opened, or whose
+ * other parts do: every entry of the file is counted, against one limit or
+ * the other.
  *
  * Told by unpacking them here under a limit, not by the sizes the file gives
  * for itself: a file can say anything about its own size. The zip's index is
@@ -76,7 +89,9 @@ export function workbookMayBeOpened(zip: Buffer): void {
   if (end < 0) throw new Error('That does not look like an Excel workbook.');
   const entries = zip.readUInt16LE(end + 10);
   let at = zip.readUInt32LE(end + 16);
+  const partsTooLarge = () => new WorkbookPartsTooLarge('That workbook is too large to open: what it carries beside its sheets holds more than 16 MB. Take the pictures out, or save the sheet as a file of its own and send that.');
   let room = WORKBOOK_AT_MOST_BYTES;
+  let partsRoom = WORKBOOK_PARTS_AT_MOST_BYTES;
   for (let n = 0; n < entries && at + 46 <= zip.length; n += 1) {
     if (zip.readUInt32LE(at) !== 0x02014b50) break;
     const method = zip.readUInt16LE(at + 10);
@@ -85,18 +100,21 @@ export function workbookMayBeOpened(zip: Buffer): void {
     const name = zip.toString('utf8', at + 46, at + 46 + nameLen);
     const local = zip.readUInt32LE(at + 42);
     at += 46 + nameLen + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
-    if (!/^xl\/(?:worksheets\/[^/]+\.xml|sharedStrings\.xml)$/i.test(name)) continue;
-    if (compressed === 0xffffffff || local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) throw tooLarge();
+    const sheet = /^xl\/(?:worksheets\/[^/]+\.xml|sharedStrings\.xml)$/i.test(name);
+    const refused = sheet ? tooLarge : partsTooLarge;
+    const left = sheet ? room : partsRoom;
+    if (compressed === 0xffffffff || local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) throw refused();
     const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
     const data = zip.subarray(start, start + compressed);
     let size: number;
     try {
-      size = method === 8 ? inflateRawSync(data, { maxOutputLength: room + 1 }).length : data.length;
+      size = method === 8 ? inflateRawSync(data, { maxOutputLength: left + 1 }).length : data.length;
     } catch {
-      throw tooLarge();
+      throw refused();
     }
-    room -= size;
-    if (room < 0) throw tooLarge();
+    if (size > left) throw refused();
+    if (sheet) room -= size;
+    else partsRoom -= size;
   }
 }
 

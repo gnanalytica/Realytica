@@ -44,7 +44,7 @@ import { docxOutline } from '../apps/api/src/documents/docx-outline';
 import { detectDocxFields, fillDocx } from '../apps/api/src/documents/template-docx';
 import { TemplateTooLarge, detectTemplateFields, filledTemplateFile, templateSourcesPdf } from '../apps/api/src/documents/template-file';
 import { detectXlsxFields, fillXlsx } from '../apps/api/src/documents/template-xlsx';
-import { readZip, unpack, zipOf } from '../apps/api/src/documents/zip';
+import { packed, readZip, unpack, writeZip, zipOf } from '../apps/api/src/documents/zip';
 
 // The workbook library is the API's own.
 const ExcelJS = createRequire(path.resolve('apps/api/package.json'))('exceljs') as typeof import('../apps/api/node_modules/exceljs');
@@ -353,6 +353,139 @@ describe('the blanks of a workbook', () => {
   it('are refused for a place that is on no sheet of the file', async () => {
     await assert.rejects(fillXlsx(await workbook(), [{ place: { in: 'xlsx', sheet: 'Nowhere', cell: 'B2' }, value: 'x' }]), /not in the file as it was sent/);
   });
+
+  it('include an empty merged answer box as one blank, at its first cell, and it is written there', async () => {
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet('Form');
+    sheet.getCell('A3').value = 'Survey number';
+    sheet.mergeCells('B3:D3');
+    sheet.getCell('A4').value = 'Owner';
+    // Heads of columns over a row whose second and third cells are one merged box.
+    sheet.getCell('A7').value = 'Purchaser';
+    sheet.getCell('B7').value = 'Remarks';
+    sheet.getCell('C7').value = 'Witness';
+    sheet.mergeCells('B8:C8');
+    // A merged box somebody has written in is no blank.
+    sheet.getCell('A10').value = 'District';
+    sheet.getCell('B10').value = 'Kadamba Rural';
+    sheet.getCell('A11').value = 'Village';
+    sheet.mergeCells('B11:C11');
+    sheet.getCell('B11').value = 'Kadamba';
+    const file = Buffer.from(await book.xlsx.writeBuffer());
+    const found = await detectXlsxFields(file);
+    assert.deepEqual(
+      found.map((field) => [field.label, field.pattern, field.where]),
+      [
+        ['Survey number', 'cell_right', 'Form!B3'],
+        ['Owner', 'cell_right', 'Form!B4'],
+        ['Purchaser', 'cell_below', 'Form!A8'],
+        ['Remarks', 'cell_below', 'Form!B8'],
+      ],
+      'the box is one blank: C3, D3 and C8 are not offered beside it',
+    );
+
+    // As Excel writes an empty merged box with no style: the merge, and no cell at all.
+    const plain = new ExcelJS.Workbook();
+    plain.addWorksheet('Form').getCell('A3').value = 'Survey number';
+    const bare = Buffer.from(await plain.xlsx.writeBuffer());
+    const asExcel = writeZip(
+      readZip(bare).map((entry) =>
+        /sheet1\.xml$/.test(entry.name) ? packed(entry.name, Buffer.from(unpack(entry, 1 << 22).toString('utf8').replace('</sheetData>', '</sheetData><mergeCells count="1"><mergeCell ref="B3:D3"/></mergeCells>')), entry) : entry,
+      ),
+    );
+    assert.deepEqual((await detectTemplateFields({ originalname: 'form.xlsx', buffer: asExcel })).detected.map((field) => field.where), ['Form!B3']);
+
+    // Written at the first cell, and through any other cell of the box.
+    const filled = await fillXlsx(file, [
+      { place: found[0]!.place, value: '73/4' },
+      { place: { in: 'xlsx', sheet: 'Form', cell: 'C8' }, value: 'None' },
+    ]);
+    const back = new ExcelJS.Workbook();
+    await back.xlsx.load(filled as unknown as Parameters<typeof back.xlsx.load>[0]);
+    const form = back.getWorksheet('Form')!;
+    assert.equal(form.getCell('B3').value, '73/4');
+    assert.equal(form.getCell('D3').master.address, 'B3');
+    assert.equal(form.getCell('B8').value, 'None');
+    assert.ok(!(await detectXlsxFields(filled)).some((field) => field.where === 'Form!B3'));
+  });
+
+  it('are found beside a label in Hindi or Kannada, whose letters stand apart with marks between them', async () => {
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet('Form');
+    for (const [at, label] of [['A1', 'नाम'], ['A2', 'ಮಾಲೀಕ'], ['A3', 'पता'], ['A4', 'ಹೆಸರು:']] as const) sheet.getCell(at).value = label;
+    // One letter, or figures, name nothing.
+    sheet.getCell('A5').value = 'क';
+    sheet.getCell('A6').value = '12';
+    const found = await detectXlsxFields(Buffer.from(await book.xlsx.writeBuffer()));
+    assert.deepEqual(found.map((field) => [field.label, field.where]), [['नाम', 'Form!B1'], ['ಮಾಲೀಕ', 'Form!B2'], ['पता', 'Form!B3'], ['ಹೆಸರು', 'Form!B4']]);
+
+    const word = detectDocxFields(docx([p(r('[नाम]')), p(r('[मालिक का नाम]')), p(r('नाम:')), p(r('ಮಾಲೀಕ:')), `<w:tbl>${tr(tc(p(r('नाम'))), tc('<w:p/>'))}</w:tbl>`].join('')));
+    assert.deepEqual(word.map((field) => field.label), ['नाम', 'मालिक का नाम', 'नाम', 'ಮಾಲೀಕ', 'नाम']);
+  });
+
+  it('take a plain number as a number where the cell’s format is a number’s or none, and as words otherwise', async () => {
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet('Form');
+    const labels = ['Plot area', 'Floors', 'Account number', 'Pin code', 'Phone', 'Rate', 'Khata number', 'Date of deed', 'Ward', 'Long number', 'Loss'];
+    labels.forEach((label, i) => (sheet.getCell(`A${i + 1}`).value = label));
+    sheet.getCell('B1').numFmt = '#,##0.00';
+    sheet.getCell('B3').numFmt = '@';
+    sheet.getCell('B6').numFmt = '0.00 "per sq ft"';
+    sheet.getCell('B8').numFmt = 'dd/mm/yyyy';
+    sheet.getCell('C1').value = { formula: 'SUM(B1:B2)' };
+    const file = Buffer.from(await book.xlsx.writeBuffer());
+    const at = (row: number) => ({ in: 'xlsx' as const, sheet: 'Form', cell: `B${row}` });
+    const values = ['1250.5', '4', '1250', '045', '+919900000000', '=1+1', '12/345', '45000', '-7', '1234567890123456', '-12.50'];
+    const filled = await fillXlsx(file, values.map((value, i) => ({ place: at(i + 1), value })));
+    const back = new ExcelJS.Workbook();
+    await back.xlsx.load(filled as unknown as Parameters<typeof back.xlsx.load>[0]);
+    const form = back.getWorksheet('Form')!;
+    assert.deepEqual(
+      labels.map((label, i) => [label, form.getCell(`B${i + 1}`).value]),
+      [
+        ['Plot area', 1250.5],
+        ['Floors', 4],
+        // A cell formatted as text keeps the characters it was given.
+        ['Account number', '1250'],
+        // A nought in front is part of what was written.
+        ['Pin code', '045'],
+        // Words that begin as a formula does stay words.
+        ['Phone', '+919900000000'],
+        ['Rate', '=1+1'],
+        ['Khata number', '12/345'],
+        // A date's cell is not handed a bare number to show as a day.
+        ['Date of deed', '45000'],
+        ['Ward', -7],
+        // More figures than a workbook keeps exactly.
+        ['Long number', '1234567890123456'],
+        ['Loss', -12.5],
+      ],
+    );
+    assert.equal(form.getCell('B1').numFmt, '#,##0.00');
+    assert.equal(form.getCell('B6').formula, undefined);
+    assert.equal(form.getCell('B5').formula, undefined);
+    // The number is one in the file itself: no shared string stands in its cell.
+    const xml = unpack(readZip(filled).find((entry) => /sheet1\.xml$/.test(entry.name))!, 1 << 22).toString('utf8');
+    assert.match(/<c r="B1"[^>]*>.*?<\/c>/.exec(xml)![0], /^<c r="B1"(?![^>]*t="s")[^>]*><v>1250\.5<\/v>/);
+    assert.match(/<c r="B3"[^>]*>.*?<\/c>/.exec(xml)![0], /t="s"/);
+  });
+
+  it('on a hidden sheet are not offered, and are not written', async () => {
+    const book = new ExcelJS.Workbook();
+    book.addWorksheet('Form').getCell('A1').value = 'Owner';
+    book.addWorksheet('Lookup', { state: 'hidden' }).getCell('A1').value = 'Internal code';
+    const calc = book.addWorksheet('Calc', { state: 'veryHidden' });
+    calc.getCell('A1').value = 'Factor';
+    book.definedNames.add('Calc!$D$4', 'Secret_Factor');
+    const file = Buffer.from(await book.xlsx.writeBuffer());
+    assert.deepEqual((await detectXlsxFields(file)).map((field) => field.where), ['Form!B1']);
+    await assert.rejects(fillXlsx(file, [{ place: { in: 'xlsx', sheet: 'Lookup', cell: 'B1' }, value: 'x' }]), /not in the file as it was sent/);
+    await assert.rejects(fillXlsx(file, [{ place: { in: 'xlsx', sheet: 'Calc', cell: 'D4' }, value: 'x' }]), /not in the file as it was sent/);
+    const back = new ExcelJS.Workbook();
+    const filled = await fillXlsx(file, [{ place: { in: 'xlsx', sheet: 'Form', cell: 'B1' }, value: 'A. Rao' }]);
+    await back.xlsx.load(filled as unknown as Parameters<typeof back.xlsx.load>[0]);
+    assert.deepEqual(back.worksheets.map((held) => [held.name, held.state]), [['Form', 'visible'], ['Lookup', 'hidden'], ['Calc', 'veryHidden']]);
+  });
 });
 
 describe('what the record offers for a blank', () => {
@@ -542,6 +675,25 @@ describe('a hostile file', () => {
   it('that is a workbook unpacking to more than may be opened is refused by the workbook’s own guard', async () => {
     const bomb = zipOf([{ name: 'xl/worksheets/sheet1.xml', content: Buffer.alloc(5 * 1024 * 1024, 0x20) }]);
     await assert.rejects(detectTemplateFields({ originalname: 'form.xlsx', buffer: bomb }), TemplateTooLarge);
+  });
+
+  it('that is a workbook with a huge part beside its sheets is refused: every entry of the file is counted', async () => {
+    const file = await workbook();
+    const entries = readZip(file);
+    // Twenty megabytes of spaces pack to a few kilobytes, in a part no sheet is read from.
+    const bomb = writeZip([...entries, packed('xl/media/huge.bin', Buffer.alloc(20 * 1024 * 1024, 0x20))]);
+    assert.ok(bomb.length < file.length + 64 * 1024);
+    await assert.rejects(detectTemplateFields({ originalname: 'form.xlsx', buffer: bomb }), (err: unknown) => err instanceof TemplateTooLarge && /beside its sheets holds more than 16 MB/.test(err.message));
+    await assert.rejects(fillXlsx(bomb, []), /beside its sheets holds more than 16 MB/);
+    // The parts are counted together, and wherever a workbook is opened.
+    const many = writeZip([...entries, ...[1, 2, 3].map((n) => packed(`customXml/item${n}.xml`, Buffer.alloc(6 * 1024 * 1024, 0x20)))]);
+    const { readQuestionnaireFile, QuestionnaireTooLarge } = await import('../apps/api/src/documents/questionnaire-file');
+    const { tableTextOf } = await import('../apps/api/src/documents/table-file');
+    await assert.rejects(readQuestionnaireFile({ originalname: 'q.xlsx', buffer: many }), QuestionnaireTooLarge);
+    await assert.rejects(tableTextOf({ originalname: 'ledger.xlsx', buffer: many }), /beside its sheets holds more than 16 MB/);
+    // An honest picture is nothing like that much.
+    const pictured = writeZip([...entries, packed('xl/media/image1.png', Buffer.alloc(3 * 1024 * 1024, 0x41))]);
+    assert.equal((await detectTemplateFields({ originalname: 'form.xlsx', buffer: pictured })).detected.length, 7);
   });
 
   it('that is too large as sent, or no kind of template, is refused', async () => {

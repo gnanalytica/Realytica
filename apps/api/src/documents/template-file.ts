@@ -10,7 +10,7 @@
 
 import { TEMPLATE_LIMITS, templateSourceList, templateValues, type DdProject, type DetectedField, type FillTemplate, type TemplateFormat } from '@realytica/shared';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
-import { QuestionnaireTooLarge } from './questionnaire-file';
+import { QuestionnaireTooLarge, WorkbookPartsTooLarge } from './questionnaire-file';
 import { detectDocxFields, fillDocx } from './template-docx';
 import { detectXlsxFields, fillXlsx } from './template-xlsx';
 import { ZipTooLarge } from './zip';
@@ -43,6 +43,7 @@ export async function detectTemplateFields(file: { originalname: string; buffer:
     return { format, detected: format === 'docx' ? detectDocxFields(file.buffer) : await detectXlsxFields(file.buffer) };
   } catch (err) {
     if (err instanceof ZipTooLarge) throw new TemplateTooLarge(err.message);
+    if (err instanceof WorkbookPartsTooLarge) throw new TemplateTooLarge(err.message);
     if (err instanceof QuestionnaireTooLarge) throw new TemplateTooLarge('That workbook is too large to open as a template: its sheets hold more than 4 MB. Save the form as a file of its own and send that.');
     throw err;
   }

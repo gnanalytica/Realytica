@@ -17,7 +17,9 @@
  *   row of two names or more with nothing written over them.
  * - an empty cell the workbook itself names (a defined name on one cell).
  *
- * Each is kept as its sheet and its cell.
+ * Each is kept as its sheet and its cell. A merged cell is one blank, kept
+ * and written at its first cell. A sheet that is hidden is not a form a
+ * person fills: none of its cells is offered or written.
  */
 
 import { TEMPLATE_LIMITS, type DetectedField, type TemplatePlace } from '@realytica/shared';
@@ -29,7 +31,8 @@ const FOUND_AT_MOST = TEMPLATE_LIMITS.fields * 5;
 const ROWS_AT_MOST = 2000;
 const COLUMNS_AT_MOST = 60;
 
-const LETTERS = /\p{L}{2}/u;
+/** Two letters of a word. Marks may stand between them: the vowel signs of Devanagari, Kannada and their kin are marks, not letters. */
+const LETTERS = /\p{L}\p{M}*\p{L}/u;
 
 async function opened(buffer: Buffer) {
   workbookMayBeOpened(buffer);
@@ -80,35 +83,50 @@ export async function detectXlsxFields(buffer: Buffer): Promise<DetectedField[]>
     const cell = address(row, column);
     found.push({ label, pattern, place: { in: 'xlsx', sheet, cell }, where: `${sheet}!${cell}`, sheetAt, row, column });
   };
+  /** A cell's own words. One of the other cells of a merged cell has none: asking it for its master's throws where the master is empty. */
+  const wordsIn = (cell: { text?: unknown; isMerged: boolean; master: { address: string }; address: string }): string =>
+    cell.isMerged && cell.master.address !== cell.address ? '' : String(cell.text ?? '').trim();
 
-  /** What each sheet holds: the words of each written cell, which cells are numbers or formulas, and which a merged cell covers. */
-  const sheets = workbook.worksheets.map((sheet, sheetAt) => {
+  /** What each sheet a person sees holds: the words of each written cell, which cells are numbers or formulas, and which a merged cell covers. */
+  const sheets = workbook.worksheets.flatMap((sheet, sheetAt) => {
+    if (sheet.state !== 'visible') return [];
     const words = new Map<string, string>();
     const written = new Set<string>();
     const widths = new Map<string, { r2: number; c2: number }>();
+    /** Each other cell of a merged cell, and the first cell it stands under. */
+    const masters = new Map<string, { row: number; column: number }>();
     const key = (row: number, column: number) => `${row}:${column}`;
     for (const range of ((sheet.model as { merges?: string[] }).merges ?? []).slice(0, 5000)) {
       const block = corners(range);
       if (!block) continue;
       widths.set(key(block.r1, block.c1), { r2: block.r2, c2: block.c2 });
-      for (let r = block.r1; r <= Math.min(block.r2, block.r1 + 200); r += 1) for (let c = block.c1; c <= Math.min(block.c2, block.c1 + COLUMNS_AT_MOST); c += 1) written.add(key(r, c));
+      // The first cell is the merged cell: written or empty as it is found. The others are never a blank of their own.
+      for (let r = block.r1; r <= Math.min(block.r2, block.r1 + 200); r += 1)
+        for (let c = block.c1; c <= Math.min(block.c2, block.c1 + COLUMNS_AT_MOST); c += 1) {
+          if (r === block.r1 && c === block.c1) continue;
+          written.add(key(r, c));
+          masters.set(key(r, c), { row: block.r1, column: block.c1 });
+        }
     }
     sheet.eachRow({ includeEmpty: false }, (row, r) => {
       if (r > ROWS_AT_MOST) return;
       row.eachCell({ includeEmpty: false }, (cell, c) => {
         if (c > COLUMNS_AT_MOST) return;
-        const text = String(cell.text ?? '').trim();
+        // The other cells of a merged one hold nothing of their own; only its first cell is read.
+        if (cell.isMerged && cell.master.address !== cell.address) {
+          written.add(key(r, c));
+          return;
+        }
+        const text = wordsIn(cell);
         const formula = Boolean((cell.value as { formula?: unknown; sharedFormula?: unknown } | null)?.formula ?? (cell.value as { sharedFormula?: unknown } | null)?.sharedFormula);
         if (!text && !formula) return;
         written.add(key(r, c));
-        // The other cells of a merged one repeat its words; only its first cell holds them.
-        if (cell.isMerged && cell.master.address !== cell.address) return;
         const value = cell.value;
         const isWords = typeof value === 'string' || (typeof value === 'object' && value !== null && 'richText' in value);
         if (isWords && !formula && text.length <= 120 && LETTERS.test(text)) words.set(key(r, c), text);
       });
     });
-    return { sheet, sheetAt, words, written, widths, key };
+    return [{ sheet, sheetAt, words, written, widths, masters, key }];
   });
 
   // What the workbook names comes first: a named cell is a blank whatever is beside it.
@@ -128,11 +146,12 @@ export async function detectXlsxFields(buffer: Buffer): Promise<DetectedField[]>
     // Written in or not, a cell the workbook names is a place for a value: its words name nothing beside it.
     held.words.delete(held.key(block.r1, block.c1));
     const master = held.sheet.getCell(block.r1, block.c1);
-    if (String(master.text ?? '').trim() || (master.value as { formula?: unknown } | null)?.formula) continue;
+    if (master.isMerged && master.master.address !== master.address) continue;
+    if (wordsIn(master) || (master.value as { formula?: unknown } | null)?.formula) continue;
     add(held.sheetAt, sheetName, block.r1, block.c1, worded(name), 'named_range');
   }
 
-  for (const { sheet, sheetAt, words, written, widths, key } of sheets) {
+  for (const { sheet, sheetAt, words, written, widths, masters, key } of sheets) {
     const cells = [...words.entries()].map(([at, text]) => {
       const [r, c] = at.split(':').map(Number) as [number, number];
       const wide = widths.get(at);
@@ -156,8 +175,11 @@ export async function detectXlsxFields(buffer: Buffer): Promise<DetectedField[]>
       // A head of a column: one of two or more names in its row, with nothing written over it. The last row of a table of entries is no head.
       if (cells.filter((other) => other.r === cell.r).length < 2 || written.has(key(cell.r - 1, cell.c))) continue;
       const below = cell.r2 + 1;
-      if (below > ROWS_AT_MOST || written.has(key(below, cell.c))) continue;
-      add(sheetAt, sheet.name, below, cell.c, label(cell.text), 'cell_below');
+      if (below > ROWS_AT_MOST) continue;
+      // A merged cell under the head is the blank, at its first cell, where that cell is empty.
+      const under = masters.get(key(below, cell.c)) ?? { row: below, column: cell.c };
+      if (written.has(key(under.row, under.column))) continue;
+      add(sheetAt, sheet.name, under.row, under.column, label(cell.text), 'cell_below');
     }
   }
 
@@ -165,18 +187,35 @@ export async function detectXlsxFields(buffer: Buffer): Promise<DetectedField[]>
   return found.map(({ sheetAt: _sheetAt, row: _row, column: _column, ...field }) => field);
 }
 
+/** A number written plainly: digits, at most one point, no sign but a minus, no nought before it, and no more figures than a workbook keeps exactly. */
+const PLAIN_NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/** Whether a cell's format shows a number as a number: none, General, or digits. Text ("@") and a date's format do not. */
+function takesNumber(format: string | undefined): boolean {
+  if (!format || /^general$/i.test(format)) return true;
+  const bare = format.replace(/"[^"]*"|\[[^\]]*\]|\\./g, '');
+  return /[0#?]/.test(bare) && !/[@dmyhs]/i.test(bare);
+}
+
 /**
- * The same workbook with each value written into its cell, as words: a
- * value that begins with "=" is written as those characters and is never a
- * formula. The cell keeps the format it had.
+ * The same workbook with each value written into its cell. A plain number
+ * for a cell with a number's format, or none, is written as a number, so a
+ * formula over it adds it. Anything else is written as words: a value that
+ * begins with "=" or "+" is those characters and is never a formula, and a
+ * number for a cell formatted as text stays text. The cell keeps the format
+ * it had. A merged cell is written at its first cell; a hidden sheet is not
+ * written on.
  */
 export async function fillXlsx(buffer: Buffer, values: ReadonlyArray<{ place: TemplatePlace; value: string }>): Promise<Buffer> {
   const workbook = await opened(buffer);
   for (const { place, value } of values) {
     const sheet = place.in === 'xlsx' ? workbook.getWorksheet(place.sheet) : undefined;
-    if (place.in !== 'xlsx' || !sheet || !corners(place.cell)) throw new Error('A blank of this template is not in the file as it was sent. Upload the file again.');
+    if (place.in !== 'xlsx' || !sheet || sheet.state !== 'visible' || !corners(place.cell)) throw new Error('A blank of this template is not in the file as it was sent. Upload the file again.');
     const text = value.replace(/[^\x09\x0A\x0D\x20-퟿-�\u{10000}-\u{10FFFF}]/gu, '').trim();
-    if (text) sheet.getCell(place.cell).value = text;
+    if (!text) continue;
+    const cell = sheet.getCell(place.cell).master;
+    const number = PLAIN_NUMBER.test(text) && text.replace(/\D/g, '').length <= 15 && takesNumber(cell.numFmt);
+    cell.value = number ? Number(text) : text;
   }
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
