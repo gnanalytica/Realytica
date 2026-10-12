@@ -51,48 +51,66 @@ export function OwnerPacks({ project, setProject, marked }: { project: DdProject
   }, [project.id, project.updatedAt]);
 
   const kept = ownerPacksKept(project);
-  const waiting = kept.filter((pack) => pack.status === 'prepared').length;
   const setting = project.reportDay?.setting;
   const asked = span === 'month' ? (month ? `month=${month}` : '') : `quarter=${quarter}`;
   const open = (query: string) => window.open(`/projects/${project.id}/owner-pack/print?${query}`, '_blank', 'noopener');
 
+  const prepared = kept.filter((pack) => pack.status === 'prepared');
+  const issued = kept.filter((pack) => pack.status === 'issued');
+  const picker = (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <div className="w-[6.5rem] shrink-0">
+        <Select aria-label="Period of the owner pack" value={span} onChange={(e) => setSpan(e.target.value as ReportEvery)}>
+          <option value="month">Month</option>
+          <option value="quarter">Quarter</option>
+        </Select>
+      </div>
+      <div className={span === 'month' ? 'w-[9.5rem] shrink-0' : 'w-[13rem] min-w-0 shrink'}>
+        {span === 'month' ? (
+          <Input type="month" aria-label="Month of the owner pack" value={month} onChange={(e) => setMonth(e.target.value)} />
+        ) : (
+          <Select aria-label="Quarter of the owner pack" value={quarter} onChange={(e) => setQuarter(e.target.value)}>
+            {quarters.map((q) => (
+              <option key={q.key} value={q.key}>
+                {q.label}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
+      {/* The one thing done here each month when nothing waits: open the pack, read it, and issue it from the paper. */}
+      <Button variant={prepared.length ? 'secondary' : 'primary'} className="shrink-0 whitespace-nowrap" disabled={!asked} onClick={() => open(asked)}>
+        Open the pack
+      </Button>
+    </div>
+  );
   return (
     <Card>
       <CardHeader
         icon={<FileText />}
-        title="Owner packs"
-        subtitle={kept.length ? `${kept.length} kept${waiting ? ` · ${waiting} waiting to be issued` : ''}` : 'One paper for the owner, for a month or a quarter'}
-        action={
-          <div className="flex flex-wrap items-center gap-1.5">
-            <div className="w-[6.5rem] shrink-0">
-              <Select aria-label="Period of the owner pack" value={span} onChange={(e) => setSpan(e.target.value as ReportEvery)}>
-                <option value="month">Month</option>
-                <option value="quarter">Quarter</option>
-              </Select>
-            </div>
-            <div className={span === 'month' ? 'w-[9.5rem] shrink-0' : 'w-[13rem] min-w-0 shrink'}>
-              {span === 'month' ? (
-                <Input type="month" aria-label="Month of the owner pack" value={month} onChange={(e) => setMonth(e.target.value)} />
-              ) : (
-                <Select aria-label="Quarter of the owner pack" value={quarter} onChange={(e) => setQuarter(e.target.value)}>
-                  {quarters.map((q) => (
-                    <option key={q.key} value={q.key}>
-                      {q.label}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </div>
-            <Button variant="secondary" className="shrink-0 whitespace-nowrap" disabled={!asked} onClick={() => open(asked)}>
-              Owner pack
-            </Button>
-          </div>
-        }
+        title="Owner pack"
+        subtitle={prepared.length ? `${prepared.length} waiting to be issued${issued.length ? ` · ${issued.length} issued` : ''}` : issued.length ? `${issued.length} issued` : 'One paper for the owner, for a month or a quarter'}
       />
       <CardBody className="space-y-3">
-        {kept.length ? (
-          <ul className="divide-y divide-hairline">
-            {kept.map((pack) => (
+        {/* A pack that waits is the page's one action: it is read on its own paper and issued there, under a name. */}
+        {prepared.map((pack) => (
+          <div key={pack.id} className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl px-3 py-3 ring-1 ring-inset ${marked === pack.id ? 'bg-brand-soft ring-brand/30' : 'bg-sunken/60 ring-[var(--ring)]'}`}>
+            <span className="min-w-0 flex-1 basis-48">
+              <span className="block text-[14px] font-semibold text-ink">{reportPeriodSaid(pack.pack.period, year)}</span>
+              <span className="block text-[12px] text-ink-secondary">{ownerPackStanding(project, pack)}</span>
+            </span>
+            <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={() => open(`pack=${pack.id}`)}>
+              Check and issue
+            </Button>
+          </div>
+        ))}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className="min-w-0 flex-1 basis-40 text-[13px] text-ink-secondary">{prepared.length ? 'Another month or quarter' : kept.length ? 'The pack for a month or a quarter' : 'No pack kept yet. Open one, read it, and issue it from the paper.'}</p>
+          {picker}
+        </div>
+        {issued.length ? (
+          <ul className="divide-y divide-hairline border-t border-hairline">
+            {issued.map((pack) => (
               <li key={pack.id}>
                 <button
                   type="button"
@@ -103,19 +121,17 @@ export function OwnerPacks({ project, setProject, marked }: { project: DdProject
                     <span className="block truncate font-medium text-ink">{reportPeriodSaid(pack.pack.period, year)}</span>
                     <span className="block text-[11px] text-ink-muted">{ownerPackStanding(project, pack)}</span>
                   </span>
-                  <Badge tone={pack.status === 'issued' ? 'good' : 'warning'}>{pack.status === 'issued' ? 'Issued' : 'Waiting'}</Badge>
+                  <Badge tone="good">Issued</Badge>
                 </button>
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="text-[13px] text-ink-muted">No pack kept yet.</p>
-        )}
+        ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-hairline pt-3">
           <CalendarClock size={15} className="shrink-0 text-ink-muted" />
           <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">
-            {setting ? reportDaySaid(setting) : 'No report day set.'}
-            {setting && shown && !shown.email ? <span className="block text-[11px] text-ink-muted">Email is not set up here, so nobody is mailed. Prepared reports wait on this page.</span> : null}
+            {setting ? `Report day: ${reportDaySaid(setting).replace(/^The /, 'the ')}` : 'No report day set. Set one to have the pack prepared each month.'}
+            {setting && shown && !shown.email ? <span className="block text-[11px] text-ink-muted">Nobody is emailed when a report is prepared: email is not set up. It waits here.</span> : null}
           </p>
           {shown?.mayIssue ? (
             <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>

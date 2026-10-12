@@ -1265,7 +1265,7 @@ export function CopilotPanel({
         <div className="flex items-start gap-2 rounded-lg bg-sunken px-2.5 py-2 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
           <Info size={13} className="mt-px shrink-0 text-ink-muted" />
           <span>
-            {disabledReason ?? 'No model is configured for this deployment.'} Everything else on this case works.
+            {disabledReason ?? 'No AI model is set up.'} Everything else on this project works.
           </span>
         </div>
       ) : null}
@@ -1370,7 +1370,7 @@ export function CopilotPanel({
         {compact ? null : (
           <p className="flex items-center gap-1.5 px-1 text-[11px] text-ink-muted">
             <Lock size={11} aria-hidden />
-            Only people change the record. AI proposals wait for a decision.
+            Only people change the record. What AI proposes waits to be accepted.
           </p>
         )}
       </form>

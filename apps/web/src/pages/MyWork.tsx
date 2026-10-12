@@ -110,9 +110,8 @@ export default function MyWork() {
         }
       />
 
-      {/* What I was told comes first: it is why some of the work below exists. */}
+      {/* Notices come first: they are why some of the work below exists. */}
       <TellCard />
-      <PersonFigures />
 
       {error ? <Callout tone="critical" title="Could not load your work">{error}</Callout> : null}
       {loading && !data ? <Skeleton className="h-40 w-full" /> : null}
@@ -198,6 +197,8 @@ export default function MyWork() {
           </CardBody>
         </Card>
       ) : null}
+      {/* How the work has gone is read after the work itself. */}
+      <PersonFigures />
     </div>
   );
 }

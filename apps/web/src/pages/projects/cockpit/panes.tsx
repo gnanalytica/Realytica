@@ -107,7 +107,7 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
         <Callout tone="brand" title="Running in the background">
           {background.line ?? 'Started. You can leave this pane — the run keeps going and the result lands on the registers.'}
           {background.keptAlive === false
-            ? ' This deployment does not guarantee work outliving a request, so if the instance is recycled the run will show as interrupted rather than finishing.'
+            ? ' If the server restarts while it runs, the run will show as interrupted rather than finishing.'
             : ''}
         </Callout>
       ) : null}

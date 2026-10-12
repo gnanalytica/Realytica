@@ -104,7 +104,7 @@ export function ComparablesRegister({
           <Tooltip
             label={
               configured === false
-                ? 'Portal search needs a scraping service account (Zyte, Bright Data or Oxylabs) set on the API: UNBLOCKER_PROVIDER and UNBLOCKER_API_KEY.'
+                ? 'Portal search is not set up. It needs an account with a scraping service (Zyte, Bright Data or Oxylabs), added by whoever runs the deployment.'
                 : 'Searches 99acres and MagicBricks near the site — about twenty paid requests to the scraping service.'
             }
           >

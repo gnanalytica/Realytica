@@ -20,8 +20,12 @@ import { AiMark, Button, Callout, Card, CardHeader, Dot, cn } from './ui/kit';
 const SHOWN = 6;
 
 /** Where a notice opens: the paper, at the page its value is on. */
+/** Where a notice opens: the paper it is about, or Papers owed when a request or a line of the list was answered. */
+const OWED_KINDS: ReadonlySet<TellLine['kind']> = new Set(['request_answered', 'request_replied', 'line_answered']);
+
 function linkFor(line: TellLine): string {
-  return line.evidenceId ? cockpitPath(line.projectId, 'evidence', { evidenceId: line.evidenceId, ...(line.page ? { page: String(line.page) } : {}) }) : cockpitPath(line.projectId, 'overview');
+  if (line.evidenceId && !OWED_KINDS.has(line.kind)) return cockpitPath(line.projectId, 'evidence', { evidenceId: line.evidenceId, ...(line.page ? { page: String(line.page) } : {}) });
+  return cockpitPath(line.projectId, OWED_KINDS.has(line.kind) ? 'papers' : 'overview');
 }
 
 export function TellCard() {
@@ -30,7 +34,7 @@ export function TellCard() {
   const [failed, setFailed] = useState<string | null>(null);
   const [all, setAll] = useState(false);
 
-  if (error) return <Callout tone="critical" title="Could not load what you were told">{error}</Callout>;
+  if (error) return <Callout tone="critical" title="Could not load your notices">{error}</Callout>;
   if (!data) return null;
 
   const act = async (run: () => Promise<unknown>) => {
@@ -55,7 +59,7 @@ export function TellCard() {
   const said = [
     data.notices.length === 0 ? 'Nothing yet' : data.unread > 0 ? `${data.unread} unread of ${data.notices.length}` : `${data.notices.length} read`,
     // Said plainly where nothing can leave the app, so nobody waits for a mail that will not come.
-    data.channels.email ? 'mailed together, ten minutes after the first' : 'mail is not set up here, so this stays in the app',
+    data.channels.email ? 'emailed together, ten minutes after the first' : 'shown here only, email is not set up',
     ...(data.channels.push ? ['sent to your phone'] : []),
   ].join(' · ');
 
@@ -63,7 +67,7 @@ export function TellCard() {
     <Card>
       <CardHeader
         icon={<Bell />}
-        title="Told to you"
+        title="Notices"
         subtitle={said}
         action={
           data.unread > 0 ? (
@@ -75,7 +79,7 @@ export function TellCard() {
       />
       {failed ? <p className="px-4 pt-3 text-[12px] text-critical">{failed}</p> : null}
       {data.notices.length === 0 ? (
-        <p className="px-4 py-3 text-[13px] text-ink-secondary">Papers filed and values decided that concern you list here.</p>
+        <p className="px-4 py-3 text-[13px] text-ink-secondary">No notices. A paper filed or a reply that concerns you is listed here.</p>
       ) : (
         <div className="divide-y divide-hairline">
           {(all ? data.notices : data.notices.slice(0, SHOWN)).map((line) => (

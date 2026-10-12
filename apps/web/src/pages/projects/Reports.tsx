@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { FileText } from 'lucide-react';
-import { Navigate, useOutletContext, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { REPORT_KIND_LABEL, cockpitPath, preparedReportSaid, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useMe } from '../../lib/useMe';
@@ -19,6 +19,7 @@ import { formatWhen } from './shared';
 export default function Reports() {
   const { project, setProject, onOpenCited } = useOutletContext<ProjectOutlet>();
   const toast = useToast();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<ReportKind>('executive_dd');
   const [assessmentId, setAssessmentId] = useState('');
@@ -47,15 +48,15 @@ export default function Reports() {
       const report = await api.generateReport(project.id, {
         kind,
         assessmentIds: assessmentId ? [assessmentId] : undefined,
-        generatedBy: 'operator',
+        generatedBy: me?.name ?? me?.email ?? 'operator',
       });
       const next = await api.getProject(project.id);
       setProject(next);
       show(report.id);
       setOpen(false);
-      toast('Report generated from live registers', 'good');
+      toast('Report written from the record', 'good');
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not generate', 'critical');
+      toast(e instanceof Error ? e.message : 'Could not write the report', 'critical');
     } finally {
       setBusy(false);
     }
@@ -63,29 +64,29 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
+      {/* The owner pack first: checking and issuing it is what is done on this page each month. It reads cost, meetings and papers owed, none of which an outside collaborator is handed. */}
+      {me && me.role !== 'collaborator' ? <OwnerPacks project={project} setProject={setProject} marked={named} /> : null}
+
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold text-ink">Reports</h2>
-            <p className="text-[13px] text-ink-secondary">DD and status reports built from the registers on this project.</p>
+            <h2 className="text-[15px] font-semibold text-ink">Other reports</h2>
+            <p className="text-[13px] text-ink-secondary">Status and due diligence reports, written from the record. The monthly Cost Report is on Finance › Budget.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => setOpen(true)}>Generate report</Button>
+            <Button variant="ghost" onClick={() => navigate(cockpitPath(project.id, 'workstream', { workstream: 'finance.budget' }))}>
+              Cost Report
+            </Button>
+            <Button onClick={() => setOpen(true)}>New report</Button>
           </div>
         </div>
-        {/* The owner pack reads cost, meetings and the checklist, none of which an outside collaborator is handed. */}
-        {me && me.role !== 'collaborator' ? <OwnerPacks project={project} setProject={setProject} marked={named} /> : null}
+
         {project.reports.length === 0 ? (
           <Card>
             <EmptyState
               icon={<FileText size={18} />}
               title="No reports yet"
-              description="Generate one here, or from a department’s Report step."
-              action={
-                <Button variant="primary" onClick={() => setOpen(true)}>
-                  Generate a report
-                </Button>
-              }
+              description="Start one here, from a department’s Report step, or ask the chat for this month’s status."
             />
           </Card>
         ) : (
@@ -135,14 +136,14 @@ export default function Reports() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Generate report"
+        title="New report"
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void generate()} disabled={busy}>
-              Generate
+            <Button variant="primary" onClick={() => void generate()} disabled={busy}>
+              Write it
             </Button>
           </>
         }
@@ -157,9 +158,9 @@ export default function Reports() {
               ))}
             </Select>
           </Field>
-          <Field label="Filter to assessment" hint="Leave empty to include the whole project.">
+          <Field label="Only one due diligence" hint="Leave empty for the whole project.">
             <Select value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
-              <option value="">All assessments</option>
+              <option value="">The whole project</option>
               {project.assessments.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}

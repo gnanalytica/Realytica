@@ -547,7 +547,7 @@ export function ReadingDesk({
                   <ArrowRight size={12} aria-hidden />
                 </Link>
               ) : (
-                <p className="text-micro text-ink-muted">{current.taken.as === 'voice' ? 'What it proposes waits under “Needs your decision”.' : 'What it proposes is in the chat.'}</p>
+                <p className="text-micro text-ink-muted">{current.taken.as === 'voice' ? 'What it proposes waits to be accepted.' : 'What it proposes is in the chat.'}</p>
               )}
             </div>
           ) : nothingRead({ shown, streamed: facts.length, held: rowFacts.length, notes: current.notes, phase: current.phase }) ? (
