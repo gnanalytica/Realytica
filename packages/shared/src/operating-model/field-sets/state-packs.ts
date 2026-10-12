@@ -25,6 +25,8 @@ export interface FieldStatePack {
 }
 
 const KRERA = 'Karnataka Real Estate Regulatory Authority (General) Regulations, 2022';
+const REVENUE_FORMS = 'Karnataka Land Revenue Rules, as the record of rights is issued on Bhoomi. The form was not read';
+const REGISTRATION_FORMS = 'Karnataka Registration Rules, as the certificate is issued on Kaveri. The form was not read';
 
 export const FIELD_STATE_PACKS: Record<string, FieldStatePack> = {
   karnataka: {
@@ -37,6 +39,9 @@ export const FIELD_STATE_PACKS: Record<string, FieldStatePack> = {
       rera_architect_progress: { number: 'Form 5', signedBy: 'Architect', when: 'Quarterly', source: KRERA, verified: false },
       rera_engineer_cost: { number: 'Form 6', signedBy: 'Engineer', when: 'Quarterly', source: KRERA, verified: false },
       rera_annual_audit: { number: 'Form 7', signedBy: 'Chartered accountant', when: 'Annual', source: KRERA, verified: false },
+      record_of_rights: { number: 'Form 16', signedBy: 'Revenue office', when: 'On request', source: REVENUE_FORMS, verified: false },
+      encumbrance_with_entries: { number: 'Form 15', signedBy: 'Sub-registrar', when: 'On search', source: REGISTRATION_FORMS, verified: false },
+      encumbrance_nil: { number: 'Form 16', signedBy: 'Sub-registrar', when: 'On search', source: REGISTRATION_FORMS, verified: false },
     },
   },
   'tamil nadu': { state: 'Tamil Nadu', groundSqft: 2400, forms: {} },

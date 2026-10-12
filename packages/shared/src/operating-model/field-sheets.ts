@@ -377,8 +377,8 @@ export function readMatch(project: DdProject, def: CheckFieldDef, value: CheckFi
     return l && r ? [{ left: String(l), right: String(r), leftLabel: label(left, String(l)), rightLabel: label(right, String(r)) }] : [];
   });
   return {
-    left: { label: def.match.left.label, items: left, leftover: left.filter((item) => !pairs.some((pair) => pair.left === item.id)) },
-    right: { label: def.match.right.label, items: right, leftover: right.filter((item) => !pairs.some((pair) => pair.right === item.id)) },
+    left: { label: def.match.left.label, items: left, leftover: def.match.left.optional ? [] : left.filter((item) => !pairs.some((pair) => pair.left === item.id)) },
+    right: { label: def.match.right.label, items: right, leftover: def.match.right.optional ? [] : right.filter((item) => !pairs.some((pair) => pair.right === item.id)) },
     pairs,
   };
 }
@@ -544,7 +544,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       def,
       address,
       shown,
-      notInPlay: !inPlay && holds,
+      // What is worked out is nobody's entry: out of play, it is not something recorded and set aside.
+      notInPlay: !inPlay && holds && !derived,
       state,
       held: own,
       text: said(def, own),

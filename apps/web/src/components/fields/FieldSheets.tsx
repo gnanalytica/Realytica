@@ -90,6 +90,9 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper }: Props) {
       : undefined,
   });
 
+  // A situation that follows from what is recorded is drawn only while it holds: nobody can put it in play by hand.
+  const inPlayOrAskable = page.situations.filter((view) => !view.situation.derive || view.state === 'on');
+
   const opened = openRecord ? [...page.sheets, ...page.shared].flatMap((sheet) => sheet.records ?? []).find((r) => r.set.id === openRecord.set && r.recordId === openRecord.record) : undefined;
 
   return (
@@ -105,7 +108,7 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper }: Props) {
         onOpenRecord={(set, record) => setOpenRecord({ set, record })}
       />
 
-      {page.situations.length ? <Situations situations={page.situations} mayDecide={seat.mayDecide} onSet={(key, on) => run(() => api.setSituation(project.id, fn, key, on), 'That could not be set')} /> : null}
+      {inPlayOrAskable.length ? <Situations situations={inPlayOrAskable} mayDecide={seat.mayDecide} onSet={(key, on) => run(() => api.setSituation(project.id, fn, key, on), 'That could not be set')} /> : null}
 
       {page.sheets.map((sheet) =>
         sheet.reading ? (
