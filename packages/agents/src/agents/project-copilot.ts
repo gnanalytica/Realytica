@@ -22,6 +22,17 @@ const MAX_TOOL_ITERATIONS = 8;
 /** The free first rung looks things up and answers, or hands over; it does not get the senior model's room. */
 const BASIC_TOOL_ITERATIONS = 6;
 
+/**
+ * The language of the answer: the language of the question.
+ *
+ * People ask in Hindi, Kannada, Tamil and Telugu, typed or spoken. What the
+ * record holds is not translated with the sentence around it: a figure, a
+ * name or a document number that comes back changed is a different fact, and
+ * the check of an answer's figures against the file reads them as written.
+ */
+export const ANSWER_LANGUAGE_RULE =
+  'Answer in the language the question is written in, in that language\'s own script: a question in Hindi, Kannada, Tamil, Telugu or any other language is answered in it, and a question in English in English. Whatever the language, copy these exactly as the record holds them, never translated, transliterated or rounded: figures with their digits and units, dates, names of people, firms and places, survey, document and registration numbers, the titles of registers and papers, ids, and every token in square brackets.';
+
 const SYSTEM = `You are Realytica's project due-diligence copilot. You sit in the project cockpit: chat on the left, live registers and DD on the right.
 
 You actually think. Read the project with tools before answering. Search registers before proposing a duplicate. Then help: explain what the registers show, recommend the next assessment or scope, request missing evidence, draft findings/risks/actions/decisions as cards, or run a capability the person asked for.
@@ -49,7 +60,8 @@ Hard rules:
 10. Connections on this file: get_subgraph and trace_conclusion. Those hits are this project's registers, not the law. For IBBI, NBC, PTCL, Registration Act and similar, call lookup_reference — cite title and asOf, never file the URL as evidence.
 11. Gated portals (Kaveri, Bhoomi, e-Khata, BBMP tax, Fire NOC): call get_portal_route or read get_sitting.portal. Tell the person to download after login/OTP and attach the file on this check. Never claim you fetched the extract.
 12. Master plan / zoning overlay: call compare_planning. The locality pack and a geocoded pin are not the RMP sheet. Do not claim a geometric intersection with the master plan. OSM, BBMP GIS WMS lakes/parks, and OpenCity GBA wards / BBMP lakes are CONTEXT. BMRDA maps are the sitting for Harohalli. Do not overlay DPPlans, GISMaps.in, or withdrawn RMP-2031 PDFs as the plan in force. Propose obtaining the sheet or zoning certificate; never file those URLs as this project's extract.
-13. ${MEM_ANSWER_RULES}`;
+13. ${MEM_ANSWER_RULES}
+14. ${ANSWER_LANGUAGE_RULE}`;
 
 export interface RunProjectCopilotParams {
   project: DdProject;
