@@ -14,7 +14,7 @@
 
 import { CHECK_DEFINITIONS } from './libraries';
 import { workstreamDefinition, workstreamOfCheck } from './departments';
-import { FIELD_SETS, RULE_ROWS } from './field-sets';
+import { FIELD_SETS, RULE_ROWS, RULE_SHAPES } from './field-sets';
 import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { ruleRowFaults } from './rule-tables';
 import type { CheckFieldDef, CheckFormula, FieldAddress, FieldSet, FormulaCondition, FormulaRows, MatchList, OptionSet, RefTarget, RuleRow, ShowWhen, Situation } from './types';
@@ -312,7 +312,8 @@ export function fieldOrder(catalog = fieldCatalog()): { order: FieldAddress[]; c
 export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: readonly RuleRow[] = RULE_ROWS): string[] {
   const catalog = buildFieldCatalog(sheets);
   const faults: string[] = ruleRowFaults(rules);
-  const rated = new Set(rules.map((row) => row.key));
+  // A rule whose figures are not loaded yet is still one a formula may name: it gives no answer until they are.
+  const rated = new Set([...rules.map((row) => row.key), ...RULE_SHAPES.map((shape) => shape.key)]);
   const exists = (address: FieldAddress) => Boolean(fieldDefAt(address, catalog));
 
   const seen = new Set<string>();

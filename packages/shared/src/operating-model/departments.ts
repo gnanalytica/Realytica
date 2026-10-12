@@ -214,6 +214,8 @@ export interface WorkstreamDefinition {
   /** The professions that sign its certified reports. */
   signers: string[];
   status: BuildStatus;
+  /** The profession whose work it is, where a department's functions are listed under more than one: Design's. */
+  group?: string;
 }
 
 export interface DepartmentDefinition {
@@ -236,6 +238,63 @@ function ws(
   deliverables: Array<[StageKey, string]>,
 ): WorkstreamDefinition {
   return { key: `${department}.${slug}`, department, label, purpose, status, signers, stages, deliverables: deliverables.map(([stage, title]) => ({ stage, title })) };
+}
+
+/** The profession each of Design's functions is the work of: how its page lists them. */
+const DESIGN_GROUP: Record<string, string> = {
+  'design.brief': 'Architect',
+  'design.areas': 'Architect',
+  'design.compliance': 'Architect',
+  'design.drawings': 'Architect',
+  'design.rfis': 'Architect',
+  'design.sanction': 'Architect',
+  'design.certificates': 'Architect',
+  'design.coordination': 'Architect',
+  'design.finishes': 'Interiors and landscape',
+  'design.landscape': 'Interiors and landscape',
+  'design.samples': 'Interiors and landscape',
+  'design.changes': 'Interiors and landscape',
+  'design.soil': 'Structural engineer',
+  'design.structure': 'Structural engineer',
+  'design.proof': 'Structural engineer',
+  'design.structural_set': 'Structural engineer',
+  'design.electrical': 'Services engineer',
+  'design.hvac': 'Services engineer',
+  'design.water': 'Services engineer',
+  'design.sewage': 'Services engineer',
+  'design.fire': 'Services engineer',
+  'design.lifts': 'Services engineer',
+};
+
+/**
+ * Design's functions beyond the four it began with: one for each thing an
+ * architect, a designer, a structural engineer and a services engineer keeps
+ * (`field-sets/architect-design-engineer-mep.ts`). Each has work at the
+ * stages Design has work at.
+ */
+function designFunctions(): WorkstreamDefinition[] {
+  const at: StageKey[] = ['pre_development', 'design_tender', 'construction'];
+  const fn = (slug: string, label: string, purpose: string, signers: string[], delivers: [StageKey, string]) => ws('design', slug, label, purpose, 'coming_soon', signers, at, [delivers]);
+  return [
+    fn('brief', 'Brief & unit mix', 'What is to be designed: the use, the unit types and counts, and who is appointed.', ['Architect'], ['pre_development', 'Design brief']),
+    fn('areas', 'Area statement', 'The areas held once, floor by floor and unit by unit, for everyone who reads them.', ['Architect'], ['design_tender', 'Area statement']),
+    fn('sanction', 'Sanctioned set', 'The design against what the authority sanctioned: units, floors and drawings.', ['Architect'], ['design_tender', 'Design against the sanction']),
+    fn('certificates', 'Architect’s certificates', 'The architect’s certificate at registration and for each quarter.', ['Architect'], ['construction', 'Architect’s certificate']),
+    fn('finishes', 'Finishes schedule', 'What finish, fitting and make is specified, space by space.', ['Architect'], ['design_tender', 'Finishes schedule']),
+    fn('landscape', 'Landscape & external works', 'Landscape areas, trees, water for them and the works outside the buildings.', ['Architect'], ['design_tender', 'Landscape statement']),
+    fn('samples', 'Samples & mock-ups', 'Each material submittal and mock-up, and who decided it.', ['Architect'], ['construction', 'Material approval register']),
+    fn('changes', 'Design changes', 'Every change to the design, where it came from and what it touches.', ['Architect'], ['construction', 'Design change register']),
+    fn('soil', 'Soil investigation', 'What the ground is: boreholes, groundwater and the bearing capacity recommended.', ['Structural Engineer'], ['pre_development', 'Soil investigation summary']),
+    fn('structure', 'Structural design basis', 'The codes, loads, factors, materials and foundation the structure is designed to.', ['Structural Engineer'], ['design_tender', 'Design basis sheet']),
+    fn('proof', 'Peer review & stability', 'The independent review of the structure and the stability certificates.', ['Structural Engineer'], ['design_tender', 'Review comment tracker']),
+    fn('structural_set', 'Structural set & certificates', 'Bar schedules, site instructions and the engineer’s own certificates.', ['Structural Engineer'], ['construction', 'Engineer’s certificate']),
+    fn('electrical', 'Electrical load', 'Connected load and maximum demand against transformers, generators and the sanctioned load.', ['MEP Engineer'], ['design_tender', 'Electrical load calculation']),
+    fn('hvac', 'Cooling & ventilation', 'Cooling load, basement ventilation and smoke control.', ['MEP Engineer'], ['design_tender', 'Ventilation schedule']),
+    fn('water', 'Water', 'Water demand from the people housed, against sources and storage.', ['MEP Engineer'], ['design_tender', 'Water balance']),
+    fn('sewage', 'Sewage treatment', 'The treatment plant against the sewage generated, and where treated water goes.', ['MEP Engineer'], ['design_tender', 'Treatment plant sizing']),
+    fn('fire', 'Fire fighting', 'Fire water, pumps, installations and escape against the code.', ['MEP Engineer'], ['design_tender', 'Fire provisions against the code']),
+    fn('lifts', 'Lifts', 'Lifts against height and people, and each lift’s permission and licence.', ['MEP Engineer'], ['construction', 'Lift licence register']),
+  ];
 }
 
 export const DEPARTMENTS: readonly DepartmentDefinition[] = [
@@ -302,7 +361,8 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
       ws('design', 'compliance', 'Design compliance', 'FAR, setbacks and height against the approvals.', 'coming_soon', ['Architect'], ['pre_development', 'design_tender', 'construction'], [['design_tender', 'FAR and setback compliance']]),
       ws('design', 'rfis', 'RFIs', 'Questions from site and their answers.', 'coming_soon', ['Architect', 'Structural Engineer'], ['pre_development', 'design_tender', 'construction'], [['construction', 'RFI log']]),
       ws('design', 'coordination', 'Coordination', 'Structure and services fitting together.', 'coming_soon', ['Structural Engineer', 'MEP Engineer'], ['pre_development', 'design_tender', 'construction'], [['design_tender', 'Clash log']]),
-    ],
+      ...designFunctions(),
+    ].map((w) => ({ ...w, group: DESIGN_GROUP[w.key]! })),
   },
   {
     key: 'construction',

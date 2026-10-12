@@ -65,7 +65,7 @@ export * from './fact-review';
 export * from './units';
 export * from './field-registry';
 export * from './field-sheets';
-export { FIELD_SETS, RULE_ROWS } from './field-sets';
+export { FIELD_SETS, RULE_ROWS, RULE_SHAPES } from './field-sets';
 export * from './field-sets/shared-records';
 export * from './field-sets/state-packs';
 export * from './field-sets/builders';

@@ -278,7 +278,10 @@ describe('the menu’s words are held in one place', () => {
   it('gives the chat the same parts of a function’s page the page draws', () => {
     const page = read('pages/projects/departments/WorkstreamPage.tsx');
     const drawn = new Set([...page.matchAll(/id: '([a-z]+)',\s*name: '/g)].map((m) => m[1]!));
-    const sectioned = WORKSTREAMS.filter((w) => functionSections(w.key).length > 0);
+    // A function that is not built and holds sheets is those sheets and its documents: two of the same parts, drawn by the same page.
+    const sheetsOnly = WORKSTREAMS.filter((w) => w.status !== 'live' && functionSections(w.key).length > 0);
+    for (const w of sheetsOnly) assert.deepEqual(functionSections(w.key), ['sheet', 'documents'], w.key);
+    const sectioned = WORKSTREAMS.filter((w) => w.status === 'live' && functionSections(w.key).length > 0);
     assert.deepEqual(sectioned.map((w) => w.key).sort(), ['construction.progress', 'finance.budget', 'legal.approvals', 'legal.title', 'procurement.boq'], 'the built functions laid out as one page with a rail');
     for (const w of sectioned) for (const section of functionSections(w.key)) assert.ok(drawn.has(section), `${w.key} lands on “${section}”, which the page does not draw`);
     for (const section of drawn) assert.ok(sectioned.some((w) => functionSections(w.key).includes(section)), `the page draws “${section}”, which the chat cannot land on`);

@@ -462,8 +462,8 @@ describe('the frame is the one the menu shows', () => {
       'and under it Design alone: Engineering’s own functions are switched off',
     );
     // It stands for Design alone here, so it is described as Design is and is
-    // no more built than Design: not `live`, and not "the technical work".
-    assert.equal(engineering[0]!.status, 'coming_soon');
+    // as built as Design, whose functions hold sheets: `live`, and not "the technical work".
+    assert.equal(engineering[0]!.status, 'live');
     assert.match(engineering[0]!.detail ?? '', /^Design & Architecture · What will be built/);
   });
 
@@ -475,7 +475,7 @@ describe('the frame is the one the menu shows', () => {
     const designId = `${project.id}::ws::design`;
     const design = graph.nodes.filter((n) => n.kind === 'workstream' && (n.key ?? '').startsWith('design'));
     assert.deepEqual(design.map((n) => [n.id, n.label, n.key]), [[designId, 'Design', 'design']], 'four workstreams, one node');
-    assert.match(design[0]!.detail ?? '', /^Design & Architecture · Drawings & versions, Design compliance, RFIs, Coordination · /, 'the name in full leads the detail, then the four it stands for');
+    assert.match(design[0]!.detail ?? '', /^Design & Architecture · Drawings & versions, Design compliance, RFIs, Coordination, Brief & unit mix, .*, Lifts · /, 'the name in full leads the detail, then the functions it stands for');
     assert.deepEqual(
       graph.edges.filter((e) => e.rel === 'has_workstream' && e.to === designId).map((e) => e.from),
       [`${project.id}::dept::construction`],
