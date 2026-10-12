@@ -9,6 +9,7 @@
  */
 
 import type { FieldSet, RuleRow } from '../types';
+import { CONSTRUCTION_PROCUREMENT_FIELD_SETS, CONSTRUCTION_PROCUREMENT_RULE_ROWS } from './construction-procurement';
 import { EXAMPLE_LAND_HOLDING } from './example-land-holding';
 import { BASE_RULE_ROWS } from './rule-rows';
 import { SHARED_RECORDS } from './shared-records';
@@ -16,8 +17,10 @@ import { SHARED_RECORDS } from './shared-records';
 export const FIELD_SETS: readonly FieldSet[] = [
   ...SHARED_RECORDS,
   ...EXAMPLE_LAND_HOLDING,
+  ...CONSTRUCTION_PROCUREMENT_FIELD_SETS,
 ];
 
 export const RULE_ROWS: readonly RuleRow[] = [
   ...BASE_RULE_ROWS,
+  ...CONSTRUCTION_PROCUREMENT_RULE_ROWS,
 ];

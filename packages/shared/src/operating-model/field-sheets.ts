@@ -22,13 +22,14 @@
  */
 
 import { APPROVAL_KINDS } from './approvals';
-import { checkInsights, computedValue, dayNumber, evaluateFormula, evaluateStatus, rowMeets, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
+import { checkInsights, computedValue, dayNumber, evaluateFormula, evaluateStatus, ownRows, rowMeets, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
 import { DEPARTMENT_KEYS, workstreamDefinition, type DepartmentKey } from './departments';
 import { surveyNumbersIn } from './document-intake';
 import type { DocumentFact } from './document-parse';
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, settled, standingFacts } from './fact-review';
 import { addressKey, fieldCatalog, fieldSetsOf, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
+import { projectFigure } from './field-figures';
 import { RULE_ROWS } from './field-sets';
 import { SHARED_FN } from './field-sets/shared-records';
 import { ruleCitation, ruleRow } from './rule-tables';
@@ -200,6 +201,8 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       if (row) cites.push(ruleCitation(row));
       return row?.value ?? null;
     },
+    figure: (key, of) => projectFigure(project, key, at, of),
+    record: recordId,
     today: at,
   });
 
@@ -280,6 +283,10 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       .map((record) => holder(setId, record.id));
   };
 
+  // The values of the holder asked from, each read only when a join names it.
+  const ownValues = (from: { fn: string; set: string; record?: string }): Record<string, CheckFieldValue> =>
+    new Proxy({} as Record<string, CheckFieldValue>, { get: (_, name) => (typeof name === 'string' ? read({ fn: from.fn, set: from.set, field: name, ...(from.record ? { record: from.record } : {}) }) : undefined) });
+
   const showing = (when: ShowWhen | undefined, from: { fn: string; set: string; record?: string }): boolean => {
     if (!when) return true;
     if ('situation' in when) {
@@ -290,7 +297,9 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
     }
     if ('all' in when) return when.all.every((part) => showing(part, from));
     if ('records' in when) {
-      const rows = (records(when.records) ?? []).filter((row) => !when.where || rowMeets(row, when.where));
+      // A join to the record asked from: its id, or what one of its own fields holds.
+      const where = when.where ? ownRows(when.where, ownValues(from), from.record) : undefined;
+      const rows = where === null ? [] : (records(when.records) ?? []).filter((row) => !where || rowMeets(row, where));
       return when.is === 'none' ? rows.length === 0 : rows.length >= (when.is === 'at_least' ? (when.n ?? 1) : 1);
     }
     if ('any' in when) return when.any.some((part) => showing(part, from));
@@ -533,7 +542,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     const holds = !isBlank(own) || state === 'not_applicable' || Boolean(own?.other?.length);
     const inPlay = resolved.showing(def.showWhen, from) && resolved.showing(section?.showWhen, from) && !def.retired;
     const expert = (def.tier ?? section?.tier) === 'expert';
-    const shown: FieldShown = !inPlay ? 'hidden' : expert && !holds ? 'folded' : 'shown';
+    // An expert field shows once it holds a value a person or a paper gave it. One that is worked out always holds one, and stays folded: it is the working behind a standing.
+    const shown: FieldShown = !inPlay ? 'hidden' : expert && (!holds || derived) ? 'folded' : 'shown';
     const sectionNa = Boolean(na[def.section ?? '']);
     const address: FieldAddress = { fn: set.fn, set: set.id, field: def.key, ...(recordId ? { record: recordId } : {}) };
     const must = def.requiredWhen ? resolved.showing(def.requiredWhen, from) : def.required !== false;
@@ -544,7 +554,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       def,
       address,
       shown,
-      notInPlay: !inPlay && holds,
+      // Kept and not in play is said of what somebody recorded, never of a figure that is only worked out.
+      notInPlay: !inPlay && holds && !derived,
       state,
       held: own,
       text: said(def, own),

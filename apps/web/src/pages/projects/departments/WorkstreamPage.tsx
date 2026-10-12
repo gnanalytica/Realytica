@@ -151,6 +151,7 @@ export default function WorkstreamPage() {
   if (WORKSTREAM_PANE[ws.key]) return <Navigate to={cockpitPath(project.id, WORKSTREAM_PANE[ws.key]!)} replace />;
   const dept = departmentDefinition(ws.department);
   const DeptIcon = DEPARTMENT_ICON[ws.department];
+  const onSite = stage === 'construction' || stage === 'operations';
 
   return (
     <div className="space-y-4">
@@ -172,16 +173,20 @@ export default function WorkstreamPage() {
       ) : ws.status === 'coming_soon' ? (
         <ComingSoon project={project} workstream={ws.key} stage={stage} />
       ) : ws.key === 'construction.quality' ? (
-        // The technical due diligence is five steps, not one long page.
-        <DepartmentDesk
-          project={project}
-          department="construction"
-          workstream={ws.key}
-          setProject={setProject}
-          refresh={refresh}
-          nav={{ ...nav, openSite: () => nav.openWorkstream('construction.site') }}
-          frame={<WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />}
-        />
+        // The technical due diligence is five steps, not one long page. Its sheets (pours, tests, non-conformances, snags) lead once the work is on site, and follow before that.
+        <div className="space-y-4">
+          {onSite && functionHasSheets(ws.key) ? <FieldSheets project={project} fn={ws.key} onChanged={setProject} onOpenPaper={nav.openDocument} /> : null}
+          <DepartmentDesk
+            project={project}
+            department="construction"
+            workstream={ws.key}
+            setProject={setProject}
+            refresh={refresh}
+            nav={{ ...nav, openSite: () => nav.openWorkstream('construction.site') }}
+            frame={<WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />}
+          />
+          {!onSite && functionHasSheets(ws.key) ? <FieldSheets project={project} fn={ws.key} onChanged={setProject} onOpenPaper={nav.openDocument} /> : null}
+        </div>
       ) : (
         <FunctionSections project={project} ws={ws} setProject={setProject} highlightIds={highlightIds} />
       )}
