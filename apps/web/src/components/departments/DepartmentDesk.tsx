@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Camera, ClipboardList, Download, FileOutput, FileStack, MapPin, ShieldAlert, Smartphone, Upload } from 'lucide-react';
 import {
+  checklistSheet,
   departmentDefinition,
   departmentHomeWorkstream,
   departmentReportKind,
@@ -20,6 +21,7 @@ import { api } from '../../lib/api';
 import { EvidenceDropZone } from '../EvidenceDropZone';
 import { useMe } from '../../lib/useMe';
 import { Button, Card, CardBody, CardHeader, StatTile, cn, useToast } from '../ui/kit';
+import { ChecklistCard } from './ChecklistCard';
 import { EngineeringDashboard, RequirementSheetCard, SupportingDocumentsCard } from './EngineeringDesk';
 import { ObservationsCard } from './ObservationsCard';
 import { QuestionnaireCard } from './QuestionnaireCard';
@@ -88,6 +90,9 @@ export function DepartmentDesk({
   const found = engineering ? 'Observations' : 'Findings';
 
   const sheet = useMemo(() => requirementSheet(project, { department }), [project, department]);
+  const checklist = useMemo(() => checklistSheet(project, { department }), [project, department]);
+  // The step counts every paper asked for: the ones the checks expect and the ones on the checklist.
+  const papers = { received: sheet.received + checklist.received, total: sheet.total + checklist.total };
   const questionnaires = useMemo(() => questionnairesOf(project, department), [project, department]);
   const latest = questionnaires[questionnaires.length - 1];
   const answers = useMemo(() => (latest ? questionnaireSummary(latest) : null), [latest]);
@@ -97,7 +102,7 @@ export function DepartmentDesk({
   const log = (project.siteLog ?? []).slice().sort((a, b) => b.date.localeCompare(a.date));
 
   const allSteps: Array<{ key: StepKey; label: string; count: string; icon: React.ReactNode }> = [
-    { key: 'documents', label: 'Documents', count: sheet.total ? `${sheet.received}/${sheet.total}` : '—', icon: <FileStack size={14} /> },
+    { key: 'documents', label: 'Documents', count: papers.total ? `${papers.received}/${papers.total}` : '—', icon: <FileStack size={14} /> },
     { key: 'questions', label: 'Questions', count: answers ? `${answers.answered}/${answers.total}` : '—', icon: <ClipboardList size={14} /> },
     { key: 'site', label: 'Site', count: sitePhotos ? `${sitePhotos} photo${sitePhotos === 1 ? '' : 's'}` : '—', icon: <MapPin size={14} /> },
     { key: 'observations', label: found, count: rows.length ? String(rows.length) : '—', icon: <ShieldAlert size={14} /> },
@@ -180,6 +185,7 @@ export function DepartmentDesk({
                   </Button>
                 </div>
                 <RequirementSheetCard project={project} department={department} startWorkstream={home} onChanged={refresh} onOpenDocument={nav.openDocument} onOpenCheck={nav.openCheck} />
+                <ChecklistCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} />
                 {workstream ? <WorkstreamDocuments project={project} workstream={workstream} onOpenDocument={nav.openDocument} /> : <SupportingDocumentsCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} />}
               </div>
             )}
