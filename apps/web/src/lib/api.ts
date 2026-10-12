@@ -1,4 +1,6 @@
 import type {
+  FieldAddress,
+  FieldValueDecision,
   KeptOwnerPack,
   PreparedReport,
   QuarterYear,
@@ -1209,6 +1211,21 @@ export const api = {
   /** Say what a filed document is, in place of what a model took it for. */
   correctDocumentType: (projectId: string, evidenceId: string, documentType: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/correct`, { method: 'POST', body: JSON.stringify({ documentType }) }),
+  /* --- Field sets: a function's sheets (docs/fields.md) --- */
+  setFieldValues: (projectId: string, body: { set: string; record?: string; values: Record<string, unknown> }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/values`, { method: 'PUT', body: JSON.stringify(body) }),
+  decideField: (projectId: string, body: { address: FieldAddress; decision: FieldValueDecision; value?: unknown; pick?: number; reason?: string; note?: string }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/decide`, { method: 'POST', body: JSON.stringify(body) }),
+  acceptPaperFields: (projectId: string, fn: string, evidenceId: string) =>
+    request<{ project: DdProject; accepted: number; left: number }>(`/projects/${projectId}/fields/accept-paper`, { method: 'POST', body: JSON.stringify({ fn, evidenceId }) }),
+  addFieldRecord: (projectId: string, set: string, values: Record<string, unknown> = {}) =>
+    request<{ project: DdProject; recordId?: string }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, values }) }),
+  removeFieldRecord: (projectId: string, set: string, record: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, remove: record }) }),
+  setSituation: (projectId: string, fn: string, key: string, on: boolean) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/situation`, { method: 'PUT', body: JSON.stringify({ fn, key, on }) }),
+  setSectionNotApplicable: (projectId: string, set: string, section: string, reason: string | null) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/section`, { method: 'PUT', body: JSON.stringify({ set, section, reason }) }),
   /** Accept or set aside values waiting on a check, a field at a time. */
   decideCheckFields: (projectId: string, proposalId: string, body: { keys: string[]; decision: 'accept' | 'reject'; values?: Record<string, unknown> }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/fields`, { method: 'POST', body: JSON.stringify(body) }),

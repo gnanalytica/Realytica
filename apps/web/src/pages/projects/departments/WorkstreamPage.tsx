@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Link, Navigate, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Scale, Stamp, Wallet, Waypoints } from 'lucide-react';
+import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Scale, Stamp, Table2, Wallet, Waypoints } from 'lucide-react';
 import {
   STAGES,
   cockpitPath,
   departmentDefinition,
+  functionHasSheets,
   quotesForEvidence,
   stageOf,
   titleGraphFromProject,
@@ -23,6 +24,7 @@ import { CertifiedPanel } from '../../../components/departments/CertifiedPanel';
 import { Connections } from '../../../components/departments/Connections';
 import { WorkstreamChecks, WorkstreamDocuments, WorkstreamEngagements } from '../../../components/departments/WorkstreamRecords';
 import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegister';
+import { FieldSheets } from '../../../components/fields/FieldSheets';
 import { PapersOwedCard } from '../../../components/papers/PapersOwedCard';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
 import { BudgetDesk } from '../../../components/budget/BudgetDesk';
@@ -164,7 +166,10 @@ export default function WorkstreamPage() {
           </div>
         </div>
       </Reveal>
-      {ws.status === 'coming_soon' ? (
+      {ws.status === 'coming_soon' && functionHasSheets(ws.key) ? (
+        // Not built beyond its sheets: the sheets and its documents are the page.
+        <FunctionSections project={project} ws={ws} setProject={setProject} highlightIds={highlightIds} sheetsOnly />
+      ) : ws.status === 'coming_soon' ? (
         <ComingSoon project={project} workstream={ws.key} stage={stage} />
       ) : ws.key === 'construction.quality' ? (
         // The technical due diligence is five steps, not one long page.
@@ -211,7 +216,7 @@ function visitOf(key: string): number {
  * the same address. Closing it goes back to the address it was opened from,
  * with the page where the person had it.
  */
-function FunctionSections({ project, ws, setProject, highlightIds }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void; highlightIds?: string[] }) {
+function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = false }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void; highlightIds?: string[]; sheetsOnly?: boolean }) {
   const nav = useWorkstreamNav(project);
   const navigate = useNavigate();
   const location = useLocation();
@@ -313,6 +318,8 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
         </div>
       ),
     },
+    // The function's own sheets, opening on what needs a person.
+    ...(functionHasSheets(ws.key) ? [{ id: 'sheet', name: 'Sheet', icon: Table2, body: <FieldSheets project={project} fn={ws.key} onChanged={setProject} onOpenPaper={(evidenceId: string) => openHere(evidenceId)} /> }] : []),
     ...(centre ? [centre] : []),
     { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} marked={part === 'checks' ? item : null} /> },
     {
@@ -342,7 +349,7 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
 
   return (
     <>
-      <SectionPage sections={sections} jump={jump} />
+      <SectionPage sections={sheetsOnly ? sections.filter((section) => section.id === 'sheet' || section.id === 'documents') : sections} jump={jump} />
       {/* A document a link named opens over the page it belongs to, at the page cited, as it does on the register. */}
       {proof ? (
         <EvidenceProof
