@@ -11,13 +11,17 @@
 import type { FieldSet, RuleRow } from '../types';
 import { EXAMPLE_LAND_HOLDING } from './example-land-holding';
 import { BASE_RULE_ROWS } from './rule-rows';
+import { SALES_MARKETING_RULE_ROWS } from './rules/sales-marketing';
+import { SALES_MARKETING_FIELD_SETS } from './sales-marketing';
 import { SHARED_RECORDS } from './shared-records';
 
 export const FIELD_SETS: readonly FieldSet[] = [
   ...SHARED_RECORDS,
   ...EXAMPLE_LAND_HOLDING,
+  ...SALES_MARKETING_FIELD_SETS,
 ];
 
 export const RULE_ROWS: readonly RuleRow[] = [
   ...BASE_RULE_ROWS,
+  ...SALES_MARKETING_RULE_ROWS,
 ];

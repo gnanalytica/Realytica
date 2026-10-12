@@ -520,8 +520,9 @@ describe('the papers still owed, in a line', () => {
       ['legal.title', 'construction.progress', 'finance.budget', 'procurement.boq'],
     );
     for (const department of ['legal', 'construction', 'finance', 'procurement'] as const) assert.ok(functionSections(checklistFunction(department)!).includes('documents'));
-    // A department with no built function laid out in parts has nowhere to open it.
-    assert.equal(checklistFunction('commercial'), undefined);
+    // Commercial's functions are pages since they hold sheets, so its list opens on the first of them.
+    assert.equal(checklistFunction('commercial'), 'commercial.market');
+    assert.ok(functionSections('commercial.market').includes('documents'));
   });
 
   it('is nothing to a collaborator: the list is not in what they are handed', () => {

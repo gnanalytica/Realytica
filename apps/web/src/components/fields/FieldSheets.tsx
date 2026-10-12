@@ -19,6 +19,7 @@
 import { useMemo, useState } from 'react';
 import { ChevronRight, ListChecks, Plus } from 'lucide-react';
 import {
+  FIELD_SETS,
   NA_REASONS,
   NA_REASON_LABEL,
   departmentRole,
@@ -43,6 +44,7 @@ import {
 import { api } from '../../lib/api';
 import { useMe } from '../../lib/useMe';
 import { CheckFields } from '../CheckFields';
+import { StackPlan, drawsAsStackPlan } from './StackPlan';
 import { AiMark, Badge, Button, Card, CardBody, CardHeader, Modal, cn, useToast } from '../ui/kit';
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
@@ -106,6 +108,13 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper }: Props) {
       />
 
       {page.situations.length ? <Situations situations={page.situations} mayDecide={seat.mayDecide} onSet={(key, on) => run(() => api.setSituation(project.id, fn, key, on), 'That could not be set')} /> : null}
+
+      {/* The units as a stack plan, on the page of the function whose own fields give a unit its status. */}
+      {page.shared
+        .filter((shared) => drawsAsStackPlan(shared.records) && FIELD_SETS.some((set) => set.extends === shared.set.id && set.fn === fn && set.fields.some((def) => def.kind === 'status')))
+        .map((shared) => (
+          <StackPlan key={shared.set.id} records={shared.records} onOpen={(record) => setOpenRecord({ set: shared.set.id, record })} />
+        ))}
 
       {page.sheets.map((sheet) =>
         sheet.reading ? (

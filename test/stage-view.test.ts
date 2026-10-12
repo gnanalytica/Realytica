@@ -176,7 +176,7 @@ describe('the menu at a stage', () => {
         ['Title', 'Approvals', 'RERA', 'Contracts', 'Handover'],
         ['Valuation', 'Feasibility', 'Budget', 'Funding', 'Tax'],
         ['Design', 'Progress', 'Technical', 'Site', 'Safety'],
-        ['Market', 'Sales', 'Collections', 'Handover', 'Operations'],
+        ['Market', 'Marketing', 'Sales', 'Collections', 'Handover', 'Operations'],
         ['Tenders', 'Orders', 'Vendors', 'Deliveries'],
       ],
     );
@@ -287,7 +287,7 @@ describe('work already done stays on show', () => {
       };
       const holding = functionsHoldingRecords(p);
       const functions = graph.nodes.filter((n) => n.kind === 'workstream');
-      assert.equal(functions.length, 24, 'every function is drawn on these files');
+      assert.equal(functions.length, 25, 'every function is drawn on these files');
       for (const fn of functions) {
         const joined = graph.edges.some(
           (e) =>

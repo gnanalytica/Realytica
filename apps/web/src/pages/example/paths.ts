@@ -54,6 +54,7 @@ const EXAMPLE_FUNCTION: Record<string, readonly [department: string, fn: string]
   'procurement.vendors': ['procurement', 'Vendors'],
   'procurement.deliveries': ['procurement', 'Deliveries'],
   'commercial.market': ['commercial', 'Market'],
+  'commercial.marketing': ['commercial', 'Marketing'],
   'commercial.inventory': ['commercial', 'Sales'],
   'commercial.buyers': ['commercial', 'Collections'],
   'commercial.handover': ['commercial', 'Handover'],
