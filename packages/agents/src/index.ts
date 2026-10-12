@@ -27,6 +27,7 @@ export * from './agents/status-wording';
 export * from './agents/plan-proposal';
 export * from './agents/review-answers';
 export * from './agents/outgoing-draft';
+export * from './agents/law-watch';
 export * from './agents/project-orchestrator';
 export * from './project/ingest-intelligence';
 export * from './agents/property-discovery';
