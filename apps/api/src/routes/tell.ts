@@ -19,6 +19,12 @@ import { tellChannels } from '../tell';
  * (`projectFor`), so somebody working from a grant is shown nothing of a
  * paper their copy does not hold, and a project they hold no grant on is
  * not there: 404, as everywhere.
+ *
+ * These routes sit outside `/api/projects/:projectId`, so nothing has
+ * brought this instance's copy of a project up to date before they run.
+ * Marking and quieting write the whole project, so each reads it from
+ * storage first (`fresh`) and passes over a project storage will not answer
+ * for: a copy that may be old is never written back.
  */
 export const tellRouter = Router();
 
@@ -53,6 +59,16 @@ tellRouter.get('/', needs('read'), (req, res) => {
   });
 });
 
+/** The project as storage has it now, or nothing where storage did not answer or it is gone. */
+async function fresh(id: string): Promise<DdProject | undefined> {
+  try {
+    await store.pullFresh(id);
+  } catch {
+    return undefined;
+  }
+  return store.data.projects?.find((held) => held.id === id);
+}
+
 const readSchema = z.object({ ids: z.union([z.literal('all'), z.array(z.string().min(1).max(160)).min(1).max(500)]) });
 
 tellRouter.post('/read', needs('read'), async (req, res) => {
@@ -63,10 +79,15 @@ tellRouter.post('/read', needs('read'), async (req, res) => {
   }
   const me = principalOf(req);
   let read = 0;
-  for (const project of reachable(req)) {
+  const asked = parsed.data.ids;
+  for (const held of reachable(req)) {
+    // Nothing of the caller's to mark on this copy: the project is not read again, and not written.
+    if (!linesFor(req, held).some((line) => !line.read && (asked === 'all' || asked.includes(line.id)))) continue;
+    const project = await fresh(held.id);
+    if (!project) continue;
     // Only what the caller is shown: a notice their copy no longer words is not theirs to mark.
     const shown = new Set(linesFor(req, project).map((line) => line.id));
-    const ids = parsed.data.ids === 'all' ? [...shown] : parsed.data.ids.filter((id) => shown.has(id));
+    const ids = asked === 'all' ? [...shown] : asked.filter((id) => shown.has(id));
     const n = ids.length ? markTellRead(project, ids, me.email) : 0;
     if (n) project.updatedAt = new Date().toISOString();
     read += n;
@@ -87,12 +108,17 @@ tellRouter.put('/quiet/:projectId', needs('read'), async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const project = (store.data.projects ?? []).find((held) => held.id === req.params.projectId);
-  if (!project || !accessTo(req, project).ok) {
+  const held = (store.data.projects ?? []).find((known) => known.id === req.params.projectId);
+  if (!held || !accessTo(req, held).ok) {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
   const me = principalOf(req);
+  const project = await fresh(held.id);
+  if (!project) {
+    res.status(503).json({ error: 'The project could not be read just now. Nothing was changed.' });
+    return;
+  }
   if (tellQuieted(project, me.email) !== parsed.data.quiet) {
     setTellQuiet(project, me.email, parsed.data.quiet);
     project.updatedAt = new Date().toISOString();

@@ -6,7 +6,10 @@
  * paper was filed, a value was accepted, a value was changed from what
  * stood, a checklist line was answered, a request was answered. Each is read
  * off the trail, which already says who did what to which record, so nothing
- * that files or decides has to remember to tell anybody.
+ * that files or decides has to remember to tell anybody. A paper tells
+ * whichever way it came: dropped by a person, brought by a connected folder,
+ * or sent back by an outside party in reply to a request. A reply tells
+ * whoever raised the request, with or without a paper on it.
  *
  * Three things are worked out here, with no model anywhere:
  *
@@ -34,7 +37,7 @@ import { DEPARTMENT_SHORT, FUNCTION_SHORT, functionKey, withDepartment, workstre
 import type { WorkspaceRole } from './tenancy';
 import { checklistSheet, type ChecklistLine } from './checklist';
 import { allChecks } from './engagements';
-import { acceptedFacts, standingFacts, waitingReadings } from './fact-review';
+import { acceptedFacts, factReview, standingFacts, waitingReadings } from './fact-review';
 import { projectLinks } from './links';
 import { ownedBy } from './my-work';
 import { departmentOfPaper } from './review';
@@ -45,7 +48,7 @@ import { documentWorkstream } from './vault';
 /* The record                                                            */
 /* ==================================================================== */
 
-export type TellEventKind = 'paper_filed' | 'value_accepted' | 'value_changed' | 'line_answered' | 'request_answered';
+export type TellEventKind = 'paper_filed' | 'value_accepted' | 'value_changed' | 'line_answered' | 'request_answered' | 'request_replied';
 
 /** One thing a person did that others should hear of, as the trail wrote it. */
 export interface TellEvent {
@@ -99,6 +102,8 @@ export interface TellNotice {
   batchedAt?: string;
   /** Passed over: the person had quieted the project. */
   quieted?: true;
+  /** A message holding it could not be sent: when, and how often. It is tried again a message's worth later, `TELL_TRIES` times in all. */
+  unsent?: { at: string; n: number };
 }
 
 /** What a project keeps of telling people. */
@@ -133,6 +138,8 @@ export const TELL_BATCH_MS = 10 * 60_000;
 export const TELL_FIRST_LOOK_MS = 10 * 60_000;
 /** The notices a project keeps. */
 export const TELL_KEEP = 300;
+/** How often a message that could not be sent is tried before its notices stay in the app alone. */
+export const TELL_TRIES = 3;
 
 function fold(value: string | undefined): string {
   return (value ?? '').trim().toLowerCase();
@@ -146,9 +153,14 @@ function plural(n: number, one: string, many = `${one}s`): string {
 /* The events                                                            */
 /* ==================================================================== */
 
+/** How the trail names an outside party's reply, and a connected folder. */
+const OUTSIDE_ACTOR = 'outside:';
+const FOLDER_ACTOR = ' folder';
+
 function eventOf(project: DdProject, line: AuditEvent): TellEvent | undefined {
-  // Only what a person did, under their address: the server's own work, and an example project loaded whole, are nobody's news.
-  if (!line.actor.includes('@')) return undefined;
+  // Only what somebody did: a person under their address, an outside party in reply to a request (`outside:<address or number>`),
+  // or a connected folder bringing a paper ("Google Drive folder"). The server's own work, and an example project loaded whole, are nobody's news.
+  if (!line.actor.includes('@') && !line.actor.startsWith(OUTSIDE_ACTOR) && !line.actor.endsWith(FOLDER_ACTOR)) return undefined;
   const base = { id: line.id, at: line.at, actor: line.actor };
   if (line.action === 'upload' && line.entityType === 'evidence') {
     const row = project.evidence.find((held) => held.id === line.entityId);
@@ -162,6 +174,8 @@ function eventOf(project: DdProject, line: AuditEvent): TellEvent | undefined {
   }
   if (line.action === 'checklist_received') return { ...base, kind: 'line_answered', checklistItemId: line.entityId };
   if (line.action === 'request_updated' && line.newValue === 'answered' && line.oldValue !== 'answered') return { ...base, kind: 'request_answered', requestId: line.entityId };
+  // What an outside party sent back, papers or words alone: it waits for a person to confirm it.
+  if (line.action === 'request_replied' && line.entityType === 'request') return { ...base, kind: 'request_replied', requestId: line.entityId };
   return undefined;
 }
 
@@ -294,8 +308,10 @@ export function concernedBy(project: DdProject, event: TellEvent, people: readon
     }
     for (const request of project.requests ?? []) {
       const answers = request.answeredByEvidenceId === row.id || (request.evidenceId === row.id && (request.status === 'sent' || request.status === 'answered'));
-      if (!answers) continue;
-      for (const person of [...named(request.createdBy), ...named(request.recipient)]) add(person, { because: 'named', record: 'request', id: request.id, how: 'answers' });
+      // A paper that came back in reply and nobody has confirmed: offered for the request, not yet its answer.
+      const replies = row.unconfirmedReply?.requestId === request.id;
+      if (!answers && !replies) continue;
+      for (const person of [...named(request.createdBy), ...named(request.recipient)]) add(person, { because: 'named', record: 'request', id: request.id, how: answers ? 'answers' : 'offered' });
     }
     if (event.kind === 'paper_filed') {
       for (const line of lines) {
@@ -348,10 +364,16 @@ export function concernedBy(project: DdProject, event: TellEvent, people: readon
     }
   }
 
+  if (event.kind === 'request_replied') {
+    const request = (project.requests ?? []).find((held) => held.id === event.requestId);
+    // Whoever raised it: the reply is theirs to confirm or set aside.
+    if (request) for (const person of named(request.createdBy)) add(person, { because: 'named', record: 'request', id: request.id, how: 'offered' });
+  }
+
   const about = { ...event, evidenceId: row?.id ?? event.evidenceId };
   return [...found.values()].flatMap((concerned) => {
     const { person } = concerned;
-    if (ownedBy(event.actor, person)) return [];
+    if (ownedBy(event.actor.startsWith(OUTSIDE_ACTOR) ? event.actor.slice(OUTSIDE_ACTOR.length) : event.actor, person)) return [];
     if (!person.copy) return [concerned];
     if (!tellReadable(person.copy, about)) return [];
     const why = concerned.why.filter((reason) => onCopy(person.copy!, reason));
@@ -421,8 +443,20 @@ export function gatherTell(project: DdProject, people: readonly TellPerson[], no
       written.push(notice);
     }
   }
-  project.tell = { ...state, ...(through ? { through } : {}), notices: held.slice(-TELL_KEEP) };
+  project.tell = { ...state, ...(through ? { through } : {}), notices: keptNotices(held) };
   return written;
+}
+
+/**
+ * The notices kept when there are more than `TELL_KEEP`: the oldest that are
+ * read, or were put in a message already, go first. One that has not left
+ * the app goes only when nothing else is left to drop.
+ */
+function keptNotices(held: TellNotice[]): TellNotice[] {
+  let over = held.length - TELL_KEEP;
+  if (over <= 0) return held;
+  const kept = held.filter((notice) => !((notice.readAt || notice.batchedAt) && over-- > 0));
+  return kept.slice(-TELL_KEEP);
 }
 
 /** Quiet a project for one person, or stop quieting it. What waits for them unsent is passed over. */
@@ -465,18 +499,44 @@ export function markTellRead(project: DdProject, ids: readonly string[] | 'all',
  */
 export function takeTellDue(project: DdProject, now = new Date()): Map<string, TellNotice[]> {
   const waiting = new Map<string, TellNotice[]>();
+  const before = now.getTime() - TELL_BATCH_MS;
   for (const notice of project.tell?.notices ?? []) {
     if (notice.batchedAt || notice.readAt) continue;
+    // One whose message could not be sent waits a message's worth before it is tried again.
+    if (notice.unsent && Date.parse(notice.unsent.at) > before) continue;
     waiting.set(notice.to, [...(waiting.get(notice.to) ?? []), notice]);
   }
   const due = new Map<string, TellNotice[]>();
-  const before = now.getTime() - TELL_BATCH_MS;
   for (const [to, notices] of waiting) {
     if (!notices.some((notice) => Date.parse(notice.at) <= before)) continue;
     for (const notice of notices) notice.batchedAt = now.toISOString();
     due.set(to, notices);
   }
   return due;
+}
+
+/**
+ * Give back notices that were taken and did not leave: they are due again.
+ *
+ * With `failedAt`, a send was tried and failed: each is tried again a
+ * message's worth later, and after `TELL_TRIES` failures stays taken, in the
+ * app alone. Without it, nothing was tried (the write behind the taking
+ * failed) and they are due at once. A notice read or quieted meanwhile is
+ * left as it is. Returns how many were given back.
+ */
+export function untakeTell(project: DdProject, ids: readonly string[], failedAt?: Date): number {
+  let n = 0;
+  for (const notice of project.tell?.notices ?? []) {
+    if (!notice.batchedAt || notice.quieted || notice.readAt || !ids.includes(notice.id)) continue;
+    if (failedAt) {
+      const tries = (notice.unsent?.n ?? 0) + 1;
+      notice.unsent = { at: failedAt.toISOString(), n: tries };
+      if (tries >= TELL_TRIES) continue;
+    }
+    delete notice.batchedAt;
+    n += 1;
+  }
+  return n;
 }
 
 /* ==================================================================== */
@@ -511,10 +571,10 @@ function placeSaid(workstream: string | undefined): string | undefined {
   return withDepartment(fn, fn === workstream ? (FUNCTION_SHORT[fn] ?? workstreamDefinition(fn)?.label ?? fn) : DEPARTMENT_SHORT.design);
 }
 
-/** What a paper states, as it stands, that a check holds otherwise. Only values that may be acted on. */
+/** What a paper states that a check holds otherwise. Only values a person accepted: what a reader read and nobody decided is counted, never said. */
 function paperDiffers(project: DdProject, row: EvidenceRecord): string[] {
   const out: string[] = [];
-  for (const fact of standingFacts(row)) {
+  for (const fact of acceptedFacts(row)) {
     const check = checksThatDiffer(project, fact.key, fact.value, row.id)[0];
     if (check) out.push(`${fact.label}: ${fact.display} on p. ${fact.page}; “${check.title}” holds ${String(check.fields![fact.key]!.value)}.`);
   }
@@ -543,18 +603,20 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
   if (notice.kind === 'paper_filed') {
     if (!row) return undefined;
     const place = placeSaid(notice.workstream);
-    const waiting = waitingReadings(row).length;
+    // Waiting on a person: what acts on nothing until decided, and what the rules read surely that nobody has accepted either.
+    const waiting = waitingReadings(row).length + standingFacts(row).filter((fact) => factReview(fact) !== 'accepted').length;
     const differs = paperDiffers(project, row);
     const line = namedOn('checklist');
     const item = line ? (project.checklist ?? []).find((held) => held.id === line.id) : undefined;
-    const request = namedOn('request') ? (project.requests ?? []).find((held) => held.id === namedOn('request')!.id) : undefined;
+    const asked = namedOn('request');
+    const request = asked ? (project.requests ?? []).find((held) => held.id === asked.id) : undefined;
     const action = namedOn('action') ? project.actions.find((held) => held.id === namedOn('action')!.id) : undefined;
     const said: string[] = [];
     if (differs.length) said.push(listed(differs));
     if (waiting) said.push(`${plural(waiting, 'value')} waiting for ${decides ? 'you' : 'a lead or signer'} to check.`);
     if (!said.length) {
       if (item && line) said.push(line.how === 'offered' ? `It may be “${item.title}” on the checklist.` : `It answers “${item.title}” on the checklist.`);
-      else if (request) said.push(`It answers the request “${request.title}”.`);
+      else if (request) said.push(asked?.how === 'offered' ? `It came in reply to the request “${request.title}”.` : `It answers the request “${request.title}”.`);
       else if (action) said.push(`It touches your action “${action.title}”.`);
     }
     const todo =
@@ -562,6 +624,7 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
       : differs.length ? 'See which of the two is right.'
       : item && line?.how === 'offered' ? `Confirm it is “${item.title}”.`
       : decides && !place ? 'Say where it belongs.'
+      : request && asked?.how === 'offered' ? `Confirm it answers “${request.title}”.`
       : action ? `See whether “${action.title}” can close.`
       : 'Read it.';
     return { ...base, title: `Filed: ${row.title}${place ? ` · ${place}` : ''}`, ...(said.length ? { detail: said.join(' ') } : {}), action: todo, ...(waiting ? { waiting } : {}) };
@@ -600,6 +663,12 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
 
   const request = (project.requests ?? []).find((held) => held.id === notice.requestId);
   if (!request) return undefined;
+  if (notice.kind === 'request_replied') {
+    // The reply this line of the trail recorded, by who sent it and when. Their words are not repeated: they wait on a person.
+    const reply = (request.replies ?? []).find((held) => held.receivedAt === notice.at && `${OUTSIDE_ACTOR}${held.from}` === notice.by);
+    const papers = reply?.attachments.length ?? 0;
+    return { ...base, title: `Reply: ${request.title}`, detail: papers ? `${plural(papers, 'paper')} came with it, waiting to be confirmed.` : 'Words alone, with no paper.', action: 'Confirm it answers the request, or set it aside.' };
+  }
   const paper = request.answeredByEvidenceId ? project.evidence.find((held) => held.id === request.answeredByEvidenceId) : undefined;
   return { ...base, title: `Answered: ${request.title}`, ...(paper ? { detail: `With ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read what came.' : 'See what came.' };
 }
@@ -610,6 +679,7 @@ const KIND_COUNTED: Record<TellEventKind, [string, string]> = {
   value_changed: ['value changed', 'values changed'],
   line_answered: ['checklist line in hand', 'checklist lines in hand'],
   request_answered: ['request answered', 'requests answered'],
+  request_replied: ['reply to a request', 'replies to requests'],
 };
 
 /** How many of each kind, in a line: "10 papers filed, 2 values changed". */

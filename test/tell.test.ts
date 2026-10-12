@@ -16,6 +16,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   TELL_BATCH_MS,
+  TELL_KEEP,
+  TELL_TRIES,
   addAction,
   addChecklistItems,
   addEvidence,
@@ -32,6 +34,7 @@ import {
   patchRequest,
   projectView,
   receiveChecklistItem,
+  recordReply,
   reviewFacts,
   setTeamMember,
   setTellQuiet,
@@ -39,6 +42,7 @@ import {
   tellEvents,
   tellMessage,
   tellSaid,
+  untakeTell,
   type DdProject,
   type DocumentFact,
   type EvidenceRecord,
@@ -338,5 +342,118 @@ describe('quieting a project', () => {
     gatherTell(project, FIRM);
     setTellQuiet(project, OWNER, true);
     assert.deepEqual([...takeTellDue(project, later(TELL_BATCH_MS + 1000)).keys()], [COUNSEL]);
+  });
+});
+
+describe('a paper or a reply that no signed-in person brought', () => {
+  it('tells the department’s lead and signer of a paper a connected folder brought', () => {
+    const project = plot();
+    file(project, 'Sale deed 2019', 'Google Drive folder', { documentType: 'Sale deed' });
+    gatherTell(project, FIRM);
+    assert.deepEqual(told(project), [COUNSEL, OWNER]);
+    assert.equal(project.tell!.notices![0]!.by, 'Google Drive folder');
+    assert.equal(lineFor(project, COUNSEL).title, 'Filed: Sale deed 2019 · Legal › Title');
+  });
+
+  /** A request the staff member raised and sent, and what came back by a channel, with papers or without. */
+  function replied(from: string, channel: 'email' | 'whatsapp', papers: string[]) {
+    const project = plot();
+    const request = addRequest(project, { title: 'Latest tax paid receipt', recipient: 'Owner’s advocate', send: true }, STAFF);
+    gatherTell(project, FIRM);
+    const at = new Date().toISOString();
+    const attachments = papers.map((title, n) => {
+      const row = file(project, title, `outside:${from}`, { documentType: 'Sale deed' });
+      return { id: `att-${n}`, fileName: `${title}.pdf`, mimeType: 'application/pdf', sizeBytes: 1024, storageKey: `store/${title}.pdf`, evidenceId: row.id };
+    });
+    recordReply(project, request.id, { channel, from, receivedAt: at, deliveryId: `delivery-${from}`, text: 'Attached, as asked.', attachments });
+    gatherTell(project, FIRM);
+    return { project, request };
+  }
+  const kindsFor = (project: DdProject, to: string) => (project.tell?.notices ?? []).filter((notice) => notice.to === to).map((notice) => notice.kind).sort();
+
+  it('tells whoever raised a request of a reply by WhatsApp, and the department of the paper it carried', () => {
+    const { project } = replied('919800000000', 'whatsapp', ['Tax receipt 2026']);
+    assert.deepEqual(kindsFor(project, COUNSEL), ['paper_filed'], 'the lead of the department that holds the paper');
+    assert.deepEqual(kindsFor(project, STAFF), ['paper_filed', 'request_replied'], 'who raised the request, of the paper and of the reply');
+    const paper = tellSaid(project, project.tell!.notices!.find((notice) => notice.to === STAFF && notice.kind === 'paper_filed')!)!;
+    assert.deepEqual([paper.detail, paper.action], ['It came in reply to the request “Latest tax paid receipt”.', 'Confirm it answers “Latest tax paid receipt”.']);
+    const reply = tellSaid(project, project.tell!.notices!.find((notice) => notice.kind === 'request_replied')!)!;
+    assert.deepEqual([reply.title, reply.detail, reply.action], ['Reply: Latest tax paid receipt', '1 paper came with it, waiting to be confirmed.', 'Confirm it answers the request, or set it aside.']);
+    assert.doesNotMatch(JSON.stringify(reply), /Attached, as asked/, 'the other side’s words are not repeated');
+  });
+
+  it('tells whoever raised a request of an email reply that carried no paper', () => {
+    const { project } = replied('advocate@chambers.test', 'email', []);
+    assert.deepEqual(told(project), [STAFF]);
+    const line = lineFor(project, STAFF);
+    assert.deepEqual([line.title, line.detail], ['Reply: Latest tax paid receipt', 'Words alone, with no paper.']);
+    assert.equal(tellMessage(project, [line], 'https://app.test/work').subject, 'Kere Road plots: 1 reply to a request');
+  });
+
+  it('does not tell a member of their own reply', () => {
+    const { project } = replied(STAFF, 'email', []);
+    assert.deepEqual(told(project), []);
+  });
+});
+
+describe('a value nobody accepted', () => {
+  it('is not stated against a check though the rules read it surely: it is counted as waiting', () => {
+    const project = plot();
+    const check = allChecks(project).find((held) => held.definitionId === 'land_site.parcel_identification')!;
+    check.fields = { extent_title: { value: 12000, at: new Date().toISOString(), by: OWNER } };
+    file(project, 'Sale deed 2019', STAFF, { documentType: 'Sale deed', facts: [fact('extent_title', 11400, '11,400 sqm', 3, { source: 'parser' })] });
+    gatherTell(project, FIRM);
+    const line = lineFor(project, COUNSEL);
+    assert.equal(line.waiting, 1);
+    assert.equal(line.detail, '1 value waiting for you to check.');
+    assert.doesNotMatch(JSON.stringify(line), /11,400|11400/);
+  });
+});
+
+describe('the notices a project keeps', () => {
+  it('drops read and sent ones first, and never one that has not left the app while those remain', () => {
+    const project = plot();
+    file(project, 'Sale deed 0', STAFF, { documentType: 'Sale deed' });
+    gatherTell(project, FIRM);
+    const waiting = project.tell!.notices!.map((notice) => notice.id);
+    assert.equal(waiting.length, 2);
+    const filler = Array.from({ length: TELL_KEEP - 2 }, (_, n) => ({ ...project.tell!.notices![0]!, id: `tel_old_${n}`, ...(n % 2 ? { readAt: new Date().toISOString() } : { batchedAt: new Date().toISOString() }) }));
+    project.tell!.notices!.push(...filler);
+    for (let n = 1; n <= 5; n += 1) file(project, `Sale deed ${n}`, STAFF, { documentType: 'Sale deed' });
+    assert.equal(gatherTell(project, FIRM).length, 10);
+    const kept = project.tell!.notices!;
+    assert.equal(kept.length, TELL_KEEP);
+    assert.equal(kept.filter((notice) => waiting.includes(notice.id)).length, 2, 'the two oldest, still unsent, are kept');
+    assert.equal(kept.filter((notice) => !notice.readAt && !notice.batchedAt).length, 12);
+    assert.equal(kept.some((notice) => notice.id === 'tel_old_0'), false, 'the oldest sent one went');
+  });
+});
+
+describe('a message that could not be sent', () => {
+  it('has its notices given back, waits a message’s worth, and is tried only so many times', () => {
+    const project = plot();
+    file(project, 'Sale deed 2019', STAFF, { documentType: 'Sale deed' });
+    gatherTell(project, FIRM);
+    const first = later(TELL_BATCH_MS + 1000);
+    const ids = takeTellDue(project, first).get(COUNSEL)!.map((notice) => notice.id);
+    assert.equal(untakeTell(project, ids, first), 1);
+    assert.equal(takeTellDue(project, new Date(first.getTime() + 60_000)).has(COUNSEL), false, 'not again within a message’s worth');
+    const second = new Date(first.getTime() + TELL_BATCH_MS + 1000);
+    assert.equal(takeTellDue(project, second).get(COUNSEL)!.length, 1, 'and then it is due again');
+    assert.equal(untakeTell(project, ids, second), 1);
+    const third = new Date(second.getTime() + TELL_BATCH_MS + 1000);
+    assert.equal(takeTellDue(project, third).get(COUNSEL)!.length, 1);
+    assert.equal(untakeTell(project, ids, third), 0, `after ${TELL_TRIES} failures it stays in the app alone`);
+    assert.equal(takeTellDue(project, new Date(third.getTime() + TELL_BATCH_MS * 2)).size, 0);
+  });
+
+  it('is due at once where nothing was tried because the write behind it failed', () => {
+    const project = plot();
+    file(project, 'Sale deed 2019', STAFF, { documentType: 'Sale deed' });
+    gatherTell(project, FIRM);
+    const at = later(TELL_BATCH_MS + 1000);
+    const taken = [...takeTellDue(project, at).values()].flat().map((notice) => notice.id);
+    assert.equal(untakeTell(project, taken), 2);
+    assert.equal(takeTellDue(project, at).size, 2);
   });
 });
