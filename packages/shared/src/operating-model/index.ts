@@ -104,3 +104,4 @@ export * from './outgoing';
 export * from './site-notes';
 export * from './tell';
 export * from './connectors';
+export * from './analytics';
