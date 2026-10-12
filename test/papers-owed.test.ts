@@ -181,7 +181,7 @@ describe('papers owed, as one list', () => {
 });
 
 const ENGINEERING = '/projects/prj_1/w/construction.progress?part=documents';
-const FINANCE = '/projects/prj_1/w/finance.budget?part=documents';
+const FINANCE = '/projects/prj_1/w/finance.feasibility?part=documents';
 const at = (place: PapersPlace | undefined): string => (place ? papersPlacePath('prj_1', place) : 'nowhere');
 
 describe('where a paper owed is worked', () => {

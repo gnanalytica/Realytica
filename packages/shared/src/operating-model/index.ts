@@ -64,6 +64,7 @@ export * from './portfolio';
 export * from './fact-review';
 export * from './units';
 export * from './field-registry';
+export * from './field-figures';
 export * from './field-sheets';
 export { FIELD_SETS, RULE_ROWS } from './field-sets';
 export * from './field-sets/shared-records';
