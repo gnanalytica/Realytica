@@ -37,6 +37,7 @@ import type { DepartmentKey } from './departments';
 import { costRegister, moneySaid } from './cost';
 import { costReportsOf, updateCostReportRow } from './cost-report';
 import { recordAuditEvent } from './operations';
+import { indiaToday } from './quarters';
 
 /* ==================================================================== */
 /* What is kept                                                          */
@@ -228,12 +229,20 @@ function wordsOf(value: string | undefined | null, limit: number, what: string):
   return said;
 }
 
-const todayOf = (now: Date): string => now.toISOString().slice(0, 10);
+const todayOf = indiaToday;
 
-/** A percentage as it is written: to one place, and to none where that place is nought. */
-function percentSaid(percent: number): string {
-  const tenths = Math.round(Math.abs(percent) * 10) / 10;
-  return `${Number.isInteger(tenths) ? tenths.toFixed(0) : tenths.toFixed(1)}%`;
+/**
+ * A percentage as it is written: to one place, and to none where that place
+ * is nought. One flagged for being past a limit is written to as many places
+ * as show it past: 15.01% past 15% is "15.01%", never the "15%" a bid exactly
+ * at the limit, and not flagged, reads as.
+ */
+function percentSaid(percent: number, pastLimit?: number): string {
+  const size = Math.abs(percent);
+  const tenths = Math.round(size * 10) / 10;
+  if (pastLimit === undefined || tenths > pastLimit) return `${Number.isInteger(tenths) ? tenths.toFixed(0) : tenths.toFixed(1)}%`;
+  for (let places = 2; places <= 8; places += 1) if (Number(size.toFixed(places)) > pastLimit) return `${size.toFixed(places)}%`;
+  return `a little over ${pastLimit}%`;
 }
 
 /* ==================================================================== */
@@ -378,7 +387,7 @@ export function tenderComparison(tender: Pick<Tender, 'estimate' | 'bidders'>): 
   const least = priced.length ? Math.min(...priced) : undefined;
   const bids = figures.map(({ bidder, amount }): TenderBidRow => {
     const apart = amount === undefined ? undefined : againstOthers(amount, priced, TENDER_BID_FLAG_PERCENT);
-    if (apart?.flagged) flags.push({ bidderId: bidder.id, name: bidder.name, percent: apart.percent, say: `${bidder.name} differs from the others by ${percentSaid(apart.percent)}, ${whichWay(apart.percent)} the median.` });
+    if (apart?.flagged) flags.push({ bidderId: bidder.id, name: bidder.name, percent: apart.percent, say: `${bidder.name} differs from the others by ${percentSaid(apart.percent, TENDER_BID_FLAG_PERCENT)}, ${whichWay(apart.percent)} the median.` });
     return {
       bidderId: bidder.id,
       name: bidder.name,
@@ -402,7 +411,7 @@ export function tenderComparison(tender: Pick<Tender, 'estimate' | 'bidders'>): 
       cells: prices.map(({ bidder, amount }): TenderLineCell => {
         const given = prices.flatMap((row) => (row.amount === undefined ? [] : [row.amount]));
         const apart = amount === undefined ? undefined : againstOthers(amount, given, TENDER_LINE_FLAG_PERCENT);
-        if (apart?.flagged) flags.push({ bidderId: bidder.id, name: bidder.name, item, percent: apart.percent, say: `${bidder.name}, ${item}: differs from the others by ${percentSaid(apart.percent)}, ${whichWay(apart.percent)} the median.` });
+        if (apart?.flagged) flags.push({ bidderId: bidder.id, name: bidder.name, item, percent: apart.percent, say: `${bidder.name}, ${item}: differs from the others by ${percentSaid(apart.percent, TENDER_LINE_FLAG_PERCENT)}, ${whichWay(apart.percent)} the median.` });
         return { bidderId: bidder.id, ...(amount !== undefined ? { amount } : {}), ...(apart ? { againstOthers: apart.percent } : {}), flagged: Boolean(apart?.flagged) };
       }),
     };
@@ -411,9 +420,13 @@ export function tenderComparison(tender: Pick<Tender, 'estimate' | 'bidders'>): 
   return { ...(tender.estimate ? { estimate: tender.estimate } : {}), ...(priced.length ? { median: medianOf(priced.map(inPaise)) / 100 } : {}), bids, lines, flags };
 }
 
-/** A percentage against the estimate or the others, as a cell writes it: "12% below", "3.5% above", "the same". */
-export function tenderPercentSaid(percent: number): string {
-  return Math.round(Math.abs(percent) * 10) === 0 ? 'the same' : `${percentSaid(percent)} ${whichWay(percent)}`;
+/**
+ * A percentage against the estimate or the others, as a cell writes it: "12%
+ * below", "3.5% above", "the same". A flagged one is given the limit it is
+ * past, and is written so that it reads past it.
+ */
+export function tenderPercentSaid(percent: number, pastLimit?: number): string {
+  return Math.round(Math.abs(percent) * 10) === 0 ? 'the same' : `${percentSaid(percent, pastLimit)} ${whichWay(percent)}`;
 }
 
 /* ==================================================================== */
@@ -489,8 +502,10 @@ export interface TenderStagePatch {
  *
  * The stages are worked in order. One is done only when every stage before it
  * is done or gone without, on a day that is not before theirs and not after
- * today. One is opened again only while nothing after it is done. A date due
- * is not before the date an earlier stage is due, nor after a later one's.
+ * today, nor after the day a later stage was done. One is opened again only
+ * while nothing after it is done. A date due is not before the date an
+ * earlier stage is due, nor after a later one's; a stage gone without holds
+ * no other stage's date.
  *
  * The letter of acceptance is not marked done here: it is done by recording
  * the letter, with the bidder and the value (`recordLetterOfAcceptance`). The
@@ -516,9 +531,9 @@ export function setTenderStage(project: DdProject, tenderId: string, key: Tender
     if (patch.dueOn === null) delete next.dueOn;
     else {
       const dueOn = dayOf(patch.dueOn, 'A date');
-      const earlier = before.filter((stage) => stage.dueOn !== undefined && stage.dueOn > dueOn)[0];
+      const earlier = before.filter((stage) => !stage.notNeeded && stage.dueOn !== undefined && stage.dueOn > dueOn)[0];
       if (earlier) throw new Error(`${label} cannot be due before ${TENDER_STAGE_LABEL[earlier.key].toLowerCase()}, which is due ${earlier.dueOn}.`);
-      const later = after.filter((stage) => stage.dueOn !== undefined && stage.dueOn < dueOn)[0];
+      const later = after.filter((stage) => !stage.notNeeded && stage.dueOn !== undefined && stage.dueOn < dueOn)[0];
       if (later) throw new Error(`${label} cannot be due after ${TENDER_STAGE_LABEL[later.key].toLowerCase()}, which is due ${later.dueOn}.`);
       next.dueOn = dueOn;
     }
@@ -551,7 +566,7 @@ export function setTenderStage(project: DdProject, tenderId: string, key: Tender
       if (key === 'letter_of_acceptance') throw new Error('Record the letter of acceptance, with the bidder and the value.');
       if (key === 'recommendation' && !tender.recommendation) throw new Error('Write the recommendation first.');
       if (key === 'contract_signed' && !tender.award) throw new Error('A contract is signed after a letter of acceptance.');
-      next.doneOn = doneDay(patch.doneOn, before, label, now);
+      next.doneOn = doneDay(patch.doneOn, before, after, label, now);
       delete next.notNeeded;
     }
   }
@@ -564,12 +579,14 @@ export function setTenderStage(project: DdProject, tenderId: string, key: Tender
   return next;
 }
 
-/** The day a stage was done, as it is kept: a day, not after today, and not before the stages done before it. */
-function doneDay(value: string, before: readonly TenderStage[], label: string, now: Date): string {
+/** The day a stage was done, as it is kept: a day, not after today, not before the stages done before it and not after those done after it. */
+function doneDay(value: string, before: readonly TenderStage[], after: readonly TenderStage[], label: string, now: Date): string {
   const doneOn = dayOf(value, 'The day it was done');
   if (doneOn > todayOf(now)) throw new Error('A stage is done on a day that has come.');
   const last = before.filter((stage) => stage.doneOn !== undefined && stage.doneOn > doneOn)[0];
   if (last) throw new Error(`${label} cannot be done before ${TENDER_STAGE_LABEL[last.key].toLowerCase()}, done ${last.doneOn}.`);
+  const next = after.filter((stage) => stage.doneOn !== undefined && stage.doneOn < doneOn)[0];
+  if (next) throw new Error(`${label} cannot be done after ${TENDER_STAGE_LABEL[next.key].toLowerCase()}, done ${next.doneOn}.`);
   return doneOn;
 }
 
@@ -709,7 +726,7 @@ export function recordLetterOfAcceptance(project: DdProject, tenderId: string, i
   if (open) throw new Error(`${TENDER_STAGE_LABEL[open.key]} comes first: mark it done${TENDER_STAGES_OPTIONAL.includes(open.key) ? ' or not needed' : ''}.`);
   if (input.evidenceId && !project.evidence.some((row) => row.id === input.evidenceId)) throw new Error('The letter is not on this project. Upload it to the vault first.');
   const value = amountOf(input.value, 'The awarded value');
-  const letterOn = doneDay(input.letterOn, before, TENDER_STAGE_LABEL.letter_of_acceptance, now);
+  const letterOn = doneDay(input.letterOn, before, tender.stages.slice(at + 1), TENDER_STAGE_LABEL.letter_of_acceptance, now);
   const stamp = nowIso();
   tender.award = { bidderId: bidder.id, value, letterOn, ...(input.evidenceId ? { evidenceId: input.evidenceId } : {}), by: actor, at: stamp };
   tender.stages[at] = { ...tender.stages[at]!, doneOn: letterOn };

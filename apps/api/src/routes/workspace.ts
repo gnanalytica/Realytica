@@ -170,7 +170,7 @@ import { documentKey } from '../storage/types';
 import { graphAdapter } from '../graph';
 import { keepPageTexts } from '../documents/page-text';
 import { readOntoRegister } from '../documents/register-read';
-import { QUESTIONNAIRE_FILE_SAID, QuestionnaireTooLarge, questionnairePdf, questionnaireXlsx, readQuestionnaireFile, workbookSheets } from '../documents/questionnaire-file';
+import { QUESTIONNAIRE_FILE_SAID, QuestionnaireTooLarge, WorkbookPartsTooLarge, questionnairePdf, questionnaireXlsx, readQuestionnaireFile, workbookMayBeOpened, workbookSheets } from '../documents/questionnaire-file';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 import { withSentFileName } from '../uploads';
 import { tableTextOf } from '../documents/table-file';
@@ -913,6 +913,12 @@ projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:repor
     if (file) {
       const name = (file.originalname || '').toLowerCase();
       if (name.endsWith('.xlsx')) {
+        try {
+          workbookMayBeOpened(file.buffer);
+        } catch (err) {
+          if (err instanceof QuestionnaireTooLarge && !(err instanceof WorkbookPartsTooLarge)) throw new Error('That workbook is too large to open: its sheets hold more than 4 MB.');
+          throw err;
+        }
         const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(file.buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
@@ -2030,6 +2036,7 @@ async function readChecklist(file: Express.Multer.File | undefined, pasted: stri
     try {
       return parseChecklistSheets(await workbookSheets(file.buffer));
     } catch (err) {
+      if (err instanceof WorkbookPartsTooLarge) throw new Error(err.message);
       if (err instanceof QuestionnaireTooLarge) throw new Error('That workbook is too large to open: its sheets hold more than 4 MB.');
       throw err;
     }

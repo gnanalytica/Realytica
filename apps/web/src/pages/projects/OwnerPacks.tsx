@@ -4,6 +4,7 @@ import {
   QUARTER_YEAR_DEFAULT,
   TIMED_REPORTS,
   TIMED_REPORT_LABEL,
+  indiaToday,
   ownerPackStanding,
   ownerPacksKept,
   quarterYearOf,
@@ -30,7 +31,7 @@ export function OwnerPacks({ project, setProject, marked }: { project: DdProject
   const toast = useToast();
   const [shown, setShown] = useState<ReportDayShown | null>(null);
   const [span, setSpan] = useState<ReportEvery>('month');
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(() => indiaToday(new Date()).slice(0, 7));
   const year = quarterYearOf(project);
   const quarters = useMemo(() => quartersBefore(new Date(), year), [year]);
   // The last quarter that has ended, until another is picked.

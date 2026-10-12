@@ -189,7 +189,8 @@ const attr = (attrs: string, name: string): string | undefined => {
   return m ? unescapeXml(m[1]!) : undefined;
 };
 
-const LETTERS = /\p{L}{2}/u;
+/** Two letters of a word. Marks may stand between them: the vowel signs of Devanagari, Kannada and their kin are marks, not letters. */
+const LETTERS = /\p{L}\p{M}*\p{L}/u;
 
 /** A name written without spaces, as a person would read it: `Survey_Number`, `ProjectName`. */
 const worded = (name: string): string =>

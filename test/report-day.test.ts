@@ -108,9 +108,10 @@ describe('the day a report is prepared on', () => {
 
 describe('quarters', () => {
   it('begin on the first of January, April, July and October, and end where the next begins', () => {
-    assert.equal(span(quarterHolding(new Date('2026-03-31T23:59:59.999Z'))), '2026-01-01..2026-04-01');
-    assert.equal(span(quarterHolding(new Date('2026-04-01T00:00:00.000Z'))), '2026-04-01..2026-07-01');
-    assert.equal(span(quarterHolding(new Date('2026-12-31T23:59:59.999Z'))), '2026-10-01..2027-01-01');
+    // The quarter it is turns at midnight in India, which is half past six the evening before in UTC.
+    assert.equal(span(quarterHolding(new Date('2026-03-31T18:29:59.999Z'))), '2026-01-01..2026-04-01');
+    assert.equal(span(quarterHolding(new Date('2026-03-31T18:30:00.000Z'))), '2026-04-01..2026-07-01');
+    assert.equal(span(quarterHolding(new Date('2026-12-31T18:29:59.999Z'))), '2026-10-01..2027-01-01');
     assert.equal(span(quarterHolding(new Date('2026-01-15T00:00:00.000Z'), -1)), '2025-10-01..2026-01-01');
     assert.ok(isQuarter(quarterHolding(new Date('2026-08-09T00:00:00.000Z'))));
     assert.ok(!isQuarter({ from: '2026-07-01T00:00:00.000Z', to: '2026-09-30T00:00:00.000Z' }));

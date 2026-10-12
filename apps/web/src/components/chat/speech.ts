@@ -211,14 +211,14 @@ export function languageOfText(text: string): string {
 }
 
 const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
-/** "Sources" in the languages offered, said after the count as a figure, which each voice reads in its own words. */
-const SOURCES_IN: Record<string, string> = { hi: 'स्रोत', kn: 'ಮೂಲಗಳು', ta: 'ஆதாரங்கள்', te: 'ఆధారాలు' };
+/** "Source" and "sources" in the languages offered, said after the count as a figure, which each voice reads in its own words. */
+const SOURCES_IN: Record<string, [one: string, many: string]> = { hi: ['स्रोत', 'स्रोत'], kn: ['ಮೂಲ', 'ಮೂಲಗಳು'], ta: ['ஆதாரம்', 'ஆதாரங்கள்'], te: ['ఆధారం', 'ఆధారాలు'] };
 
 /** How many sources an answer cites, as it is said: "Three sources." Nothing for none. */
 export function sourcesSaid(count: number, language = 'en-IN'): string {
   if (count <= 0) return '';
-  const word = SOURCES_IN[primary(language)];
-  if (word) return `${count} ${word}.`;
+  const words = SOURCES_IN[primary(language)];
+  if (words) return `${count} ${words[count === 1 ? 0 : 1]}.`;
   const n = NUMBER_WORDS[count] ?? String(count);
   return `${n[0]!.toUpperCase()}${n.slice(1)} ${count === 1 ? 'source' : 'sources'}.`;
 }
@@ -246,8 +246,10 @@ export interface SpokenAnswer {
  * out, and neither is an id. The citations are counted instead and the count
  * is said at the end, so a listener knows the answer rests on something and
  * how much. Where a statement stood (approved, waiting) is said, because that
- * is part of what the sentence claims. A table is read a row at a time, each
- * cell after its column's name.
+ * is part of what the sentence claims. A sentence that only pointed at its
+ * citations ("See [1] and [2].") has nothing left to say and is not read. A
+ * table is read a row at a time, each cell after its column's name, and an
+ * empty cell is passed over: a column's name alone says nothing.
  */
 export function spokenAnswer(text: string, opts: { nodeName?: (id: string) => string | undefined; places?: TagPlaces } = {}): SpokenAnswer {
   const cited = new Set<string>();
@@ -259,13 +261,13 @@ export function spokenAnswer(text: string, opts: { nodeName?: (id: string) => st
             case 'text':
             case 'bold':
             case 'code':
-              return span.text;
+              return span.text.replaceAll(CITED, '');
             case 'evidence':
               cited.add(`ev:${span.id}`);
-              return '';
+              return CITED;
             case 'notes':
               cited.add(`notes:${span.meetingId}`);
-              return '';
+              return CITED;
             case 'node':
               return opts.nodeName?.(span.id) ?? '';
             case 'memory':
@@ -274,7 +276,11 @@ export function spokenAnswer(text: string, opts: { nodeName?: (id: string) => st
               return '';
           }
         })
-        .join(''),
+        .join('')
+        .split(/(?<=[.!?।])\s+/)
+        .filter((sentence) => !sentence.includes(CITED) || !onlyPoints(sentence))
+        .join(' ')
+        .replaceAll(CITED, ''),
     );
   const lines: string[] = [];
   const add = (line: string): void => {
@@ -291,13 +297,34 @@ export function spokenAnswer(text: string, opts: { nodeName?: (id: string) => st
       });
     else if (block.kind === 'table') {
       const head = block.head.map(say);
-      for (const row of block.rows) add(row.map((cell, i) => [head[i], say(cell)].filter(Boolean).join(': ')).filter(Boolean).join(', '));
+      for (const row of block.rows)
+        add(
+          row
+            .map((cell, i) => {
+              const said = say(cell);
+              return said && [head[i], said].filter(Boolean).join(': ');
+            })
+            .filter(Boolean)
+            .join(', '),
+        );
     }
   }
   const language = languageOfText(lines.join(' '));
   const sources = sourcesSaid(cited.size, language);
   if (sources && lines.length) lines.push(sources);
   return { lines, sources: cited.size, language };
+}
+
+/** Where a citation stood in a sentence, until the sentence is weighed. A character no answer is written with. */
+const CITED = '\uE000';
+
+/** The words that point at a source and say nothing by themselves, in the languages offered. */
+const POINTING = new Set(['see', 'also', 'and', 'or', 'refer', 'to', 'cf', 'per', 'as', 'in', 'the', 'source', 'sources', 'देखें', 'और', 'तथा', 'स्रोत', 'ನೋಡಿ', 'ಮತ್ತು', 'ಮೂಲ', 'பார்க்க', 'மற்றும்', 'ஆதாரம்', 'చూడండి', 'మరియు', 'ఆధారం']);
+
+/** Whether a sentence, its citations taken out, is left with pointing words alone: "See and." */
+function onlyPoints(sentence: string): boolean {
+  const words = sentence.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+  return words.every((word) => POINTING.has(word));
 }
 
 /** A line with its chips taken out, closed up: no brackets left around nothing, no space before a full stop. */

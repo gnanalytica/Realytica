@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Camera, ClipboardList, Download, FileOutput, FileStack, MapPin, ShieldAlert, Smartphone, Upload } from 'lucide-react';
 import {
-  checklistCsv,
+  checklistCsvFile,
   checklistSheet,
   departmentDefinition,
   departmentHomeWorkstream,
@@ -310,7 +310,7 @@ export function DepartmentDesk({
                     Checklist of papers owed
                     <span className="block text-micro text-ink-muted">{checklist.total ? `${checklist.received} of ${checklist.total} in hand` : 'No checklist loaded'}</span>
                   </span>
-                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!checklist.total} onClick={() => download(`${project.reference}-${department}-checklist.csv`, checklistCsv(checklist))}>
+                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!checklist.total} onClick={() => download(`${project.reference}-${department}-checklist.csv`, checklistCsvFile(checklist))}>
                     Export
                   </Button>
                 </li>

@@ -145,6 +145,30 @@ describe('what is read aloud from an answer', () => {
     assert.equal(sourcesSaid(0), '');
   });
 
+  it('says one source as one in each language offered', () => {
+    assert.equal(sourcesSaid(1, 'hi-IN'), '1 स्रोत.');
+    assert.equal(sourcesSaid(1, 'kn-IN'), '1 ಮೂಲ.');
+    assert.equal(sourcesSaid(2, 'kn-IN'), '2 ಮೂಲಗಳು.');
+    assert.equal(sourcesSaid(1, 'ta-IN'), '1 ஆதாரம்.');
+    assert.equal(sourcesSaid(3, 'ta-IN'), '3 ஆதாரங்கள்.');
+    assert.equal(sourcesSaid(1, 'te-IN'), '1 ఆధారం.');
+    assert.equal(sourcesSaid(4, 'te-IN'), '4 ఆధారాలు.');
+    assert.equal(spokenAnswer('ಒಟ್ಟು ವೆಚ್ಚ ₹1.25 Cr ಆಗಿದೆ [ev:ev_cr].').lines.at(-1), '1 ಮೂಲ.');
+  });
+
+  it('passes over an empty cell of a table, and does not read its column’s name alone', () => {
+    const spoken = spokenAnswer(['| Package | Budget | Forecast |', '|---|---|---|', '| Civil | ₹4.2 Cr | ₹4.6 Cr |', '| MEP |  | ₹1.1 Cr |', '| Lifts | [ev:ev_a] | |'].join('\n'));
+    assert.deepEqual(spoken.lines, ['Package: Civil, Budget: ₹4.2 Cr, Forecast: ₹4.6 Cr.', 'Package: MEP, Forecast: ₹1.1 Cr.', 'Package: Lifts.', 'One source.']);
+  });
+
+  it('does not read a sentence that only pointed at its citations', () => {
+    assert.deepEqual(spokenAnswer('See [ev:ev_a][ev:ev_a:p2] and [notes:mtg_1].').lines, [], 'nothing is left to say, so nothing is said');
+    assert.deepEqual(spokenAnswer('The khata agrees [ev:ev_khata]. See also [ev:ev_deed] and [ev:ev_sketch].').lines, ['The khata agrees.', 'Three sources.']);
+    assert.deepEqual(spokenAnswer('खाता यही कहता है [ev:ev_khata]। देखें [ev:ev_deed] और [ev:ev_sketch]।').lines, ['खाता यही कहता है।', '3 स्रोत.']);
+    // A sentence with something to say is read, short as it may be, and so is one that cites nothing.
+    assert.deepEqual(spokenAnswer('Approved [ev:ev_a]. See the deed [ev:ev_deed]. See and.').lines, ['Approved. See the deed. See and.', 'Two sources.']);
+  });
+
   it('reads a record by its name and leaves an id it cannot name unread', () => {
     const spoken = spokenAnswer('Open [dd-risk-1] before [dd-risk-…cut].', { nodeName: (id) => (id === 'dd-risk-1' ? 'Access road encroachment' : undefined) });
     assert.deepEqual(spoken.lines, ['Open Access road encroachment before.']);
