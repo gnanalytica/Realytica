@@ -992,6 +992,8 @@ export class Store {
       const due = told.get(project.id);
       if (due) await tell!.sendTold(project, due);
     }
+    // And tell the systems that asked to be told: what the trail and the alerts of each written project say just happened.
+    if (changed.length) finishAfterReply(import('./integrations/observe').then(({ observeSaved }) => observeSaved(changed)));
   }
 
   /**

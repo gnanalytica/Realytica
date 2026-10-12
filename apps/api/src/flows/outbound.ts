@@ -41,7 +41,7 @@ import { readEnv } from '@realytica/agents';
 export class OutboundRefused extends Error {}
 
 /** Ranges no flow may reach unless the deployment names the host. */
-function isPrivateAddress(ip: string): boolean {
+export function isPrivateAddress(ip: string): boolean {
   if (isIP(ip) === 6) {
     const v6 = ip.toLowerCase();
     if (v6 === '::1' || v6 === '::') return true;
