@@ -16,6 +16,13 @@
  *
  * Without `GOOGLE_SERVICE_ACCOUNT_JSON` nothing here calls Google, and each
  * answer says the firm has not set this up.
+ *
+ * The deployment reads every folder as one service account, so that a folder
+ * can be read says nothing of which firm shared it. A folder a project of
+ * another firm is connected to is therefore refused, in the words a folder
+ * never shared is refused in. This stops a second firm taking a folder the
+ * first has connected; one account for each firm is the stronger answer
+ * (`docs/runbooks/deployment.md`).
  */
 
 import { Router, type Request, type Response } from 'express';
@@ -126,6 +133,12 @@ connectorRouter.put('/', async (req, res) => {
   const provider = providerFor(KIND);
   if (!provider.configured()) {
     res.status(503).json({ error: NOT_SET_UP });
+    return;
+  }
+  const mine = principalOf(req).tenantId;
+  const bootstrap = store.data.tenants?.[0]?.id;
+  if ((store.data.projects ?? []).some((held) => held.connector?.folderId === folderId && (held.tenantId ?? bootstrap) !== mine)) {
+    res.status(400).json({ error: `Share the folder with ${provider.address()} first, as a viewer.` });
     return;
   }
   let folder: Awaited<ReturnType<typeof provider.folder>>;

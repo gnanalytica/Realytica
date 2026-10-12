@@ -402,6 +402,21 @@ settings are given. Names are prefixed `REALYTICA_` except the two marked.
 `email.received` pointing at `https://<app>/api/outside/hooks/resend`; copy its
 signing secret to `REALYTICA_RESEND_WEBHOOK_SECRET`.
 
+A mail is taken as a reply only where Resend reports that DMARC passed for the
+sender's domain, and only from the address the request was sent to or from one
+of the firm's own members. A party whose domain publishes no DMARC record
+therefore never replies straight onto a request: their mail waits in the To
+sort tray as "Sender could not be verified", and a person files it. Tell such
+a party to reply from a mailbox whose domain has DMARC, or expect to file
+their replies by hand.
+
+The tray is bounded. It holds 500 items for a firm and 20 from any one address
+or number. A message that names no request, from a sender on no project of the
+firm, is kept as its words only, with its attachments named and not stored. When
+the tray is full the webhook answers 500, so Resend and Meta send the message
+again later; clear the tray and it arrives. One request holds five replies
+nobody has looked at; a sixth goes to the tray.
+
 **WhatsApp.** In Meta's App Dashboard, set the WhatsApp webhook callback to
 `https://<app>/api/outside/hooks/whatsapp` with the verify token, subscribe to
 `messages`, and create a template with four body values (project, what is
@@ -411,6 +426,17 @@ asked, needed by, reference).
 project, and set the key. A project's owner then shares a folder with the
 service account's address, as a viewer, and pastes the folder link under
 Documents › Connect a folder.
+
+A deployment holds one service account, and it reads every folder shared with
+it. That a folder can be read does not say which firm shared it. With one firm
+on the deployment this does not matter. With more than one, a folder that a
+project of another firm is connected to is refused, which stops a second firm
+connecting a folder the first has connected. It does not stop a member of one
+firm who knows the link of a folder another firm has shared but not yet
+connected. Before a second firm uses Drive on the same deployment, give each
+firm a service account of its own, so that a folder shared with one firm's
+address cannot be read for another. The code has no setting for that yet: it is
+a change to `apps/api/src/connectors/google-drive.ts`, which reads the one key.
 
 None of these has been run against the live service: Resend's inbound mail,
 Meta's Cloud API and Google Drive are each tested against a stand-in. After

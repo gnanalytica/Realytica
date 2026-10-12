@@ -106,6 +106,20 @@ describe('an API key', () => {
     assert.equal(await keys.apiKeyForToken(token, made), undefined);
   });
 
+  it('stays revoked when an older copy of the keys is written back over the revocation', async () => {
+    const { token, key } = await keys.createApiKey({ tenantId: 'tnt_a', name: 'Leaked', scopes: ['projects:read'], createdBy: 'dev@builders.example' });
+    // Another admin, on another instance, read the keys before the revocation and writes them after it.
+    const older = structuredClone(await docs.readIntegrations('keys'));
+    assert.ok(await keys.revokeApiKey('tnt_a', key.id, 'dev@builders.example'));
+    await docs.changeIntegrations('keys', (held) => void (held.keys = older.keys));
+    const row = (await docs.readIntegrations('keys')).keys.find((k) => k.id === key.id)!;
+    assert.equal(row.revokedAt, undefined, 'the keys document has lost the revocation');
+    assert.equal(await keys.apiKeyForToken(token), undefined, 'and the key is refused all the same');
+    const shown = (await keys.keysAsTheyStand([row]))[0]!;
+    assert.deepEqual([Boolean(shown.revokedAt), shown.revokedBy], [true, 'dev@builders.example'], 'and is listed as revoked');
+    assert.equal(await keys.revokeApiKey('tnt_a', key.id, 'dev@builders.example'), undefined, 'a revoked key is not revoked twice');
+  });
+
   it('reaches its own firm, and only the projects on its list when it has one', async () => {
     const all = (await keys.createApiKey({ tenantId: 'tnt_a', name: 'All', scopes: ['projects:read'], createdBy: 'dev@builders.example' })).key;
     const one = (await keys.createApiKey({ tenantId: 'tnt_a', name: 'One', scopes: ['projects:read'], projectIds: ['prj_1'], createdBy: 'dev@builders.example' })).key;

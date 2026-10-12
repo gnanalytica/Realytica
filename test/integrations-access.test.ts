@@ -195,6 +195,8 @@ describe('the Integrations routes', () => {
       { name: 'A scope there is not', scopes: ['projects:write'] },
       { name: 'Too long lived', scopes: ['projects:read'], expiresInDays: 5000 },
       { name: 'Another firm', scopes: ['projects:read'], projectIds: [elsewhere.id] },
+      // An empty list would be kept as every project of the firm.
+      { name: 'No projects yet', scopes: ['projects:read'], projectIds: [] },
     ];
     for (const body of bad) assert.equal((await call('POST', '/api/integrations/keys', { token: owner(), body })).status, 400, JSON.stringify(body));
     assert.equal((await call('DELETE', '/api/integrations/keys/..%2F..%2Fetc', { token: owner() })).status, 404);
@@ -349,10 +351,35 @@ describe('an API key', () => {
     const { readIntegrations } = await import('../apps/api/src/integrations/documents');
     const { uses, lastUsedAt } = await readIntegrations('uses');
     const mine = uses.filter((use) => use.keyId === busy.id);
-    assert.equal(mine.length, 42);
-    assert.deepEqual(mine.at(-1) && [mine.at(-1)!.method, mine.at(-1)!.path, mine.at(-1)!.status], ['GET', '/projects', 429]);
+    // Every request it was answered, and none of those turned away for coming too fast: a key over its limit costs no write a request.
+    assert.equal(mine.length, 40);
+    assert.deepEqual(mine.at(-1) && [mine.at(-1)!.method, mine.at(-1)!.path, mine.at(-1)!.status], ['GET', '/projects', 200]);
     assert.ok(lastUsedAt[calm.id]);
     const listed = await call('GET', '/api/integrations', { token: owner() });
     assert.ok(listed.body.keys.find((k: { id: string }) => k.id === busy.id).lastUsedAt);
+  });
+
+  it('counts a caller with no key, or a made-up one, by its address, before the keys are read', async () => {
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const ask = async (address: string, token = 'rlk_made_up_by_somebody'): Promise<Response> => realFetch(`${base}/api/v1/projects`, { headers: { authorization: `Bearer ${token}`, 'x-forwarded-for': address } });
+    const answers: number[] = [];
+    for (let i = 0; i < 302; i += 1) answers.push((await ask('203.0.113.7')).status);
+    assert.deepEqual([answers.filter((s) => s === 401).length, answers.filter((s) => s === 429).length], [300, 2]);
+    // Once it is over, a request is turned away before storage is asked for the keys.
+    const read = storageAdapter.getDocument.bind(storageAdapter);
+    let reads = 0;
+    storageAdapter.getDocument = (async (holder: string, key: string) => ((reads += 1), read(holder, key))) as typeof storageAdapter.getDocument;
+    try {
+      const over = await ask('203.0.113.7');
+      assert.equal(over.status, 429);
+      assert.ok(Number(over.headers.get('retry-after')) >= 1);
+      assert.equal(reads, 0);
+    } finally {
+      storageAdapter.getDocument = read;
+    }
+    // Another address, and a real key from it, are not held up.
+    assert.equal((await ask('203.0.113.8')).status, 401);
+    const { token } = await mint({ name: 'From elsewhere', scopes: ['projects:read'] });
+    assert.equal((await ask('203.0.113.8', token)).status, 200);
   });
 });

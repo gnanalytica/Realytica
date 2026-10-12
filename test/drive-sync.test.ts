@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { connectFolder, connectorStanding, createProject, folderIdOf, originSaid, projectView, type DdProject, type EvidenceAttachment, type ProjectGrant } from '@realytica/shared';
+import { DD_TYPE_DEFINITIONS, connectFolder, connectorStanding, createAssessment, createProject, folderIdOf, originSaid, projectView, type DdProject, type EvidenceAttachment, type ProjectGrant } from '@realytica/shared';
 import { DOC_TYPE, FORM_TYPE, fakeDrive, type FakeDrive } from './fake-drive';
 
 let dataDir: string;
@@ -121,6 +121,27 @@ describe('the first read of a folder', () => {
     const grant: ProjectGrant = { id: 'grant-1', tenantId: 't', projectId: id, email: 'sam@site.example', role: 'contributor', allAssessments: true, assessmentIds: [], allScopes: true, scopeKeys: [], areas: [], createdAt: T0.toISOString(), createdBy: 'dev@builders.example' };
     assert.equal(projectView(project, { kind: 'granted', grant, email: 'sam@site.example' }).project.connector, undefined);
   });
+
+  it('hands that person a paper the folder brought without its path or its link there', async () => {
+    const { id, root, fake, provider } = await connected('Weir Road flats');
+    fake.folder('folder-private-0001', 'Board papers, not for site', root);
+    fake.file('file-letter-0009', 'Letter.txt', 'folder-private-0001', LETTER);
+    await sync.syncFolder(id, { now: T0, provider });
+    const project = await held(id);
+    const dd = DD_TYPE_DEFINITIONS.find((d) => d.key !== 'custom')!;
+    const assessment = createAssessment(project, { ddType: dd.key, owner: 'dev@builders.example', targetType: 'project', name: dd.label }, 'dev@builders.example');
+    const row = project.evidence.find((held) => held.attachments.some((file) => file.origin))!;
+    row.assessmentIds = [assessment.id];
+    assert.equal(row.attachments[0]!.origin!.path, 'Board papers, not for site / Letter.txt');
+    const grant: ProjectGrant = { id: 'grant-2', tenantId: 't', projectId: id, email: 'sam@site.example', role: 'contributor', allAssessments: true, assessmentIds: [], allScopes: true, scopeKeys: [], areas: [], createdAt: T0.toISOString(), createdBy: 'dev@builders.example' };
+    const copy = projectView(project, { kind: 'granted', grant, email: 'sam@site.example' }).project;
+    const theirs = copy.evidence.find((held) => held.id === row.id)!;
+    assert.equal(theirs.attachments[0]!.fileName, 'Letter.txt', 'the paper itself is theirs to read');
+    assert.equal(theirs.attachments[0]!.origin, undefined);
+    assert.ok(!JSON.stringify(copy).includes('Board papers'), 'and nothing else in their copy names the folder');
+    assert.equal(row.attachments[0]!.origin!.path, 'Board papers, not for site / Letter.txt', 'the firm’s own record keeps it');
+    assert.equal(projectView(project, { kind: 'full' }).project.evidence.find((held) => held.id === row.id)!.attachments[0]!.origin!.path, 'Board papers, not for site / Letter.txt');
+  });
 });
 
 describe('a second read', () => {
@@ -175,6 +196,27 @@ describe('a second read', () => {
     const project = await held(id);
     assert.deepEqual(brought(project).map((file) => file.origin!.fileId).sort(), ['file-new-0004', 'file-old-0004']);
     assert.equal(project.connector!.cursor, '2026-03-03T05:55:00.000Z');
+  });
+});
+
+describe('a paper the record has lost', () => {
+  it('is taken again: a save from an older copy of the project took the row out, and the ledger alone does not keep it out', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { id, root, fake, provider } = await connected('Quarry Road sheds');
+    fake.file('file-letter-0010', 'Piling letter.txt', root, LETTER);
+    assert.equal((await sync.syncFolder(id, { now: T0, provider })).takenIn, 1);
+    // Another instance saves the project as it read it before the folder was read.
+    const project = await held(id);
+    project.evidence = project.evidence.filter((row) => !row.attachments.some((file) => file.origin));
+    project.updatedAt = new Date().toISOString();
+    await store.save();
+    assert.equal(brought(await held(id)).length, 0);
+
+    const again = await sync.syncFolder(id, { now: new Date(T0.getTime() + 3_600_000), provider, full: true });
+    assert.deepEqual([again.takenIn, again.changed, again.failed], [1, 0, 0]);
+    assert.deepEqual(brought(await held(id)).map((file) => file.origin!.path), ['Piling letter.txt']);
+    // And once it is on the record, a third read passes over it.
+    assert.equal((await sync.syncFolder(id, { now: new Date(T0.getTime() + 7_200_000), provider, full: true })).takenIn, 0);
   });
 });
 

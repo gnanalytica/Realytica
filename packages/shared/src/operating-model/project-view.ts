@@ -128,7 +128,9 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     if (overlaps(e.checkIds, checkIds)) return true;
     const narrower = (e.scopeInstanceIds?.length ?? 0) > 0 || (e.checkIds?.length ?? 0) > 0;
     return !narrower && overlaps(e.assessmentIds, assessmentIds);
-  });
+  })
+    // Where in the firm's folder a file came from is the firm's, as the folder is: the paper passes, its path and link there do not.
+    .map((e) => (e.attachments.some((file) => file.origin) ? { ...e, attachments: e.attachments.map(({ origin: _origin, ...file }) => file) } : e));
   const evidenceIds = new Set(evidence.map((e) => e.id));
   if (evidence.length < project.evidence.length) withheld.push('evidence');
 

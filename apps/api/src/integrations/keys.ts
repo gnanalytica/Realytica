@@ -13,7 +13,7 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { ApiKeyScope } from '@realytica/shared';
-import { changeIntegrations, readIntegrations, type ApiKeyRecord, type KeyUse } from './documents';
+import { changeIntegrations, markRevoked, readIntegrations, revokedMark, type ApiKeyRecord, type KeyUse } from './documents';
 
 export const API_KEY_PREFIX = 'rlk_';
 /** How many of a key's requests are kept, newest last. */
@@ -84,10 +84,26 @@ export function matchApiKey(keys: readonly ApiKeyRecord[], token: string, now = 
 /** The live key a token is, read from storage as it stands now: a key revoked a moment ago is refused. */
 export async function apiKeyForToken(token: string, now = new Date()): Promise<ApiKeyRecord | undefined> {
   if (!token.startsWith(API_KEY_PREFIX)) return undefined;
-  return matchApiKey((await readIntegrations('keys')).keys, token, now);
+  const key = matchApiKey((await readIntegrations('keys')).keys, token, now);
+  // The keys document can be written back by an older copy; a revocation's own document cannot.
+  return key && !(await revokedMark(key.id)) ? key : undefined;
+}
+
+/** The keys as they stand: one whose revocation the keys document has lost reads as revoked all the same. */
+export async function keysAsTheyStand(keys: readonly ApiKeyRecord[]): Promise<ApiKeyRecord[]> {
+  return Promise.all(
+    keys.map(async (key) => {
+      const mark = key.revokedAt ? undefined : await revokedMark(key.id);
+      return mark ? { ...key, revokedAt: mark.at, revokedBy: mark.by } : key;
+    }),
+  );
 }
 
 export async function revokeApiKey(tenantId: string, id: string, by: string, now = new Date()): Promise<ApiKeyRecord | undefined> {
+  const live = (await keysAsTheyStand((await readIntegrations('keys')).keys.filter((k) => k.tenantId === tenantId && k.id === id))).find((k) => !k.revokedAt);
+  if (!live) return undefined;
+  // First where no other write can undo it, then on the key's own row.
+  await markRevoked(id, { at: now.toISOString(), by });
   return changeIntegrations('keys', (held) => {
     const key = held.keys.find((k) => k.tenantId === tenantId && k.id === id && !k.revokedAt);
     if (key) {
