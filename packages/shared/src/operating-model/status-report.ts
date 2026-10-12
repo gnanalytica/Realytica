@@ -237,6 +237,16 @@ function valueSaid(fact: MemFact): string {
   return fact.unit ? `${fact.value} ${fact.unit}` : String(fact.value);
 }
 
+/** What is behind a decision or an action: the meeting it came out of, else the papers it cites, else its own register. */
+export function recordBehind(project: DdProject, record: ActionRecord | DecisionRecord, register: string): { behind: string; evidenceIds?: string[] } {
+  const titleOf = (id: string): string | undefined => project.evidence.find((row) => row.id === id)?.title;
+  const from = meetingOfRecord(project, record.id);
+  if (from) return { behind: `${meetingCalled(from.meeting)}, its notes on file` };
+  const papers = record.evidenceIds.filter((id) => titleOf(id));
+  if (papers.length) return { behind: papers.slice(0, 2).map((id) => titled(titleOf(id)!)).join(', '), evidenceIds: papers };
+  return { behind: register };
+}
+
 /**
  * The status of a project over a period, as three lists of lines.
  *
@@ -265,14 +275,7 @@ export function statusReport(project: DdProject, period: StatusPeriod, now = new
   const latest = (list: readonly MemEntry[]): string => day(list.map((entry) => entry.at).sort().at(-1)!);
 
   const titleOf = (id: string): string | undefined => project.evidence.find((row) => row.id === id)?.title;
-  /** What is behind a decision or an action: the meeting it came out of, else the papers it cites, else its own register. */
-  const behindRecord = (record: ActionRecord | DecisionRecord, register: string): { behind: string; evidenceIds?: string[] } => {
-    const from = meetingOfRecord(project, record.id);
-    if (from) return { behind: `${meetingCalled(from.meeting)}, its notes on file` };
-    const papers = record.evidenceIds.filter((id) => titleOf(id));
-    if (papers.length) return { behind: papers.slice(0, 2).map((id) => titled(titleOf(id)!)).join(', '), evidenceIds: papers };
-    return { behind: register };
-  };
+  const behindRecord = (record: ActionRecord | DecisionRecord, register: string) => recordBehind(project, record, register);
 
   /* ---- What changed ---- */
   const changed: StatusLine[] = [];

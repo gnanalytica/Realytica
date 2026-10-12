@@ -178,6 +178,34 @@ function awardShare(left: number, step: number): number {
   return Math.sign(left) * Math.min(Math.abs(left), Math.abs(step));
 }
 
+/** The decisions a Cost Report's own figures ask for: packages forecast over their budget, and packages with no PO issued. */
+export function costReportDecisions(report: Pick<CostReportPeriod, 'rows'>): CostReportComparison['decisions'] {
+  return {
+    overBudget: report.rows
+      .filter((row) => row.anticipatedCost > row.budget)
+      .map((row) => ({
+        workPackageId: row.workPackageId,
+        ...(row.code ? { code: row.code } : {}),
+        name: row.name,
+        budget: row.budget,
+        anticipatedCost: row.anticipatedCost,
+        over: less(row.anticipatedCost, row.budget),
+      })),
+    unawarded: report.rows
+      .filter((row) => row.poIssued === 0)
+      .map((row) => ({ workPackageId: row.workPackageId, ...(row.code ? { code: row.code } : {}), name: row.name, budget: row.budget })),
+  };
+}
+
+/** What the running bills dated after one day and up to another claim, and what stands certified on them. Nothing when none is dated there. */
+export function costReportBilled(bills: readonly CostBill[], after: string, upTo: string): CostReportBilled | undefined {
+  const dated = bills.filter((bill) => bill.date > after && bill.date <= upTo).map(billPosition);
+  if (!dated.length) return undefined;
+  const claimed = sum(dated.map((bill) => bill.claimed));
+  const certified = sum(dated.map((bill) => bill.gross ?? 0));
+  return { bills: dated.length, awaitingCertificate: dated.filter((bill) => bill.gross === undefined).length, claimed, certified, difference: less(claimed, certified) };
+}
+
 /**
  * Compare two Cost Reports of one project: `previous` is the earlier one.
  * `bills` are the project's running bills, for what was claimed and certified
@@ -250,9 +278,7 @@ export function compareCostReports(previous: CostReportPeriod, current: CostRepo
   const stayed = packages.filter((p) => p.status === 'moved' || p.status === 'unchanged');
   const unexplained = packages.filter((p) => p.unexplained !== 0);
 
-  const dated = bills.filter((bill) => bill.date > previous.to && bill.date <= current.to).map(billPosition);
-  const claimed = sum(dated.map((bill) => bill.claimed));
-  const certified = sum(dated.map((bill) => bill.gross ?? 0));
+  const billed = costReportBilled(bills, previous.to, current.to);
 
   return {
     previous: sideOf(previous),
@@ -274,32 +300,8 @@ export function compareCostReports(previous: CostReportPeriod, current: CostRepo
       unexplainedPackages: unexplained.length,
     },
     unassignedVariations: variationCauses(current, undefined),
-    decisions: {
-      overBudget: current.rows
-        .filter((row) => row.anticipatedCost > row.budget)
-        .map((row) => ({
-          workPackageId: row.workPackageId,
-          ...(row.code ? { code: row.code } : {}),
-          name: row.name,
-          budget: row.budget,
-          anticipatedCost: row.anticipatedCost,
-          over: less(row.anticipatedCost, row.budget),
-        })),
-      unawarded: current.rows
-        .filter((row) => row.poIssued === 0)
-        .map((row) => ({ workPackageId: row.workPackageId, ...(row.code ? { code: row.code } : {}), name: row.name, budget: row.budget })),
-    },
-    ...(dated.length
-      ? {
-          billed: {
-            bills: dated.length,
-            awaitingCertificate: dated.filter((bill) => bill.gross === undefined).length,
-            claimed,
-            certified,
-            difference: less(claimed, certified),
-          },
-        }
-      : {}),
+    decisions: costReportDecisions(current),
+    ...(billed ? { billed } : {}),
   };
 }
 

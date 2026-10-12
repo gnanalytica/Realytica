@@ -46,6 +46,7 @@ const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Requests = lazy(() => import('./pages/Requests'));
 const ReportPrint = lazy(() => import('./pages/projects/ReportPrint'));
 const CostReportPrint = lazy(() => import('./pages/projects/CostReportPrint'));
+const OwnerPackPrint = lazy(() => import('./pages/projects/OwnerPackPrint'));
 /*
  * The example project carries every function's made-up data with it, a third
  * of a megabyte nobody working on a real project needs, so it arrives only
@@ -113,6 +114,16 @@ export default function App() {
             <AuthGate>
               <Suspense fallback={null}>
                 <CostReportPrint />
+              </Suspense>
+            </AuthGate>
+          }
+        />
+        <Route
+          path="projects/:projectId/owner-pack/print"
+          element={
+            <AuthGate>
+              <Suspense fallback={null}>
+                <OwnerPackPrint />
               </Suspense>
             </AuthGate>
           }
