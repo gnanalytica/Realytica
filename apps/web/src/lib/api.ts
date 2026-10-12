@@ -502,6 +502,8 @@ export const api = {
     request<void>(`/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
 
   myWork: () => request<{ items: WorkItem[]; asOf: string }>('/work'),
+  analyticsPortfolio: () => request<import('@realytica/shared').AcrossProjects>('/analytics/portfolio'),
+  analyticsPeople: () => request<{ generatedAt: string; people: import('@realytica/shared').PersonFigures[] }>('/analytics/people'),
   portfolio: () => {
     // The viewer's own date, so the fortnight starts on their today.
     const d = new Date();

@@ -20,6 +20,7 @@ import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { workRouter } from './routes/work';
 import { portfolioRouter } from './routes/portfolio';
+import { analyticsRouter } from './routes/analytics';
 import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
@@ -175,6 +176,7 @@ app.use('/api/telemetry', needs('admin'), telemetryRouter);
 app.use('/api/prompts', needs('admin'), promptsRouter);
 app.use('/api/work', workRouter);
 app.use('/api/portfolio', portfolioRouter);
+app.use('/api/analytics', analyticsRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
 // member's business and changing one is the workspace's — the router carries
 // that split per route rather than being gated wholesale here.

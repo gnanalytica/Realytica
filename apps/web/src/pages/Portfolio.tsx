@@ -19,6 +19,7 @@ import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState,
 import { EXAMPLE_HOME } from './example/paths';
 import { ProjectRows } from './projects/ProjectList';
 import { Avatar, dayMonth } from '../components/project/ProjectPanels';
+import { AcrossProjects } from '../components/analytics/AcrossProjects';
 
 const LAST_SEEN_KEY = 'portfolioLastSeen';
 const VIEW_KEY = 'portfolioView';
@@ -517,6 +518,8 @@ export default function Portfolio() {
           </Card>
         </div>
       ) : null}
+
+      <AcrossProjects />
     </div>
   );
 }
