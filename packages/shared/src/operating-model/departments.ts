@@ -265,6 +265,8 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
         ['construction', 'Escrow utilisation statement'],
       ]),
       ws('finance', 'tax', 'Tax', 'GST and input tax credit.', 'coming_soon', ['Chartered Accountant'], ['pre_development', 'design_tender', 'construction', 'operations'], [['construction', 'GST reconciliation']]),
+      ws('finance', 'lenders', 'Lenders', 'What each lender sanctioned, holds as security, tests and is owed.', 'coming_soon', ['Chartered Accountant'], ['design_tender', 'construction', 'operations'], [['construction', 'Covenant compliance statement']]),
+      ws('finance', 'ledgers', 'Ledgers', 'What is owed and due by contractor and by unit, and whether it agrees with the books.', 'coming_soon', ['Chartered Accountant'], ['construction', 'operations'], [['construction', 'Monthly reconciliation statement']]),
     ],
   },
   {
@@ -440,6 +442,8 @@ export const FUNCTION_SHORT: Record<string, string> = {
   'finance.budget': 'Budget',
   'finance.funding': 'Funding',
   'finance.tax': 'Tax',
+  'finance.lenders': 'Lenders',
+  'finance.ledgers': 'Ledgers',
   'legal.title': 'Title',
   'legal.approvals': 'Approvals',
   'legal.rera': 'RERA',

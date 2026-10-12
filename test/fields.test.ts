@@ -512,7 +512,8 @@ describe('a paper put on file', () => {
     const facts = [fact('extent_title', 6273), fact('purchaser', 'A. Rao'), fact('consideration', 42_000_000)];
     const row = deed(p, 'Sale deed', facts);
     const outcomes = offerPaperToSheets(p, row.id, facts);
-    assert.deepEqual(outcomes.map((o) => `${o.address.set}/${o.address.field}:${o.outcome}`), [`${HOLDING}/extent:waiting`, `${OWNERS}/name:waiting`]);
+    // Other functions read a sale deed too; these are the two of Title's.
+    assert.deepEqual(outcomes.filter((o) => o.address.fn === FN).map((o) => `${o.address.set}/${o.address.field}:${o.outcome}`), [`${HOLDING}/extent:waiting`, `${OWNERS}/name:waiting`]);
     const held = p.fieldSheets![HOLDING]!.values.extent!;
     assert.equal(fieldState(held), 'proposed');
     assert.deepEqual(held.origin, { kind: 'paper', evidenceId: row.id, page: 4, quote: 'the extent_title is 6273', reader: 'parser' });

@@ -54,6 +54,10 @@ export type ReadDocumentType =
   | 'company_incorporation'
   | 'legal_opinion'
   | 'tds_certificate'
+  | 'loan_sanction_letter'
+  | 'bank_statement'
+  | 'rera_withdrawal_certificate'
+  | 'independent_engineer_report'
   | 'other';
 
 /** One thing a document states, with where it states it. */
@@ -464,6 +468,65 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     title: [/\bcertificate\s+under\s+section\s+\d+[A-Z]?(?:\(\d+\))?\s+of\s+the\s+(?:income[\s-]*tax\s+)?act\s+for\s+tax\s+deducted\s+at\s+source\b/i, /\bform\s*(?:no\.?)?\s*(?:16B|132)\b/i],
     body: [/\btax\s+deducted\s+at\s+source\b/i, /\bdeductor\b/i, /\bdeductee\b/i, /\bTDS\b/],
     file: [/tds|form[\s_-]*(?:16b|132)/i],
+  },
+  /*
+   * A lender's letter sanctioning a facility: the amount, the rate, the
+   * period, the promoter's contribution and the conditions. Lenders' facility
+   * record is read from it.
+   */
+  loan_sanction_letter: {
+    label: 'Loan sanction letter',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['sanction letter', 'loan sanction', 'term sheet', 'facility agreement'],
+    scopes: ['financial_appraisal'],
+    title: [/\bsanction\s+letter\b/i, /\bsanction\s+of\s+(?:a\s+)?(?:term\s+loan|credit\s+facilit(?:y|ies)|construction\s+finance)\b/i, /\bfacility\s+agreement\b/i],
+    body: [/\bterms\s+and\s+conditions\s+of\s+sanction\b/i, /\bpromoters?['’]?\s+contribution\b/i, /\bmoratorium\b/i, /\bavailability\s+period\b/i, /\bpre-?disbursement\s+conditions?\b/i],
+    file: [/sanction[\s_-]*letter/i, /loan[\s_-]*sanction/i, /term[\s_-]*sheet/i],
+  },
+  /*
+   * A bank's statement of an account for a period: Finance reads the closing
+   * balance and the day it stands at, and reconciles the books to it.
+   */
+  bank_statement: {
+    label: 'Bank statement',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['bank statement', 'statement of account', 'account statement'],
+    scopes: ['financial_appraisal'],
+    title: [/\bstatement\s+of\s+account\b/i, /\baccount\s+statement\b/i, /\bbank\s+statement\b/i],
+    body: [/\bopening\s+balance\b/i, /\bclosing\s+balance\b/i, /\bIFSC\b/, /\bwithdrawals?\b.*\bdeposits?\b/i],
+    file: [/bank[\s_-]*statement/i, /account[\s_-]*statement/i],
+  },
+  /*
+   * The chartered accountant's certificate for withdrawing money from a
+   * project's RERA designated account: cost estimated and incurred, and the
+   * amount that can be withdrawn. Its form number differs by state.
+   */
+  rera_withdrawal_certificate: {
+    label: 'RERA withdrawal certificate',
+    documentKind: 'other',
+    evidenceKind: 'certificate',
+    rowHints: ['ca certificate', 'chartered accountant certificate', 'withdrawal certificate', 'form 4'],
+    scopes: ['financial_appraisal', 'regulatory'],
+    title: [/\bchartered\s+accountant['’]?s?\s+certificate\b.*\bwithdraw/i, /\bcertificate\b.*\bwithdrawal\s+of\s+money\b/i],
+    body: [/\bdesignated\s+(?:bank\s+)?account\b/i, /\bamount\s+(?:which|that)\s+can\s+be\s+withdrawn\b/i, /\btotal\s+estimated\s+cost\b/i, /\bUDIN\b/],
+    file: [/withdrawal[\s_-]*certificate/i, /\bca[\s_-]*certificate/i],
+  },
+  /*
+   * The report of the engineer a lender appoints to see a project it has
+   * financed: progress, cost incurred, cost to complete and the drawdown it
+   * recommends.
+   */
+  independent_engineer_report: {
+    label: 'Independent engineer report',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['lie report', 'independent engineer', "lender's engineer"],
+    scopes: ['financial_appraisal', 'technical'],
+    title: [/\blender['’]?s?\s+(?:independent\s+)?engineer['’]?s?\s+report\b/i, /\bindependent\s+engineer['’]?s?\s+report\b/i, /\bLIE\s+report\b/],
+    body: [/\bphysical\s+progress\b/i, /\bcost\s+(?:incurred|to\s+complete)\b/i, /\bmeans\s+of\s+finance\b/i, /\bsite\s+visit\b/i],
+    file: [/\bLIE\b/, /independent[\s_-]*engineer/i, /lender[\s_-]*engineer/i],
   },
 };
 

@@ -171,7 +171,8 @@ describe('the menu', () => {
 
   it('gives every workstream to exactly one function, each with one word', () => {
     const functions = MENU_DEPARTMENTS.flatMap((menu) => menuFunctions(menu));
-    assert.equal(functions.length, 24);
+    // Every workstream is a function of its own, but Design's four, which are one.
+    assert.equal(functions.length, WORKSTREAMS.filter((w) => w.department !== 'design').length + 1);
     assert.deepEqual(functions.flatMap((f) => f.workstreams).sort(), WORKSTREAMS.map((w) => w.key).sort());
     for (const f of functions) {
       assert.match(f.label, /^[A-Za-z]+$/, `${f.key} is not one word`);
