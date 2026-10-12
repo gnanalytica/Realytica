@@ -1997,6 +1997,10 @@ export interface DdProject {
   requests?: ProjectRequest[];
   /** The project's own checklist of papers, loaded from a list somebody sent. Absent on a project that has none. */
   checklist?: import('./checklist').ChecklistItem[];
+  /** The day of the month reports are prepared on without being asked, and what the timer has prepared. Absent on a project that never set one. */
+  reportDay?: import('./report-day').ReportDay;
+  /** Owner packs kept as they read when prepared, each waiting to be issued or issued and frozen. */
+  ownerPacks?: import('./report-day').KeptOwnerPack[];
   /** The lists of questions a due diligence put to the building, with their answers. */
   questionnaires?: import('./questionnaire').Questionnaire[];
   /** One-off data migrations already applied to this stored project. */

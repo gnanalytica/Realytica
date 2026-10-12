@@ -14,6 +14,7 @@ import { referenceRouter } from './routes/reference';
 import { librariesRouter, projectsRouter } from './routes/projects';
 import { projectMemoryRouter } from './routes/project-memory';
 import { reviewLibraryRouter, reviewTableRouter } from './routes/review-table';
+import { reportDayRouter } from './routes/report-day';
 import { outgoingRouter } from './routes/outgoing';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
@@ -175,6 +176,7 @@ app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method ===
 app.use('/api/projects/:projectId/outgoing', outgoingRouter);
 // The folder kept elsewhere that a project takes its files from: the firm's own people's, with its own guard.
 app.use('/api/projects/:projectId/connector', connectorRouter);
+app.use('/api/projects/:projectId/report-day', reportDayRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/outside', outsideRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);

@@ -1,4 +1,10 @@
 import type {
+  KeptOwnerPack,
+  PreparedReport,
+  QuarterYear,
+  ReportDaySetting,
+  ReportEvery,
+  TimedReport,
   PortfolioView,
   ProjectRequest,
   ProjectRequestStatus,
@@ -178,6 +184,18 @@ export async function fetchWithAuth(url: string, init?: RequestInit): Promise<Re
   const second = await send();
   noteStatus(second.status);
   return second;
+}
+
+/** The report day and the kept owner packs of a project, with what the person asking may do. */
+export interface ReportDayShown {
+  setting: ReportDaySetting | null;
+  packs: KeptOwnerPack[];
+  waiting: PreparedReport[];
+  /** Whether this deployment can email the people a report day names. */
+  email: boolean;
+  people: Array<{ email: string; name?: string }>;
+  mayPrepare: boolean;
+  mayIssue: boolean;
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -821,6 +839,14 @@ export const api = {
     request<DecisionRecord>(`/projects/${projectId}/decisions/${decisionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   generateReport: (projectId: string, body: GenerateReportInput) =>
     request<GeneratedReport>(`/projects/${projectId}/reports`, { method: 'POST', body: JSON.stringify(body) }),
+  /* --- The report day and kept owner packs ------------------------- */
+  reportDay: (projectId: string) => request<ReportDayShown>(`/projects/${projectId}/report-day`),
+  setReportDay: (projectId: string, body: { clear: true } | { day: number; reports: TimedReport[]; every: ReportEvery; quarters?: QuarterYear; tell: string[] }) =>
+    request<ReportDayShown & { project: DdProject }>(`/projects/${projectId}/report-day`, { method: 'PUT', body: JSON.stringify(body) }),
+  keepOwnerPack: (projectId: string, body: { month?: string; quarter?: string; from?: string; to?: string; issue?: boolean; name?: string }) =>
+    request<{ project: DdProject; pack: KeptOwnerPack }>(`/projects/${projectId}/report-day/packs`, { method: 'POST', body: JSON.stringify(body) }),
+  ownerPackStep: (projectId: string, packId: string, step: 'refresh' | 'issue' | 'reopen', name?: string) =>
+    request<{ project: DdProject; pack: KeptOwnerPack }>(`/projects/${projectId}/report-day/packs/${packId}/${step}`, { method: 'POST', body: JSON.stringify(name ? { name } : {}) }),
   /* --- Editing a report -------------------------------------------- */
   insertReportBlock: (
     projectId: string,
