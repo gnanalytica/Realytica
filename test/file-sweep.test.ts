@@ -24,13 +24,16 @@ import {
   acceptSweepSuggestion,
   addAction,
   addEvidence,
+  addFinding,
   addMilestones,
+  addRisk,
   addWorkPackages,
   createProject,
   decidesIn,
   dismissSweepSuggestion,
   issueCostReport,
   logSiteEntry,
+  openAlerts,
   openSweepSuggestions,
   setTeamMember,
   startCostReport,
@@ -42,6 +45,7 @@ import {
   sweepProposalsHeld,
   sweepRaise,
   sweepStateOf,
+  syncAlerts,
   updateCostReportRow,
   type DdProject,
   type DocumentFact,
@@ -165,7 +169,75 @@ describe('the brief of a project', () => {
   });
 });
 
+describe('a brief cut to its length', () => {
+  const section = (brief: SweepBrief, key: string) => brief.sections.find((held) => held.key === key)!;
+
+  it('keeps the actions that press and the newest, and leaves out the oldest', () => {
+    const p = built();
+    for (let i = 0; i < 100; i += 1) {
+      const action = addAction(p, { title: `Action number ${i} of the hundred`, kind: 'clarification', owner: i === 3 ? 'Unassigned' : 'Anika Rao', priority: 'low', dueDate: i === 5 ? '2026-09-01' : '2026-12-01' }, LEAD);
+      action.createdAt = new Date(Date.parse('2026-10-01T00:00:00.000Z') + i * 60_000).toISOString();
+    }
+    const actions = section(sweepBrief(p, { now: day('2026-10-12') }), 'actions');
+    const said = actions.entries.map((entry) => entry.says);
+    assert.equal(said.length, SWEEP_SECTION_AT_MOST.actions);
+    const has = (n: number) => said.some((line) => line.startsWith(`Action number ${n} of the hundred`));
+    assert.ok(has(99) && has(60), 'the newest are in');
+    assert.ok(has(3) && has(5), 'so are an old one nobody is named for and an old one overdue');
+    assert.ok(!has(10) && !has(20), 'the oldest that press on nobody are the ones left out');
+    assert.ok(said.findIndex((line) => line.startsWith('Action number 5 of')) < said.findIndex((line) => line.startsWith('Action number 99 of')), 'and what presses comes first');
+  });
+
+  it('keeps the values recorded last', () => {
+    const p = built();
+    for (let i = 0; i < 140; i += 1) {
+      const paper = addEvidence(p, { title: `Khata extract ${i}`, kind: 'document', status: 'received' }, LEAD);
+      paper.documentType = 'Khata certificate and extract';
+      paper.createdAt = new Date(Date.parse('2026-06-01T00:00:00.000Z') + i * 3_600_000).toISOString();
+      paper.facts = [value('extent_khata', 1000 + i, `${1000 + i} sq m`, 1)];
+    }
+    const facts = section(sweepBrief(p, { now: day('2026-10-12') }), 'facts');
+    assert.equal(facts.entries.length, SWEEP_SECTION_AT_MOST.facts);
+    const papers = facts.entries.map((entry) => entry.paper?.title);
+    assert.ok(papers.includes('Khata extract 139') && papers.includes('Khata extract 100'));
+    assert.ok(!papers.includes('Khata extract 0'), 'the oldest papers are the ones cut');
+  });
+
+  it('shares what is already raised among findings, risks and alerts', () => {
+    const p = built();
+    for (let i = 0; i < 45; i += 1) addFinding(p, { title: `Finding ${i}`, description: 'x', severity: 'medium', discipline: 'legal' }, LEAD);
+    addRisk(p, { title: 'The retaining wall may not hold', category: 'cost', cause: 'x', impactType: 'cost', probability: 'possible', impactScore: 5, materiality: 'critical' }, LEAD);
+    syncAlerts(p, day('2026-10-12'));
+    const alerts = Math.min(openAlerts(p).length, 13);
+    assert.ok(alerts > 0, 'the project has an open alert');
+    const register = section(sweepBrief(p, { now: day('2026-10-12') }), 'register');
+    assert.equal(register.entries.length, SWEEP_SECTION_AT_MOST.register);
+    assert.ok(register.entries.some((entry) => entry.kind === 'risk' && entry.says.includes('The retaining wall may not hold')), 'the one critical risk is not crowded out by 45 findings');
+    assert.equal(register.entries.filter((entry) => entry.kind === 'alert').length, alerts);
+    assert.equal(register.entries.filter((entry) => entry.kind === 'finding').length, SWEEP_SECTION_AT_MOST.register - 1 - alerts);
+    assert.equal(register.more, 45 + 1 + openAlerts(p).length - SWEEP_SECTION_AT_MOST.register);
+  });
+});
+
 describe('what a model answers', () => {
+  it('is dropped where it cites no line of a kind it is about', () => {
+    const p = built();
+    const brief = sweepBrief(p, { now: day('2026-10-12') });
+    const action = markOf(brief, 'Get the revised structural drawings stamped');
+    const other = markOf(brief, 'Chase the lift supplier');
+    const approval = sweepEntries(brief).find((entry) => entry.kind === 'approval')!.mark;
+    const log = markOf(brief, 'Concrete poured to the plinth beams');
+    const base = { statement: 'Something looks wrong.', why: 'Read off the lines cited.', action: 'Look.', department: 'legal', severity: 'medium', as: 'finding' };
+    const { kept, dropped } = sweepProposalsHeld(p, brief, [
+      { ...base, kind: 'approval_missing', cites: [action] },
+      { ...base, kind: 'papers_disagree', cites: [action, other] },
+      { ...base, kind: 'cost_unexplained', cites: [log] },
+      { ...base, kind: 'action_unowned', cites: [approval] },
+      { ...base, kind: 'approval_missing', cites: [approval, log] },
+    ]);
+    assert.equal(dropped, 4);
+    assert.deepEqual(kept.map((proposal) => [proposal.kind, proposal.sources.map((source) => source.kind).sort()]), [['approval_missing', ['approval', 'site_log']]]);
+  });
   it('is kept only where every line it cites is a line of the brief', () => {
     const p = built();
     const brief = sweepBrief(p, { now: day('2026-10-12') });
@@ -458,6 +530,22 @@ describe('what the review keeps', () => {
     const next = sweepRaise(state, [about('cost_unexplained', 'b', 'a'), about('cost_unexplained', 'a'), about('cost_unexplained', 'a', 'b', 'c'), about('action_unowned', 'a', 'b'), about('cost_unexplained', 'c', 'd')], '2026-10-13T01:30:00.000Z');
     assert.deepEqual([next.repeats, next.raised.map((s) => s.kind)], [3, ['action_unowned', 'cost_unexplained']]);
     assert.equal(sweepFingerprint('cost_unexplained', ['b', 'a']), sweepFingerprint('cost_unexplained', ['a', 'b', 'a']));
+  });
+
+  it('silences, for a dismissed matter, only a proposal about the very same entries, whatever kind it is called', () => {
+    const state = sweepStateOf(undefined);
+    const about = (kind: 'approval_missing' | 'date_impossible', ...refs: string[]) => ({ kind, statement: 's', why: 'w', action: '', department: 'legal' as const, severity: 'low' as const, as: 'finding' as const, sources: refs.map((ref) => ({ ref, kind: 'approval' as const, says: ref })) });
+    const [first] = sweepRaise(state, [about('approval_missing', 'approval:fire_noc')], '2026-10-12T01:30:00.000Z').raised;
+    dismissSweepSuggestion(state, first!.id, { actor: LEAD, reason: 'It expires soon; the renewal is in hand.' });
+    // The same entry under another kind is the same matter the person dismissed.
+    const again = sweepRaise(state, [about('approval_missing', 'approval:fire_noc'), about('date_impossible', 'approval:fire_noc')], '2026-10-13T01:30:00.000Z');
+    assert.deepEqual([again.raised.length, again.dismissedBefore], [0, 2]);
+    // A month on, the same approval with a site entry beside it is another matter: slab cast after the NOC lapsed.
+    const later = sweepRaise(state, [about('approval_missing', 'approval:fire_noc', 'log-1')], '2026-11-12T01:30:00.000Z');
+    assert.deepEqual([later.raised.length, later.dismissedBefore], [1, 0]);
+    // And while that one is open, one line more or fewer is still the same matter.
+    const open = sweepRaise(state, [about('approval_missing', 'approval:fire_noc', 'log-1', 'log-2'), about('approval_missing', 'log-1')], '2026-11-13T01:30:00.000Z');
+    assert.deepEqual([open.raised.length, open.repeats], [0, 2]);
   });
 
   it('is due only for a project in work that has moved and was not reviewed today', () => {

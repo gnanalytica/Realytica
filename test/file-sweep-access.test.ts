@@ -23,7 +23,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { addAction, addWorkPackages, createProject, issueCostReport, setTeamMember, startCostReport, updateCostReportRow, type DdProject, type ProjectGrant } from '@realytica/shared';
+import { addAction, addWorkPackages, createProject, dismissSweepSuggestion, issueCostReport, setTeamMember, startCostReport, updateCostReportRow, type DdProject, type ProjectGrant, type SweepSuggestion } from '@realytica/shared';
 
 const JWKS_URL = 'https://example.test/jwks-daily-review';
 const ISSUER = 'https://securetoken.google.com/realytica-daily-review';
@@ -319,5 +319,109 @@ describe('what the daily review suggested', () => {
     assert.match(asked[1]!.text, /Risk, Medium: The stamping of the revised drawings is on nobody\./);
     assert.match(asked[1]!.text, /accept review suggestion risk/);
     assert.deepEqual((await call('GET', at, { token: owner() })).body.suggestions, []);
+  });
+});
+
+describe('an answer given while something else is being written', () => {
+  const suggestion = (id: string): SweepSuggestion => ({
+    id,
+    kind: 'action_unowned',
+    statement: `Nobody is named for ${id}.`,
+    why: 'It is open with nobody named.',
+    action: 'Name somebody.',
+    department: 'construction',
+    severity: 'medium',
+    as: 'finding',
+    sources: [{ ref: `act_${id}`, kind: 'action', says: `${id}: nobody named for it` }],
+    fingerprint: `action_unowned:${id}`,
+    raisedAt: '2026-10-13T01:30:00.000Z',
+    status: 'open',
+  });
+
+  /** Two suggestions nobody has decided, put in what the review keeps as the timer would have. */
+  async function twoOpen(a: string, b: string): Promise<void> {
+    const { readSweepState, writeSweepState } = await import('../apps/api/src/cron/file-sweep');
+    const state = await readSweepState(project.id);
+    state.suggestions.push(suggestion(a), suggestion(b));
+    await writeSweepState(project.id, state);
+  }
+
+  it('keeps a decision somebody made on another suggestion while the project was being saved', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { readSweepState, writeSweepState } = await import('../apps/api/src/cron/file-sweep');
+    await twoOpen('swp_first', 'swp_second');
+    const save = store.save.bind(store);
+    // While this accept's save is out, another lead dismisses the second suggestion on another instance.
+    store.save = async () => {
+      await save();
+      const elsewhere = await readSweepState(project.id);
+      dismissSweepSuggestion(elsewhere, 'swp_second', { actor: 'vera@builders.example', reason: 'Named at Monday’s meeting.' });
+      await writeSweepState(project.id, elsewhere);
+    };
+    let answer;
+    try {
+      answer = await call('POST', `${at}/swp_first/accept`, { token: owner(), body: {} });
+    } finally {
+      store.save = save;
+    }
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    const now = await kept();
+    assert.deepEqual(
+      ['swp_first', 'swp_second'].map((id) => now.suggestions.find((s) => s.id === id)!.status),
+      ['accepted', 'dismissed'],
+      'the dismissal is not put back to open',
+    );
+    assert.deepEqual(answer.body.suggestions, []);
+  });
+
+  it('puts no second record beside one somebody made by accepting the same suggestion meanwhile', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { readSweepState, writeSweepState } = await import('../apps/api/src/cron/file-sweep');
+    await twoOpen('swp_third', 'swp_fourth');
+    const was = await onFile();
+    const save = store.save.bind(store);
+    let first = true;
+    store.save = async () => {
+      await save();
+      if (!first) return;
+      first = false;
+      const elsewhere = await readSweepState(project.id);
+      Object.assign(elsewhere.suggestions.find((s) => s.id === 'swp_third')!, { status: 'accepted', decidedAt: new Date().toISOString(), decidedBy: 'vera@builders.example', record: { type: 'finding', id: 'fnd_elsewhere' } });
+      await writeSweepState(project.id, elsewhere);
+    };
+    let answer;
+    try {
+      answer = await call('POST', `${at}/swp_third/accept`, { token: owner(), body: {} });
+    } finally {
+      store.save = save;
+    }
+    assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    assert.deepEqual(await onFile(), was, 'this instance’s record is taken back');
+    assert.equal((await kept()).suggestions.find((s) => s.id === 'swp_third')!.decidedBy, 'vera@builders.example');
+  });
+
+  it('leaves no record on the project, and the suggestion open, where the save fails', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const was = await onFile();
+    const live = store.data.projects!.find((p) => p.id === project.id)!;
+    const before = [live.audit.length, live.updatedAt];
+    const save = store.save.bind(store);
+    store.save = async () => {
+      throw new Error('storage did not take it');
+    };
+    let answer;
+    try {
+      answer = await call('POST', `${at}/swp_fourth/accept`, { token: owner(), body: {} });
+    } finally {
+      store.save = save;
+    }
+    assert.equal(answer.status, 503, JSON.stringify(answer.body));
+    assert.deepEqual(await onFile(), was);
+    assert.deepEqual([live.audit.length, live.updatedAt], before, 'nothing is left for a later save to write');
+    assert.equal((await kept()).suggestions.find((s) => s.id === 'swp_fourth')!.status, 'open');
+    // Answered again once storage is back, it is accepted once.
+    const again = await call('POST', `${at}/swp_fourth/accept`, { token: owner(), body: {} });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual(await onFile(), { findings: was.findings + 1, risks: was.risks });
   });
 });
