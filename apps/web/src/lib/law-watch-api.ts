@@ -9,6 +9,8 @@ import { request } from './api';
 export interface LawWaiting extends LawChange {
   /** The projects the source bears on, each with the departments this person may put an action under. */
   bearsOn: Array<{ id: string; name: string; departments: DepartmentKey[] }>;
+  /** Whether this person may decide it now: a firm admin, or a lead while a project they lead still waits. */
+  mayDecide: boolean;
 }
 
 export interface LawWatchShown {

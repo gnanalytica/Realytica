@@ -16,7 +16,7 @@
  *   answered, and a request for one checklist line marks that line in hand.
  *
  * Mail that names no request, an expired or unknown one, or comes from an
- * address the project does not know, is not a reply. It waits in the firm's
+ * address the request was not sent to, is not a reply. It waits in the firm's
  * "To sort" tray (`TrayItem`) until a person files it to a project or
  * discards it.
  *
@@ -48,6 +48,10 @@ export const OUTSIDE_LIMITS = {
   referenceDays: 60,
   /** Items the tray keeps for one firm. */
   tray: 500,
+  /** Items the tray keeps from one address or number. Past this, more from it are not kept. */
+  trayFromOne: 20,
+  /** Replies that may wait on one request. Past this, more go to the tray. */
+  repliesWaiting: 5,
 } as const;
 
 /** One sending of a request to an outside party. */
@@ -105,7 +109,7 @@ export interface RequestReply {
 }
 
 /** Why a message is in the tray and not on a request. */
-export type TrayReason = 'no_reference' | 'unknown_reference' | 'expired' | 'unknown_sender' | 'unverified_sender' | 'closed';
+export type TrayReason = 'no_reference' | 'unknown_reference' | 'expired' | 'unknown_sender' | 'unverified_sender' | 'closed' | 'replies_waiting';
 
 export const TRAY_REASON_LABEL: Record<TrayReason, string> = {
   no_reference: 'Names no request',
@@ -114,6 +118,7 @@ export const TRAY_REASON_LABEL: Record<TrayReason, string> = {
   unknown_sender: 'Sender not on the project',
   unverified_sender: 'Sender could not be verified',
   closed: 'Request already closed',
+  replies_waiting: 'Request has replies waiting',
 };
 
 /** A message nobody has sorted: held for the firm, on no project. */

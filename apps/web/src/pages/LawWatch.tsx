@@ -62,7 +62,13 @@ function Waiting({ change, mayReview, busy, onConfirm, onDismiss }: { change: La
         <Lines sign="+" lines={change.diff.added} total={change.diff.addedCount} />
         <Lines sign="−" lines={change.diff.removed} total={change.diff.removedCount} />
       </div>
-      {mayReview ? (
+      {(change.decidedFor ?? []).map((held) => (
+        <p key={held.projectId} className="text-[12px] text-ink-muted">
+          {held.decision === 'confirmed' ? 'Confirmed' : 'Dismissed'} for {held.projectName} by {held.byName ?? held.by}, {lawDay(held.at)}
+          {held.decision === 'confirmed' ? ` · ${held.actionIds.length} ${held.actionIds.length === 1 ? 'action' : 'actions'}` : held.why ? `: ${held.why}` : ''}
+        </p>
+      ))}
+      {mayReview && change.mayDecide ? (
         <>
           <Field
             label={

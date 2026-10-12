@@ -13,6 +13,8 @@
  * summary and the actions as they leave them, and only then is an action put
  * on a project, carrying the source's link, the day the change was seen and
  * who confirmed it. A change may be dismissed instead, and then nothing is.
+ * A lead decides for the projects they lead and no other: the change waits on
+ * for the rest until their leads have decided too, or a firm admin closes it.
  *
  * This watches the listed pages only. A rule that changed somewhere else is
  * not seen, and what is seen is a page's words, not legal advice.
@@ -122,6 +124,19 @@ export interface LawApplied {
   actionIds: string[];
 }
 
+/** One project a department's lead decided a change for, while the change waits on for the rest. */
+export interface LawDecidedFor {
+  projectId: string;
+  projectName: string;
+  decision: 'confirmed' | 'dismissed';
+  by: string;
+  byName?: string;
+  at: string;
+  /** The actions put on the project, where it was confirmed with any. */
+  actionIds: string[];
+  why?: string;
+}
+
 export interface LawChange {
   id: string;
   sourceId: string;
@@ -141,6 +156,8 @@ export interface LawChange {
   why?: string;
   /** The actions put on projects when it was confirmed. */
   applied?: LawApplied[];
+  /** The projects a lead has decided it for. A project decided once is not decided again. */
+  decidedFor?: LawDecidedFor[];
 }
 
 export interface LawWatchState {
@@ -309,9 +326,39 @@ function decoded(text: string): string {
 }
 
 /** A line that changes whenever a page is served, and so says nothing about the law: a visitor count, a clock, the day the site was last touched. */
-const SERVED_WORDS = /last (?:updated|reviewed|modified)(?: on)?|updated on|page last|visitors?(?: count)?|hits|total visits|अंतिम अद्यतन|अद्यतन|आगंतुक/giu;
-/** Whether a line is only such words and figures: it then states nothing a reader would act on. */
-const served = (line: string): boolean => /^[\d\s:.,/|–-]*$/u.test(line.replace(SERVED_WORDS, ''));
+const SERVED_WORDS = /last (?:updated|reviewed|modified)(?: on)?|updated on|page last|you are(?: the)?|visitors?(?: (?:count(?:er)?|number|no\.?))?|counter|hits|total visits|अंतिम अद्यतन|अद्यतन|आगंतुक(?: संख्या)?/giu;
+/** A clock on a line: 11:01 or 11:01:09. */
+const CLOCK = /\d{1,2}:\d{2}/;
+/** The words a date or a time is written in beside its figures: months and weekdays in English and Hindi, and the zone or half of the day. */
+const DATE_WORDS =
+  /jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|(?:mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?|sun)(?:day)?|\b(?:ist|gmt|utc|hrs|[ap]\.?m\.?)(?![a-z])|जनवरी|(?:फ़?|फ़)रवरी|मार्च|अप्रैल|मई|जून|जुलाई|अगस्त|सित(?:ं|म्)बर|अक(?:्टू|्तू)बर|नव(?:ं|म्)बर|दिस(?:ं|म्)बर|(?:सोम|मंगल|बुध|गुरु|बृहस्पति|शुक्र|शनि|रवि)वार|बजे/giu;
+/**
+ * Whether a line is only such words and figures: it then states nothing a
+ * reader would act on. A date written with its month or weekday counts as
+ * figures only beside a served word or a clock: a date alone on a line may be
+ * the day a notification was made.
+ */
+function served(line: string): boolean {
+  let rest = line.replace(SERVED_WORDS, '');
+  if (rest !== line || CLOCK.test(line)) rest = rest.replace(DATE_WORDS, '');
+  return /^[\d\s:.,/|–-]*$/u.test(rest);
+}
+/**
+ * A line without what is served at its end: "Content owned by the Ministry |
+ * Last updated: 12 Oct 2026 | Visitors: 200" keeps its first five words. Cut
+ * only where everything from the served word on is served, and the word
+ * begins a word: "exhibits 12" is not "ex" and a count of hits.
+ */
+function unserved(line: string): string {
+  for (const match of line.matchAll(SERVED_WORDS)) {
+    if (match.index > 0 && /[\p{L}\p{M}]/u.test(line[match.index - 1]!)) continue;
+    if (served(line.slice(match.index))) return line.slice(0, match.index).replace(/[\s:|,–-]+$/u, '');
+  }
+  return line;
+}
+
+/** The last line of a page that was longer than is kept. Never a line of a difference. */
+export const LAW_TEXT_CUT = '[This page goes on. It is longer than is kept, and the rest is not watched.]';
 
 /**
  * A page as lines of plain words, the same for the same page however it was
@@ -331,30 +378,48 @@ export function lawPageText(raw: string, kind: 'html' | 'text'): string {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.replace(/[\s ​-‍﻿]+/g, ' ').trim())
+    .map(unserved)
     .filter((line) => line && !served(line));
-  return lines.join('\n').slice(0, LAW_TEXT_AT_MOST);
+  const whole = lines.join('\n');
+  if (whole.length <= LAW_TEXT_AT_MOST) return whole;
+  // Cut at a whole line, and said to be cut: half a line reads as a line that changed.
+  const room = LAW_TEXT_AT_MOST - LAW_TEXT_CUT.length - 1;
+  return `${whole.slice(0, Math.max(0, whole.lastIndexOf('\n', room)))}\n${LAW_TEXT_CUT}`;
 }
 
-/** The lines that came and the lines that went, in the order the pages write them. A line that only moved is neither. */
+/** Whether a page's words stop at the limit and not at the page's end. One kept before a cut was marked stops at the limit exactly. */
+const cutShort = (text: string): boolean => text.endsWith(LAW_TEXT_CUT) || text.length === LAW_TEXT_AT_MOST;
+
+/**
+ * The lines that came and the lines that went, in the order the pages write
+ * them. A line that only moved is neither.
+ *
+ * Where a page was cut at the limit, what is at its end says nothing: a line
+ * added above pushes the last ones past the cut, and one removed above brings
+ * new ones into reach. So the run of lines at the end of one page that the
+ * other does not have is left out when that other page was cut.
+ */
 export function lawTextDiff(before: string, after: string): LawDiff {
-  const count = (text: string) => {
+  const linesOf = (text: string): string[] => text.split('\n').filter((line) => line && line !== LAW_TEXT_CUT);
+  const count = (lines: string[]) => {
     const seen = new Map<string, number>();
-    for (const line of text.split('\n')) if (line) seen.set(line, (seen.get(line) ?? 0) + 1);
+    for (const line of lines) seen.set(line, (seen.get(line) ?? 0) + 1);
     return seen;
   };
-  const only = (text: string, other: Map<string, number>): string[] => {
+  const only = (lines: string[], other: Map<string, number>, otherCut: boolean): string[] => {
     const left = new Map(other);
-    const out: string[] = [];
-    for (const line of text.split('\n')) {
-      if (!line) continue;
+    const out: Array<{ line: string; at: number }> = [];
+    lines.forEach((line, at) => {
       const held = left.get(line) ?? 0;
       if (held > 0) left.set(line, held - 1);
-      else out.push(line);
-    }
-    return out;
+      else out.push({ line, at });
+    });
+    if (otherCut) for (let end = lines.length - 1; out.length && out.at(-1)!.at === end; end -= 1) out.pop();
+    return out.map((held) => held.line);
   };
-  const added = only(after, count(before));
-  const removed = only(before, count(after));
+  const [was, now] = [linesOf(before), linesOf(after)];
+  const added = only(now, count(was), cutShort(before));
+  const removed = only(was, count(now), cutShort(after));
   const kept = (lines: string[]) => lines.slice(0, LAW_DIFF_LINES).map((line) => (line.length > LAW_DIFF_LINE ? `${line.slice(0, LAW_DIFF_LINE - 1)}…` : line));
   return { added: kept(added), removed: kept(removed), addedCount: added.length, removedCount: removed.length };
 }
@@ -508,6 +573,30 @@ export function mayReviewLaw(person: LawReviewer, projects: readonly DdProject[]
   return projects.some((project) => DEPARTMENT_KEYS.some((key) => departmentRole(project, { email: person.email, workspaceRole: person.role }, key) === 'lead'));
 }
 
+/**
+ * The projects a change still waits on that this person leads: those its
+ * source bears on, where they lead a department it is for, and nobody has
+ * decided yet. What a lead who is no admin decides for, and all they do.
+ */
+export function lawProjectsToDecide(person: LawReviewer, change: Pick<LawChange, 'decidedFor'>, source: LawSource | undefined, projects: readonly DdProject[]): DdProject[] {
+  if (!source) return [];
+  const decided = new Set((change.decidedFor ?? []).map((held) => held.projectId));
+  return projects.filter((project) => !decided.has(project.id) && lawBearsOn(source, project) && lawDepartmentsOn(source, project).some((key) => mayApplyLaw(person, project, key)));
+}
+
+/**
+ * Close a change that leads have now decided for every project its source
+ * bears on: nothing of it waits on anybody. It reads as confirmed where any
+ * of them confirmed it, under the name of the last to decide.
+ */
+function closeWhereNoneWaits(change: LawChange, source: LawSource | undefined, projects: readonly DdProject[], person: LawReviewer, now: string, said: { summary?: string; why?: string }): void {
+  const decided = change.decidedFor ?? [];
+  if (!source || projects.some((project) => lawBearsOn(source, project) && !decided.some((held) => held.projectId === project.id))) return;
+  const confirmed = decided.some((held) => held.decision === 'confirmed');
+  const applied = decided.filter((held) => held.actionIds.length).map((held) => ({ projectId: held.projectId, projectName: held.projectName, actionIds: held.actionIds }));
+  Object.assign(change, { state: confirmed ? 'confirmed' : 'dismissed', decidedBy: person.email, ...(person.name?.trim() ? { decidedByName: person.name.trim() } : {}), decidedAt: now, ...(confirmed ? { applied } : {}), ...said });
+}
+
 export interface LawConfirmation {
   summary: string;
   projects: Array<{ projectId: string; actions: LawProposedAction[] }>;
@@ -538,7 +627,12 @@ export function lawActionSource(change: Pick<LawChange, 'sourceTitle' | 'url' | 
  * Every project and department is checked before anything is written, so a
  * confirmation that is refused in part leaves no action behind. Throws where
  * the change is not waiting, a project is not the firm's, the source does
- * not bear on a department there, or the person may not decide for it.
+ * not bear on a department there, the person may not decide for it, or it
+ * was decided for that project already.
+ *
+ * A firm admin's confirmation closes the change. A lead's is for the projects
+ * they lead: those are marked decided, and the change waits on for the rest,
+ * until an admin closes it or no project it bears on is left undecided.
  */
 export function confirmLawChange(
   state: LawWatchState,
@@ -554,6 +648,9 @@ export function confirmLawChange(
   const summary = clean(given.summary, LAW_SUMMARY);
   if (!summary) throw new Error('Say what changed, in a line or two, before confirming.');
   const source = state.sources.find((held) => held.id === change.sourceId);
+  const closes = can(person.role, 'admin');
+  const mine = closes ? [] : lawProjectsToDecide(person, change, source, projects);
+  if (!closes && !mine.length) throw new Error('Confirming this change needs a firm admin or the lead of a department it bears on, on a project nobody has decided it for.');
   const plan: Array<{ project: DdProject; actions: LawProposedAction[] }> = [];
   for (const row of given.projects) {
     const project = projects.find((held) => held.id === row.projectId);
@@ -565,7 +662,10 @@ export function confirmLawChange(
       if (!projectDepartments(project).includes(action.department) || (source && !source.departments.includes(action.department))) throw new Error(`${DEPARTMENT_SHORT[action.department] ?? 'That department'} is not one this source bears on for ${project.name}.`);
       if (!mayApplyLaw(person, project, action.department)) throw new Error(`Putting an action on ${project.name} for ${DEPARTMENT_SHORT[action.department]} needs a firm admin or that department’s lead.`);
     }
-    if (actions.length) plan.push({ project, actions });
+    if (!actions.length) continue;
+    if ((change.decidedFor ?? []).some((held) => held.projectId === project.id)) throw new Error(`This change was decided for ${project.name} already.`);
+    if (!closes && !mine.includes(project)) throw new Error(`Putting an action on ${project.name} needs a firm admin or the lead of a department this source bears on there.`);
+    plan.push({ project, actions });
   }
   const who = person.name?.trim() ? `${person.name.trim()} (${person.email})` : person.email;
   const made: ActionRecord[] = [];
@@ -580,15 +680,37 @@ export function confirmLawChange(
     project.updatedAt = now;
     applied.push({ projectId: project.id, projectName: project.name, actionIds: ids });
   }
-  Object.assign(change, { state: 'confirmed', decidedBy: person.email, ...(person.name?.trim() ? { decidedByName: person.name.trim() } : {}), decidedAt: now, summary, applied });
+  const signed = { by: person.email, ...(person.name?.trim() ? { byName: person.name.trim() } : {}), at: now };
+  if (closes) {
+    const before = (change.decidedFor ?? []).filter((held) => held.actionIds.length).map((held) => ({ projectId: held.projectId, projectName: held.projectName, actionIds: held.actionIds }));
+    Object.assign(change, { state: 'confirmed', decidedBy: person.email, ...(person.name?.trim() ? { decidedByName: person.name.trim() } : {}), decidedAt: now, summary, applied: [...before, ...applied] });
+  } else {
+    change.decidedFor = [...(change.decidedFor ?? []), ...mine.map((project) => ({ projectId: project.id, projectName: project.name, decision: 'confirmed' as const, ...signed, actionIds: applied.find((held) => held.projectId === project.id)?.actionIds ?? [] }))];
+    closeWhereNoneWaits(change, source, projects, person, now, { summary });
+  }
   return { change, touched: plan.map((row) => row.project), made };
 }
 
-/** Dismiss a change as not relevant, by name. Nothing reaches a project. */
-export function dismissLawChange(state: LawWatchState, changeId: string, person: LawReviewer, why: string | undefined, now: string): LawChange {
+/**
+ * Dismiss a change as not relevant, by name. Nothing reaches a project.
+ *
+ * A firm admin's dismissal closes the change. A lead's is for the projects
+ * they lead (`projects`, the firm's): the change waits on for the rest, until
+ * an admin closes it or no project it bears on is left undecided.
+ */
+export function dismissLawChange(state: LawWatchState, changeId: string, person: LawReviewer, why: string | undefined, now: string, projects: readonly DdProject[] = []): LawChange {
   const change = state.changes.find((held) => held.id === changeId);
   if (!change) throw new Error('No change by that id.');
   if (change.state !== 'waiting') throw new Error(`This change was ${change.state} already.`);
+  if (!can(person.role, 'admin')) {
+    const source = state.sources.find((held) => held.id === change.sourceId);
+    const mine = lawProjectsToDecide(person, change, source, projects);
+    if (!mine.length) throw new Error('Dismissing this change needs a firm admin or the lead of a department it bears on, on a project nobody has decided it for.');
+    const said = why && clean(why, 240) ? { why: clean(why, 240) } : {};
+    change.decidedFor = [...(change.decidedFor ?? []), ...mine.map((project) => ({ projectId: project.id, projectName: project.name, decision: 'dismissed' as const, by: person.email, ...(person.name?.trim() ? { byName: person.name.trim() } : {}), at: now, actionIds: [], ...said }))];
+    closeWhereNoneWaits(change, source, projects, person, now, said);
+    return change;
+  }
   Object.assign(change, { state: 'dismissed', decidedBy: person.email, ...(person.name?.trim() ? { decidedByName: person.name.trim() } : {}), decidedAt: now, ...(why && clean(why, 240) ? { why: clean(why, 240) } : {}) });
   return change;
 }

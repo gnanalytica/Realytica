@@ -23,6 +23,11 @@
  * content is one already taken from another place in the folder is left out
  * and said to be the same file.
  *
+ * The record is what counts. A file the ledger says was taken, whose stored
+ * bytes are on no row of the record, was lost to a save made from an older
+ * copy of the project: the ledger forgets it, and it is taken again. Nobody
+ * can have removed it on purpose, since a file is never taken off a row.
+ *
  * A run is bounded: so many files, so much time. What it did not reach waits
  * for the next and is counted. The cursor moves only when a run has been
  * through the whole folder with nothing waiting and nothing failed; until
@@ -221,6 +226,9 @@ export async function syncFolder(projectId: string, opts: SyncOptions): Promise<
         if (!held || held.origin.takenAt < origin.takenAt) onRecord.set(origin.fileId, { origin, storageKey: file.storageKey });
       }
     }
+    // What the ledger says was taken and the record does not hold was lost to another save: forgotten here, so it is taken again.
+    const stored = new Set(began.evidence.flatMap((row) => row.attachments.map((file) => file.storageKey)));
+    for (const [fileId, held] of Object.entries(ledger.files)) if (held.storageKey && !stored.has(held.storageKey)) delete ledger.files[fileId];
     for (const [fileId, { origin, storageKey }] of onRecord) ledger.files[fileId] ??= { checksum: origin.checksum, path: origin.path, storageKey };
 
     /* ---- what is in the folder ---------------------------------------- */

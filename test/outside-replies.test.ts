@@ -115,6 +115,8 @@ let whatsappSent: Array<Record<string, any>> = [];
 let downloads: string[] = [];
 let strays: string[] = [];
 let resendDown = false;
+/** Run while a paper is being downloaded: what another instance does meanwhile. */
+let whileDownloading: ((url: string) => Promise<void>) | undefined;
 
 const jsonOf = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -143,6 +145,7 @@ async function outside(url: string, init?: RequestInit): Promise<Response> {
     const [, id, n] = at.pathname.split('/');
     const file = mails.get(id!)?.files[Number(n)];
     if (!file) return new Response('gone', { status: 404 });
+    await whileDownloading?.(url);
     return new Response(file.bytes, { status: 200, headers: { 'content-length': String(file.claims ?? file.bytes.length) } });
   }
   if (at.origin === 'https://graph.facebook.com') {
@@ -694,5 +697,118 @@ describe('WhatsApp', () => {
     } finally {
       process.env.REALYTICA_WHATSAPP_APP_SECRET = kept;
     }
+  });
+});
+
+describe('what a forger, another party and a flood cannot do', () => {
+  let drawings: ProjectRequest;
+  const paper = (words: string): FakeFile[] => [{ filename: 'Structural drawings.pdf', content_type: 'application/pdf', bytes: Buffer.from(`%PDF-1.4 ${words}`) }];
+  const waiting = async (): Promise<number> => (await requestNow(drawings.id)).replies?.filter((reply) => !reply.confirmedAt && !reply.setAsideAt).length ?? 0;
+
+  before(async () => {
+    const { store } = await import('../apps/api/src/store');
+    drawings = addRequest(await stored(), { title: 'Structural drawings', recipient: 'Geotechnical consultant' }, 'dev@builders.example');
+    await store.save();
+    assert.equal((await call('POST', `${at(drawings)}/send`, { token: owner(), body: { channel: 'email', to: PARTY } })).status, 201);
+    drawings = await requestNow(drawings.id);
+  });
+
+  it('a sender is vouched for only by a pass: a domain that publishes no DMARC, or answers anything else, vouches for nobody', async () => {
+    for (const dmarc of ['none', 'neutral', 'softfail', 'temperror']) {
+      mails.set(`mail-${dmarc}`, { dmarc, files: paper(dmarc) });
+      const answer = await emailArrives(`mail-${dmarc}`, { from: PARTY, to: [replyTo(drawings)] });
+      assert.equal(answer.body.reason, 'unverified_sender', `${dmarc}: ${JSON.stringify(answer.body)}`);
+    }
+    assert.equal((await requestNow(drawings.id)).replies, undefined);
+  });
+
+  it('a request is answered from where it was sent or by the firm’s own people: another party on the project, and somebody working from a grant, are not let answer it', async () => {
+    for (const [id, from] of [['mail-other-party', 'surveyor@measure.example'], ['mail-from-grant', 'sam@site.example']] as const) {
+      mails.set(id, { files: paper(id) });
+      assert.equal((await emailArrives(id, { from, to: [replyTo(drawings)] })).body.reason, 'unknown_sender', from);
+    }
+    assert.equal((await requestNow(drawings.id)).replies, undefined);
+    mails.set('mail-from-staff', { files: [] });
+    assert.equal((await emailArrives('mail-from-staff', { from: 'vera@builders.example', to: [replyTo(drawings)] })).body.outcome, 'reply');
+    mails.set('mail-from-party', { files: paper('from the party') });
+    assert.equal((await emailArrives('mail-from-party', { from: PARTY, to: [replyTo(drawings)] })).body.outcome, 'reply');
+    assert.equal(await waiting(), 2);
+  });
+
+  it('keeps what was saved on the project while a reply’s papers were being downloaded', async () => {
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    mails.set('mail-slow', { files: paper('a slow one') });
+    whileDownloading = async (url) => {
+      if (!url.includes('mail-slow')) return;
+      // Another instance saves the project meanwhile.
+      const elsewhere = JSON.parse((await storageAdapter.getDocument(project.id, 'project.json'))!.toString('utf-8')) as DdProject;
+      elsewhere.location = 'Lake Road, plot 14';
+      elsewhere.updatedAt = new Date().toISOString();
+      await storageAdapter.putDocument(project.id, 'project.json', Buffer.from(JSON.stringify(elsewhere)), 'application/json');
+    };
+    try {
+      assert.equal((await emailArrives('mail-slow', { from: PARTY, to: [replyTo(drawings)] })).body.outcome, 'reply');
+    } finally {
+      whileDownloading = undefined;
+    }
+    const kept = JSON.parse((await storageAdapter.getDocument(project.id, 'project.json'))!.toString('utf-8')) as DdProject;
+    assert.equal(kept.location, 'Lake Road, plot 14', 'the other save is not written away');
+    assert.equal(kept.requests!.find((held) => held.id === drawings.id)!.replies!.length, 3, 'and the reply is on it');
+  });
+
+  it('one request holds so many replies waiting and no more: the next goes to the tray', async () => {
+    for (let n = await waiting(); n < OUTSIDE_LIMITS.repliesWaiting; n += 1) {
+      mails.set(`mail-more-${n}`, { files: [] });
+      assert.equal((await emailArrives(`mail-more-${n}`, { from: PARTY, to: [replyTo(drawings)] })).body.outcome, 'reply');
+    }
+    const rows = (await stored()).evidence.length;
+    mails.set('mail-one-too-many', { files: paper('one too many') });
+    const answer = await emailArrives('mail-one-too-many', { from: PARTY, to: [replyTo(drawings)] });
+    assert.deepEqual([answer.body.outcome, answer.body.reason], ['tray', 'replies_waiting']);
+    assert.equal(await waiting(), OUTSIDE_LIMITS.repliesWaiting);
+    assert.equal((await stored()).evidence.length, rows);
+  });
+
+  it('a stranger who names no request has their words kept and their papers named, not stored', async () => {
+    downloads = [];
+    mails.set('mail-cold', { text: 'Our brochure is attached.', files: paper('a brochure') });
+    const answer = await emailArrives('mail-cold', { from: 'sales@unknown.example', to: ['hello@in.builders.example'] });
+    assert.deepEqual([answer.body.outcome, answer.body.reason], ['tray', 'no_reference']);
+    const item = (await tray()).find((held) => held.id === answer.body.itemId)!;
+    assert.equal(item.text, 'Our brochure is attached.');
+    assert.deepEqual(item.attachments, []);
+    assert.deepEqual(item.skipped!.map((held) => held.fileName), ['Structural drawings.pdf']);
+    assert.match(item.skipped![0]!.reason, /names no request/);
+    assert.deepEqual(downloads, [], 'the paper was never downloaded');
+  });
+
+  it('one sender has so many items waiting in the tray and no more', async () => {
+    const before = (await tray()).length;
+    const answers: string[] = [];
+    for (let n = 0; n <= OUTSIDE_LIMITS.trayFromOne; n += 1) {
+      mails.set(`mail-flood-${n}`, { text: `Message ${n}`, files: [] });
+      answers.push((await emailArrives(`mail-flood-${n}`, { from: 'flood@unknown.example', to: ['hello@in.builders.example'] })).body.outcome);
+    }
+    assert.deepEqual([answers.filter((held) => held === 'tray').length, answers.at(-1)], [OUTSIDE_LIMITS.trayFromOne, 'dropped']);
+    assert.equal((await tray()).length, before + OUTSIDE_LIMITS.trayFromOne);
+    // Somebody else is still kept.
+    mails.set('mail-not-the-flood', { text: 'A question', files: [] });
+    assert.equal((await emailArrives('mail-not-the-flood', { from: 'asks@unknown.example', to: ['hello@in.builders.example'] })).body.outcome, 'tray');
+  });
+
+  it('a full tray answers as a failure, so the provider sends the message again and it is kept once there is room', async () => {
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const items = await tray();
+    const folder = `outside-tray-${items[0]!.tenantId}`;
+    const filler = Array.from({ length: OUTSIDE_LIMITS.tray - items.length }, (_, n): TrayItem => ({ id: `tray_fill_${n}`, tenantId: items[0]!.tenantId, channel: 'email', from: `sender-${n}@unknown.example`, receivedAt: new Date().toISOString(), deliveryId: `fill:${n}`, reason: 'no_reference', attachments: [] }));
+    await storageAdapter.putDocument(folder, 'tray.json', Buffer.from(JSON.stringify([...items, ...filler])), 'application/json');
+    mails.set('mail-when-full', { text: 'Sent when the tray was full', files: [] });
+    const mail = { from: 'late@unknown.example', to: ['hello@in.builders.example'] };
+    assert.equal((await emailArrives('mail-when-full', mail)).status, 500, 'not 200: the provider tries again');
+    assert.equal((await tray()).length, OUTSIDE_LIMITS.tray);
+    await storageAdapter.putDocument(folder, 'tray.json', Buffer.from(JSON.stringify(items)), 'application/json');
+    const again = await emailArrives('mail-when-full', mail);
+    assert.deepEqual([again.status, again.body.outcome], [200, 'tray'], 'the same mail, sent again, is taken');
+    assert.ok((await tray()).some((held) => held.text === 'Sent when the tray was full'));
   });
 });

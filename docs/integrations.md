@@ -6,7 +6,7 @@ This version reads and tells. A key cannot write: there is no route under `/api/
 
 ## API keys
 
-A key is shown once, when it is made. The server keeps its first twelve characters, so the rows can be told apart, and a salted HMAC-SHA256 of the rest. Each key has a name, the things it may read, the projects it reaches (every project of the firm, or a list), an expiry (30 days, 90 days, a year, or none), the time it was last used, and can be revoked. Revoking takes effect on the next request.
+A key is shown once, when it is made. The server keeps its first twelve characters, so the rows can be told apart, and a salted HMAC-SHA256 of the rest. Each key has a name, the things it may read, the projects it reaches (every project of the firm, or a list), an expiry (30 days, 90 days, a year, or none), the time it was last used, and can be revoked. A list of projects names at least one: an empty list is refused, since it would be kept as every project. Revoking takes effect on the next request, and is kept in a document of its own for each key, so no later write of the keys can bring a revoked key back.
 
 Send it as a bearer token:
 
@@ -32,9 +32,9 @@ Each answer is built from the view of the project the app gives one of the firm'
 | `401` | No key, or one that is unknown, revoked or expired. The answer does not say which |
 | `403` | The key does not hold the scope the route needs |
 | `404` | No such project for this key: not there, another firm's, or not on the key's list |
-| `429` | More than 120 requests in a minute from this key (`REALYTICA_RATE_LIMIT_KEY` changes the number). `Retry-After` says how long to wait |
+| `429` | More than 120 requests in a minute from this key (`REALYTICA_RATE_LIMIT_KEY` changes the number), or too many from one address whatever key they carry. `Retry-After` says how long to wait |
 
-Every request a key makes is written down: when, which route, and the status it was answered with. The count is kept per instance, so on a deployment with several warm instances the effective limit is higher.
+Every request a key makes is written down: when, which route, and the status it was answered with. A request turned away with `429` is the exception: it is not written down, so a key held to its limit costs nothing more. Before any key is looked up, requests are counted by the address they come from: 300 a minute, or three times one key's limit where that is more. A caller with no key, or a made-up one, is stopped there. Both counts are kept per instance, so on a deployment with several warm instances the effective limits are higher.
 
 ## Webhooks
 
@@ -126,6 +126,6 @@ Only to a public address over `https`. An address inside the deployment's own ne
 | `apps/api/src/integrations/keys.ts` | Making, matching and revoking keys |
 | `apps/api/src/integrations/webhooks.ts` | The address check, signing, delivery and retry |
 | `apps/api/src/integrations/observe.ts` | The one place events leave from: a look at each project as the store saves it |
-| `apps/api/src/integrations/documents.ts` | The four documents all of this is kept in, outside the workspace document |
+| `apps/api/src/integrations/documents.ts` | The four documents all of this is kept in, outside the workspace document, and one small document for each revoked key |
 | `apps/api/src/cron/webhook-retry.ts` | `retryWebhooks(now)`, for the ten-minute and the daily timer |
 | `packages/shared/src/operating-model/integrations.ts` | Scopes, event names, and which events a saved project has had |

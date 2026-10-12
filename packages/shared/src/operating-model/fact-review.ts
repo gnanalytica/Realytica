@@ -22,7 +22,7 @@ export function factReview(fact: DocumentFact): FactReview {
 }
 
 /** A row as far as its kind goes: what it holds, what it is typed as, and what a model offered to call it. */
-type Paper = Pick<EvidenceRecord, 'facts' | 'documentType' | 'proposedDocumentType'>;
+type Paper = Pick<EvidenceRecord, 'facts' | 'documentType' | 'proposedDocumentType' | 'unconfirmedReply'>;
 
 /**
  * What a document has been accepted as stating, and can state: what checks,
@@ -73,11 +73,15 @@ export function settled(fact: DocumentFact): boolean {
  * answer accepted on a paper that is no encumbrance certificate is not a
  * reading of that paper, and answers nothing.
  *
+ * Nor does anything stand on a paper that came as an outside party's reply
+ * until a person confirms the reply (`unconfirmedReply`): it is the other
+ * side's word, whoever read it and however surely.
+ *
  * A value that waits acts on nothing, and whatever would have used it says a
  * reading is waiting (`waitingReadings`).
  */
-export function stands(fact: DocumentFact, row: Pick<EvidenceRecord, 'documentType'>): boolean {
-  return paperCarries(row.documentType, fact.key) && settled(fact);
+export function stands(fact: DocumentFact, row: Pick<EvidenceRecord, 'documentType' | 'unconfirmedReply'>): boolean {
+  return !row.unconfirmedReply && paperCarries(row.documentType, fact.key) && settled(fact);
 }
 
 /** What a document states that something may rest on. See `stands`. */

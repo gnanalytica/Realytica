@@ -48,7 +48,7 @@ import { authenticate, needs, principalOf } from '../auth/middleware';
 import { sealingAvailable } from '../flows/secret-box';
 import { rateLimit } from '../http/hardening';
 import { readIntegrations, type ApiKeyRecord } from '../integrations/documents';
-import { API_KEY_PREFIX, apiKeyForToken, createApiKey, keyReaches, publicApiKey, recordKeyUse, revokeApiKey } from '../integrations/keys';
+import { API_KEY_PREFIX, apiKeyForToken, createApiKey, keyReaches, keysAsTheyStand, publicApiKey, recordKeyUse, revokeApiKey } from '../integrations/keys';
 import { forgetListeners } from '../integrations/observe';
 import { WebhookUrlRefused, createEndpoint, publicDelivery, publicEndpoint, removeEndpoint, testEndpoint } from '../integrations/webhooks';
 import { finishAfterReply } from '../runs/background';
@@ -106,10 +106,14 @@ v1.use((req: KeyedRequest, res: Response, next: NextFunction) => {
       return;
     }
     req.apiKey = key;
-    // Every request a key makes is written down, the refused ones too. Promised now, while the platform is still listening, and written once the answer is out.
+    // Every request a key makes is written down, the refused ones too, but not one turned away for coming too fast: a key held to its limit must not cost a write a request. Promised now, while the platform is still listening, and written once the answer is out.
     finishAfterReply(
       new Promise<void>((done) => {
         res.once('close', () => {
+          if (res.statusCode === 429) {
+            done();
+            return;
+          }
           recordKeyUse({ at: new Date().toISOString(), keyId: key.id, method: req.method, path: req.path, status: res.statusCode })
             .catch((err: Error) => console.warn(`[integrations] could not record a use of ${key.id}: ${err.message}`))
             .finally(done);
@@ -232,7 +236,19 @@ v1.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-integrationsRouter.use('/v1', v1);
+/**
+ * Ahead of the key: every request here reads the keys from storage before it
+ * is known whose it is, so a caller with no key, or a made-up one, is counted
+ * by its address. Set well above one key's own limit, since several systems
+ * may share an address. Made on the first request, when the settings are read.
+ */
+const ADDRESS_LIMIT_AT_LEAST = 300;
+let byAddress: RequestHandler | undefined;
+integrationsRouter.use(
+  '/v1',
+  (req, res, next) => (byAddress ??= rateLimit({ name: 'v1', limit: Math.max(ADDRESS_LIMIT_AT_LEAST, keyLimit() * 3), windowMs: KEY_LIMIT_WINDOW_MS }))(req, res, next),
+  v1,
+);
 
 /* ==================================================================== */
 /* A key anywhere else                                                   */
@@ -258,7 +274,8 @@ const DELIVERIES_SHOWN = 50;
 const keySchema = z.object({
   name: z.string().trim().min(1).max(80),
   scopes: z.array(z.enum(API_KEY_SCOPES)).min(1).max(API_KEY_SCOPES.length),
-  projectIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
+  // No list is every project. An empty one is refused: it reads as "none yet" and would be kept as every project.
+  projectIds: z.array(z.string().trim().min(1).max(80)).min(1).max(200).optional(),
   expiresInDays: z.number().int().min(1).max(730).nullable().optional(),
 });
 
@@ -282,8 +299,7 @@ admin.get(
     const me = principalOf(req);
     const [keys, uses, endpoints, deliveries] = await Promise.all([readIntegrations('keys'), readIntegrations('uses'), readIntegrations('endpoints'), readIntegrations('deliveries')]);
     res.json({
-      keys: keys.keys
-        .filter((key) => key.tenantId === me.tenantId)
+      keys: (await keysAsTheyStand(keys.keys.filter((key) => key.tenantId === me.tenantId)))
         .map((key) => publicApiKey(key, uses.lastUsedAt[key.id]))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       endpoints: endpoints.endpoints.filter((endpoint) => endpoint.tenantId === me.tenantId).map(publicEndpoint),
@@ -313,7 +329,7 @@ admin.post(
       res.status(400).json({ error: 'One of those projects is not in this workspace.' });
       return;
     }
-    const live = (await readIntegrations('keys')).keys.filter((key) => key.tenantId === me.tenantId && !key.revokedAt);
+    const live = (await keysAsTheyStand((await readIntegrations('keys')).keys.filter((key) => key.tenantId === me.tenantId))).filter((key) => !key.revokedAt);
     if (live.length >= MOST_KEYS) {
       res.status(409).json({ error: `A workspace holds at most ${MOST_KEYS} live keys. Revoke one first.` });
       return;

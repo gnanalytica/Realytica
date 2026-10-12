@@ -15,6 +15,11 @@
  * document in the same instant still resolve last-writer-wins: a line of a
  * log can be lost that way, a key or an endpoint only if two admins change
  * them at once.
+ *
+ * A revoked key must not come back that way. So a revocation is also a small
+ * document of its own, one a key (`markRevoked`), written once and never
+ * rewritten: no write of the keys document can undo it, and a key is live
+ * only while it has none.
  */
 
 import type { ApiKeyScope, WebhookEventType } from '@realytica/shared';
@@ -113,6 +118,30 @@ export async function readIntegrations<K extends keyof Documents>(name: K): Prom
   } catch {
     console.warn(`[integrations] ${name}.json could not be read and is taken as empty`);
     return EMPTY[name]();
+  }
+}
+
+const revokedName = (keyId: string): string => `revoked-${keyId.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
+
+export interface RevokedMark {
+  at: string;
+  by: string;
+}
+
+/** Write down that a key is revoked, apart from the keys document. */
+export async function markRevoked(keyId: string, mark: RevokedMark): Promise<void> {
+  await storageAdapter.putDocument(HOLDER, revokedName(keyId), Buffer.from(JSON.stringify(mark)), 'application/json');
+}
+
+/** When a key was revoked and by whom, or nothing where it was not. One that cannot be parsed still says revoked. */
+export async function revokedMark(keyId: string): Promise<RevokedMark | undefined> {
+  const bytes = await storageAdapter.getDocument(HOLDER, revokedName(keyId));
+  if (!bytes) return undefined;
+  try {
+    const held = JSON.parse(bytes.toString('utf-8')) as Partial<RevokedMark>;
+    return { at: typeof held.at === 'string' ? held.at : new Date(0).toISOString(), by: typeof held.by === 'string' ? held.by : '' };
+  } catch {
+    return { at: new Date(0).toISOString(), by: '' };
   }
 }
 

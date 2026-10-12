@@ -24,7 +24,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { DEPARTMENT_KEYS, createProject, setTeamMember, type DdProject, type ProjectGrant } from '@realytica/shared';
+import { DEPARTMENT_KEYS, connectFolder, createProject, setTeamMember, type DdProject, type ProjectGrant } from '@realytica/shared';
 import { fakeDrive } from './fake-drive';
 
 const JWKS_URL = 'https://example.test/jwks-connector';
@@ -240,6 +240,26 @@ describe('a deployment with one', () => {
     assert.equal(copy.status, 200);
     assert.equal(copy.body.connector, undefined);
     assert.equal((await call('GET', `/api/projects/${project.id}`, { token: owner() })).body.connector.folderId, FOLDER);
+  });
+
+  it('refuses a folder a project of another firm is connected to, in the words a folder never shared is refused in', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const theirs = createProject({ name: 'Harbour warehouse', type: 'commercial', location: 'Harbour', city: 'Sagara' }, 'RYT-DC2');
+    theirs.tenantId = 'tnt_another_firm';
+    connectFolder(theirs, { kind: 'google_drive', folderId: 'folder-of-another-firm-01', folderName: 'Their papers' }, 'eve@other.example');
+    store.data.projects!.push(theirs);
+    // The other firm shared it with the one service account, so the account can read it.
+    fake.folder('folder-of-another-firm-01', 'Their papers');
+    fake.file('file-of-another-firm-01', 'Term sheet.txt', 'folder-of-another-firm-01', 'The price is agreed at 42 crore.\n');
+    fake.share('folder-of-another-firm-01');
+    const was = structuredClone((await held()).connector);
+    const calls = fake.calls.length;
+    const put = await call('PUT', at(), { token: owner(), body: { link: 'https://drive.google.com/drive/folders/folder-of-another-firm-01' } });
+    assert.equal(put.status, 400, JSON.stringify(put.body));
+    assert.equal(put.body.error, `Share the folder with ${fake.address} first, as a viewer.`);
+    assert.deepEqual((await held()).connector, was);
+    assert.equal(fake.calls.length, calls, 'Google was not asked about it');
+    store.data.projects!.splice(store.data.projects!.indexOf(theirs), 1);
   });
 
   it('is disconnected by the owner, and the papers it brought stay', async () => {

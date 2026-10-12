@@ -6,14 +6,22 @@
  *
  * - **A reply.** It names a request by a reference whose signature holds,
  *   the reference is still good, the request is still open, and the sender
- *   is somebody the project knows. Its papers go through the intake a
+ *   is the address or number that request was sent to, or one of the firm's
+ *   own people. Its papers go through the intake a
  *   dropped file goes through (stored, a row on the register, read), each
  *   marked as an unconfirmed reply's, and the request stands as "answered,
  *   waiting for a person to confirm". Nothing here marks anything received.
  * - **Something to sort.** Anything else: no reference, one that does not
- *   hold or has expired, a closed request, or a sender the project does not
- *   know. It is kept in the firm's tray, on no project, until a person files
- *   it or discards it.
+ *   hold or has expired, a closed request, one with as many replies waiting
+ *   as it may hold, or a sender the request was not sent to. It is kept in
+ *   the firm's tray, on no project, until a person files it or discards it.
+ *
+ * The tray is open to anybody who can send mail, so it is bounded three
+ * ways. One address or number has so many items in it and no more
+ * (`OUTSIDE_LIMITS.trayFromOne`). A message that names no request, from
+ * somebody no project of the firm knows, is kept as its words alone: its
+ * papers are named and not stored. And a full tray is answered as a failure,
+ * so the provider sends the message again later and it is not lost.
  *
  * A delivery is taken once (`claimDelivery`): providers send again, and
  * anybody holding a signed delivery could. A message carries at most
@@ -26,12 +34,14 @@ import { randomUUID } from 'node:crypto';
 import {
   OUTSIDE_LIMITS,
   addEvidence,
+  repliesWaiting,
   attachEvidenceFile,
   confirmReply,
   dispatchByReference,
   foldAddress,
   foldPhone,
   projectParties,
+  reachesEveryProject,
   recordAuditEvent,
   recordReply,
   type ChatIngestFile,
@@ -66,7 +76,7 @@ export interface InboundMessage {
   references: string[];
   /** The id of a message of ours this one quotes, on WhatsApp. */
   quotedProviderId?: string;
-  /** False where the provider says the sender could not be who the message claims. */
+  /** True only where the provider vouches that the sender is who the message claims. */
   verified: boolean;
   files: ProviderFile[];
 }
@@ -240,6 +250,17 @@ async function fileOnRegister(project: DdProject, papers: readonly Taken[], sour
 
 const tenantOf = (project: DdProject): string | undefined => project.tenantId ?? store.data.tenants?.[0]?.id;
 
+/** Whether a message is from where a request was sent, or from one of the firm's own people: who may answer it. Being a party to the project is not enough: one party is not let answer for another. */
+function sentTo(project: DdProject, to: string, message: InboundMessage): boolean {
+  if (message.channel === 'whatsapp') return Boolean(foldPhone(message.from)) && foldPhone(message.from) === foldPhone(to);
+  const from = foldAddress(message.from);
+  if (!from) return false;
+  if (from === foldAddress(to)) return true;
+  const tenantId = tenantOf(project);
+  // The firm's own: a member who works from a grant is an outside party like any other.
+  return Boolean(tenantId) && (store.data.memberships ?? []).some((member) => member.tenantId === tenantId && reachesEveryProject(member.role) && foldAddress(member.email) === from);
+}
+
 /** Whether a project knows this sender: a party a request went to, its team, the firm's own people, or somebody working from a grant on it. */
 function knownSender(project: DdProject, message: InboundMessage): boolean {
   const parties = projectParties(project);
@@ -273,7 +294,9 @@ async function place(message: InboundMessage): Promise<Placed> {
   if (found.dispatch.expiresAt < message.receivedAt) return { tray: { ...hint, reason: 'expired' } };
   if (found.request.status !== 'sent') return { tray: { ...hint, reason: 'closed' } };
   if (!message.verified) return { tray: { ...hint, reason: 'unverified_sender' } };
-  if (!knownSender(project, message)) return { tray: { ...hint, reason: 'unknown_sender' } };
+  if (!sentTo(project, found.dispatch.to, message)) return { tray: { ...hint, reason: 'unknown_sender' } };
+  // Each reply puts rows on the register, and the whole project is saved with them: one request holds so many unlooked-at and no more.
+  if (repliesWaiting(found.request).length >= OUTSIDE_LIMITS.repliesWaiting) return { tray: { ...hint, reason: 'replies_waiting' } };
   return { reply: { project, requestId: found.request.id } };
 }
 
@@ -289,6 +312,9 @@ export async function takeIn(message: InboundMessage): Promise<InboundOutcome> {
     if ('reply' in placed) {
       const { project, requestId } = placed.reply;
       const { taken, skipped } = await takePapers(message.files);
+      // The papers took a while, and the project is saved whole: it is read again first, so nothing saved meanwhile is written away.
+      await store.pullFresh(project.id);
+      if (!store.data.projects?.includes(project) || project.requests?.find((held) => held.id === requestId)?.status !== 'sent') throw new Error('The request changed while its papers were read.');
       const filed = await fileOnRegister(project, taken, `Reply from ${message.from}`, `outside:${message.from}`);
       const { reply } = recordReply(project, requestId, { ...said, attachments: filed.attachments, ...(skipped.length ? { skipped } : {}) });
       await store.save();
@@ -302,11 +328,17 @@ export async function takeIn(message: InboundMessage): Promise<InboundOutcome> {
       return { outcome: 'dropped', why: 'No firm to hold it for.' };
     }
     const held = await readTray(tenantId);
-    if (held.length >= OUTSIDE_LIMITS.tray) {
-      console.warn(`[outside] the tray of ${tenantId} is full; a ${message.channel} message was not kept`);
-      return { outcome: 'dropped', why: 'The tray is full.' };
+    if (held.filter((item) => item.channel === message.channel && item.from === message.from).length >= OUTSIDE_LIMITS.trayFromOne) {
+      console.warn(`[outside] the tray of ${tenantId} holds ${OUTSIDE_LIMITS.trayFromOne} from one sender; a ${message.channel} message more was not kept`);
+      return { outcome: 'dropped', why: 'Too many from this sender wait to be sorted.' };
     }
-    const { taken, skipped } = await takePapers(message.files);
+    // Thrown, not answered: the delivery is given back, the provider sends it again, and it is kept once there is room.
+    if (held.length >= OUTSIDE_LIMITS.tray) throw new Error(`the tray of ${tenantId} is full`);
+    // A stranger naming no request: their words are kept, and their papers are named and not stored.
+    const stranger = reason === 'no_reference' && !(message.verified && (store.data.projects ?? []).some((project) => tenantOf(project) === tenantId && knownSender(project, message)));
+    const { taken, skipped } = stranger
+      ? { taken: [], skipped: message.files.filter((file) => !file.inline).map((file) => ({ fileName: cleanName(file.fileName), reason: 'Not kept: the message names no request, and its sender is on no project' })) }
+      : await takePapers(message.files);
     const attachments: ReplyAttachment[] = [];
     for (const paper of taken) {
       const id = randomUUID();
