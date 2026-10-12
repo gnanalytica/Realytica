@@ -28,6 +28,7 @@ import { acceptedFacts, proposedFacts } from './fact-review';
 import { meetingCalled, meetingDay, meetingItemStands, meetingOfRecord, meetingsHeld } from './meetings';
 import { memPeople } from './mem-answer';
 import { memPointer, memoryDelta, type MemEntry } from './mem-delta';
+import { milestoneWatch } from './milestone-schedule';
 import { memoryFacts, type MemFact } from './mem-facts';
 import { sameEmail } from './tenancy';
 import type { ActionRecord, DdProject, DecisionRecord, GeneratedReport, ReportBlock, ReportBoundSource, ReportBoundSourceKind, ResolvedReportBlock } from './types';
@@ -484,7 +485,9 @@ export function statusReport(project: DdProject, period: StatusPeriod, now = new
   for (const milestone of project.milestones ?? []) {
     const planned = milestone.plannedFinish?.slice(0, 10);
     if (milestone.completedOn || !planned || planned < today) continue;
-    next.push({ kind: 'milestone', what: `Planned to finish ${meetingDay(planned)}: ${milestone.name}, now at ${milestone.percent}%.`, when: planned, who: named(milestone.updatedBy), stands: 'in progress', behind: 'the milestone', recordId: milestone.id });
+    // The same warning the progress board and the alert carry, when there is one.
+    const watch = milestoneWatch(project, milestone, now);
+    next.push({ kind: 'milestone', what: `Planned to finish ${meetingDay(planned)}: ${milestone.name}, now at ${milestone.percent}%.${watch.say ? ` ${watch.say}` : ''}`, when: planned, who: named(milestone.updatedBy), stands: watch.level === 'behind' ? 'behind' : watch.level === 'slipping' ? 'late at the current rate' : 'in progress', behind: 'the milestone', recordId: milestone.id });
   }
   next.sort((a, b) => ((a.when ?? '') < (b.when ?? '') ? -1 : (a.when ?? '') > (b.when ?? '') ? 1 : 0));
 

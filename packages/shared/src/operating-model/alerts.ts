@@ -1,12 +1,13 @@
 /**
  * Alerts: what someone on the project should hear about without looking.
  *
- * Read from the project's state each time it changes — an approval expiring
- * or lapsed, a certified report flagged for revisiting, work logged before
- * the approvals that allow it, a milestone running late, a serious issue from
- * site, an action still open after the day it was due. Each condition has a
- * key, so it is raised once and resolved when the condition clears; a new one
- * is what goes out by email and to phones.
+ * Read from the project's state each time it changes, and once a day by the
+ * timer — an approval expiring or lapsed, a certified report flagged for
+ * revisiting, work logged before the approvals that allow it, a milestone
+ * behind as its date comes up or running late, a serious issue from site, an
+ * action still open after the day it was due. Each condition has a key, so it
+ * is raised once and resolved when the condition clears; a new one is what
+ * goes out by email and to phones.
  */
 
 import type { DdProject } from './types';
@@ -14,6 +15,7 @@ import type { DepartmentKey } from './departments';
 import { approvalsRegister, constructionGate } from './approvals';
 import { actionsPastDue } from './meetings';
 import { progressSummary } from './progress';
+import { scheduleWatch } from './milestone-schedule';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
@@ -85,6 +87,23 @@ export function alertConditions(project: DdProject, now = new Date()): Condition
   }
   for (const late of progressSummary(project, now).late) {
     out.push({ key: `late:${late.name}:${late.plannedFinish}`, department: 'construction', workstream: 'construction.progress', severity: 'warning', title: `${late.name} is late`, detail: `Planned to finish ${late.plannedFinish}; at ${late.percent}%.`, dueOn: late.plannedFinish });
+  }
+  // Before the date: one alert a milestone and planned finish, whose words move with the days left, so no day raises a second.
+  const schedule = scheduleWatch(project, now);
+  for (const m of schedule.milestones) {
+    if (m.level !== 'behind' && m.level !== 'slipping') continue;
+    out.push({
+      key: `slip:${m.id}:${m.plannedFinish}`,
+      department: 'construction',
+      workstream: 'construction.progress',
+      severity: 'warning',
+      title: m.level === 'behind' ? `${m.name} is behind` : `${m.name} is likely to finish late`,
+      detail: m.say!,
+      dueOn: m.plannedFinish!,
+    });
+  }
+  if (schedule.extensionLikely) {
+    out.push({ key: `eot:${schedule.plannedCompletion}`, department: 'construction', workstream: 'construction.progress', severity: 'warning', title: 'Extension of time likely', detail: schedule.say!, dueOn: schedule.plannedCompletion! });
   }
   for (const entry of project.siteLog ?? []) {
     entry.issues.forEach((issue, i) => {
