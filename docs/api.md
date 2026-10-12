@@ -43,6 +43,7 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 | PATCH | `/cost-reports/:reportId` | `{ note?, photoEvidenceIds? }`, or `{ issue: true }` or `{ reopen: true }` (*decides*) |
 | POST | `/cost-reports/:reportId/packages` | A ledger row: `{ name, code?, workPackageId?, budget?, poIssued?, amountPaid?, anticipatedCost?, note? }` |
 | PATCH, DELETE | `/cost-reports/:reportId/packages/:rowId` | Change or remove a row |
+| PUT | `/cost-reports/:reportId/change-reasons/:workPackageId` | `{ reason }`: one line on why the package moved since the last issued report, or `null` to clear it. Draft only |
 | POST, PATCH, DELETE | `/cost-reports/:reportId/variations`, `…/variations/:variationId` | The variation log |
 | POST, PATCH, DELETE | `/cost-reports/:reportId/basic-prices`, `…/basic-prices/:lineId` | Basic price adjustments |
 | POST | `/cost-reports/:reportId/import` | Multipart `file` (.csv or .xlsx, 4 MB) or `text`, a pasted table → rows added or updated by code or name, with `added` and `updated` |

@@ -76,6 +76,7 @@ export * from './progress';
 export * from './milestone-schedule';
 export * from './cost';
 export * from './cost-report';
+export * from './cost-report-compare';
 export * from './quick-assessments';
 export * from './certified';
 export * from './alerts';

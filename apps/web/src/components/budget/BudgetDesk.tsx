@@ -24,6 +24,7 @@ import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, cn, useToast } from '../ui/kit';
 import { CostReportExtras } from './CostReportExtras';
 import { CostBillsPanel } from './CostBillsPanel';
+import { SinceLastReport } from './SinceLastReport';
 
 function money(amount: number, currency: DdProject['currency']): string {
   return moneySaid(amount, currency);
@@ -192,6 +193,7 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
 
       {report ? (
         <>
+          <SinceLastReport project={project} report={report} mayEdit={mayEdit && draft} onChanged={onChanged} />
           <PackageLedger
             project={project}
             report={report}

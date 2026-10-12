@@ -80,6 +80,8 @@ export interface CostReportPeriod {
   photoEvidenceIds?: string[];
   /** Plain callouts (contingency notes, etc.), not structured adjustments. */
   note?: string;
+  /** Why a package moved since the last report: one typed line, by work package id. See `cost-report-compare.ts`. */
+  changeReasons?: Record<string, string>;
   createdAt: string;
   createdBy: string;
   updatedAt: string;
@@ -439,6 +441,41 @@ export function setCostReportNote(project: DdProject, reportId: string, note: st
   return report;
 }
 
+const REASON_AT_MOST = 240;
+
+/** Say in one line why a package moved since the last report, or take the line back with nothing. */
+export function setCostReportChangeReason(
+  project: DdProject,
+  reportId: string,
+  workPackageId: string,
+  reason: string | null,
+  actor: string,
+): CostReportPeriod {
+  const report = costReportOf(project, reportId);
+  assertDraft(report);
+  const pack = costRegister(project).workPackages.find((p) => p.id === workPackageId);
+  if (!pack) throw new Error('No work package by that id.');
+  const line = reason?.replace(/\s+/g, ' ').trim() ?? '';
+  if (line.length > REASON_AT_MOST) throw new Error(`A reason is one line of ${REASON_AT_MOST} characters at most.`);
+  const held = report.changeReasons?.[workPackageId];
+  const next = { ...report.changeReasons };
+  if (line) next[workPackageId] = line;
+  else delete next[workPackageId];
+  if (Object.keys(next).length) report.changeReasons = next;
+  else delete report.changeReasons;
+  report.updatedAt = nowIso();
+  report.updatedBy = actor;
+  recordAuditEvent(project, {
+    actor,
+    action: 'set_cost_report_change_reason',
+    entityType: 'cost_report',
+    entityId: report.id,
+    ...(held ? { oldValue: `${pack.name}: ${held}` } : {}),
+    newValue: line ? `${pack.name}: ${line}` : pack.name,
+  });
+  return report;
+}
+
 /** Freeze the period for print. Further figure edits are refused until reopened. */
 export function issueCostReport(project: DdProject, reportId: string, actor: string): CostReportPeriod {
   const report = costReportOf(project, reportId);
@@ -455,6 +492,7 @@ export function issueCostReport(project: DdProject, reportId: string, actor: str
   if (report.variations) report.variations = report.variations.map((v) => ({ ...v }));
   if (report.basicPriceAdjustments) report.basicPriceAdjustments = report.basicPriceAdjustments.map((v) => ({ ...v }));
   if (report.photoEvidenceIds) report.photoEvidenceIds = [...report.photoEvidenceIds];
+  if (report.changeReasons) report.changeReasons = { ...report.changeReasons };
   recordAuditEvent(project, {
     actor,
     action: 'issue_cost_report',
