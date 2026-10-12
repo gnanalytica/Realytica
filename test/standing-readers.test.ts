@@ -26,11 +26,13 @@ import {
   acceptedFacts,
   acceptedOneAtATime,
   addEvidence,
+  addRequest,
   answerFromFile,
   applyProjectChat,
   approvalsRegister,
   attachEvidenceFile,
   certifiedReadout,
+  confirmReply,
   createAssessment,
   createProject,
   documentDisagreements,
@@ -41,8 +43,10 @@ import {
   proposeFacts,
   proposalsFromIngest,
   readingsWaitingOnFile,
+  recordReply,
   reviewFacts,
   runValuationApproaches,
+  standingAmongRead,
   standingAsRead,
   standingFacts,
   stands,
@@ -236,6 +240,30 @@ describe('what stands', () => {
     }
     assert.equal(waitingReadings({ proposedDocumentType: 'Encumbrance certificate', facts: [{ ...model, review: 'proposed' }] }).length, 1, 'under the kind a model offered, it waits to be decided');
     assert.equal(waitingReadings({ refusedDocumentType: 'Encumbrance certificate', facts: [{ ...model, review: 'proposed' }] } as never).length, 0, 'and not once that offer is refused');
+  });
+
+  it('is nothing on a paper that came as an outside party’s reply, until a person confirms the reply', () => {
+    // A clean paper from a known sender: the rules read it surely, and no other reader differs. Anywhere else that stands at once.
+    const p = withDiligence();
+    const read = [fact('survey_numbers', 'Survey number', '73/4', '73/4', { quote: 'Survey No. 73/4, situated at Navilugudda Village' }), fact('extent_title', 'Extent per title', 2450, '2,450 sqm')];
+    const row = filed(p, 'Sale deed', 'Sale deed', read);
+    assert.deepEqual(standingFacts(row).map((f) => f.key), ['survey_numbers', 'extent_title']);
+    const request = addRequest(p, { title: 'Sale deed', recipient: 'Vendor’s advocate', send: true }, 'tester');
+    const { reply } = recordReply(p, request.id, { channel: 'email', from: 'advocate@chambers.example', receivedAt: new Date().toISOString(), deliveryId: 'resend:1', attachments: [{ id: 'att-1', fileName: 'Sale deed.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: row.attachments[0]!.storageKey, evidenceId: row.id }] });
+    assert.deepEqual(row.unconfirmedReply, { requestId: request.id, replyId: reply.id });
+
+    assert.deepEqual(standingFacts(row), [], 'the other side’s word stands for nothing');
+    assert.equal(row.facts!.some((f) => stands(f, row)), false);
+    assert.deepEqual(liveFacts(row).map((f) => f.key), ['survey_numbers', 'extent_title'], 'a screen still shows what the paper says');
+    // So no check is offered a value from it: this is what the read of a filed paper hands the checks.
+    assert.deepEqual(factFillProposals(p, standingAmongRead(row, { facts: read }), { fileName: 'Sale deed.pdf', evidenceId: row.id, documentLabel: 'Sale deed' }, 'tester'), []);
+    assert.equal(factsOnFile(p).some((held) => held.evidence.id === row.id), false, 'and nothing is said of it as on file');
+    // Accepted one by one before the reply is confirmed, a value still waits on the reply.
+    assert.deepEqual(standingFacts({ ...row, facts: row.facts!.map((f) => ({ ...f, review: 'accepted' as const })) }), []);
+
+    confirmReply(p, request.id, reply.id, 'tester');
+    assert.deepEqual(standingFacts(row).map((f) => f.key), ['survey_numbers', 'extent_title'], 'confirmed by a person, it stands as any paper’s does');
+    assert.ok(factFillProposals(p, standingAmongRead(row, { facts: read }), { fileName: 'Sale deed.pdf', evidenceId: row.id, documentLabel: 'Sale deed' }, 'tester').length > 0);
   });
 
   it('counts a value filed before values were decided one by one as accepted, and a reading not yet on a row as undecided', () => {

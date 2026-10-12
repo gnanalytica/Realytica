@@ -131,16 +131,22 @@ export function resendWebhookHolds(headers: { id?: string; timestamp?: string; s
 
 export interface ReceivedEmail {
   text?: string;
-  /** False where the receiving server found the sender's domain did not vouch for the mail. */
+  /** True only where the receiving server found the sender's own domain vouched for the mail. */
   verified: boolean;
 }
 
-/** A received mail's own words, and whether its sender's domain vouched for it. Its HTML is never read. */
+/**
+ * A received mail's own words, and whether its sender's domain vouched for it. Its HTML is never read.
+ *
+ * Vouched for is DMARC passing: SPF or DKIM passed for the very domain in
+ * `From`. Anything else is not: a domain that publishes no DMARC answers
+ * `none`, and a forged `From` sent through the forger's own server then
+ * passes SPF for the forger's domain, which says nothing of whose mail it is.
+ */
 export async function receivedEmail(emailId: string): Promise<ReceivedEmail> {
   const mail = await json<{ text?: string | null; authentication?: { dmarc?: string | null; spf?: string | null; dkim?: string | null } | null }>(`${RESEND}/emails/receiving/${encodeURIComponent(emailId)}`, { headers: resendAuth() }, 'Reading the mail');
-  const failed = (value: string | null | undefined) => typeof value === 'string' && /^fail/i.test(value);
-  const auth = mail.authentication;
-  return { ...(mail.text ? { text: mail.text } : {}), verified: !(auth && (failed(auth.dmarc) || (failed(auth.spf) && failed(auth.dkim)))) };
+  const dmarc = mail.authentication?.dmarc;
+  return { ...(mail.text ? { text: mail.text } : {}), verified: typeof dmarc === 'string' && /^pass/i.test(dmarc) };
 }
 
 export interface ProviderFile {
