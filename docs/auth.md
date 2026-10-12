@@ -161,6 +161,17 @@ list or by their firm role), for that project only. A signer does not count as
 a lead here. A viewer reads no figures about a person, their own included. No
 figures are kept about a collaborator.
 
+Set up is for the firm's own people too: `GET /api/setup` is read-only, says
+what is connected and what each thing still needs, and is refused to a
+collaborator (403). Keys and webhooks are in its answer for an owner or a
+manager only, as on `/api/integrations`. The sidebar lists a place only for
+somebody who may use it (`workspace-menu.ts`: Law and policy and Set up for
+the firm's own people, Integrations for an owner or a manager), and a
+project's Papers owed is the firm's own page beside Review and People: the
+menu and the chat do not offer it to somebody working from a grant, who keeps
+each department's own list without the firm's replies or its requests made by
+hand. Hiding an entry is a courtesy; each route refuses by itself.
+
 A workspace always keeps at least one owner. The last one cannot demote or
 remove themselves — there is no way back into a workspace that has nobody who
 can administer it.
