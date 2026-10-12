@@ -903,7 +903,7 @@ export function outgoingSaid(project: DdProject, draft: OutgoingDraft, how: { mo
   const what = draft.kind === 'minutes' ? `the minutes of ${about ? about.charAt(0).toLowerCase() + about.slice(1) : 'the meeting'}` : `${KIND_SAID[draft.kind]}${draft.kind === 'reply' && about ? ` to “${about}”` : draft.to ? ` to ${draft.to.charAt(0).toLowerCase()}${draft.to.slice(1)}` : ''}`;
   const statements = outgoingStatements(draft.body, draft.sources).filter((statement) => !statement.heading);
   const own = statements.filter((statement) => statement.own).length;
-  const lines = [`Drafted ${what} as ${draft.ref}. It is open in Outgoing.`];
+  const lines = [`Drafted ${what} as ${draft.ref}. It is open in Letters.`];
   if (statements.length) {
     const waiting = draft.sources.filter((source) => source.waiting).length;
     lines.push(

@@ -537,7 +537,7 @@ describe('a draft to send, asked for with a questionnaire on file', () => {
     const reply = await say(project.id, 'Draft a reply to the lender’s questions');
     assert.match(reply.assistantTurn.text, /^A reply answers a paper on the file, and none on this file matches that\. Which paper is it to\?$/);
     const letter = await say(project.id, 'Draft a letter to the lender about the open questions');
-    assert.match(letter.assistantTurn.text, /^Drafted a letter to the lender as .+\/OUT\/1\. It is open in Outgoing\./);
+    assert.match(letter.assistantTurn.text, /^Drafted a letter to the lender as .+\/OUT\/1\. It is open in Letters\./);
     const now = await stored(project.id);
     assert.equal(questionnaireSummary(now.questionnaires![0]!).suggested, 0, 'no answer was suggested');
     assert.equal(now.outgoing?.length, 1, 'and the letter is a draft to send');
@@ -552,7 +552,7 @@ describe('a draft to send, asked for with a questionnaire on file', () => {
     }
     for (const said of ['Draft a quick email to the lender answering their questions', 'Please draft a brief letter to the bank about the open questions']) {
       const letter = await say(project.id, said);
-      assert.match(letter.assistantTurn.text, /^Drafted a letter to the (?:lender|bank)\b.* as .+\/OUT\/\d\. It is open in Outgoing\./, said);
+      assert.match(letter.assistantTurn.text, /^Drafted a letter to the (?:lender|bank)\b.* as .+\/OUT\/\d\. It is open in Letters\./, said);
     }
     const now = await stored(project.id);
     assert.equal(questionnaireSummary(now.questionnaires![0]!).suggested, 0, 'no answer was suggested');

@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
 import { Button, Card, CardBody, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
 import { ReportEditor } from './ReportEditor';
 import Outgoing from './Outgoing';
+import { LETTERS_PART } from './cockpit/rail';
 import type { ProjectOutlet } from './ProjectLayout';
 import { formatWhen } from './shared';
 
@@ -115,7 +116,7 @@ export default function Reports() {
 
       <section className="space-y-3 border-t border-hairline pt-6">
         <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold text-ink">Letters</h2>
+          <h2 className="text-[15px] font-semibold text-ink">{LETTERS_PART.label}</h2>
           <p className="text-[13px] text-ink-secondary">Replies, RFIs and minutes filled from the record. Nothing is emailed from here.</p>
         </div>
         <Outgoing embedded />

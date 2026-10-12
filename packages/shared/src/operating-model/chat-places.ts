@@ -130,7 +130,7 @@ const PANE_WORD: Partial<Record<ProjectCockpitPane, string>> = {
   assets: 'Phases and assets',
   reports: 'Reports',
   review: 'Review',
-  outgoing: 'Outgoing',
+  outgoing: 'Letters',
   drafts: 'AI drafts',
   orchestrate: 'Auto-run',
   people: 'People',
