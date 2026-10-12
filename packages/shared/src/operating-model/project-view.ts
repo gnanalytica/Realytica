@@ -40,6 +40,11 @@ import type {
   ScopeInstance,
 } from './types';
 
+/** Whether a grant names Procurement: it lists the scope of that name. The team list writes it for anybody given a role in the department. */
+export function grantNamesProcurement(grant: Pick<ProjectGrant, 'scopeKeys'>): boolean {
+  return grant.scopeKeys.includes('procurement');
+}
+
 /** What a reader is allowed, before any of it is applied. */
 export type ProjectAccess =
   /** Staff and above: the file as it is. */
@@ -57,6 +62,7 @@ export type WithheldPart =
   | 'valuation'
   | 'reports'
   | 'commercials'
+  | 'procurement'
   | 'site_record'
   | 'conversation';
 
@@ -191,6 +197,15 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const reportsKept = Boolean(project.costReports?.length);
   if (!commercial && (project.budget !== undefined || costKept || reportsKept)) withheld.push('commercials');
 
+  /*
+   * The tenders name every bidder and what each quoted. They are handed to a
+   * grant that names Procurement, by the scope of that name, and to no other:
+   * `allScopes` alone does not name it, since a grant written for every scope
+   * of a due diligence was not written to open the bids.
+   */
+  const tenders = grantNamesProcurement(grant);
+  if (!tenders && project.procurement?.tenders.length) withheld.push('procurement');
+
   const view: DdProject = {
     ...project,
     assessments,
@@ -205,6 +220,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     sheets,
     conversation,
     ...(commercial ? {} : { budget: undefined, cost: undefined, costReports: undefined }),
+    ...(tenders ? {} : { procurement: undefined }),
     // The fee is a commercial term between the firm and its client.
     ...(commercial ? {} : { engagements: (project.engagements ?? []).map(({ fee: _fee, ...e }) => e) }),
     // Requests name who else the firm is chasing. A collaborator sees the ones
@@ -271,6 +287,7 @@ export const WITHHELD_LABEL: Record<WithheldPart, string> = {
   valuation: 'the valuation on this project',
   reports: 'the reports on this project',
   commercials: 'the budget, contracts, bills and payments on this project',
+  procurement: 'the tenders, bidders and bids on this project',
   site_record: 'the site visits and sheets on this project',
   conversation: 'other people’s conversations on this project',
 };
@@ -330,6 +347,7 @@ const ASKED_ABOUT: Partial<Record<WithheldPart, RegExp>> = {
   decisions: /\b(decision|decisions|sign[- ]?off|signoff|go\/no[- ]?go|approval to proceed)\b/i,
   commercials:
     /\b(budget|cost of the deal|commercials?|spend|consideration|purchase price|running bills?|ra[- ]bills?|contractor[’']?s[’']? bills?|bills? (?:\w+ ){0,3}rais(?:ed?|es|ing)|rais(?:ed?|es|ing) (?:\w+ ){0,3}bills?|payment certificates?|retention (?:held|money)|work packages?|contract values?|cost to complete)\b/i,
+  procurement: /\b(tenders?|bidders?|bids?|quotes?|quoted|letter of acceptance|comparative statement|awarded?)\b/i,
   site_record: /\b(site visit|inspection|site record|master ?plan|sheet|survey)\b/i,
 };
 

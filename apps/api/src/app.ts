@@ -15,6 +15,7 @@ import { librariesRouter, projectsRouter } from './routes/projects';
 import { projectMemoryRouter } from './routes/project-memory';
 import { reviewLibraryRouter, reviewTableRouter } from './routes/review-table';
 import { outgoingRouter } from './routes/outgoing';
+import { procurementRouter } from './routes/procurement';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
@@ -168,6 +169,8 @@ app.use('/api/projects/:projectId/review', reviewTableRouter);
 // What goes out: making a draft or asking for its body asks a model once, so those two are budgeted as a model call is.
 app.use('/api/projects/:projectId/outgoing', (req, res, next) => (req.method === 'POST' && (req.path === '/' || req.path.endsWith('/write')) ? limits.expensive(req, res, next) : next()));
 app.use('/api/projects/:projectId/outgoing', outgoingRouter);
+// Procurement › Tenders: bidders and what they quoted, with its own guard for a grant that does not name Procurement.
+app.use('/api/projects/:projectId/procurement', procurementRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Link, Navigate, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Stamp, Wallet, Waypoints } from 'lucide-react';
+import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Scale, Stamp, Wallet, Waypoints } from 'lucide-react';
 import {
   STAGES,
   cockpitPath,
@@ -26,6 +26,7 @@ import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegi
 import { ChecklistCard } from '../../../components/departments/ChecklistCard';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
 import { BudgetDesk } from '../../../components/budget/BudgetDesk';
+import { TenderDesk } from '../../../components/procurement/TenderDesk';
 import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
 import { TitleChainDiagram } from '../../../components/charts';
 import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
@@ -293,10 +294,12 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
         ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} marked={item} /> }
         : ws.key === 'finance.budget'
           ? { id: 'cost', name: 'Cost Report', icon: Wallet, body: <BudgetDesk project={project} onChanged={setProject} /> }
-          : chain
-            ? // Always a part of Title, drawn or not: a link to the chain then lands on the part that says none is drawn yet.
-              { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
-            : null;
+          : ws.key === 'procurement.boq'
+            ? { id: 'tenders', name: 'Tenders', icon: Scale, body: <TenderDesk project={project} onChanged={setProject} marked={part === 'tenders' ? item : null} /> }
+            : chain
+              ? // Always a part of Title, drawn or not: a link to the chain then lands on the part that says none is drawn yet.
+                { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
+              : null;
 
   const sections: PageSection[] = [
     {

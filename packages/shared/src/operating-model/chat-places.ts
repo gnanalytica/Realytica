@@ -216,6 +216,7 @@ const CENTRE_SECTION: Record<string, string> = {
   'legal.approvals': 'approvals',
   'construction.progress': 'progress',
   'finance.budget': 'cost',
+  'procurement.boq': 'tenders',
 };
 
 /**
@@ -324,6 +325,7 @@ const FUNCTION_ALSO: Record<string, string[]> = {
   'legal.approvals': ['nocs'],
   'construction.quality': ['technical dd', 'tdd'],
   'construction.site': ['visits', 'site visits'],
+  'procurement.boq': ['tender', 'tendering'],
 };
 
 /** The parts every function's page has, by the words people call them. */
@@ -340,6 +342,7 @@ const CENTRE_NAMES: Record<string, { after: string[]; alone: string[] }> = {
   approvals: { after: ['register'], alone: ['approvals register'] },
   progress: { after: ['milestones', 'board', 'site log'], alone: ['milestones', 'site log', 'progress board'] },
   cost: { after: ['cost report', 'packages'], alone: ['cost report'] },
+  tenders: { after: ['register', 'bidders', 'bids', 'stages'], alone: ['tender register', 'bidders', 'bid comparison'] },
 };
 
 let VOCABULARY: Map<string, Target[]> | undefined;

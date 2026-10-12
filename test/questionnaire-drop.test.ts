@@ -308,11 +308,12 @@ describe('a questionnaire dropped in the chat', () => {
       const result = (await drop(p.id, [['Tender_queries.csv', sheet, 'text/csv']], '', { pane: 'department', department })).find((l) => l.type === 'result')!;
       return [questionnaireDepartment((result.project as DdProject).questionnaires![0]!), result.assistantTurn.text.split('. ').at(-1)];
     };
-    // Was: kept under Procurement, Commercial or Design, whose pages show no questions, and said to be on a Questions page they do not have.
-    for (const department of ['procurement', 'commercial', 'design']) assert.deepEqual(await droppedOn(department), ['construction', 'It is on the Questions page of Engineering & Construction.'], department);
+    // Was: kept under Commercial or Design, whose pages show no questions, and said to be on a Questions page they do not have.
+    for (const department of ['commercial', 'design']) assert.deepEqual(await droppedOn(department), ['construction', 'It is on the Questions page of Engineering & Construction.'], department);
     // On a page that shows the step it is that department's, as it was.
     assert.deepEqual(await droppedOn('legal'), ['legal', 'It is on the Questions page of Legal & Compliance.']);
     assert.deepEqual(await droppedOn('finance'), ['finance', 'It is on the Questions page of Finance & Investment.']);
+    assert.deepEqual(await droppedOn('procurement'), ['procurement', 'It is on the Questions page of Procurement & Supply Chain.']);
     assert.deepEqual(await droppedOn('construction'), ['construction', 'It is on the Questions page of Engineering & Construction.']);
   });
 
