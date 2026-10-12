@@ -20,7 +20,9 @@
 import { checklistFunction, papersOwedOpen } from './chat-places';
 import { checklistSheet, type ChecklistLine } from './checklist';
 import { cockpitPath, type ProjectCockpitPane } from './cockpit';
-import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, type DepartmentKey } from './departments';
+import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, workstreamDefinition, type DepartmentKey } from './departments';
+import { addressKey } from './field-registry';
+import { fieldsOwed } from './field-sheets';
 import { checklistLinesReplied, repliesWaiting } from './outside-replies';
 import { requirementSheet, type RequirementItem } from './requirement-sheet';
 import type { CockpitPathExtra } from './sitting';
@@ -41,8 +43,8 @@ export const PAPERS_OWED = 'Papers owed';
 
 export interface PaperLine {
   key: string;
-  /** Which record says it is owed: a document the checks expect, a line of a loaded list, or a request by itself. */
-  from: 'checks' | 'list' | 'request';
+  /** Which record says it is owed: a document the checks expect, a line of a loaded list, a request by itself, or a field of a function's sheet that another party owes. */
+  from: 'checks' | 'list' | 'request' | 'fields';
   title: string;
   department?: DepartmentKey;
   /** Who owes it: the party a list names, else whoever was asked. */
@@ -172,6 +174,16 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
     }
   }
 
+  // What a function's sheets wait on from another party: each field that party owes, under that party.
+  for (const { fn, department, groups } of fieldsOwed(project, opts.now ? new Date(opts.now) : new Date())) {
+    if (opts.department && department !== opts.department) continue;
+    for (const group of groups) {
+      for (const field of group.fields) {
+        lines.push({ key: `f:${addressKey(field.address)}`, from: 'fields', title: field.label, department, party: group.label, standing: 'not_asked', where: `${workstreamDefinition(fn)?.label ?? fn} · ${field.sheet}` });
+      }
+    }
+  }
+
   if (!opts.department && !opts.outside) {
     // A request that covers checklist lines, or answers a document a check expects, is already a line above.
     const expected = new Set(lines.filter((line) => line.from === 'checks' && line.requirement?.evidenceId).map((line) => line.requirement!.evidenceId!));
@@ -239,6 +251,7 @@ export function paperLineSaid(line: PaperLine, day: (iso: string) => string): st
   if (line.standing === 'in_hand') return line.fileName ?? (line.from === 'request' ? 'Answered' : 'Marked in hand');
   if (line.standing === 'answered') return `Answered by ${line.repliedBy ?? 'them'} · waiting for you to confirm`;
   if (line.standing === 'asked') return [`Asked${line.askedOn ? ` ${day(line.askedOn)}` : ''}`, line.dueAt ? `due ${day(line.dueAt)}${line.overdue ? ' (overdue)' : ''}` : ''].filter(Boolean).join(' · ');
+  if (line.from === 'fields') return 'A sheet waits for it';
   return line.from === 'request' ? 'Drafted, not sent' : line.from === 'checks' ? 'A check expects it' : line.party ? 'On the list' : 'On the list, nobody named';
 }
 

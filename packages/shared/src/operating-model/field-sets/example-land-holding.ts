@@ -134,6 +134,10 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
         ],
       },
       { key: 'mother_deed', label: 'Mother deed', kind: 'evidence', accepts: 'document', viewer: 'deed', section: 'history', required: false },
+      // Owed by somebody else, and not before the land is being bought: listed under the advocate, never as the reader's to fill.
+      { key: 'title_opinion', label: 'Title opinion', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'history', owedBy: 'advocate', dueFrom: 'acquisition' },
+      // Owed by whoever the Seller link names on this holding.
+      { key: 'possession_letter', label: 'Possession letter', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'history', owedBy: { ref: 'seller' }, dueFrom: 'acquisition' },
       {
         key: 'conversion_order_no',
         label: 'Conversion order number',
@@ -155,6 +159,8 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
         from: 'DC conversion order',
         fromTypes: ['DC conversion order'],
       },
+      // A day that runs out: the page says when it is about to, and a lead may put that line off until a day.
+      { key: 'conversion_build_by', label: 'Build by, under the conversion order', kind: 'date', section: 'conversion', tier: 'situational', showWhen: { situation: 'agricultural_land' }, required: false, expires: { leadDays: 180 } },
       { key: 'access_confidence', label: 'Confidence in the access', kind: 'number', control: 'scale', min: 1, max: 5, section: 'notes', tier: 'expert', required: false },
       { key: 'remarks', label: 'Remarks', kind: 'longtext', maxLength: 300, section: 'notes', tier: 'expert', required: false },
     ],
@@ -181,5 +187,27 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
       },
     ],
     rules: [],
+    // The hard case: an owner who is a minor. It opens from that owner's row as its own small sheet, and no other owner sees it.
+    sheets: [
+      {
+        id: 'guardianship',
+        title: 'Guardianship',
+        showWhen: { field: { fn: FN, set: OWNERS, field: 'capacity' }, is: 'equals', value: 'minor through a guardian' },
+        sections: [
+          { key: 'minor', label: 'The minor' },
+          { key: 'permission', label: 'The court’s permission' },
+        ],
+        fields: [
+          { key: 'date_of_birth', label: 'Date of birth', kind: 'date', section: 'minor' },
+          { key: 'guardian_kind', label: 'Guardian is', kind: 'enum', control: 'segmented', options: ['natural', 'testamentary', 'court-appointed'], section: 'minor' },
+          { key: 'court_permission_no', label: 'Order number', kind: 'text', section: 'permission', required: false },
+          { key: 'court_permission_date', label: 'Order date', kind: 'date', section: 'permission', required: false },
+          { key: 'permission_order', label: 'Order', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'permission', required: false },
+        ],
+        rules: [
+          { kind: 'require_if', fields: ['guardian_kind', 'court_permission_no'], whenIn: ['court-appointed'], say: 'The guardian is {a} and no order number is recorded.', severity: 'high' },
+        ],
+      },
+    ],
   },
 ];

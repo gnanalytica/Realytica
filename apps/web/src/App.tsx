@@ -43,6 +43,7 @@ const About = lazy(() => import('./pages/About'));
 const Members = lazy(() => import('./pages/Members'));
 const Integrations = lazy(() => import('./pages/Integrations'));
 const Setup = lazy(() => import('./pages/Setup'));
+const FieldsSetup = lazy(() => import('./pages/FieldsSetup'));
 const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const LawWatch = lazy(() => import('./pages/LawWatch'));
@@ -186,6 +187,7 @@ export default function App() {
           <Route path="law" element={<LawWatch />} />
           <Route path="integrations" element={<Integrations />} />
           <Route path="setup" element={<Setup />} />
+          <Route path="setup/fields" element={<FieldsSetup />} />
           <Route path="about" element={<About />} />
           <Route path="*" element={<Navigate to="/portfolio" replace />} />
         </Route>

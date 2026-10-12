@@ -360,7 +360,8 @@ describe('records', () => {
 describe('situations', () => {
   it('bring fields into play; a field not in play is never missing; turning one off keeps what was recorded', () => {
     const p = project();
-    const conversion = () => readSheet(p, HOLDING)!.fields.filter((f) => f.def.section === 'conversion');
+    // The section's must-fields: the day to build by is asked with them and can be left empty.
+    const conversion = () => readSheet(p, HOLDING)!.fields.filter((f) => f.def.section === 'conversion' && f.def.required !== false);
     assert.ok(conversion().every((f) => f.shown === 'hidden' && !f.missing));
     assert.equal(readFunctionFields(p, FN).exceptions.filter((e) => e.kind === 'missing' && e.address?.field.startsWith('conversion')).length, 0);
 

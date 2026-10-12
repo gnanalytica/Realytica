@@ -318,8 +318,8 @@ function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = 
         </div>
       ),
     },
-    // The function's own sheets, opening on what needs a person.
-    ...(functionHasSheets(ws.key) ? [{ id: 'sheet', name: 'Sheet', icon: Table2, body: <FieldSheets project={project} fn={ws.key} onChanged={setProject} onOpenPaper={(evidenceId: string) => openHere(evidenceId)} /> }] : []),
+    // The function's own sheets. What they need of a person opens the page, above every part.
+    ...(functionHasSheets(ws.key) ? [{ id: 'sheet', name: 'Sheet', icon: Table2, body: <FieldSheets part="sheets" project={project} fn={ws.key} onChanged={setProject} onOpenPaper={(evidenceId: string) => openHere(evidenceId)} /> }] : []),
     ...(centre ? [centre] : []),
     { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} marked={part === 'checks' ? item : null} /> },
     {
@@ -349,7 +349,12 @@ function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = 
 
   return (
     <>
-      <SectionPage sections={sheetsOnly ? sections.filter((section) => section.id === 'sheet' || section.id === 'documents') : sections} jump={jump} />
+      <SectionPage
+        sections={sheetsOnly ? sections.filter((section) => section.id === 'sheet' || section.id === 'documents') : sections}
+        jump={jump}
+        // Needs you is the opening of the function's page: the first screen on a phone, the first card on a laptop.
+        lead={functionHasSheets(ws.key) ? <FieldSheets part="needs" project={project} fn={ws.key} onChanged={setProject} onOpenPaper={(evidenceId: string) => openHere(evidenceId)} /> : undefined}
+      />
       {/* A document a link named opens over the page it belongs to, at the page cited, as it does on the register. */}
       {proof ? (
         <EvidenceProof

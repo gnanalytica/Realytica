@@ -12,12 +12,13 @@
  * check library and the departments, and both read other things.
  */
 
+import { CHECK_CONDITIONS, CHECK_SITUATIONS } from './check-conditions';
 import { CHECK_DEFINITIONS } from './libraries';
-import { workstreamDefinition, workstreamOfCheck } from './departments';
+import { SUB_STAGES, workstreamDefinition, workstreamOfCheck } from './departments';
 import { FIELD_SETS, RULE_ROWS } from './field-sets';
 import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { ruleRowFaults } from './rule-tables';
-import type { CheckFieldDef, CheckFormula, FieldAddress, FieldSet, FormulaCondition, FormulaRows, MatchList, OptionSet, RefTarget, RuleRow, ShowWhen, Situation } from './types';
+import type { CheckFieldDef, CheckFormula, DepthSheet, FieldAddress, FieldSet, FormulaCondition, FormulaRows, LifecycleStage, MatchList, MatchSide, OptionSet, RefTarget, RuleRow, ShowWhen, Situation } from './types';
 
 export interface FieldCatalog {
   /** Every set by id: checks and sheets. */
@@ -28,20 +29,65 @@ export interface FieldCatalog {
   checks: ReadonlySet<string>;
   optionSets: ReadonlyMap<string, OptionSet>;
   situations: ReadonlyMap<string, Situation>;
+  /** The check sets of each function, by id: what its check screens record. */
+  checkSets: ReadonlyMap<string, string[]>;
+}
+
+/** Both conditions, where there are two. */
+function both(a: ShowWhen, b: ShowWhen | undefined): ShowWhen {
+  return b ? { all: [a, b] } : a;
+}
+
+/**
+ * A set with its depth sheets laid out as fields of its own: each carries the
+ * sheet it belongs to and shows only while the sheet does. They are kept on
+ * the holder the sheet opens from, so an address, a formula and a proposal
+ * name one as they name any field of the set.
+ */
+export function withDepthSheets(set: FieldSet): FieldSet {
+  if (!set.sheets?.length) return set;
+  return {
+    ...set,
+    fields: [
+      ...set.fields,
+      ...set.sheets.flatMap((sheet) =>
+        sheet.fields.map((def): CheckFieldDef => {
+          const section = (sheet.sections ?? []).find((held) => held.key === def.section);
+          return { ...def, sheet: sheet.id, tier: def.tier ?? section?.tier ?? 'situational', showWhen: both(both(sheet.showWhen, section?.showWhen), def.showWhen) };
+        }),
+      ),
+    ],
+    rules: [...set.rules, ...set.sheets.flatMap((sheet) => sheet.rules.map((rule) => ({ ...rule, sheet: sheet.id, when: both(sheet.showWhen, rule.when) })))],
+  };
+}
+
+/** A depth sheet of a set, by id. */
+export function depthSheet(set: FieldSet, id: string | undefined): DepthSheet | undefined {
+  return id ? set.sheets?.find((sheet) => sheet.id === id) : undefined;
 }
 
 /** The catalog made of the checks and these sheets. Pure, so a test can ask it of sheets of its own. */
-export function buildFieldCatalog(sheets: readonly FieldSet[]): FieldCatalog {
+export function buildFieldCatalog(declared: readonly FieldSet[]): FieldCatalog {
+  const sheets = declared.map(withDepthSheets);
   const sets = new Map<string, FieldSet>();
   const checks = new Set<string>();
+  const checkSets = new Map<string, string[]>();
+  const situations = new Map<string, Situation>();
   for (const definition of CHECK_DEFINITIONS) {
     if (!definition.fields?.length) continue;
-    sets.set(definition.id, { id: definition.id, fn: workstreamOfCheck(definition.id), title: definition.title, v: 1, fields: definition.fields, rules: definition.insightRules ?? [] });
+    const fn = workstreamOfCheck(definition.id);
+    // A check whose fields are only asked in a situation: each takes the check's condition where it has none of its own.
+    const when = CHECK_CONDITIONS[definition.id];
+    const fields = when ? definition.fields.map((def): CheckFieldDef => (def.showWhen ? def : { ...def, showWhen: when, tier: def.tier ?? 'situational' })) : definition.fields;
+    sets.set(definition.id, { id: definition.id, fn, title: definition.title, v: 1, fields, rules: definition.insightRules ?? [] });
     checks.add(definition.id);
+    checkSets.set(fn, [...(checkSets.get(fn) ?? []), definition.id]);
+  }
+  for (const { fn, situations: declaredFor } of CHECK_SITUATIONS) {
+    for (const situation of declaredFor) situations.set(situationKey(situation, fn), situation);
   }
   const byFn = new Map<string, FieldSet[]>();
   const optionSets = new Map<string, OptionSet>();
-  const situations = new Map<string, Situation>();
   for (const set of sheets) {
     if (!set.extends) {
       if (!sets.has(set.id)) sets.set(set.id, set);
@@ -66,7 +112,17 @@ export function buildFieldCatalog(sheets: readonly FieldSet[]): FieldCatalog {
     sets.set(target.id, merged);
     byFn.set(target.fn, (byFn.get(target.fn) ?? []).map((held) => (held.id === target.id ? merged : held)));
   }
-  return { sets, sheets: byFn, checks, optionSets, situations };
+  return { sets, sheets: byFn, checks, optionSets, situations, checkSets };
+}
+
+/** Every list a match table pairs: its left, its right, and any further ones. */
+export function matchSides(def: Pick<CheckFieldDef, 'match'>): MatchSide[] {
+  return def.match ? [def.match.left, def.match.right, ...(def.match.also ?? [])] : [];
+}
+
+/** Whether nobody fills a field: it is worked out, a standing, or a mirror. */
+function fieldIsWorkedOut(def: CheckFieldDef): boolean {
+  return def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
 }
 
 /** The set that repeats a `ref` links to, where its target is one: a shared record's, or the set it names. */
@@ -91,8 +147,7 @@ export function sharedSetsOf(fn: string, catalog = fieldCatalog()): FieldSet[] {
   for (const set of fieldSetsOf(fn, catalog)) {
     for (const def of set.fields.flatMap((field) => [field, ...(field.columns ?? [])])) {
       if (def.kind === 'ref') ids.add(refSet(def.target) ?? '');
-      from(def.match?.left.of);
-      from(def.match?.right.of);
+      for (const side of matchSides(def)) from(side.of);
     }
   }
   return [...ids].flatMap((id) => {
@@ -146,6 +201,8 @@ export function situationsOf(fn: string, catalog = fieldCatalog()): Array<{ at: 
     for (const section of set.sections ?? []) collect(section.showWhen);
     for (const def of set.fields) collect(def.showWhen);
   }
+  // And the ones its checks' fields wait on: an approach, on Valuation.
+  for (const id of catalog.checkSets.get(fn) ?? []) for (const def of catalog.sets.get(id)?.fields ?? []) collect(def.showWhen);
   const out: Array<{ at: string; situation: Situation }> = [];
   for (const key of named) {
     const own = catalog.situations.get(`${fn}:${key}`);
@@ -316,7 +373,7 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
   const exists = (address: FieldAddress) => Boolean(fieldDefAt(address, catalog));
 
   const seen = new Set<string>();
-  for (const set of sheets) {
+  for (const set of sheets.map(withDepthSheets)) {
     const at = (field?: string) => `${set.id}${field ? `/${field}` : ''}`;
     if (seen.has(set.id)) faults.push(`${at()}: two field sets have this id.`);
     if (catalog.checks.has(set.id)) faults.push(`${at()}: a check already has this id.`);
@@ -332,7 +389,15 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
     for (const def of set.fields) {
       if (keys.has(def.key)) faults.push(`${at(def.key)}: declared twice.`);
       keys.add(def.key);
-      if (def.section && !sections.has(def.section)) faults.push(`${at(def.key)}: section "${def.section}" is not declared.`);
+      const within = def.sheet ? new Set((depthSheet(set, def.sheet)?.sections ?? []).map((section) => section.key)) : sections;
+      if (def.section && !within.has(def.section)) faults.push(`${at(def.key)}: section "${def.section}" is not declared.`);
+      if (def.sheet && def.kind === 'table' && def.display === 'match') faults.push(`${at(def.key)}: a depth sheet holds no list that pairs or opens another.`);
+      if (def.dueFrom && !SUB_STAGES.includes(def.dueFrom as LifecycleStage) && !/^\d{4}-\d{2}-\d{2}$/.test(def.dueFrom)) faults.push(`${at(def.key)}: dueFrom is a step of the project or a day, and "${def.dueFrom}" is neither.`);
+      if (def.owedBy && typeof def.owedBy === 'object') {
+        const link = set.fields.find((field) => field.key === (def.owedBy as { ref: string }).ref);
+        if (!link || link.kind !== 'ref' || refSet(link.target) !== SHARED_RECORD_SETS.party) faults.push(`${at(def.key)}: owedBy names "${def.owedBy.ref}", which is not a link to a party on this set.`);
+      }
+      if (def.owedBy && (fieldIsWorkedOut(def) || def.required === false)) faults.push(`${at(def.key)}: only a must-field somebody fills can be owed by a party.`);
       if (def.kind === 'longtext' && !def.maxLength) faults.push(`${at(def.key)}: a longtext field needs maxLength.`);
       if (def.tier === 'situational' && !def.showWhen && !(set.sections ?? []).find((section) => section.key === def.section)?.showWhen) faults.push(`${at(def.key)}: a situational field needs showWhen, on it or on its section.`);
       if (def.kind === 'ref' && !def.target) faults.push(`${at(def.key)}: a ref field needs a target.`);
@@ -343,7 +408,8 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
       }
       if (def.display === 'match') {
         if (!def.match) faults.push(`${at(def.key)}: a match table needs its two sides.`);
-        for (const side of def.match ? [def.match.left, def.match.right] : []) {
+        for (const column of def.match?.agree ?? []) if (!matchSides(def).some((side) => side.column === column)) faults.push(`${at(def.key)}: match says "${column}" should agree, and no side holds it.`);
+        for (const side of matchSides(def)) {
           if (!def.columns?.some((column) => column.key === side.column)) faults.push(`${at(def.key)}: match names column "${side.column}", which it does not have.`);
           const of = side.of;
           if ('records' in of && !catalog.sets.get(of.records)?.fields.some((field) => field.key === of.field)) faults.push(`${at(def.key)}: match reads ${of.records}/${of.field}, which does not exist.`);
@@ -351,6 +417,7 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
         }
       }
       if (def.display === 'chart' && (!def.chart || ![def.chart.x, def.chart.y].every((key) => def.columns?.some((column) => column.key === key)))) faults.push(`${at(def.key)}: a chart table names its x and y columns.`);
+      if (def.display === 'chart' && def.chart?.mark === 'stacked' && !def.columns?.some((column) => column.key === def.chart!.stack)) faults.push(`${at(def.key)}: a stacked chart names the column its bars are built of.`);
       for (const table of def.formula ? formulaRates(def.formula) : []) if (!rated.has(table)) faults.push(`${at(def.key)}: reads the rule "${table}", which the rule table does not have.`);
       if (def.kind === 'status' && !def.cases?.length) faults.push(`${at(def.key)}: a status field needs cases.`);
       if (def.kind === 'computed' && !def.formula) faults.push(`${at(def.key)}: a computed field needs a formula.`);
@@ -360,6 +427,13 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
     }
     if (set.records) {
       for (const field of [set.records.titleField, ...set.records.summaryFields]) if (!keys.has(field)) faults.push(`${at()}: records names "${field}", which is not a field of it.`);
+    }
+    const depthIds = new Set<string>();
+    for (const sheet of set.sheets ?? []) {
+      if (depthIds.has(sheet.id)) faults.push(`${at()}: two depth sheets are called "${sheet.id}".`);
+      depthIds.add(sheet.id);
+      if (set.extends) faults.push(`${at()}: a set that extends another holds no depth sheet. Declare it on the record itself.`);
+      if (!sheet.fields.length) faults.push(`${at()}: depth sheet "${sheet.id}" has no fields.`);
     }
     for (const list of set.optionSets ?? []) {
       const held = catalog.optionSets.get(list.id);
@@ -383,6 +457,7 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
       } else for (const part of 'all' in when ? when.all : when.any) shows(part, where);
     };
     for (const section of set.sections ?? []) shows(section.showWhen, at(`section ${section.key}`));
+    for (const situation of set.situations ?? []) shows(situation.impliedBy, at(`situation ${situation.key}`));
     for (const def of set.fields) {
       shows(def.showWhen, at(def.key));
       shows(def.requiredWhen, at(def.key));
@@ -424,7 +499,7 @@ export interface CatalogLimitBreach {
   set: string;
   field?: string;
   /** Which limit. */
-  limit: 'core_fields' | 'record_fields' | 'wide_table' | 'table_is_records' | 'statutory_number' | 'option_not_applicable';
+  limit: 'core_fields' | 'record_fields' | 'wide_table' | 'table_is_records' | 'statutory_number' | 'option_not_applicable' | 'depth_fields' | 'depth_sections';
   said: string;
 }
 
@@ -432,6 +507,9 @@ export interface CatalogLimitBreach {
 export const CORE_FIELDS_MOST = 12;
 export const RECORD_FIELDS_MOST = 20;
 export const TABLE_COLUMNS_MOST = 6;
+/** The most a depth sheet may hold, and the most sections it may be cut into. */
+export const DEPTH_FIELDS_MOST = 20;
+export const DEPTH_SECTIONS_MOST = 4;
 
 const NOT_A_CHOICE = /^(?:n\/?a|not applicable|unknown|not known|none of these)$/i;
 /** A figure a law could change, written into a key or a label: a percentage, a period, a height, a section number. */
@@ -460,7 +538,11 @@ export function catalogLimits(sheets: readonly FieldSet[] = FIELD_SETS): Catalog
       out.push({ set: set.id, limit: 'core_fields', said: `${core.length} fields are always shown; ${CORE_FIELDS_MOST} at most. Give some a showWhen, fold some as expert, or make what repeats a set of records.` });
     }
     if (set.records && set.fields.length > RECORD_FIELDS_MOST) out.push({ set: set.id, limit: 'record_fields', said: `A record of it has ${set.fields.length} fields; ${RECORD_FIELDS_MOST} at most.` });
-    for (const def of set.fields) {
+    for (const sheet of set.sheets ?? []) {
+      if (sheet.fields.length > DEPTH_FIELDS_MOST) out.push({ set: set.id, limit: 'depth_fields', said: `Depth sheet "${sheet.title}" has ${sheet.fields.length} fields; ${DEPTH_FIELDS_MOST} at most.` });
+      if ((sheet.sections ?? []).length > DEPTH_SECTIONS_MOST) out.push({ set: set.id, limit: 'depth_sections', said: `Depth sheet "${sheet.title}" has ${(sheet.sections ?? []).length} sections; ${DEPTH_SECTIONS_MOST} at most.` });
+    }
+    for (const def of [...set.fields, ...(set.sheets ?? []).flatMap((sheet) => sheet.fields)]) {
       if (STATUTORY.test(def.key.replace(/_/g, ' ')) || STATUTORY.test(def.label)) out.push({ set: set.id, field: def.key, limit: 'statutory_number', said: `"${def.label}" carries a figure a law sets. Put it in the rule table and read it with a rate formula.` });
       for (const holder of [def, ...(def.columns ?? [])]) {
         const named = [...(holder.options ?? []), ...(holder.optionSet ? (set.optionSets ?? []).find((list) => list.id === holder.optionSet)?.options.filter((o) => !o.retired).map((o) => o.label) ?? [] : [])];

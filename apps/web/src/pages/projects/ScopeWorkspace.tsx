@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import {
   checkFieldReading,
+  checkFieldsShown,
   type CheckFieldDef,
   type CheckFieldWrite,
   CHECK_RESULT_LABEL,
@@ -130,6 +131,23 @@ export default function ScopeWorkspace() {
   // re-reads the project, and the insights must recompute from what is stored
   // rather than from a copy that has already drifted.
   const reading = check ? checkFieldReading(check) : { defs: [], values: {}, insights: [], missing: [], filled: 0, total: 0 };
+  // Which of the check's fields are asked now: one whose situation is out of play is not drawn, and one that holds a value all the same is kept in sight.
+  const asked = check ? checkFieldsShown(project, check) : undefined;
+  const drawnAs = (def: CheckFieldDef) => asked?.shown[def.key] ?? 'shown';
+  const drawn = reading.defs.filter((def) => drawnAs(def) === 'shown');
+  const folded = reading.defs.filter((def) => drawnAs(def) === 'folded');
+  const kept = reading.defs.filter((def) => asked?.notInPlay.includes(def.key));
+  const said = reading.insights.filter((insight) => insight.fields.every((key) => (asked?.shown[key] ?? 'shown') !== 'hidden'));
+
+  async function setSituation(key: string, on: boolean) {
+    if (!asked) return;
+    try {
+      const { project: next } = await api.setSituation(project.id, asked.fn, key, on);
+      setProject(next);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'That could not be set', 'critical');
+    }
+  }
 
   /**
    * Values save as they are entered, one field at a time.
@@ -340,15 +358,56 @@ export default function ScopeWorkspace() {
               owner={check.owner}
               onAssigned={setProject}
             />
+            {asked?.situations.length ? (
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="When this is asked">
+                {asked.situations.map((view) => (
+                  <button
+                    key={view.at}
+                    type="button"
+                    disabled={Boolean(view.implied)}
+                    aria-pressed={view.state === 'on'}
+                    title={view.implied ? 'In play because of what is recorded' : view.situation.hint}
+                    onClick={() => void setSituation(view.situation.key, view.state !== 'on')}
+                    className={cn(
+                      'inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] transition-colors disabled:cursor-default coarse:min-h-11',
+                      view.state === 'on' ? 'border-transparent bg-sunken font-medium text-ink' : 'border-hairline text-ink-muted hover:border-axis',
+                    )}
+                  >
+                    {view.situation.label}
+                  </button>
+                ))}
+                {!drawn.length && !folded.length ? <p className="basis-full text-[12px] text-ink-muted">Not asked until it is in play.</p> : null}
+              </div>
+            ) : null}
             <CheckFields
-              defs={reading.defs}
+              defs={drawn}
               values={reading.values}
-              insights={reading.insights}
+              insights={said}
               disabled={busy}
               evidence={project.evidence}
               onAttachEvidence={attachToField}
               onCommit={(values) => void saveFields(values)}
             />
+            {folded.length ? (
+              <details>
+                <summary className="cursor-pointer select-none text-[12px] font-medium text-ink-secondary coarse:min-h-11">
+                  More <span className="font-mono font-normal text-ink-muted">{folded.length}</span>
+                </summary>
+                <div className="mt-2">
+                  <CheckFields heading={null} defs={folded} values={reading.values} insights={[]} disabled={busy} evidence={project.evidence} onAttachEvidence={attachToField} onCommit={(values) => void saveFields(values)} />
+                </div>
+              </details>
+            ) : null}
+            {kept.length ? (
+              <details>
+                <summary className="cursor-pointer select-none text-[12px] font-medium text-ink-secondary coarse:min-h-11">
+                  Recorded, not asked for now <span className="font-mono font-normal text-ink-muted">{kept.length}</span>
+                </summary>
+                <div className="mt-2">
+                  <CheckFields heading={null} defs={kept} values={reading.values} insights={[]} disabled evidence={project.evidence} onCommit={() => undefined} />
+                </div>
+              </details>
+            ) : null}
             <Field label="Result">
               <Select value={result} onChange={(e) => setResult(e.target.value as CheckResult)}>
                 {RESULTS.map((r) => (

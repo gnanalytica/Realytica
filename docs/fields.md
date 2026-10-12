@@ -32,10 +32,11 @@ export interface FieldSet {
   situations?: Situation[];
   optionSets?: OptionSet[];
   extends?: string;      // adds these fields to a shared record in place of making a sheet
+  sheets?: DepthSheet[]; // hard cases, each a small sheet opened from the holder that needs it
 }
 ```
 
-**A function's page.** A function with at least one field set has a Sheet part on its page, opening on what needs a person. A function still marked `coming_soon` in `departments.ts` becomes a page of its sheets and its documents as soon as a set names it in `fn`; its tab stops being muted. There is nothing to switch on.
+**A function's page.** A function with at least one field set opens on **Needs you** (see below), above every other part of its page, and has a Sheet part holding the sheets themselves. A function still marked `coming_soon` in `departments.ts` becomes a page of its sheets and its documents as soon as a set names it in `fn`; its tab stops being muted. There is nothing to switch on.
 
 ## Kinds
 
@@ -70,10 +71,18 @@ They change how a field is drawn, never what it holds. Use the plain one unless 
 | `control: 'switch'` | `boolean` | A yes or no where "not looked" must stay visible |
 | `control: 'scale'` | `number` with `min` and `max` | A judgement on a short scale. At most eleven steps |
 | `display: 'timeline'` | `table` with a date column | Events in order: a chain of title, hearings |
-| `display: 'chart'` | `table` with `chart: { x, y }` | A handful of figures worth comparing by eye |
-| `display: 'match'` | `table` with `match` | Two lists that should pair up: demands to milestones, survey numbers to owners |
+| `display: 'chart'` | `table` with `chart: { x, y, mark?, stack? }` | A handful of figures worth comparing by eye |
+| `display: 'match'` | `table` with `match` | Lists that should pair up: demands to milestones, survey numbers to owners |
 
-**Match.** The table's rows are the pairs. `match` names a column and a list for each side; whatever of either list no row pairs is left over, and every leftover is a line under Needs you.
+**Chart.** `mark` says what is drawn. `'bar'` (the default) is a bar for each row. `'line'` is a line over the `x` column in its own order: a date column is put in date order, so a table typed out of order still runs forward. `'stacked'` is one bar for each `x`, built of its rows' `y` by the `stack` column; past six parts the smallest are drawn as one, "Other". A row with no figure is left out, never drawn as zero.
+
+```ts
+{ key: 'outflow', label: 'Outflow by quarter', kind: 'table', display: 'chart',
+  columns: [{ key: 'quarter_end', label: 'Quarter ending', kind: 'date' }, { key: 'head', label: 'Head', kind: 'enum', optionSet: 'cost_head' }, { key: 'amount', label: 'Amount', kind: 'money', currency: 'INR' }],
+  chart: { x: 'quarter_end', y: 'amount', mark: 'stacked', stack: 'head' } }
+```
+
+**Match.** The table's rows are the pairs. `match` names a column and a list for each side; whatever of either list no row pairs is left over, and every leftover is a line under Needs you (Missing).
 
 ```ts
 { key: 'demand_to_stage', label: 'Demands to stages', kind: 'table', display: 'match',
@@ -83,6 +92,16 @@ They change how a field is drawn, never what it holds. Use the plain one unless 
 ```
 
 A side's list is `{ records, field }` (a field of every record of a set), `{ table, column }` (a column of another table, by its address) or `{ target }` (a register).
+
+To pair more than two lists, add the further ones under `also`: each is paired to the left one, so a row names the left item and what it pairs to in every other list. `agree` names the columns that should read the same on a row; a row where they differ is a line under Needs you (Failing).
+
+```ts
+match: { left:  { column: 'survey_no',  label: 'Survey numbers', of: { target: 'parcel' } },
+         right: { column: 'rtc_owner',  label: 'RTC owners',     of: { table: { fn, set, field: 'rtc_owners' }, column: 'name' } },
+         also: [{ column: 'purchaser',    label: 'Purchasers',    of: { records: 'legal.title.owners', field: 'name' } },
+                { column: 'khata_holder', label: 'Khata holders', of: { table: { fn, set, field: 'khata_holders' }, column: 'name' } }],
+         agree: ['rtc_owner', 'purchaser', 'khata_holder'] }
+```
 
 **Viewers.** `viewer` on an `evidence` field is `pdf`, `image`, `drawing` or `deed`, each opening the paper in the app's own viewer, or `ifc`, which says the model is filed and not drawn yet.
 
@@ -104,6 +123,8 @@ A side's list is `{ records, field }` (a field of every record of a set), `{ tab
 | `proof` | `'required'`: cannot be typed without a paper cited. `'expected'`: can, and is listed as unproven |
 | `defaults` | Usual values that stand in as assumed |
 | `expires` | A date that runs out |
+| `dueFrom` | From when it is expected: a step of the project or a day. See Due and owed |
+| `owedBy` | Who owes it, where that is not the function's own people. See Due and owed |
 | `maxLength` | The cap on a `longtext` |
 | `retired`, `since` | No longer asked; the version that introduced it |
 
@@ -187,6 +208,8 @@ situations: [
 
 In order of preference: **derive** it from what is recorded, and nobody is asked; let a **paper propose** it (`proposeFrom.documentTypes`, or `proposeFrom.field` for a value recorded elsewhere), and a person says yes or no; or leave it for a person to set. A proposed situation brings nothing into play until accepted.
 
+`impliedBy` is for a situation a person sets that is also plainly true once something is recorded: it is in play, with nobody asked, whenever the condition holds, and nobody takes it out while it does. A field that holds a value is then never hidden by a situation nobody thought to switch on.
+
 ```ts
 type ShowWhen =
   | { situation: string }
@@ -208,6 +231,60 @@ A field hidden by its condition that still holds a value is kept, under "Recorde
 **Not applicable.** A person marks a field or a section not applicable with one of five reasons: not in this project, not at this stage, done by another party, exempt, no such paper. The reason is a key, never a sentence.
 
 **Usual values.** `defaults: [{ when?, value, from, cite }]` fills a field as `assumed`: it is said to be assumed, feeds what is worked out, needs nobody, and gives way the moment a value is typed or accepted. `cite` is required unless `from` is `'firm'`.
+
+## Due and owed
+
+Two attributes say when a field is the reader's to fill, and both keep the count honest.
+
+```ts
+{ key: 'title_opinion', label: 'Title opinion', kind: 'evidence', owedBy: 'advocate', dueFrom: 'acquisition' },
+{ key: 'possession_letter', label: 'Possession letter', kind: 'evidence', owedBy: { ref: 'seller' }, dueFrom: 'acquisition' },
+```
+
+- **`dueFrom`** is a step of the project (`opportunity_site`, `feasibility`, `acquisition`, `design`, `approvals`, `procurement`, `pre_construction`, `construction`, `testing_commissioning`, `completion`, `handover`, `operations`) or a day (`YYYY-MM-DD`). Before then the field shows and takes a value, and is neither counted nor listed as empty. An occupancy certificate's date is not missing during design.
+- **`owedBy`** is a role (`owner`, `advocate`, `authority`, `consultant`, `contractor`, `lender`, `buyer`) or `{ ref }`, the key of a `ref` field of the same set that links to a party: whoever that link names owes it. A field somebody else owes is never under Missing and never counted against the reader. It is listed under that party on the function's page ("Waiting on others") and as a line of the department's **Papers owed** list, on its Documents part. There is no page of its own.
+
+Only a must-field that a person fills can be owed.
+
+## Depth sheets
+
+When one row needs a dozen more fields, they do not join the row. They are a **depth sheet**: a small sheet declared on the set, opened from the holder that needs it and from nowhere else.
+
+```ts
+{ id: 'legal.title.owners', fn: 'legal.title', title: 'Owners', v: 1,
+  records: { of: 'owner', titleField: 'name', summaryFields: ['share_pct', 'capacity'] },
+  fields: [ … ], rules: [],
+  sheets: [{
+    id: 'guardianship', title: 'Guardianship',
+    showWhen: { field: { fn: 'legal.title', set: 'legal.title.owners', field: 'capacity' }, is: 'equals', value: 'minor through a guardian' },
+    sections: [{ key: 'minor', label: 'The minor' }, { key: 'permission', label: 'The court’s permission' }],
+    fields: [ … at most twenty … ],
+    rules:  [ … read its own fields and the row's … ],
+  }] }
+```
+
+- It shows on the row as one line that says how full it is ("Guardianship · 2 of 2 recorded · 1 failing") only while its `showWhen` holds, read from that row. On a set that does not repeat, it opens from the sheet itself.
+- Its fields are kept on the holder it opens from, under their own keys. So a key in a depth sheet is never one of the set's own, and an address, a formula, a rule and a proposal name a depth field exactly as they name any field of the set.
+- Its trouble rolls up: a rule failing on it is a line under the function's Needs you that names the row, so nobody opens sheets to find what is wrong.
+- At most twenty fields in at most four sections, and no list inside that pairs or opens another. Function, row, sheet is the whole depth.
+
+## Needs you
+
+A function does not open on its form. It opens on five lines, in this order, each drawn only when it holds something, with its count and at most five of its lines until "Show all".
+
+| Line | Holds | Why it is in this place |
+|---|---|---|
+| **Decide** | Two values in dispute; a situation a paper proposes | A situation changes what every later line holds, and a dispute blocks a report |
+| **Accept** | Values offered and waiting, with "Accept all" for each paper that offered more than one | The cheapest act with the largest effect |
+| **Failing** | A rule firing at high or critical; a day that has run out; a pairing whose names differ | Needs judgement, best made once the values under it are settled |
+| **Due soon** | A day within its `expires.leadDays`; a rule at medium; a standing whose tone is a warning | Can wait a day |
+| **Missing** | A must-field the function's own people owe that holds nothing; a thing with no counterpart in a match | Last, because most of it is cured by filing a paper |
+
+Not on the card: expert fields; fields before their `dueFrom`; what another party owes (one quiet line, "Waiting on others"); usual values standing in (one quiet line); a rule at low, which is said on the sheet it is about.
+
+A lead or signer may **put a line under Due soon off** until a day they name, at most ninety days ahead. It comes back on that day, or at once if it starts failing. Nothing else can be put off. `readFunctionFields(project, fn)` returns the five lines as `needs`, what is put off as `snoozed`, and what others owe as `waitingOn`.
+
+On a phone the card is the first screen of the function. On a laptop it is the first card on the function's page.
 
 ## Rules
 
@@ -264,6 +341,13 @@ Add rows in a file of your own beside `field-sets/rule-rows.ts` and register it 
 
 What differs by state and is not a rate (form numbers, the size of a ground) is in `field-sets/state-packs.ts`, keyed by state, Karnataka first.
 
+## A check's fields
+
+Every check's fields are in the catalog under the check definition's id, and are read, offered and decided through the same functions as a sheet's.
+
+- **When they are asked.** `check-conditions.ts` gives a check the condition all its fields wait on, and declares the situations those conditions name for the function the check sits in. The four valuation input checks open by approach this way: `comparable_approach`, `cost_approach`, `income_approach`, `residual_approach`, each in play once a person says so or once one of its inputs is recorded (`impliedBy`). The check's screen does not draw a field that is not asked, folds an expert one, and keeps one that holds a value while not asked under "Recorded, not asked for now" (`checkFieldsShown`). Add a condition to a check there; never in the check's schema.
+- **How a value waits.** Once. A value offered for a check's field, by a paper's reading or by a model naming the field, is kept on a card of that check's values and read on the field as `proposed`, with its page and words (`check-waiting.ts`). Accepting or setting aside the field settles the card; settling the card settles the field. A value the field already holds, one already waiting for it, and one a person set aside there are not offered again by either door.
+
 ## Papers: how a value is offered
 
 A field that a kind of paper states names that kind:
@@ -277,7 +361,9 @@ A field that a kind of paper states names that kind:
 
 `fromTypes` are the register's document types as it writes them (the labels in `document-parse.ts`: "Sale deed", "Encumbrance certificate", "DC conversion order", …). When a paper of one of those kinds is read, each value that stands on the paper is offered to every field naming its kind, with the page and the paper's words, and waits there for a person. A value for a set of records with no record named makes one new record, which is nothing until one of its values is accepted.
 
-The model's tools are `get_fields({ fn })` and `propose_field_values({ values: [{ address, value, origin }] })`. A proposal is refused without a source, for a choice not on the list, for a link to something not on the project, and for any field that is computed, a status, a mirror or prose.
+The model's tools are `get_fields({ fn })` and `propose_field_values({ values: [{ address, value, origin }] })`. A proposal is refused without a source, for a choice not on the list, for a link to something not on the project, and for any field that is computed, a status, a mirror or prose. On a check, a field whose `proof` is `'required'` takes a value only from a paper on the project.
+
+The copilot is told the rule in one paragraph (`FIELD_RULE` in `packages/agents/src/agents/project-copilot.ts`): it reads values off papers with the page and the paper's words, looks up named public sources with the date read, maps each value to a field key from the list `get_fields` gave it, and writes no prose into any field. `get_fields` also says of each field whether it is on a depth sheet, not yet due, or owed by another party, so the model does not ask a person for those.
 
 ## What a value carries
 
@@ -296,6 +382,7 @@ Accepted, typed and assumed values stand. Typing over a value accepted from a pa
 
 - At most **twelve core fields** on a sheet. Past that: give a field a `showWhen`, fold it as `expert`, or make what repeats a set of records.
 - At most **twenty fields** on a record.
+- At most **twenty fields in four sections** on a depth sheet.
 - A table of more than **six columns**, or whose rows carry a status, a date that runs out or a paper, is a set of records.
 - A `situational` field has a `showWhen`, its own or its section's.
 - No statutory figure in a key or a label.
@@ -304,6 +391,38 @@ Accepted, typed and assumed values stand. Typing over a value accepted from a pa
 
 `catalogLimits()` reports each breach by field set; `catalogFaults()` reports what cannot work at all.
 
+## The firm's own fields
+
+The built-in catalog is code. A firm adds to it as data, with a narrow power (`firm-fields.ts`):
+
+- it **adds** fields to a built-in set, and lists for them to choose from. An added field is one a person fills (a line, a figure, an amount, a percentage, a date, a yes or no, a choice, bounded words), is never a must-field, and its key starts with `firm_`, which no built-in key does;
+- it **folds** a built-in field as expert;
+- it may not hide a built-in field, change what one holds, or take its key. The shape has no way to say any of those.
+
+A firm admin does this on **Set up › Fields**. The pack is kept at firm level, beside the firm's law-watch list, and every reader of a project's fields asks for the catalog through `fieldCatalogFor(project)`, which is the built-in catalog with that firm's pack laid over it. So never write `fieldCatalog()` where a project is in hand: the functions in `field-sheets.ts` take the firm's catalog by default. One firm's fields are never another's.
+
+Taking an added field away deletes nothing. What projects saved under its key stays on the sheet, under "No longer asked".
+
 ## Versions
 
-Preview and production share one store and nothing is migrated. So: never reuse or re-type a key; retire a field (`retired: true`) or an option in place of deleting it; raise `v` and mark new fields `since`. A value under a key your build has not heard of is kept through every save.
+Preview and production share one store and nothing is migrated. So: never reuse or re-type a key; retire a field (`retired: true`) or an option in place of deleting it; raise `v` and mark new fields `since`. A value under a key your build has not heard of is kept through every save, and is shown on its sheet as no longer asked (`SheetReading.unasked`). Do not start a built-in key with `firm_`.
+
+## Reading a field's value in code
+
+A stored value may be one that waits. Code that acts on a field reads it through `standingField`, `standingValues`, `withComputed`, `resolveFields`, `readSheet` or `standingFieldLines`, never from `check.fields` or a stored sheet's `values` directly. `test/field-readers.test.ts` reads the source and fails on a new direct read, with the list of the few that may and why.
+
+## Where the parts are
+
+| File (under `packages/shared/src/operating-model/`) | Holds |
+|---|---|
+| `field-sets/` | The field sets, the rule rows, the shared records and the state packs. One file per group of departments |
+| `field-registry.ts` | The catalog: every set by id, the faults and the limits a catalog is held to |
+| `field-sheets.ts` | Reading a sheet and a function's page, Needs you, and every way a value gets in |
+| `check-fields.ts` | Kinds, validation, formulas, rules, what stands |
+| `check-conditions.ts` | When a check's fields are asked, and the situations checks answer to |
+| `check-waiting.ts` | The one way a value waits for a check's field |
+| `firm-fields.ts` | A firm's overlay, and the catalog for a project's firm |
+| `field-charts.ts` | A table's rows shaped for its chart |
+| `rule-tables.ts`, `units.ts` | Dated figures a law sets; units and money |
+
+The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets, records and depth sheets) over `CheckFields.tsx`, which draws every kind of field.

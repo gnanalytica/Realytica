@@ -456,6 +456,49 @@ export interface Situation {
   proposeFrom?: { documentTypes?: string[]; field?: FieldAddress };
   /** Where it follows from what is recorded, nobody is asked: it is in play exactly when this holds ("more than one owner"). */
   derive?: ShowWhen;
+  /**
+   * Also in play, with nobody asked, whenever this holds: an approach whose
+   * rate is already recorded. A person may still put it in play before then;
+   * while this holds nobody takes it out.
+   */
+  impliedBy?: ShowWhen;
+}
+
+/** Who a field's value is waited on from, where it is not the reader's own department: a role on the project. */
+export type OwedRole = 'owner' | 'advocate' | 'authority' | 'consultant' | 'contractor' | 'lender' | 'buyer';
+
+export const OWED_ROLE_LABEL: Record<OwedRole, string> = {
+  owner: 'The owner',
+  advocate: 'The advocate',
+  authority: 'The authority',
+  consultant: 'The consultant',
+  contractor: 'The contractor',
+  lender: 'The lender',
+  buyer: 'The buyer',
+};
+
+/**
+ * Who owes a field's value: a role, or the party a `ref` field of the same
+ * holder links to (`{ ref: 'seller' }`). Absent, the function's own people
+ * owe it.
+ */
+export type OwedBy = OwedRole | { ref: string };
+
+/**
+ * A hard case's own small sheet, opened from the holder that needs it: a
+ * partition suit on a case, a guardian's permission on a minor owner. At most
+ * twenty fields in at most four sections, and no list inside. Its fields are
+ * kept on the holder it opens from, under their own keys, so a key here is
+ * never one of the set's own.
+ */
+export interface DepthSheet {
+  id: string;
+  title: string;
+  /** When the holder needs it, read from that holder. */
+  showWhen: ShowWhen;
+  fields: CheckFieldDef[];
+  rules: CheckInsightRule[];
+  sections?: FieldSection[];
 }
 
 /** When a field or a section shows. */
@@ -504,6 +547,8 @@ export interface FieldSet {
    * department's own facts about a party sit on the one party record.
    */
   extends?: string;
+  /** Hard cases, each a small sheet of its own opened from the holder that needs it (docs/fields.md, Depth sheets). */
+  sheets?: DepthSheet[];
 }
 
 /** Where a field's value stands with a person. */
@@ -560,6 +605,13 @@ export interface StoredFieldSheet {
   records?: FieldRecord[];
   /** Sections marked not applicable, each with the reason. */
   na?: Record<string, { reason: NaReason | string; note?: string; by: string; at: string }>;
+}
+
+/** A line under Due soon put off by a person until a day. It comes back that day, or sooner if it starts failing. */
+export interface FieldSnooze {
+  until: string;
+  by: string;
+  at: string;
 }
 
 /** Whether a situation is in play on a project, and who said so. */
@@ -696,10 +748,21 @@ export interface CheckFieldDef {
   viewer?: 'pdf' | 'image' | 'drawing' | 'deed' | 'ifc';
   /** `table` only: drawn as a timeline, as two columns matched, or as a chart. */
   display?: 'timeline' | 'match' | 'chart';
-  /** `display: 'match'`: the two lists paired. Whatever of either list no row pairs is left over, and needs a person. */
-  match?: { left: MatchSide; right: MatchSide };
-  /** `display: 'chart'`: the columns drawn. */
-  chart?: { x: string; y: string; mark?: 'bar' | 'line' };
+  /**
+   * `display: 'match'`: the lists paired. Whatever of any list no row pairs is
+   * left over, and needs a person. `also` adds further lists paired to the
+   * left one (a survey number to its RTC owner, its last purchaser and its
+   * khata holder). `agree` names the columns that should read the same on a
+   * row; a row where they differ needs a person too.
+   */
+  match?: { left: MatchSide; right: MatchSide; also?: MatchSide[]; agree?: string[] };
+  /**
+   * `display: 'chart'`: the columns drawn. `bar` is a bar for each row, `line`
+   * a line over the `x` column in its own order (dates in date order), and
+   * `stacked` one bar for each `x` built of the rows' `y` by their `stack`
+   * column.
+   */
+  chart?: { x: string; y: string; mark?: 'bar' | 'line' | 'stacked'; stack?: string };
   /** `computed` only: the formula gives a day, and the value is kept as a date. */
   yields?: 'date';
   /** `longtext`: the most a person may write. Required on a field set; 600 where a check leaves it out. */
@@ -720,6 +783,18 @@ export interface CheckFieldDef {
   expires?: { leadDays: number };
   /** Choices once offered and no longer. A value saved under one still reads; a new one is refused. */
   retiredOptions?: string[];
+  /**
+   * From when it is expected: a step of the project (`approvals`,
+   * `construction`, …) or a day (`YYYY-MM-DD`). Before then it shows, takes a
+   * value, and is neither counted nor listed as empty.
+   */
+  dueFrom?: LifecycleStage | string;
+  /** Who owes its value, where that is not the function's own people. It is then listed under that party, never as the reader's to fill. */
+  owedBy?: OwedBy;
+  /** The depth sheet it belongs to. Set by the catalog from `FieldSet.sheets`; never written in a field set. */
+  sheet?: string;
+  /** Added by the firm, not built in. Set by the firm's overlay. */
+  firm?: true;
 }
 
 /** Anything a caller may write into a field. Mirrors `CheckFieldValue['value']`. */
@@ -751,7 +826,9 @@ export interface CheckFieldValue {
   acceptedBy?: string;
   acceptedAt?: string;
   /** Other values stated for this field. One here waits beside the value held; with `state: 'disputed'` neither stands. */
-  other?: Array<{ value: CheckFieldValue['value']; origin: FieldOrigin; proposedBy?: string; at?: string; entered?: { value: number; unit: string; text?: string } }>;
+  other?: Array<{ value: CheckFieldValue['value']; origin: FieldOrigin; proposedBy?: string; at?: string; entered?: { value: number; unit: string; text?: string }; card?: string }>;
+  /** On a check: the card a value that waits is read from. Never stored: set when the check is read as a sheet (`check-waiting.ts`). */
+  card?: string;
   /** Values a person set aside here, so the same reading is not offered a second time. */
   declined?: Array<{ value: CheckFieldValue['value']; by: string; at: string }>;
   /** Why it does not apply, where `state` is `not_applicable`: one of five keys. A value saved with words of its own still reads. */
@@ -786,6 +863,8 @@ export interface CheckInsightRule {
   kind: 'compare' | 'before' | 'require' | 'require_if' | 'row_expired' | 'row_missing' | 'at_least' | 'at_most';
   /** The rule exists only while this holds. Read by a sheet; a check's own rules carry none. */
   when?: ShowWhen;
+  /** The depth sheet it belongs to. Set by the catalog from `FieldSet.sheets`; never written in a field set. */
+  sheet?: string;
   /** A key in `fields` that is another set's field, by its address: a rule may read another function. */
   at?: Record<string, FieldAddress>;
   /** `compare`, `at_least`, `at_most`: a figure in place of the second field. */
@@ -2556,6 +2635,8 @@ export interface DdProject {
   fieldSheets?: Record<string, StoredFieldSheet>;
   /** The situations in play, by key. A function's own is kept under `<fn>:<key>`. */
   situations?: Record<string, SituationState>;
+  /** Lines under Due soon a person put off, by the line's key. Absent on a project where nobody has. */
+  fieldSnoozes?: Record<string, FieldSnooze>;
   /** Reports signed by named professionals, each the figure of record for its workstream. */
   certifiedReports?: import('./certified').CertifiedReport[];
   /** Construction › Progress: the milestones the work reports against. */
