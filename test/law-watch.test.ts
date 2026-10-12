@@ -26,7 +26,24 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { LAW_WATCH_SEED, createProject, lawPageText, lawTextDiff, robotsDisallows, seededLawWatch, setTeamMember, type DdProject, type LawSource, type ProjectGrant } from '@realytica/shared';
+import {
+  LAW_TEXT_AT_MOST,
+  LAW_TEXT_CUT,
+  LAW_WATCH_SEED,
+  confirmLawChange,
+  createProject,
+  dismissLawChange,
+  lawPageText,
+  lawTextDiff,
+  robotsDisallows,
+  seededLawWatch,
+  setTeamMember,
+  type DdProject,
+  type LawChange,
+  type LawSource,
+  type LawWatchState,
+  type ProjectGrant,
+} from '@realytica/shared';
 
 const JWKS_URL = 'https://example.test/jwks-law';
 const ISSUER = 'https://securetoken.google.com/realytica-law';
@@ -428,6 +445,105 @@ describe('a person’s decision', () => {
   });
 });
 
+describe('a change that bears on two projects', () => {
+  let other: DdProject;
+  let changeId = '';
+  const HEARING = 'Circular 16 of 2026: public hearings for layouts above ten acres are to be held within the taluk from 1 December 2026.';
+  const watch = async (token: () => string) => (await call('GET', '/api/law-watch', { token: token() })).body;
+
+  before(async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { lawWatchCron } = await import('../apps/api/src/cron/law-watch');
+    other = createProject({ name: 'Canal Road homes', type: 'residential', location: 'Canal Road', city: 'Mysuru' }, 'RYT-LW2');
+    other.tenantId = tenantId;
+    // Led in Legal by somebody whose firm role lets them read and no more, and not by the lead of the first project.
+    setTeamMember(other, { email: 'vera@builders.example', departments: { legal: 'lead' } }, 'dev@builders.example');
+    setTeamMember(other, { email: 'lena@builders.example', departments: { legal: 'viewer', finance: 'viewer' } }, 'dev@builders.example');
+    store.data.projects!.push(other);
+    await store.save();
+    pages.set(PAGE, { status: 200, body: page([HEARING, NEW_LINE, ...FIRST.slice(0, 2), 'Notice: the office is closed on 2 November 2026 for a local holiday in the district.']) });
+    assert.deepEqual(await lawWatchCron(day(8)), { firms: 1, looked: 1, changed: 1, failed: 0 });
+    const shown = await watch(owner);
+    changeId = shown.waiting[0].id;
+    assert.deepEqual(shown.waiting[0].bearsOn.map((held: { name: string }) => held.name).sort(), ['Canal Road homes', 'Lake Road offices']);
+  });
+
+  it('is not decided by a lead whose firm role only reads: confirming and dismissing take somebody who may change a record', async () => {
+    assert.equal((await watch(viewer)).mayReview, true, 'the team list names them a lead');
+    for (const [route, body] of [['confirm', { summary: 'Hearings move to the taluk.', projects: [{ projectId: other.id, actions: [{ department: 'legal', title: 'Book the taluk office' }] }] }], ['dismiss', { why: 'Not ours' }]] as const) {
+      const answer = await call('POST', `/api/law-watch/changes/${changeId}/${route}`, { token: viewer(), body });
+      assert.equal(answer.status, 403, `${route}: ${JSON.stringify(answer.body)}`);
+    }
+    const shown = await watch(owner);
+    assert.deepEqual([shown.waiting.length, shown.waiting[0].decidedFor], [1, undefined]);
+    const { store } = await import('../apps/api/src/store');
+    assert.deepEqual(store.data.projects!.find((held) => held.id === other.id)!.actions, []);
+  });
+
+  it('is dismissed by one project’s lead for that project alone: it waits on for the other, whose lead was never asked', async () => {
+    const mine = (await watch(lead)).waiting[0];
+    assert.deepEqual([mine.mayDecide, mine.bearsOn.map((held: { name: string }) => held.name)], [true, ['Lake Road offices']]);
+    // They may put nothing on the project they do not lead.
+    const reaching = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: lead(), body: { summary: 'Hearings move to the taluk.', projects: [{ projectId: other.id, actions: [{ department: 'legal', title: 'Book the taluk office' }] }] } });
+    assert.equal(reaching.status, 403, JSON.stringify(reaching.body));
+
+    const dismissed = await call('POST', `/api/law-watch/changes/${changeId}/dismiss`, { token: lead(), body: { why: 'No layout on Lake Road' } });
+    assert.equal(dismissed.status, 200, JSON.stringify(dismissed.body));
+    const shown = await watch(owner);
+    assert.equal(shown.waiting.length, 1, 'the change still waits');
+    assert.deepEqual(
+      shown.waiting[0].decidedFor.map((held: { projectName: string; decision: string; by: string; why?: string }) => [held.projectName, held.decision, held.by, held.why]),
+      [['Lake Road offices', 'dismissed', 'lena@builders.example', 'No layout on Lake Road']],
+    );
+    assert.deepEqual(shown.waiting[0].bearsOn.map((held: { name: string }) => held.name), ['Canal Road homes'], 'and only the other project is still to decide');
+
+    // Their part is done: they are offered nothing more, and a second decision by them is refused.
+    const after = (await watch(lead)).waiting[0];
+    assert.deepEqual([after.mayDecide, after.bearsOn], [false, []]);
+    assert.equal((await call('POST', `/api/law-watch/changes/${changeId}/dismiss`, { token: lead(), body: {} })).status, 403);
+    assert.equal((await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: lead(), body: { summary: 'Again', projects: [] } })).status, 403);
+  });
+
+  it('is closed by a firm admin, who cannot put an action on the project already decided', async () => {
+    const twice = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: owner(), body: { summary: 'Hearings move to the taluk.', projects: [{ projectId: project.id, actions: [{ department: 'legal', title: 'Book the taluk office' }] }] } });
+    assert.equal(twice.status, 409, JSON.stringify(twice.body));
+    assert.match(twice.body.error, /decided for Lake Road offices already/);
+    assert.equal((await actionsOn()).length, 1, 'nothing more on the first project');
+
+    const closed = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: owner(), body: { summary: 'Hearings for layouts above ten acres move to the taluk from 1 December 2026.', projects: [{ projectId: other.id, actions: [{ department: 'legal', title: 'Book the taluk office for the hearing' }] }] } });
+    assert.equal(closed.status, 200, JSON.stringify(closed.body));
+    assert.equal(closed.body.waiting.length, 0);
+    const decided = closed.body.decided[0];
+    assert.deepEqual([decided.state, decided.decidedBy, decided.applied.map((held: { projectName: string }) => held.projectName)], ['confirmed', 'dev@builders.example', ['Canal Road homes']]);
+    const { store } = await import('../apps/api/src/store');
+    assert.deepEqual(store.data.projects!.find((held) => held.id === other.id)!.actions.map((action) => action.title), ['Book the taluk office for the hearing']);
+  });
+
+  it('is closed without an admin once the lead of every project it bears on has decided, and no action is put on a project twice', () => {
+    const a = createProject({ name: 'Mill Lane flats', type: 'residential', location: 'Mill Lane', city: 'Bengaluru' }, 'RYT-LW3');
+    const b = createProject({ name: 'Weir Road flats', type: 'residential', location: 'Weir Road', city: 'Bengaluru' }, 'RYT-LW4');
+    setTeamMember(a, { email: 'asha@builders.example', departments: { legal: 'lead' } }, 'dev@builders.example');
+    setTeamMember(b, { email: 'bala@builders.example', departments: { legal: 'lead' } }, 'dev@builders.example');
+    const source: LawSource = { id: 'src', title: 'Circulars', url: PAGE, jurisdiction: 'Karnataka', governs: 'Layouts', departments: ['legal'], projectKinds: [], everyDays: 1, addedBy: 'dev@builders.example', addedAt: day(0).toISOString() };
+    const change: LawChange = { id: 'chg', sourceId: 'src', sourceTitle: 'Circulars', url: PAGE, seenAt: day(0).toISOString(), diff: { added: [HEARING], removed: [], addedCount: 1, removedCount: 0 }, state: 'waiting' };
+    const state: LawWatchState = { v: 1, sources: [source], changes: [change] };
+    const asha = { email: 'asha@builders.example', role: 'staff' as const };
+    const bala = { email: 'bala@builders.example', role: 'staff' as const };
+    const act = (projectId: string) => ({ summary: 'Hearings move to the taluk.', projects: [{ projectId, actions: [{ department: 'legal' as const, title: 'Book the taluk office' }] }] });
+
+    confirmLawChange(state, 'chg', act(a.id), asha, [a, b], day(1).toISOString());
+    assert.deepEqual([change.state, a.actions.length, change.decidedFor!.map((held) => held.projectName)], ['waiting', 1, ['Mill Lane flats']]);
+    // The same confirmation again, as a look that wrote back an old list once let through: refused, and nothing added.
+    assert.throws(() => confirmLawChange(state, 'chg', act(a.id), asha, [a, b], day(1).toISOString()), /needs a firm admin/);
+    assert.throws(() => confirmLawChange(state, 'chg', act(a.id), bala, [a, b], day(1).toISOString()), /needs a firm admin/);
+    assert.equal(a.actions.length, 1);
+
+    dismissLawChange(state, 'chg', bala, 'No layout here', day(2).toISOString(), [a, b]);
+    assert.deepEqual([change.state, change.decidedBy, change.applied!.map((held) => [held.projectName, held.actionIds.length])], ['confirmed', 'bala@builders.example', [['Mill Lane flats', 1]]]);
+    assert.equal(b.actions.length, 0);
+  });
+});
+
 describe('a look with no model, and other kinds of page', () => {
   const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);
 
@@ -464,6 +580,43 @@ describe('a look with no model, and other kinds of page', () => {
     assert.equal(look.change!.proposal, undefined);
     assert.equal(state.changes.length, 1);
     assert.equal(modelAsked.length, asked);
+  });
+
+  it('keeps what a person decided, changed or took off the list while a look was under way', async () => {
+    const { lookAtLawSources, loadLawWatch, saveLawWatch } = await import('../apps/api/src/law-watch');
+    const admin = { email: 'dev@builders.example', role: 'owner' as const };
+    const waits = (id: string): LawChange => ({ id, sourceId: 'gazette', sourceTitle: 'Gazette', url: 'https://gazette.example.test/rules', seenAt: day(0).toISOString(), diff: { added: ['Rule 9 is new.'], removed: [], addedCount: 1, removedCount: 0 }, state: 'waiting' });
+    const gone: LawSource = { ...source('https://gazette.example.test/orders'), id: 'orders', title: 'Orders' };
+    await saveLawWatch('firm-mid-look', { v: 1, sources: [source('https://gazette.example.test/rules'), gone], changes: [waits('earlier'), waits('another')] });
+    let words = FIRST;
+    const { deps } = fake({
+      'https://gazette.example.test/rules': () => new Response(page(words), { status: 200, headers: { 'content-type': 'text/html' } }),
+      'https://gazette.example.test/orders': () => new Response(page(FIRST), { status: 200, headers: { 'content-type': 'text/html' } }),
+    });
+    assert.deepEqual([(await lookAtLawSources('firm-mid-look', day(1), { deps })).looked, (await loadLawWatch('firm-mid-look')).changes.length], [2, 2]);
+
+    // The next look finds a change. While it is fetching, an admin on another instance confirms one change, dismisses the other, renames the source and takes the second source off the list.
+    words = [...FIRST, NEW_LINE];
+    const meanwhile: typeof fetch = async (input, init) => {
+      if (String(input) === 'https://gazette.example.test/rules') {
+        const held = await loadLawWatch('firm-mid-look');
+        confirmLawChange(held, 'earlier', { summary: 'Rule 9 is new.', projects: [] }, admin, [], day(2).toISOString());
+        dismissLawChange(held, 'another', admin, 'Not ours', day(2).toISOString());
+        held.sources.find((one) => one.id === 'gazette')!.title = 'Gazette of the State';
+        held.sources = held.sources.filter((one) => one.id !== 'orders');
+        await saveLawWatch('firm-mid-look', held);
+      }
+      return deps.fetch(input, init);
+    };
+    const run = await lookAtLawSources('firm-mid-look', day(3), { deps: { ...deps, fetch: meanwhile } });
+    assert.deepEqual([run.looked, run.changed], [2, 1]);
+
+    const kept = await loadLawWatch('firm-mid-look');
+    assert.deepEqual(kept.changes.map((change) => [change.id === 'earlier' || change.id === 'another' ? change.id : 'new', change.state]), [['new', 'waiting'], ['earlier', 'confirmed'], ['another', 'dismissed']]);
+    assert.equal(kept.changes[0]!.diff.added[0], NEW_LINE, 'what the look found is kept beside them');
+    assert.deepEqual(kept.sources.map((one) => [one.id, one.title, one.lastReadAt]), [['gazette', 'Gazette of the State', day(3).toISOString()]], 'the source as the person left it, with what the look read');
+    // So a decision made meanwhile is made once: deciding it again is refused.
+    assert.throws(() => confirmLawChange(kept, 'earlier', { summary: 'Again', projects: [] }, admin, [], day(4).toISOString()), /confirmed already/);
   });
 
   it('reads a PDF through the PDF reader, follows a move to another https address, and refuses the rest', async () => {
@@ -518,6 +671,54 @@ describe('the rules a look rests on', () => {
     // A counter and a date in another script, on one line, as a ministry's footer writes them.
     assert.equal(lawPageText('<p>Rule 4 &amp; Rule 5</p><p>आगंतुक : 2347944 / अद्यतन: 12-10-2026</p>', 'html'), a);
     assert.equal(lawPageText('<p>Visitors to the site must register under Rule 9</p>', 'html'), 'Visitors to the site must register under Rule 9');
+  });
+
+  it('leaves out what a site serves afresh on every visit: a dated footer, a counter, a clock, in English and Hindi, wherever on the line it is', () => {
+    const read = (line: string): string => lawPageText(`<p>Rule 4 &amp; Rule 5</p><p>${line}</p>`, 'html');
+    for (const [monday, nextMonday] of [
+      ['Last Updated: 12 Oct 2026', 'Last Updated: 19 Oct 2026'],
+      ['Last Updated: Oct 12, 2026', 'Last Updated: Oct 19, 2026'],
+      ['Last updated on Monday, 12 October 2026', 'Last updated on Tuesday, 20 October 2026'],
+      ['Visitor Counter : 0012399', 'Visitor Counter : 0012456'],
+      ['You are visitor number 123999', 'You are visitor number 124001'],
+      ['Mon, 12 Oct 2026 11:01:09 IST', 'Mon, 19 Oct 2026 09:14:55 IST'],
+      ['अंतिम अद्यतन: 12 अक्टूबर 2026', 'अंतिम अद्यतन: 19 अक्टूबर 2026'],
+      ['अंतिम अद्यतन: सोमवार, 12 अक्तूबर 2026', 'अंतिम अद्यतन: मंगलवार, 3 नवंबर 2026'],
+      ['आगंतुक संख्या: 2347944', 'आगंतुक संख्या: 2348011'],
+    ] as const) {
+      assert.equal(read(monday), 'Rule 4 & Rule 5', monday);
+      assert.equal(read(nextMonday), 'Rule 4 & Rule 5', nextMonday);
+    }
+    // A footer with the owner's name before what is served keeps the name and nothing after it.
+    assert.equal(read('Content owned by the Ministry Last Updated: 12/10/2026 Visitors: 200'), 'Rule 4 & Rule 5\nContent owned by the Ministry');
+    assert.equal(read('Content owned by the Ministry | Last Updated: 19 Oct 2026 | Visitors: 311'), 'Rule 4 & Rule 5\nContent owned by the Ministry');
+    assert.deepEqual(lawTextDiff(read('Content owned by the Ministry Last Updated: 12/10/2026 Visitors: 200'), read('Content owned by the Ministry Last Updated: 19/10/2026 Visitors: 311')), { added: [], removed: [], addedCount: 0, removedCount: 0 });
+    // What states something is kept whole: a date with no served word beside it may be the day a rule was made.
+    for (const kept of ['12 October 2026', 'Notified on 12 October 2026', 'Hearing on Monday 12 October 2026 at the taluk office', 'Rules for visitors to eco-sensitive zones, 2026', 'The exhibits 12 and 14 are annexed', 'Guidelines last updated on 12 October 2026 apply to plots above 4,000 square metres', 'सोमवार 12 अक्टूबर 2026 को सुनवाई']) {
+      assert.equal(read(kept), `Rule 4 & Rule 5\n${kept}`, kept);
+    }
+  });
+
+  it('cuts a very long page at a whole line, says so, and reads nothing into the lines at the cut', () => {
+    const list = (from: number, to: number): string[] => Array.from({ length: to - from }, (_, n) => `Notification number ${from + n} regarding environmental clearance for a project in the district`);
+    const before = lawPageText(list(0, 9000).join('\n'), 'text');
+    assert.ok(before.length <= LAW_TEXT_AT_MOST);
+    const lines = before.split('\n');
+    assert.equal(lines.at(-1), LAW_TEXT_CUT, 'a page that goes on says so');
+    assert.match(lines.at(-2)!, /^Notification number \d+ regarding environmental clearance for a project in the district$/, 'and stops at a whole line');
+
+    // One line added at the top pushes lines past the cut: the one added is the change, and those are not.
+    const added = lawPageText(['A new notification is published at the head of the list', ...list(0, 9000)].join('\n'), 'text');
+    assert.deepEqual(lawTextDiff(before, added), { added: ['A new notification is published at the head of the list'], removed: [], addedCount: 1, removedCount: 0 });
+    // One line removed at the top brings lines into reach: the one removed is the change, and those are not.
+    const removed = lawPageText(list(1, 9000).join('\n'), 'text');
+    assert.deepEqual(lawTextDiff(before, removed), { added: [], removed: [list(0, 1)[0]], addedCount: 0, removedCount: 1 });
+    // A page kept before the cut was at a whole line stops mid-line at the limit: its half line is no change either.
+    const old = list(0, 9000).join('\n').slice(0, LAW_TEXT_AT_MOST);
+    assert.deepEqual(lawTextDiff(old, before), { added: [], removed: [], addedCount: 0, removedCount: 0 });
+    // A short page is not touched, and a change at its end is a change.
+    assert.equal(lawPageText('one\ntwo', 'text'), 'one\ntwo');
+    assert.deepEqual(lawTextDiff('one\ntwo', 'one\nthree'), { added: ['three'], removed: ['two'], addedCount: 1, removedCount: 1 });
   });
 
   it('calls a line that only moved no change', () => {

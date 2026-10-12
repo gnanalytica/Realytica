@@ -24,10 +24,12 @@
  * kept nothing is shown the list every firm starts with, and nothing is
  * written for it until a look or a person changes something.
  *
- * Two looks at once, on two instances, each write the whole list, and the
- * later write stands. The timer runs once a day and a second run finds
- * nothing due, so the window is a person pressing "Look now" while the timer
- * is mid-run.
+ * A look takes a while: pages are fetched and a model may be asked. So what
+ * it found is put onto the list as storage holds it when the look ends, not
+ * as it was when the look began: a change confirmed or dismissed meanwhile
+ * stays decided, and a source edited or taken off meanwhile stays as the
+ * person left it. Two looks ending in the same instant on two instances
+ * still each write the whole list, and the later write stands.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -308,16 +310,31 @@ export async function lookAtLawSources(tenantId: string, now: Date, opts: { only
   const state = await loadLawWatch(tenantId);
   const run: LawRun = { looked: 0, changed: 0, failed: 0 };
   const robots = new Map<string, string>();
+  const looked: Array<{ source: LawSource; change?: LawChange }> = [];
   // A model call made here is the firm's, though nobody is signed in: it is put on the firm's bill and no other.
   await withPrincipal({ subject: 'law-watch', email: 'law-watch', tenantId, role: 'viewer' }, async () => {
     for (const source of state.sources) {
       if (opts.only ? source.id !== opts.only : !lawSourceDue(source, now)) continue;
       const look = await lookAtLawSource(tenantId, state, source, now, deps, robots);
       run.looked += 1;
+      looked.push({ source, ...(look.change ? { change: look.change } : {}) });
       if (look.outcome === 'changed') run.changed += 1;
       if (look.outcome === 'failed') run.failed += 1;
     }
   });
-  if (run.looked) await saveLawWatch(tenantId, state);
-  return { ...run, state };
+  if (!run.looked) return { ...run, state };
+  // The list as it is kept now takes what the looks found. Anything a person did to it while they ran is theirs and stays.
+  const fresh = await loadLawWatch(tenantId);
+  for (const { source, change } of looked) {
+    const held = fresh.sources.find((one) => one.id === source.id);
+    // Taken off the list, or pointed at another page, since the look began: what was read is of a page no longer watched.
+    if (!held || held.url !== source.url) continue;
+    for (const key of ['lastLookAt', 'lastReadAt', 'lastError', 'hash', 'lastChangeAt'] as const) {
+      if (source[key] === undefined) delete held[key];
+      else held[key] = source[key];
+    }
+    if (change && !fresh.changes.some((one) => one.id === change.id)) keepLawChange(fresh, change);
+  }
+  await saveLawWatch(tenantId, fresh);
+  return { ...run, state: fresh };
 }

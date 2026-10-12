@@ -14,8 +14,10 @@
  * route: the list is the firm's, and a change names projects they may not
  * be on. The list is changed, and a look asked for, by a firm admin.
  * A change is confirmed or dismissed by a firm admin or by one of the firm's
- * people who leads a department on a project, and a lead puts actions only
- * where they lead (`mayApplyLaw`).
+ * people who leads a department on a project, where they may change a record
+ * at all. A lead decides only for the projects they lead: the change is then
+ * decided for those and waits on for the rest, until their leads decide too or
+ * a firm admin closes it.
  *
  * Confirming is the only thing here that writes to a project. Until then a
  * change, and whatever a model proposed for it, is on this page alone.
@@ -39,6 +41,7 @@ import {
   lawBearsOn,
   lawChangesShown,
   lawDepartmentsOn,
+  lawProjectsToDecide,
   mayApplyLaw,
   mayReviewLaw,
   reachesEveryProject,
@@ -108,14 +111,16 @@ function shown(req: Request, state: LawWatchState) {
     sources: state.sources,
     waiting: changes.waiting.map((change) => {
       const source = state.sources.find((held) => held.id === change.sourceId);
-      // The projects the source bears on, and for each the departments this person may put an action under.
+      // The projects the source bears on that nobody has decided it for, and for each the departments this person may put an action under.
+      const decided = new Set((change.decidedFor ?? []).map((held) => held.projectId));
       const bearsOn = source
         ? projects
-            .filter((project) => lawBearsOn(source, project))
+            .filter((project) => !decided.has(project.id) && lawBearsOn(source, project))
             .map((project) => ({ id: project.id, name: project.name, departments: lawDepartmentsOn(source, project).filter((key) => mayApplyLaw(me, project, key)) }))
             .filter((project) => project.departments.length)
         : [];
-      return { ...change, bearsOn };
+      // A firm admin closes it; a lead decides while a project they lead still waits.
+      return { ...change, bearsOn, mayDecide: can(me.role, 'admin') || lawProjectsToDecide(me, change, source, projects).length > 0 };
     }),
     decided: changes.decided,
     model: lawWatchModelSetUp(),
@@ -214,7 +219,7 @@ lawWatchRouter.get('/changes/:changeId/pages', async (req, res) => {
   res.json(await lawChangePages(me.tenantId, changeId.data));
 });
 
-lawWatchRouter.post('/changes/:changeId/confirm', async (req, res) => {
+lawWatchRouter.post('/changes/:changeId/confirm', needs('write'), async (req, res) => {
   const parsed = confirmBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Send the summary, and for each project the actions that apply.' });
@@ -241,7 +246,7 @@ lawWatchRouter.post('/changes/:changeId/confirm', async (req, res) => {
   res.json(shown(req, state));
 });
 
-lawWatchRouter.post('/changes/:changeId/dismiss', async (req, res) => {
+lawWatchRouter.post('/changes/:changeId/dismiss', needs('write'), async (req, res) => {
   const parsed = z.object({ why: z.string().trim().max(240).optional() }).safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Say why in a line, or send nothing.' });
@@ -254,7 +259,7 @@ lawWatchRouter.post('/changes/:changeId/dismiss', async (req, res) => {
   }
   const state = await loadLawWatch(me.tenantId);
   try {
-    dismissLawChange(state, req.params.changeId ?? '', reviewer(req), parsed.data.why, new Date().toISOString());
+    dismissLawChange(state, req.params.changeId ?? '', reviewer(req), parsed.data.why, new Date().toISOString(), firmProjects(me.tenantId));
   } catch (err) {
     refuse(res, err);
     return;
