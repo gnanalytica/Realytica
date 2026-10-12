@@ -179,10 +179,8 @@ async function copyStatic() {
 }
 
 async function writeConfig() {
-  // The deployment is this output and nothing inferred from the repository, so
-  // the cron jobs `vercel.json` declares are carried into it here: one place
-  // to edit a schedule, and the output never without it.
-  const { crons = [] } = JSON.parse(await fsp.readFile(path.join(root, 'vercel.json'), 'utf8'));
+  // The cron jobs stay in `vercel.json` alone: Vercel reads them from there
+  // for a prebuilt output too, and refuses a deployment that names one twice.
   await fsp.writeFile(
     path.join(outputDir, 'config.json'),
     `${JSON.stringify(
@@ -200,7 +198,6 @@ async function writeConfig() {
           // friends), which is not a file and must still load the app.
           { src: '/(.*)', dest: '/index.html' },
         ],
-        crons,
       },
       null,
       2,
