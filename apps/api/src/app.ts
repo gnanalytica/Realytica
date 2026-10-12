@@ -194,6 +194,7 @@ app.use('/api/work', workRouter);
 app.use('/api/tell', tellRouter);
 app.use('/api/portfolio', portfolioRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/law-watch', (await import('./routes/law-watch')).lawWatchRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
 // member's business and changing one is the workspace's — the router carries
 // that split per route rather than being gated wholesale here.

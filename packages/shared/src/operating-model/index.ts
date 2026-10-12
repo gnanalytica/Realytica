@@ -106,3 +106,4 @@ export * from './tell';
 export * from './connectors';
 export * from './analytics';
 export * from './file-sweep';
+export * from './law-watch';
