@@ -63,7 +63,7 @@ const WORKBOOK_AT_MOST_BYTES = 4 * 1024 * 1024;
  * for itself: a file can say anything about its own size. The zip's index is
  * walked with every offset checked, as `docx-outline` walks a Word file's.
  */
-function workbookMayBeOpened(zip: Buffer): void {
+export function workbookMayBeOpened(zip: Buffer): void {
   const tooLarge = () => new QuestionnaireTooLarge('That workbook is too large to open as a questionnaire: its sheets hold more than 4 MB. Save the sheet of questions as a file of its own and send that.');
   // End of central directory: the last 22 bytes, plus up to 64 KB of comment.
   let end = -1;
@@ -138,19 +138,17 @@ export async function readQuestionnaireFile(file: { originalname: string; buffer
 }
 
 /**
- * The sheet of a workbook that is the questionnaire: the one that names a
- * Question column, else the one with the most rows written. Each cell as it
- * is shown (`cell.text`), so a formula gives its result and a date its
- * written form.
+ * Every sheet of a workbook as rows of cells, under the sheet's name. Each
+ * cell as it is shown (`cell.text`). The same limit holds whatever the
+ * workbook is opened for.
  */
-async function readWorkbook(buffer: Buffer): Promise<ReadQuestionnaire> {
+export async function workbookSheets(buffer: Buffer): Promise<Array<{ name: string; rows: string[][] }>> {
   workbookMayBeOpened(buffer);
   const { default: ExcelJS } = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
   // exceljs is typed for an older Buffer than this Node's; the bytes are the same.
   await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
-  let best: (ParsedQuestionnaire & { named: boolean }) | undefined;
-  for (const sheet of workbook.worksheets) {
+  return workbook.worksheets.map((sheet) => {
     const rows: string[][] = [];
     sheet.eachRow({ includeEmpty: false }, (row) => {
       const cells: string[] = [];
@@ -159,6 +157,19 @@ async function readWorkbook(buffer: Buffer): Promise<ReadQuestionnaire> {
       });
       rows.push(Array.from(cells, (cell) => cell ?? ''));
     });
+    return { name: sheet.name, rows };
+  });
+}
+
+/**
+ * The sheet of a workbook that is the questionnaire: the one that names a
+ * Question column, else the one with the most rows written. Each cell as it
+ * is shown (`cell.text`), so a formula gives its result and a date its
+ * written form.
+ */
+async function readWorkbook(buffer: Buffer): Promise<ReadQuestionnaire> {
+  let best: (ParsedQuestionnaire & { named: boolean }) | undefined;
+  for (const { rows } of await workbookSheets(buffer)) {
     const parsed = parseQuestionnaireRows(rows);
     if (!best || (parsed.named && !best.named) || (parsed.named === best.named && parsed.questions.length > best.questions.length)) best = parsed;
   }

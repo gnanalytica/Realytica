@@ -130,7 +130,7 @@ const PANE_WORD: Partial<Record<ProjectCockpitPane, string>> = {
   assets: 'Phases and assets',
   reports: 'Reports',
   review: 'Review',
-  outgoing: 'Outgoing',
+  outgoing: 'Letters',
   drafts: 'AI drafts',
   orchestrate: 'Auto-run',
   people: 'People',
@@ -235,6 +235,15 @@ export function functionSections(key: string): string[] {
   return ['standing', ...(centre ? [centre] : []), 'checks', 'documents', 'connections'];
 }
 
+/**
+ * The function a department's checklist of papers is opened on: the first of
+ * its built functions laid out in parts, at its Documents part. A department
+ * with no such function has none.
+ */
+export function checklistFunction(department: DepartmentKey): string | undefined {
+  return departmentDefinition(department).workstreams.find((ws) => functionSections(ws.key).includes('documents'))?.key;
+}
+
 /* ==================================================================== */
 /* A sentence read as a place                                            */
 /* ==================================================================== */
@@ -330,6 +339,7 @@ const CENTRE_NAMES: Record<string, { after: string[]; alone: string[] }> = {
   chain: { after: ['chain'], alone: ['chain of title', 'title chain'] },
   approvals: { after: ['register'], alone: ['approvals register'] },
   progress: { after: ['milestones', 'board', 'site log'], alone: ['milestones', 'site log', 'progress board'] },
+  cost: { after: ['cost report', 'packages'], alone: ['cost report'] },
 };
 
 let VOCABULARY: Map<string, Target[]> | undefined;

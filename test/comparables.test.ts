@@ -201,7 +201,7 @@ describe('the register in the valuation', () => {
     const p = listed();
     const offer = valueOffers(p).find((o) => o.input === 'rate_per_sqm')!;
     assert.equal(offer.source.kind, 'comparables');
-    assert.equal(Math.round(offer.value), 52_500);
+    assert.equal(Math.round(Number(offer.value)), 52_500);
     assert.match(offer.basis, /All are asking prices with no listing discount set/);
     assert.equal(offer.with?.rate_basis, 'portal listings (asking prices)');
     const check = valueChecks(p, runValuationApproaches(p), valueSummary(p, runValuationApproaches(p))).find((c) => c.key === 'comparables')!;

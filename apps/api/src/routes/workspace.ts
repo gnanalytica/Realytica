@@ -10,6 +10,11 @@
  * PUT    /team/:email                     a person's role in each department
  * DELETE /team/:email
  * POST   /workstreams/:key/checks         put a workstream's checks on the project record
+ * POST   /checklist/import                load a checklist: pasted text, a CSV/TSV or an .xlsx
+ * POST   /checklist                       add one line
+ * PATCH  /checklist/:itemId               rename, move, mark in hand, confirm or refuse a match
+ * DELETE /checklist/:itemId
+ * POST   /checklist/requests              ask each party for everything it still owes
  * POST   /engagements                     a piece of work a client commissioned
  * PATCH  /engagements/:engagementId
  * POST   /certified/read                  propose a certified report from a document in the vault
@@ -18,11 +23,13 @@
  * POST   /milestones                      add milestones, or the usual set
  * PATCH  /milestones/:milestoneId
  * DELETE /milestones/:milestoneId
+ * POST   /milestones/import               bring a schedule in: a pasted table, CSV or Excel
  * POST   /cost-reports                    start a monthly Cost Report
  * PATCH  /cost-reports/:reportId          note / issue / reopen
  * POST   /cost-reports/:reportId/packages add a package row
  * PATCH  /cost-reports/:reportId/packages/:rowId
  * DELETE /cost-reports/:reportId/packages/:rowId
+ * PUT    /cost-reports/:reportId/change-reasons/:workPackageId  why a package moved since the last report
  * GET    /site                            the site app's view of the project
  * POST   /site-log                        a day's entry from site (idempotent on the phone's id)
  * POST   /site-log/photos                 photographs for an entry, before it is filed
@@ -62,16 +69,20 @@ import {
   costReportTotals,
   costSummary,
   importCostReportRows,
+  importSchedule,
   issueCostReport,
   parseCostReportTable,
+  parseScheduleTable,
   recordPayment,
   reopenCostReport,
+  replanMilestone,
   removeBill,
   removeContract,
   removeCostReportBasicPrice,
   removeCostReportPackage,
   removeCostReportVariation,
   setBillLines,
+  setCostReportChangeReason,
   setCostReportNote,
   setCostReportPhotos,
   startCostReport,
@@ -138,6 +149,19 @@ import {
   type ScopeKey,
   type DepartmentRole,
 } from '@realytica/shared';
+import {
+  addChecklistItem,
+  addChecklistItems,
+  CHECKLIST_LIMITS,
+  dismissChecklistMatch,
+  parseChecklist,
+  parseChecklistSheets,
+  patchChecklistItem,
+  raiseChecklistRequests,
+  receiveChecklistItem,
+  removeChecklistItem,
+  reopenChecklistItem,
+} from '@realytica/shared';
 import { decidesFor, viewFor } from '../auth/access';
 import { needs, principalOf } from '../auth/middleware';
 import { store } from '../store';
@@ -146,9 +170,10 @@ import { documentKey } from '../storage/types';
 import { graphAdapter } from '../graph';
 import { keepPageTexts } from '../documents/page-text';
 import { readOntoRegister } from '../documents/register-read';
-import { QUESTIONNAIRE_FILE_SAID, questionnairePdf, questionnaireXlsx, readQuestionnaireFile } from '../documents/questionnaire-file';
+import { QUESTIONNAIRE_FILE_SAID, QuestionnaireTooLarge, questionnairePdf, questionnaireXlsx, readQuestionnaireFile, workbookSheets } from '../documents/questionnaire-file';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 import { withSentFileName } from '../uploads';
+import { tableTextOf } from '../documents/table-file';
 
 type Params = { projectId: string };
 
@@ -494,7 +519,7 @@ projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:mil
     if (parsed.data.name) milestone.name = parsed.data.name;
     if (parsed.data.weight) milestone.weight = parsed.data.weight;
     if (parsed.data.plannedFinish === null) delete milestone.plannedFinish;
-    else if (parsed.data.plannedFinish) milestone.plannedFinish = parsed.data.plannedFinish;
+    else if (parsed.data.plannedFinish) replanMilestone(milestone, { plannedFinish: parsed.data.plannedFinish });
     milestone.updatedAt = new Date().toISOString();
     milestone.updatedBy = actor;
     touch(project);
@@ -518,6 +543,36 @@ projectWorkspaceRouter.delete<Params & { milestoneId: string }>('/milestones/:mi
   touch(project);
   await store.save();
   res.json({ project });
+});
+
+const scheduleUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1 } });
+
+/**
+ * Bring the project's schedule in from where it is kept. A milestone the
+ * sheet names again has its dates moved and its recorded progress never
+ * lowered; the rows that could not be read come back with the reason, and
+ * what was assumed in reading the sheet comes back as notes.
+ */
+projectWorkspaceRouter.post<Params>('/milestones/import', scheduleUpload.single('file'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  try {
+    const text = req.file ? await tableTextOf(req.file) : typeof req.body?.text === 'string' ? req.body.text : '';
+    if (!text.trim()) {
+      res.status(400).json({ error: 'Upload a CSV or Excel file, or paste the schedule.' });
+      return;
+    }
+    const { rows, skipped, notes } = parseScheduleTable(text);
+    const result = importSchedule(project, rows, actorOf(principalOf(req)));
+    if (result.added || result.updated) {
+      touch(project);
+      await store.save();
+    }
+    res.json({ project, ...result, skipped, notes });
+  } catch (err) {
+    failed(res, err, 'Could not import that schedule');
+  }
 });
 
 /* ==================================================================== */
@@ -692,6 +747,27 @@ projectWorkspaceRouter.delete<Params & { reportId: string; rowId: string }>('/co
   }
 });
 
+const costReportChangeReason = z.object({ reason: z.string().max(400).nullable() });
+
+projectWorkspaceRouter.put<Params & { reportId: string; workPackageId: string }>('/cost-reports/:reportId/change-reasons/:workPackageId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'edit')) return;
+  const parsed = costReportChangeReason.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the reason, or null to clear it.' });
+    return;
+  }
+  try {
+    setCostReportChangeReason(project, req.params.reportId, req.params.workPackageId, parsed.data.reason, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not save that reason');
+  }
+});
 
 const dayField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const signedMoney = z.number().finite().max(1e13);
@@ -1917,3 +1993,174 @@ projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidence
   }
 });
 
+/* ==================================================================== */
+/* The checklist                                                         */
+/* ==================================================================== */
+
+/**
+ * A checklist belongs to the department whose desk it was loaded on. It is
+ * the firm's own list of who owes what, so it is changed by the firm's
+ * people who may edit in that department, as the requests it raises are.
+ */
+function mayChangeChecklist(req: Request, res: Response, project: DdProject, department: DepartmentKey): boolean {
+  return staffOnly(req, res) && allowed(req, res, project, department, 'edit');
+}
+
+function checklistDepartment(project: DdProject, itemId: string): DepartmentKey {
+  return (project.checklist ?? []).find((i) => i.id === itemId)?.department ?? 'construction';
+}
+
+const checklistUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024, files: 1 }, fileFilter: withSentFileName });
+
+const checklistLabel = z.string().trim().max(CHECKLIST_LIMITS.label);
+const checklistLineSchema = z.object({
+  department: departmentSchema,
+  title: z.string().trim().min(1).max(CHECKLIST_LIMITS.title),
+  stage: checklistLabel.optional(),
+  package: checklistLabel.optional(),
+  owedBy: checklistLabel.optional(),
+  note: z.string().trim().max(CHECKLIST_LIMITS.note).optional(),
+});
+
+/** The lines of a list as it was sent: a workbook's sheets, a CSV or TSV file's rows, or text. */
+async function readChecklist(file: Express.Multer.File | undefined, pasted: string) {
+  if (!file) return parseChecklist(pasted);
+  const name = (file.originalname || '').toLowerCase();
+  if (name.endsWith('.xlsx')) {
+    try {
+      return parseChecklistSheets(await workbookSheets(file.buffer));
+    } catch (err) {
+      if (err instanceof QuestionnaireTooLarge) throw new Error('That workbook is too large to open: its sheets hold more than 4 MB.');
+      throw err;
+    }
+  }
+  if (!/\.(?:csv|tsv|txt|md)$/.test(name)) throw new Error('A checklist is read from an .xlsx, .csv, .tsv or .txt file, or from pasted text.');
+  return parseChecklist(file.buffer.toString('utf8'), { csv: name.endsWith('.csv') });
+}
+
+projectWorkspaceRouter.post<Params>('/checklist/import', checklistUpload.single('file'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const asked = departmentSchema.safeParse(req.body?.department ?? 'construction');
+  if (!asked.success) {
+    res.status(400).json({ error: 'No such department.' });
+    return;
+  }
+  if (!mayChangeChecklist(req, res, project, asked.data)) return;
+  try {
+    const drafts = await readChecklist(req.file as Express.Multer.File | undefined, typeof req.body?.text === 'string' ? req.body.text.slice(0, 400_000) : '');
+    if (!drafts.length) {
+      res.status(400).json({ error: 'No lines were found. Attach a file, or paste the list one paper to a line.' });
+      return;
+    }
+    const { added, skipped } = addChecklistItems(project, asked.data, drafts, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, added: added.length, skipped });
+  } catch (err) {
+    failed(res, err, 'Could not read that checklist');
+  }
+});
+
+projectWorkspaceRouter.post<Params>('/checklist', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = checklistLineSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Name the paper, and the department whose list it is on.' });
+    return;
+  }
+  const { department, ...draft } = parsed.data;
+  if (!mayChangeChecklist(req, res, project, department)) return;
+  try {
+    const item = addChecklistItem(project, department, draft, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, itemId: item.id });
+  } catch (err) {
+    failed(res, err, 'Could not add that line');
+  }
+});
+
+const checklistPatchSchema = z.object({
+  title: z.string().trim().min(1).max(CHECKLIST_LIMITS.title).optional(),
+  stage: checklistLabel.nullable().optional(),
+  package: checklistLabel.nullable().optional(),
+  owedBy: checklistLabel.nullable().optional(),
+  note: z.string().trim().max(CHECKLIST_LIMITS.note).nullable().optional(),
+  /** In hand by a person's word, with the document where one is named; `false` takes it back. */
+  received: z.boolean().optional(),
+  evidenceId: z.string().min(1).max(80).optional(),
+  /** A document that is not this paper. */
+  dismiss: z.string().min(1).max(80).optional(),
+});
+
+projectWorkspaceRouter.patch<Params & { itemId: string }>('/checklist/:itemId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!mayChangeChecklist(req, res, project, checklistDepartment(project, req.params.itemId))) return;
+  const parsed = checklistPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send what changes on the line.' });
+    return;
+  }
+  const { received, evidenceId, dismiss, ...patch } = parsed.data;
+  const actor = actorOf(principalOf(req));
+  try {
+    if (Object.keys(patch).length) patchChecklistItem(project, req.params.itemId, patch, actor);
+    if (dismiss) dismissChecklistMatch(project, req.params.itemId, dismiss, actor);
+    if (received === false) reopenChecklistItem(project, req.params.itemId, actor);
+    else if (received || evidenceId) receiveChecklistItem(project, req.params.itemId, { evidenceId }, actor);
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not change that line');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { itemId: string }>('/checklist/:itemId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!mayChangeChecklist(req, res, project, checklistDepartment(project, req.params.itemId))) return;
+  try {
+    removeChecklistItem(project, req.params.itemId, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not remove that line');
+  }
+});
+
+const checklistAskSchema = z.object({
+  department: departmentSchema,
+  itemIds: z.array(z.string().min(1)).max(CHECKLIST_LIMITS.items).optional(),
+  /** Who is asked for the lines that name no party. */
+  recipient: z.string().trim().max(CHECKLIST_LIMITS.label).optional(),
+  dueAt: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
+});
+
+/** One tracked request to each party, for everything it owes that is missing and not yet asked for. */
+projectWorkspaceRouter.post<Params>('/checklist/requests', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = checklistAskSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say which department’s checklist, and a date as YYYY-MM-DD where one is given.' });
+    return;
+  }
+  if (!mayChangeChecklist(req, res, project, parsed.data.department)) return;
+  try {
+    const { requests, unassigned } = raiseChecklistRequests(project, parsed.data, actorOf(principalOf(req)));
+    if (requests.length) {
+      const papers = requests.reduce((n, r) => n + (r.checklistItemIds?.length ?? 0), 0);
+      noteProjectEdit(project, `Asked ${requests.length === 1 ? requests[0]!.recipient : `${requests.length} parties`} for ${papers} paper${papers === 1 ? '' : 's'} on the checklist.`, { actor: actorOf(principalOf(req)), citedNodeIds: requests.map((r) => r.id) });
+    }
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, requests: requests.map((r) => r.id), unassigned });
+  } catch (err) {
+    failed(res, err, 'Could not send those requests');
+  }
+});

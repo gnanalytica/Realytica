@@ -80,6 +80,8 @@ export interface CostReportPeriod {
   photoEvidenceIds?: string[];
   /** Plain callouts (contingency notes, etc.), not structured adjustments. */
   note?: string;
+  /** Why a package moved since the last report: one typed line, by work package id. See `cost-report-compare.ts`. */
+  changeReasons?: Record<string, string>;
   createdAt: string;
   createdBy: string;
   updatedAt: string;
@@ -277,11 +279,34 @@ export interface StartCostReportInput {
   to?: string;
   label?: string;
   note?: string;
-  /** Seed rows from the cost register's work packages. Default true. */
+  /** Seed rows from the last issued report, or the cost register's work packages on a first report. Default true. */
   seedPackages?: boolean;
 }
 
-/** Open a draft Cost Report for a month. */
+/** Cost Reports in the order of their periods; two for one period in the order they were started. */
+export const costReportPeriodOrder = (
+  a: Pick<CostReportPeriod, 'from' | 'to' | 'createdAt'>,
+  b: Pick<CostReportPeriod, 'from' | 'to' | 'createdAt'>,
+): number => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.createdAt.localeCompare(b.createdAt);
+
+/** The last Cost Report issued for a period before this one. */
+export function costReportIssuedBefore(
+  project: Pick<DdProject, 'costReports'>,
+  period: Pick<CostReportPeriod, 'from' | 'to' | 'createdAt'> & { id?: string },
+): CostReportPeriod | undefined {
+  return costReportsOf(project)
+    .filter((r) => r.id !== period.id && r.status === 'issued' && costReportPeriodOrder(r, period) < 0)
+    .sort(costReportPeriodOrder)
+    .at(-1);
+}
+
+/**
+ * Open a draft Cost Report for a month. It starts from the package rows of the
+ * last report issued for an earlier period, so nothing has moved until a
+ * figure is changed; the variation log and the typed reasons start empty. A
+ * package taken off the register since is left out. A project's first report
+ * starts from its work packages, with nothing ordered or paid.
+ */
 export function startCostReport(project: DdProject, input: StartCostReportInput, actor: string): CostReportPeriod {
   let from: string;
   let to: string;
@@ -298,7 +323,24 @@ export function startCostReport(project: DdProject, input: StartCostReportInput,
   const label = input.label?.trim() || costReportMonthLabel(from);
   const at = nowIso();
   const rows: CostReportPackageRow[] = [];
-  if (input.seedPackages !== false) {
+  const last = input.seedPackages !== false ? costReportIssuedBefore(project, { from, to, createdAt: at }) : undefined;
+  if (last) {
+    const onRegister = new Set(costRegister(project).workPackages.map((pack) => pack.id));
+    for (const held of last.rows) {
+      // A package taken off the register since is not carried: its row could not be kept in step with one.
+      if (!onRegister.has(held.workPackageId)) continue;
+      rows.push({
+        id: newId('crp'),
+        workPackageId: held.workPackageId,
+        ...(held.code ? { code: held.code } : {}),
+        name: held.name,
+        budget: held.budget,
+        poIssued: held.poIssued,
+        amountPaid: held.amountPaid,
+        anticipatedCost: held.anticipatedCost,
+      });
+    }
+  } else if (input.seedPackages !== false) {
     for (const pack of costRegister(project).workPackages) {
       const budget = pack.budget ?? 0;
       rows.push({
@@ -439,6 +481,44 @@ export function setCostReportNote(project: DdProject, reportId: string, note: st
   return report;
 }
 
+const REASON_AT_MOST = 240;
+
+/** Say in one line why a package moved since the last report, or take the line back with nothing. */
+export function setCostReportChangeReason(
+  project: DdProject,
+  reportId: string,
+  workPackageId: string,
+  reason: string | null,
+  actor: string,
+): CostReportPeriod {
+  const report = costReportOf(project, reportId);
+  assertDraft(report);
+  // A package taken off the register since the last report is still a line of what moved: "removed", and why.
+  const pack =
+    costRegister(project).workPackages.find((p) => p.id === workPackageId) ??
+    costReportIssuedBefore(project, report)?.rows.find((row) => row.workPackageId === workPackageId);
+  if (!pack) throw new Error('No work package by that id.');
+  const line = reason?.replace(/\s+/g, ' ').trim() ?? '';
+  if (line.length > REASON_AT_MOST) throw new Error(`A reason is one line of ${REASON_AT_MOST} characters at most.`);
+  const held = report.changeReasons?.[workPackageId];
+  const next = { ...report.changeReasons };
+  if (line) next[workPackageId] = line;
+  else delete next[workPackageId];
+  if (Object.keys(next).length) report.changeReasons = next;
+  else delete report.changeReasons;
+  report.updatedAt = nowIso();
+  report.updatedBy = actor;
+  recordAuditEvent(project, {
+    actor,
+    action: 'set_cost_report_change_reason',
+    entityType: 'cost_report',
+    entityId: report.id,
+    ...(held ? { oldValue: `${pack.name}: ${held}` } : {}),
+    newValue: line ? `${pack.name}: ${line}` : pack.name,
+  });
+  return report;
+}
+
 /** Freeze the period for print. Further figure edits are refused until reopened. */
 export function issueCostReport(project: DdProject, reportId: string, actor: string): CostReportPeriod {
   const report = costReportOf(project, reportId);
@@ -455,6 +535,7 @@ export function issueCostReport(project: DdProject, reportId: string, actor: str
   if (report.variations) report.variations = report.variations.map((v) => ({ ...v }));
   if (report.basicPriceAdjustments) report.basicPriceAdjustments = report.basicPriceAdjustments.map((v) => ({ ...v }));
   if (report.photoEvidenceIds) report.photoEvidenceIds = [...report.photoEvidenceIds];
+  if (report.changeReasons) report.changeReasons = { ...report.changeReasons };
   recordAuditEvent(project, {
     actor,
     action: 'issue_cost_report',

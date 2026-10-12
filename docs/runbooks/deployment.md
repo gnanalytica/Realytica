@@ -199,7 +199,7 @@ REALYTICA_MODEL_JUDGMENT=anthropic/claude-sonnet-4.5
 # reading; unset, the extraction model checks its own reading.
 REALYTICA_MODEL_PAGE_CHECK=google/gemini-3.8-flash
 
-# 4. Neo4j Aura, if you want the graph to persist across instances
+# 4. Neo4j Aura. Required on Vercel: the app will not boot there without the URL
 REALYTICA_NEO4J_URL=neo4j+s://xxxxxxxx.databases.neo4j.io
 REALYTICA_NEO4J_USER=xxxxxxxx        # NOT always "neo4j" — read the credentials file
 REALYTICA_NEO4J_PASSWORD=...
@@ -208,10 +208,32 @@ REALYTICA_NEO4J_DATABASE=xxxxxxxx    # omit only if the file says "neo4j"
 # 5. Google Maps, if you want site context
 REALYTICA_GOOGLE_MAPS_API_KEY=...
 
+# Optional models
+REALYTICA_MODEL_BASIC=...            # a free or cheap model the chat tries first; unset, there is no ladder
+REALYTICA_MODEL_TRANSCRIPTION=...    # puts a voice note into words; needs a gateway (REALYTICA_BASE_URL).
+                                     # On OpenRouter it defaults to openai/whisper-1. Straight to Anthropic there is none.
+
 # Optional switches
 REALYTICA_AGENT_WEB_SEARCH=1     # lets research and explorer reach the web
 REALYTICA_AGENTS_DISABLED=1      # turns the agent layer off entirely
+REALYTICA_AUTOMATIONS=on         # mounts /api/flows and lets saved flows fire. Off by default; the web app has no screen for flows.
+REALYTICA_CREDENTIAL_KEY=...     # with automations: 32 bytes, hex or base64 (openssl rand -base64 32), to seal stored credentials
+REALYTICA_FLOW_ALLOW_HOSTS=...   # with automations: private hosts a flow's http step may reach, comma-separated
+REALYTICA_OCR_PAGES_AT_ONCE=2    # OCR workers at once, 1 to 8; unset, one a processor and at most three
+
+# Requests a minute for each signed-in person, or for each address where nobody is signed in. These are the defaults.
+REALYTICA_RATE_LIMIT_API=600
+REALYTICA_RATE_LIMIT_MODEL=30
+REALYTICA_RATE_LIMIT_UPLOAD=60
+REALYTICA_RATE_LIMIT_PAIRING=10
+
+# Portal comparables (99acres, MagicBricks) through a scraping service. No REALYTICA_ prefix on these.
+UNBLOCKER_PROVIDER=zyte          # zyte, brightdata or oxylabs
+UNBLOCKER_API_KEY=...
 ```
+
+Who may change the prompt registry on a deployment with more than one
+workspace is `REALYTICA_OPERATORS`; see [auth.md](../auth.md#who-runs-the-deployment).
 
 **Vercel Blob sets its own variables.** Connect the store in the dashboard and
 it writes `BLOB_STORE_ID` (private store) or `BLOB_READ_WRITE_TOKEN` (public).
@@ -231,7 +253,7 @@ structurally cannot.
 |---|---|---|
 | **Vercel Blob** | the document BYTES — the scanned deed, the site photo | a graph database is not a file store |
 | **Project store** (JSON, in Blob) | the record: every document, check, approval, milestone, site entry, certified report and alert | a nested aggregate read whole; the graph is a projection OF this, so it cannot also be derived from it |
-| **Neo4j** | the project graph: stages, departments, workstreams, people and every record placed in them, and the links between departments | the only store that answers "what does this lapse reach", "who answers for it" and "what did we believe in March" |
+| **Neo4j** | the project graph: stages, departments, workstreams, people and every record placed in them, and the links between departments. Beside it and apart from it, the project's memory (see [architecture.md](../architecture.md#the-projects-memory)) | the only store that answers "what does this lapse reach", "who answers for it" and "what did we believe in March" |
 
 So Blob does not compete with Neo4j. It holds the files, and the record the
 graph is built from.
@@ -276,8 +298,40 @@ REALYTICA_EXPO_ACCESS_TOKEN=...          # optional; authenticates push sends
 
 Alerts go only to a department's lead and signer, and only for what is worth
 interrupting someone over: an approval expiring or lapsed, a certified report
-to revisit, work logged before it is allowed, a late milestone, a serious issue
-from site. Phones receive pushes once paired and allowed.
+to revisit, work logged before it is allowed, a milestone behind, likely to
+finish late or late, a serious issue
+from site, an action past its date (which also goes to the person it is on).
+Phones receive pushes once paired and allowed.
+
+### The daily timer
+
+```bash
+CRON_SECRET=...                  # 16 characters or more (openssl rand -hex 24). No REALYTICA_ prefix: Vercel reads this name itself.
+```
+
+Alerts are worked out when a project is saved, and once a day by a Vercel cron
+job: `crons` in `vercel.json` calls `GET /api/cron/alerts` at `30 1 * * *`,
+which is 01:30 UTC and 07:00 in India (on the Hobby plan, some time in that
+hour). It brings every project's alerts up to date and writes only the projects
+whose alerts moved, so a milestone that came due or an approval that lapsed on
+a day nobody opened the project is raised, mailed and pushed that morning.
+
+Set `CRON_SECRET` in the Vercel project for Production. Vercel sends it as
+`Authorization: Bearer <CRON_SECRET>` with each cron call, and the route answers
+401 to anything else, a deployment with no secret set included: without the
+variable the timer does nothing. Cron jobs run on the production deployment
+only, never on a preview. Vercel does not retry a failed call and may call
+twice, so a run is safe to repeat. To run it by hand:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://<your-app>/api/cron/alerts
+# {"projects":4,"changed":1,"raised":1,"resolved":0,"failed":0}
+```
+
+`failed` counts projects that could not be read or written; each is named in
+the function's log on a `[cron]` line and is taken up again by the next run.
+The schedule is edited in `vercel.json`; the build copies it into the
+deployment's `config.json`.
 
 ## Data generations
 
@@ -314,7 +368,7 @@ Two tags mark where the product stood:
 | Tag | Commit | What it is |
 |---|---|---|
 | `v1-final` | `7628f5a` (#55) | The due-diligence workspace before the v2 revamp |
-| `v2-demo` | `3cfae52` (#61) | v2, demo-ready with the Sobha pack in production |
+| `v2-demo` | `3cfae52` (#61) | v2, demo-ready with the demo project's documents in production |
 
 v1 predates data generations: it reads the store and uploads at the storage
 root, where its projects still are, and never reads `v2/`. So going back is a

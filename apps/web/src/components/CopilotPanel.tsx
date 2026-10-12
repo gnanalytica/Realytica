@@ -145,7 +145,7 @@ function TurnBubble({
         */}
         <div
           className={cn(
-            'max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-md px-3 py-1.5 text-[12.5px] leading-snug text-ink ring-1 ring-inset [overflow-wrap:anywhere]',
+            'max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-md px-3 py-1.5 text-[13px] leading-snug text-ink ring-1 ring-inset [overflow-wrap:anywhere]',
             // The plan's own colour for what the plan said, the person's for what they did.
             planStep ? 'bg-ai-soft/60 ring-ai/25' : 'bg-sunken ring-[var(--ring)]',
           )}
@@ -177,7 +177,7 @@ function TurnBubble({
           <div className="mb-1 flex items-center gap-1.5 text-mini font-semibold text-brand">
             <SearchX size={12} /> No answer — the evidence doesn&rsquo;t support one
           </div>
-          <p className="text-[12.5px] leading-snug text-ink">{turn.text}</p>
+          <p className="text-[13px] leading-snug text-ink">{turn.text}</p>
           <p className="mt-1 text-mini text-ink-secondary">
             That&rsquo;s a legitimate outcome, not an error — nothing on file backs a confident answer yet.
           </p>
@@ -1138,7 +1138,7 @@ export function CopilotPanel({
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.28, ease: EASE_ENTER, delay: 0.05 * i }}
                     className={cn(
-                      'group flex w-full items-center gap-2 rounded-lg bg-surface px-2.5 py-2 text-left text-[12.5px] text-ink-secondary shadow-card',
+                      'group flex w-full items-center gap-2 rounded-lg bg-surface px-2.5 py-2 text-left text-[13px] text-ink-secondary shadow-card',
                       'ring-1 ring-inset ring-[var(--ring)] transition-[color,box-shadow] duration-quick',
                       'hover:text-ink hover:shadow-tile hover:ring-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50',
                       'coarse:min-h-11',
@@ -1312,7 +1312,7 @@ export function CopilotPanel({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             className={cn(
-              'max-h-[9rem] min-h-[2.5rem] w-full resize-none bg-transparent px-3 pb-1 pt-2 text-[12.5px] leading-snug text-ink outline-none placeholder:text-ink-muted coarse:text-base',
+              'max-h-[9rem] min-h-[2.5rem] w-full resize-none bg-transparent px-3 pb-1 pt-2 text-[13px] leading-snug text-ink outline-none placeholder:text-ink-muted coarse:text-base',
             )}
             ref={composerRef}
           />

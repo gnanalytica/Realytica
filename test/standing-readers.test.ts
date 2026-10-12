@@ -108,6 +108,7 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   // An offer's own list of the values it was read from, by row and key. Not a paper's values.
   { file: 'packages/shared/src/operating-model/value-inputs.ts', has: 'rest.facts?.[0]?.key', why: 'names an offer by the first value it was read from' },
   { file: 'packages/shared/src/operating-model/value-inputs.ts', has: 'offer.facts ? { facts: offer.facts }', why: 'carries that list from one offer to the one made from it' },
+  { file: 'packages/shared/src/operating-model/value-inputs.ts', has: 'offer.facts?.[0]?.key ? { factKey: offer.facts[0].key }', why: 'writes beside an accepted project figure which value it was read from, by key, so the page can open it; the offer was made from `standingFacts`' },
   { file: 'packages/shared/src/operating-model/value-inputs.ts', has: 'for (const read of offer.facts ?? [])', why: 'accepts on its paper the value an accepted offer was read from, looked up through `standingFacts`' },
 ];
 

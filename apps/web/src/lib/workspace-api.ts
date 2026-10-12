@@ -13,6 +13,8 @@ import type {
   AnswerSource,
   CertifiedReadout,
   CertifiedReport,
+  ChecklistDraft,
+  ChecklistPatch,
   BillCertification,
   BillLine,
   CostBill,
@@ -38,6 +40,7 @@ import type {
   ObservationPatch,
   ProjectAlert,
   ProjectLink,
+  ScheduleSkippedRow,
   TeamMember,
 } from '@realytica/shared';
 import { fetchWithAuth, request } from './api';
@@ -112,6 +115,16 @@ export const workspaceApi = {
   removeMilestone: (projectId: string, milestoneId: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'DELETE' }),
 
+  importSchedule: (projectId: string, input: { file: File } | { text: string }) => {
+    type Imported = { project: DdProject; added: number; updated: number; unchanged: number; skipped: ScheduleSkippedRow[]; notes: string[] };
+    if ('file' in input) {
+      const body = new FormData();
+      body.append('file', input.file);
+      return request<Imported>(`/projects/${projectId}/milestones/import`, { method: 'POST', body });
+    }
+    return request<Imported>(`/projects/${projectId}/milestones/import`, json({ text: input.text }));
+  },
+
   startCostReport: (
     projectId: string,
     body: { month?: string; from?: string; to?: string; label?: string; note?: string; seedPackages?: boolean } = {},
@@ -165,6 +178,12 @@ export const workspaceApi = {
     request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(
       `/projects/${projectId}/cost-reports/${reportId}/packages/${rowId}`,
       { method: 'DELETE' },
+    ),
+
+  setCostReportChangeReason: (projectId: string, reportId: string, workPackageId: string, reason: string | null) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/change-reasons/${workPackageId}`,
+      { method: 'PUT', body: JSON.stringify({ reason }) },
     ),
 
   addCostReportVariation: (
@@ -406,6 +425,28 @@ export const workspaceApi = {
   revokeDevice: (id: string) => request<void>(`/devices/${id}`, { method: 'DELETE' }),
 
   sitePhotoUrl: (projectId: string, entryId: string, index: number) => `/api/projects/${projectId}/site-log/${entryId}/photos/${index}`,
+
+  /** Load a checklist onto a department's desk: an .xlsx, .csv, .tsv or .txt file, or the list pasted as text. */
+  importChecklist: (projectId: string, input: ({ file: File } | { text: string }) & { department: DepartmentKey }) => {
+    type Loaded = { project: DdProject; added: number; skipped: number };
+    if (!('file' in input)) return request<Loaded>(`/projects/${projectId}/checklist/import`, json(input));
+    const form = new FormData();
+    form.append('file', input.file);
+    form.append('department', input.department);
+    return request<Loaded>(`/projects/${projectId}/checklist/import`, { method: 'POST', body: form });
+  },
+
+  addChecklistItem: (projectId: string, body: ChecklistDraft & { department: DepartmentKey }) => request<{ project: DdProject; itemId: string }>(`/projects/${projectId}/checklist`, json(body)),
+
+  /** Change a line; `received` marks it in hand or takes that back, `evidenceId` names the document, `dismiss` refuses an offered one. */
+  patchChecklistItem: (projectId: string, itemId: string, body: ChecklistPatch & { received?: boolean; evidenceId?: string; dismiss?: string }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/checklist/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  removeChecklistItem: (projectId: string, itemId: string) => request<{ project: DdProject }>(`/projects/${projectId}/checklist/${itemId}`, { method: 'DELETE' }),
+
+  /** One request to each party for everything it still owes; `recipient` is asked for the lines that name nobody. */
+  askForChecklist: (projectId: string, body: { department: DepartmentKey; itemIds?: string[]; recipient?: string; dueAt?: string }) =>
+    request<{ project: DdProject; requests: string[]; unassigned: number }>(`/projects/${projectId}/checklist/requests`, json(body)),
 };
 
 /**

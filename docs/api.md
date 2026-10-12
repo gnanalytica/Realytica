@@ -33,12 +33,39 @@ Writes on a project need a role that allows them: workspace `write` capability f
 | POST | `/projects/:id/certified` | File it as the figure of record: `{ workstream, title, evidenceId, signer, issuedOn?, scope?, figure?, verdict?, conditions? }`. Needs a lead or signer in that department, and in the department that holds the document where filing it would move it. |
 | POST | `/projects/:id/certified/:reportId/acknowledge` | The lead or signer has seen the revisit flag |
 
+## Finance › Budget
+
+Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; the rows marked *decides* need a lead or signer, and answer 403 naming the department for anybody else. Each answers with the `project` and, for a cost report, `report` and `totals`; for the register, `summary`.
+
+| Method | Path | |
+|---|---|---|
+| POST | `/cost-reports` | Start a month's Cost Report: `{ month? }` (any day in it; this month when left out) or `{ from, to }`, `label?`, `note?`, `seedPackages?` (unless `false`, rows from the last report issued for an earlier period, or from the register's work packages when there is none) |
+| PATCH | `/cost-reports/:reportId` | `{ note?, photoEvidenceIds? }`, or `{ issue: true }` or `{ reopen: true }` (*decides*) |
+| POST | `/cost-reports/:reportId/packages` | A ledger row: `{ name, code?, workPackageId?, budget?, poIssued?, amountPaid?, anticipatedCost?, note? }` |
+| PATCH, DELETE | `/cost-reports/:reportId/packages/:rowId` | Change or remove a row |
+| PUT | `/cost-reports/:reportId/change-reasons/:workPackageId` | `{ reason }`: one line on why the package moved since the last issued report, or `null` to clear it. Draft only |
+| POST, PATCH, DELETE | `/cost-reports/:reportId/variations`, `…/variations/:variationId` | The variation log |
+| POST, PATCH, DELETE | `/cost-reports/:reportId/basic-prices`, `…/basic-prices/:lineId` | Basic price adjustments |
+| POST | `/cost-reports/:reportId/import` | Multipart `file` (.csv or .xlsx, 4 MB) or `text`, a pasted table → rows added or updated by code or name, with `added` and `updated` |
+| POST, PATCH | `/cost/contracts`, `/cost/contracts/:contractId` | `{ contractor, title, value, reference?, workPackageIds?, retentionPercent? }` |
+| DELETE | `/cost/contracts/:contractId` | *Decides.* Only while it has no bills |
+| POST | `/cost/bills` | `{ contractId, number, date, periodFrom?, periodTo?, statedTotal?, evidenceId?, lines? }` |
+| PUT | `/cost/bills/:billId/lines` | Replace a bill's lines |
+| POST | `/cost/bills/:billId/lines/:lineId/certify` | Pass an amount for one line: `{ amount, quantity?, note? }` |
+| POST | `/cost/bills/:billId/certify` | *Decides.* Issue the certificate: `{ signer: { email, profession, name?, registration? }, certifiedOn, deductions?, note?, evidenceId? }` |
+| POST | `/cost/bills/:billId/withdraw` | *Decides.* Withdraw the certificate: `{ reason? }` |
+| POST | `/cost/bills/:billId/payments` | `{ amount, paidOn, reference? }` |
+| POST | `/cost/bills/:billId/payments/:paymentId/void` | *Decides.* `{ reason }` |
+| DELETE | `/cost/bills/:billId` | *Decides.* Only while nothing on it is decided, certified or paid |
+
 ## Construction › Progress and the site app
 
 | Method | Path | |
 |---|---|---|
 | POST | `/projects/:id/milestones` | `{ template: true }` for the usual nine, or `{ rows: [{ name, weight, plannedFinish? }] }` |
 | PATCH, DELETE | `/projects/:id/milestones/:milestoneId` | `{ percent?, name?, weight?, plannedFinish? }` |
+| POST | `/projects/:id/milestones/import` | A schedule: multipart `file` (CSV, TSV or .xlsx, 4 MB) or `{ text }`, a header row then a row a milestone → `{ project, added, updated, unchanged, skipped: [{ line, name, reason }] }`. A milestone named again keeps its recorded progress. |
+| GET | `/cron/alerts` | The daily timer, outside sign-in: needs `Authorization: Bearer <CRON_SECRET>`, else 401. Brings every project's alerts up to date → `{ projects, changed, raised, resolved, failed }`. Safe to call twice. |
 | GET | `/projects/:id/site` | The site app's whole view: project, role, milestones, progress, construction gate, recent log, construction alerts |
 | POST | `/projects/:id/site-log/photos` | Multipart `photos` (up to 6, 4 MB each) → `{ photos: [{ storageKey, fileName, mimeType }] }` |
 | POST | `/projects/:id/site-log` | `{ clientId, date, weather?, manpower?, workDone?, milestoneUpdates?, issues?, photos?, point? }`. Idempotent on `clientId`: a resend answers 200 with `duplicate: true`. |
@@ -75,7 +102,9 @@ A device token reaches only `GET /projects`, `GET /projects/:id/site`, the site 
 
 ## The rest of a project
 
-Checks and their fields (`/checks/:checkId`, `/checks/:checkId/fields`), assessments (`/assessments`), the registers (`/evidence`, `/findings`, `/risks`, `/actions`, `/decisions`, `/requests`), site visits and placed sheets (`/visits`, `/sheets`), the Value tab (`/value`, `/value/accept`, `/value/set-aside`, `/valuation`, `/comparables`, `/screen`), reports and their blocks (`/reports`), the chat (`/chat`, `/chat/files`, proposals, undo), AI drafts and the orchestrator, the map (`/site-context`, `/gis-overlay`) and people on the project (`/people`). Each route file names its endpoints at the top: `apps/api/src/routes/`.
+Checks and their fields (`/checks/:checkId`, `/checks/:checkId/fields`), assessments (`/assessments`), the registers (`/evidence`, `/findings`, `/risks`, `/actions`, `/decisions`, `/requests`), site visits and placed sheets (`/visits`, `/sheets`), the Value tab (`/value`, `/value/accept`, `/value/set-aside`, `/valuation`, `/comparables`, `/screen`), reports and their blocks (`/reports`), the chat (`/chat`, `/chat/files`, `/chat/voice` for whether a voice note can be put into words here, proposals; an undo is a message to `/chat`), plans (`/plans`, `/plans/:planId`, `/plans/:planId/stop`), a meeting's notes (`/meetings/:meetingId/notes`), questionnaires and observations (`/questionnaires`, `/observations`), a department's checklist of papers (`/checklist`, `/checklist/import`, `/checklist/requests`), reading a photograph (`/photographs/read`), the review table (`/review`), letters and minutes (`/outgoing`), the project's memory (`/memory`, `/memory/lint`), AI drafts and the orchestrator, the map (`/site-context`, `/gis-overlay`) and people on the project (`/people`). Each route file names its endpoints at the top: `apps/api/src/routes/`.
+
+The owner pack has no endpoint of its own. Its page (`/projects/:id/owner-pack/print?month=YYYY-MM`, or `?from=&to=` as two days) reads `GET /projects/:id` and builds the pack in the browser with `ownerPack` from `packages/shared`, on request, from the project as the caller is handed it. Nothing builds or sends one on a timer.
 
 Deciding where a value read off a document stands needs a lead or signer in the department the value belongs to, and answers **403** with the department's name for anybody else, with nothing changed:
 
@@ -97,7 +126,8 @@ The chat takes only what the caller may decide and says in its reply what it lef
 
 | Method | Path | |
 |---|---|---|
-| GET | `/health` | Up, auth mode, graph store, upload limits — no sign-in |
-| GET, POST, PATCH | `/members` | Who is in the workspace; invite; the auto-join domain |
+| GET | `/health` | Up, the version, how many projects the instance holds, auth mode, graph store, upload limits — no sign-in |
+| GET, POST, PATCH, DELETE | `/members`, `/members/:email` | Who is in the workspace; invite; change a role or remove somebody; the auto-join domain |
 | GET | `/work` | What waits for me across projects |
 | GET | `/libraries` | The check library |
+| GET, POST, PUT, DELETE | `/libraries/review`, `/libraries/review/:itemId` | The workspace's saved asks and playbooks for the review table |

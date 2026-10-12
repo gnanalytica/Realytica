@@ -952,16 +952,12 @@ export interface AcceptedOffers {
 }
 
 /**
- * The valuation's inputs are Finance's. With `mayDecide`, a lead, signer or
- * contributor there may accept what the file offers or set it aside — the
- * figure on the desk, not a paper's own reading. Anybody else is refused
- * before anything changes. With nobody asking, nothing is refused.
+ * The valuation's inputs are Finance's. With `mayDecide`, accepting an offered
+ * value or setting one aside is a lead's or signer's there, and anybody else
+ * is refused before anything changes. With nobody asking, nothing is refused.
  */
 function assertMayDecideValue(mayDecide: MayDecide | undefined): void {
-  if (!mayDecide) return;
-  if (mayDecide('finance')) return;
-  if (mayDecide.roleIn?.('finance') === 'contributor') return;
-  throw decisionRefused('Deciding a value for the valuation', 'finance', mayDecide);
+  if (mayDecide && !mayDecide('finance')) throw decisionRefused('Deciding a value for the valuation', 'finance', mayDecide);
 }
 
 /**

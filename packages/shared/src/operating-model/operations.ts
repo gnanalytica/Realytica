@@ -1,6 +1,7 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { createEngagement, currentEngagement } from './engagements';
 import { reconcileRequests } from './project-requests';
+import { reconcileChecklistRequests } from './checklist';
 import { REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
@@ -186,6 +187,7 @@ export function refreshProjectDerived(project: DdProject): void {
   ensureProjectShape(project);
   // A request whose document has arrived is answered, whoever filed it.
   reconcileRequests(project);
+  reconcileChecklistRequests(project);
   project.health = deriveHealth(project);
   for (const action of project.actions) {
     if (action.status !== 'closed' && action.dueDate && action.dueDate < nowIso().slice(0, 10) && action.status !== 'overdue') {

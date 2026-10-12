@@ -19,9 +19,15 @@ export interface Milestone {
   weight: number;
   /** The phase or block it belongs to, when the project has phases. */
   assetId?: string;
+  /** The day work on it is planned to begin, when the schedule gives one. */
+  plannedStart?: string;
   plannedFinish?: string;
+  /** The planned finish it was first given, kept through later re-plans so the slip shows. */
+  baselineFinish?: string;
   /** 0..100, as last reported. */
   percent: number;
+  /** What was reported and on which day, one a day, oldest first: the rate a projected finish is read from. */
+  readings?: Array<{ on: string; percent: number }>;
   completedOn?: string;
   updatedAt: string;
   updatedBy: string;
@@ -83,17 +89,25 @@ export function addMilestones(project: DdProject, rows: ReadonlyArray<{ name: st
   const at = nowIso();
   const added = rows
     .filter((r) => r.name.trim() && r.weight > 0)
-    .map((r) => ({ id: newId('mil'), name: r.name.trim(), weight: r.weight, ...(r.assetId ? { assetId: r.assetId } : {}), ...(r.plannedFinish ? { plannedFinish: r.plannedFinish } : {}), percent: 0, updatedAt: at, updatedBy: actor }));
+    .map((r) => ({ id: newId('mil'), name: r.name.trim(), weight: r.weight, ...(r.assetId ? { assetId: r.assetId } : {}), ...(r.plannedFinish ? { plannedFinish: r.plannedFinish, baselineFinish: r.plannedFinish } : {}), percent: 0, updatedAt: at, updatedBy: actor }));
   project.milestones = [...(project.milestones ?? []), ...added];
   if (added.length) recordAuditEvent(project, { actor, action: 'add_milestones', entityType: 'milestone', entityId: project.id, newValue: added.map((m) => m.name).join(', ') });
   return added;
 }
 
-export function setMilestonePercent(project: DdProject, milestoneId: string, percent: number, actor: string, at = nowIso()): Milestone {
+/** How many days of readings a milestone keeps. */
+const READINGS_KEPT = 120;
+
+/**
+ * Record how far along a milestone is. `on` is the day the reading is of,
+ * which for a site entry filed late is the entry's day and not today.
+ */
+export function setMilestonePercent(project: DdProject, milestoneId: string, percent: number, actor: string, at = nowIso(), on = at.slice(0, 10)): Milestone {
   const m = (project.milestones ?? []).find((x) => x.id === milestoneId);
   if (!m) throw new Error('No milestone by that id.');
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new Error('Progress is a percentage between 0 and 100.');
   m.percent = Math.round(percent);
+  m.readings = [...(m.readings ?? []).filter((r) => r.on !== on), { on, percent: m.percent }].sort((a, b) => a.on.localeCompare(b.on)).slice(-READINGS_KEPT);
   m.updatedAt = at;
   m.updatedBy = actor;
   if (m.percent === 100 && !m.completedOn) m.completedOn = at.slice(0, 10);
@@ -139,7 +153,7 @@ export function logSiteEntry(project: DdProject, input: SiteLogInput, author: st
     ...(input.voiceNote ? { voiceNote: input.voiceNote } : {}),
     createdAt: at,
   };
-  for (const u of entry.milestoneUpdates) setMilestonePercent(project, u.milestoneId, u.percent, author, at);
+  for (const u of entry.milestoneUpdates) setMilestonePercent(project, u.milestoneId, u.percent, author, at, entry.date);
   project.siteLog = [...(project.siteLog ?? []), entry];
   recordAuditEvent(project, { actor: author, action: 'site_log', entityType: 'site_log', entityId: entry.id, newValue: `${entry.date}: ${entry.workDone.slice(0, 120)}` });
   return { entry, duplicate: false };

@@ -35,6 +35,7 @@ import { useMe } from '../../lib/useMe';
 import { useRoster } from '../../lib/useRoster';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
+import { LETTERS_PART } from './cockpit/rail';
 
 /** A thing that waits for a person: blue, the colour of what is proposed and not yet accepted. */
 const WAITING = 'bg-provenance/10 text-provenance-ink ring-1 ring-inset ring-provenance/25';
@@ -161,7 +162,7 @@ export default function OutgoingPage({ embedded = false }: { embedded?: boolean 
         if (live) apply(shown);
       })
       .catch((e: unknown) => {
-        if (live) setFailed(e instanceof Error ? e.message : 'Outgoing could not be opened');
+        if (live) setFailed(e instanceof Error ? e.message : `${LETTERS_PART.label} could not be opened`);
       });
     return () => {
       live = false;
@@ -255,14 +256,14 @@ export default function OutgoingPage({ embedded = false }: { embedded?: boolean 
   if (own === false) {
     return (
       <Card>
-        <EmptyState icon={<Send size={18} />} title="Outgoing is for the firm’s own people" description="Drafts of what the firm sends are not shared with somebody working from a grant on one project." />
+        <EmptyState icon={<Send size={18} />} title={`${LETTERS_PART.label} are for the firm’s own people`} description="Drafts of what the firm sends are not shared with somebody working from a grant on one project." />
       </Card>
     );
   }
   if (failed) {
     return (
       <Card>
-        <EmptyState icon={<Send size={18} />} title="Outgoing could not be opened" description={failed} action={<Button onClick={() => setTries((n) => n + 1)}>Try again</Button>} />
+        <EmptyState icon={<Send size={18} />} title={`${LETTERS_PART.label} could not be opened`} description={failed} action={<Button onClick={() => setTries((n) => n + 1)}>Try again</Button>} />
       </Card>
     );
   }

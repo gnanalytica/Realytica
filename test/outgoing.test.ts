@@ -373,7 +373,7 @@ describe('asked for in the chat', () => {
     const draft = p.outgoing![0]!;
     assert.deepEqual([draft.kind, draft.to, draft.subject, draft.asked], ['rfi', 'The architect', 'Request for information: revised drawings', 'draft an RFI to the architect on the revised drawings']);
     assert.deepEqual(went, [['outgoing', 'Drafted a request for information', draft.id]]);
-    assert.match(out.assistantText, /^Drafted a request for information to the architect as RYT-0042\/OUT\/1\. It is open in Outgoing\./);
+    assert.match(out.assistantText, /^Drafted a request for information to the architect as RYT-0042\/OUT\/1\. It is open in Letters\./);
     assert.match(out.assistantText, /nothing goes out until a lead or a signer approves it\.$/);
   });
 

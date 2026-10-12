@@ -1959,6 +1959,8 @@ export interface ProjectRequest {
   /** The document that answered it. */
   answeredByEvidenceId?: string;
   answeredAt?: string;
+  /** The checklist lines one request covers, when it was raised from a checklist: everything one party owes. */
+  checklistItemIds?: string[];
   createdAt: string;
   createdBy: string;
   updatedAt: string;
@@ -1982,6 +1984,8 @@ export interface DdProject {
   engagements?: import('./engagements').Engagement[];
   /** What the file is waiting on, and from whom. */
   requests?: ProjectRequest[];
+  /** The project's own checklist of papers, loaded from a list somebody sent. Absent on a project that has none. */
+  checklist?: import('./checklist').ChecklistItem[];
   /** The lists of questions a due diligence put to the building, with their answers. */
   questionnaires?: import('./questionnaire').Questionnaire[];
   /** One-off data migrations already applied to this stored project. */

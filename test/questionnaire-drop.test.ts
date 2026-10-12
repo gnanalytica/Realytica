@@ -269,7 +269,8 @@ describe('a questionnaire dropped in the chat', () => {
   it('is taken in and not filed as a paper, answered from what stands, and said in the reply with where it is', async () => {
     const { p } = withDeed();
     await seeded(p);
-    const lines = await drop(p.id, [['Queries on title.xlsx', await workbook(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']]);
+    const book = await workbook();
+    const lines = await drop(p.id, [['Queries on title.xlsx', book, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']]);
     const result = lines.find((l) => l.type === 'result')!;
     const project = result.project as DdProject;
     assert.equal(project.evidence.filter((e) => e.attachments.length).length, 0, 'no row on the register: it is not a paper');
@@ -287,7 +288,7 @@ describe('a questionnaire dropped in the chat', () => {
     const sheet = project.questionnaires![0]!;
     assert.ok(sheet.fileKey, 'the questionnaire keeps the key of its file');
     const sent = await fetch(`${base}/api/projects/${p.id}/questionnaires/${sheet.id}/file`);
-    assert.deepEqual([sent.status, (await sent.arrayBuffer()).byteLength], [200, (await workbook()).length]);
+    assert.deepEqual([sent.status, (await sent.arrayBuffer()).byteLength], [200, book.length]);
   });
 
   it('takes in a sheet of questions about a sale deed as a questionnaire, and files no sale deed', async () => {

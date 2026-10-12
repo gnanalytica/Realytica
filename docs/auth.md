@@ -123,7 +123,7 @@ REALYTICA_AUTH_BOOTSTRAP_EMAILS=you@yourfirm.in,partner@yourfirm.in
 ```
 
 Anybody else is refused with *"You are not a member of this workspace"* until
-an admin invites them under **Workspace** in the sidebar. An invite is a row
+an admin invites them under **People** in the sidebar. An invite is a row
 against an email address; no email is sent, and the person claims it by signing
 in with that address. From then on their provider subject is what matches — an
 email can be reassigned inside a company, a subject cannot, so a later invite
@@ -283,6 +283,13 @@ above applies to them unchanged.
 | **Contributor** | ✓ | |
 | **Viewer** | | |
 
+In Finance › Budget the same two columns hold. A lead, contributor or signer
+starts a Cost Report, fills its ledger, adds a contract or a bill, passes a
+line and records a payment. Issuing or reopening a Cost Report, issuing or
+withdrawing a bill's certificate, voiding a payment and removing a bill or a
+contract need a lead or signer in Finance, and answer 403 for anybody else
+(`allowed` in `routes/workspace.ts`).
+
 ### Who decides what a document states
 
 Reading a document proposes values; a person decides where each one stands.
@@ -438,7 +445,8 @@ them, for somebody who may.
 - Set `REALYTICA_AUTH_BOOTSTRAP_EMAILS` **before** the first deploy, not after.
 - `/api/health` and `POST /api/devices/claim` are the only unauthenticated
   routes. Health reports the auth mode so the web app knows whether to show the
-  door, and nothing else about the deployment; claim trades a pairing code for
+  door, and with it the version, how many projects the instance holds, which
+  graph store answers and the upload limits; claim trades a pairing code for
   a phone's token, ten tries a minute per address.
 - The token lives in `localStorage`, which is the accepted trade for a
   single-page app with no server session. It is short-lived — Google issues an

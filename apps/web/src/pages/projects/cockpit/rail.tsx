@@ -126,6 +126,9 @@ export const SECTIONS: CockpitSection[] = [
   { key: 'graph', label: 'Graph', icon: Waypoints, home: 'graph', tabs: [{ pane: 'graph', label: 'Graph', icon: Waypoints }] },
 ];
 
+/** What the firm sends has no tab of its own: it is a part of the Reports page, under this heading, and the chat calls it by the same word. */
+export const LETTERS_PART = { pane: 'outgoing', label: 'Letters' } as const;
+
 /*
  * The menu's own words (the five departments, a department's one word, a
  * function's one word, and which menu department a department sits under)

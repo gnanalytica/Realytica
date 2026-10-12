@@ -361,7 +361,7 @@ describe('a draft to send asked for as an email', () => {
     for (const said of ['Draft an email to the architect asking for the as-built drawings', 'Please write an e-mail to the architect about the fire NOC']) {
       const out = applyProjectChat(p, said);
       assert.deepEqual(out.assistantTurn.toolCalls?.map((call) => call.name), ['outgoing_draft'], said);
-      assert.match(out.assistantTurn.text, /^Drafted a letter to the architect as RYT-CR4\/OUT\/\d\. It is open in Outgoing\./, said);
+      assert.match(out.assistantTurn.text, /^Drafted a letter to the architect as RYT-CR4\/OUT\/\d\. It is open in Letters\./, said);
       assert.equal(out.navigations.at(-1)?.target, 'outgoing');
     }
     assert.equal(p.outgoing?.length, 2);
@@ -373,7 +373,7 @@ describe('a draft to send asked for as an email', () => {
     for (const said of ['Draft a quick email to the lender answering their questions', 'Please draft a brief letter to the bank about the open questions', 'Write a short formal letter to the architect about the fire NOC']) {
       const out = applyProjectChat(p, said);
       assert.deepEqual(out.assistantTurn.toolCalls?.map((call) => call.name), ['outgoing_draft'], said);
-      assert.match(out.assistantTurn.text, /^Drafted a letter to the (?:lender|bank|architect)\b.* as RYT-CR5\/OUT\/\d\. It is open in Outgoing\./, said);
+      assert.match(out.assistantTurn.text, /^Drafted a letter to the (?:lender|bank|architect)\b.* as RYT-CR5\/OUT\/\d\. It is open in Letters\./, said);
       assert.ok(wantsDeterministicProjectChat(p, said), said);
     }
     assert.equal(p.outgoing?.length, 3);

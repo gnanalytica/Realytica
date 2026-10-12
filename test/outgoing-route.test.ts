@@ -168,7 +168,7 @@ describe('a reply asked for in the chat', () => {
     const result = lines.find((line) => line.type === 'result')!;
     const draftId = result.navigations.find((go: { target: string }) => go.target === 'outgoing')?.item as string;
     const made = (result.project.outgoing as OutgoingDraft[]).find((draft) => draft.id === draftId)!;
-    assert.match(result.assistantTurn.text, new RegExp(`^Drafted a reply to “Contractor’s letter on the delay” as ${project.reference}/OUT/1\\. It is open in Outgoing\\. 2 statements rest on the record, and 3 are the drafter’s own to check\\.`));
+    assert.match(result.assistantTurn.text, new RegExp(`^Drafted a reply to “Contractor’s letter on the delay” as ${project.reference}/OUT/1\\. It is open in Letters\\. 2 statements rest on the record, and 3 are the drafter’s own to check\\.`));
     assert.match(result.assistantTurn.text, /nothing goes out until a lead or a signer approves it\.$/);
     assert.deepEqual([made.kind, made.to, made.status, made.written], ['reply', 'The contractor', 'draft', 'model']);
 

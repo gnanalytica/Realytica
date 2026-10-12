@@ -620,9 +620,23 @@ export class Store {
     return promise;
   }
 
-  private async pullProject(id: string): Promise<void> {
+  /**
+   * One project as storage has it now, or a throw when storage did not answer.
+   *
+   * `syncProject` serves what this instance holds when the read fails, which
+   * is right for a page and wrong for the daily timer: it writes the whole
+   * project back, and written from a copy that may be old, that takes out
+   * what other instances saved since.
+   */
+  async pullFresh(id: string): Promise<void> {
+    await this.pullProject(id, true);
+    this.catchUpGraph();
+    this.remember();
+  }
+
+  private async pullProject(id: string, strict = false): Promise<void> {
     const began = this.removalsEnded;
-    const shard = await this.readShard(id);
+    const shard = await this.readShard(id, strict);
     if (!shard) return;
     const { project: stored, revision } = shard;
     const projects = this.data.projects ?? (this.data.projects = []);
@@ -810,7 +824,7 @@ export class Store {
   }
 
   /** One project shard and the revision it was written under, or null when it is absent or unreadable. */
-  private async readShard(id: string): Promise<Shard | null> {
+  private async readShard(id: string, strict = false): Promise<Shard | null> {
     try {
       const bytes = await storageAdapter.getDocument(id, PROJECT_KEY);
       if (!bytes) return null;
@@ -828,6 +842,7 @@ export class Store {
       if (revision > (this.revisions.get(project.id) ?? 0)) this.revisions.set(project.id, revision);
       return { project, revision };
     } catch (err) {
+      if (strict) throw err;
       console.warn(`[store] could not read project ${id}: ${(err as Error).message}`);
       return null;
     }

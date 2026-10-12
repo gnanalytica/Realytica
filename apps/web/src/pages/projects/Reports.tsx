@@ -3,15 +3,17 @@ import { FileText } from 'lucide-react';
 import { Navigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { REPORT_KIND_LABEL, cockpitPath, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Button, Card, CardBody, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
+import { useMe } from '../../lib/useMe';
+import { Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
 import { ReportEditor } from './ReportEditor';
 import Outgoing from './Outgoing';
+import { LETTERS_PART } from './cockpit/rail';
 import type { ProjectOutlet } from './ProjectLayout';
 import { formatWhen } from './shared';
 
 /**
  * Everything that leaves the project as a document: DD / status reports from the
- * registers, and letters / RFIs / minutes. One page, no sub-tabs.
+ * registers, the owner pack for a month, and letters / RFIs / minutes. One page, no sub-tabs.
  */
 export default function Reports() {
   const { project, setProject, onOpenCited } = useOutletContext<ProjectOutlet>();
@@ -20,6 +22,9 @@ export default function Reports() {
   const [kind, setKind] = useState<ReportKind>('executive_dd');
   const [assessmentId, setAssessmentId] = useState('');
   const [busy, setBusy] = useState(false);
+  const me = useMe();
+  // The month an owner pack is opened for: this one, until another is picked.
+  const [packMonth, setPackMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [params, setParams] = useSearchParams();
   const view = project.reports.find((r) => r.id === params.get('report')) ?? project.reports[0];
 
@@ -63,7 +68,18 @@ export default function Reports() {
             <h2 className="text-[15px] font-semibold text-ink">Reports</h2>
             <p className="text-[13px] text-ink-secondary">DD and status reports built from the registers on this project.</p>
           </div>
-          <Button onClick={() => setOpen(true)}>Generate report</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* The owner pack reads cost, meetings and the checklist, none of which an outside collaborator is handed. */}
+            {me && me.role !== 'collaborator' ? (
+              <div className="flex items-center gap-1.5">
+                <Input type="month" aria-label="Month of the owner pack" value={packMonth} onChange={(e) => setPackMonth(e.target.value)} className="w-[9.5rem]" />
+                <Button variant="secondary" className="shrink-0 whitespace-nowrap" disabled={!packMonth} onClick={() => window.open(`/projects/${project.id}/owner-pack/print?month=${packMonth}`, '_blank', 'noopener')}>
+                  Owner pack
+                </Button>
+              </div>
+            ) : null}
+            <Button onClick={() => setOpen(true)}>Generate report</Button>
+          </div>
         </div>
         {project.reports.length === 0 ? (
           <Card>
@@ -115,7 +131,7 @@ export default function Reports() {
 
       <section className="space-y-3 border-t border-hairline pt-6">
         <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold text-ink">Letters</h2>
+          <h2 className="text-[15px] font-semibold text-ink">{LETTERS_PART.label}</h2>
           <p className="text-[13px] text-ink-secondary">Replies, RFIs and minutes filled from the record. Nothing is emailed from here.</p>
         </div>
         <Outgoing embedded />

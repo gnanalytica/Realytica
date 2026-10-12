@@ -1,19 +1,22 @@
-import { useMemo, useState } from 'react';
-import { Camera, HardHat, Smartphone, Users } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Camera, HardHat, Smartphone, Upload, Users } from 'lucide-react';
 import {
   constructionGate,
   departmentRole,
   progressSummary,
   roleCanDecide,
   roleCanEdit,
+  scheduleWatch,
   type DdProject,
   type Milestone,
+  type MilestoneWatch,
+  type ScheduleSkippedRow,
   type SiteLogEntry,
 } from '@realytica/shared';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, Input, cn, useToast } from '../ui/kit';
+import { Badge, Button, Callout, Card, CardBody, CardHeader, Input, Modal, Textarea, cn, useToast } from '../ui/kit';
 import { MARKED_ROW, useMarkedRow } from '../workspace/marked';
 
 function Ring({ percent }: { percent: number | null }) {
@@ -46,6 +49,7 @@ function Photo({ projectId, entry, index }: { projectId: string; entry: SiteLogE
 function MilestoneRow({
   project,
   milestone,
+  watch,
   mayEdit,
   mayRemove,
   onChanged,
@@ -53,6 +57,8 @@ function MilestoneRow({
 }: {
   project: DdProject;
   milestone: Milestone;
+  /** The milestone against its dates today. */
+  watch: MilestoneWatch | undefined;
   mayEdit: boolean;
   mayRemove: boolean;
   onChanged: (p: DdProject) => void;
@@ -62,7 +68,7 @@ function MilestoneRow({
   const toast = useToast();
   const [value, setValue] = useState(String(milestone.percent));
   const [busy, setBusy] = useState(false);
-  const late = milestone.plannedFinish && milestone.plannedFinish < new Date().toISOString().slice(0, 10) && milestone.percent < 100;
+  const moved = milestone.baselineFinish && milestone.baselineFinish !== milestone.plannedFinish;
 
   async function save(patch: Parameters<typeof workspaceApi.updateMilestone>[2]) {
     setBusy(true);
@@ -82,10 +88,16 @@ function MilestoneRow({
         <p className="text-micro text-ink-muted">
           Weight {milestone.weight}
           {milestone.plannedFinish ? ` · planned ${milestone.plannedFinish}` : ''}
+          {moved ? ` (was ${milestone.baselineFinish})` : ''}
           {milestone.completedOn ? ` · done ${milestone.completedOn}` : ''}
-          {late ? <span className="text-critical"> · late</span> : null}
+          {!milestone.completedOn && watch?.expectedPercent !== undefined ? ` · expected ${watch.expectedPercent}% today` : ''}
         </p>
       </div>
+      {watch?.level ? (
+        <Badge tone={watch.level === 'late' ? 'critical' : 'warning'} title={watch.say}>
+          {watch.level === 'late' ? 'Late' : watch.level === 'behind' ? 'Behind' : 'Late at the current rate'}
+        </Badge>
+      ) : null}
       <div className="h-1.5 w-32 overflow-hidden rounded-full bg-sunken">
         <div className={cn('h-full rounded-full', milestone.percent >= 100 ? 'bg-good' : 'bg-brand')} style={{ width: `${milestone.percent}%` }} />
       </div>
@@ -120,6 +132,94 @@ function MilestoneRow({
   );
 }
 
+/** Bring the schedule in from where it is kept: a file, or the table pasted. What could not be read is listed back. */
+function ScheduleImport({ project, onChanged, onClose }: { project: DdProject; onChanged: (p: DdProject) => void; onClose: () => void }) {
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [skipped, setSkipped] = useState<ScheduleSkippedRow[]>([]);
+  const [notes, setNotes] = useState<string[]>([]);
+
+  async function run(input: { file: File } | { text: string }) {
+    setBusy(true);
+    try {
+      const res = await workspaceApi.importSchedule(project.id, input);
+      onChanged(res.project);
+      toast(`${res.added} added, ${res.updated} updated${res.skipped.length ? `, ${res.skipped.length} skipped` : ''}.`, res.skipped.length ? 'warning' : 'good');
+      setSkipped(res.skipped);
+      setNotes(res.notes);
+      if (!res.skipped.length && !res.notes.length) onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not import', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Import schedule"
+      footer={
+        <>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.tsv,.txt,.xlsx"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void run({ file });
+              e.target.value = '';
+            }}
+          />
+          <Button size="sm" icon={<Upload size={14} />} loading={busy} onClick={() => fileRef.current?.click()}>
+            Upload file
+          </Button>
+          <Button size="sm" variant="primary" loading={busy} disabled={!text.trim()} onClick={() => void run({ text })}>
+            Import pasted table
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-2">
+        <p className="text-[13px] text-ink-secondary">CSV, Excel or a pasted table. Progress already recorded is never lowered.</p>
+        <Textarea
+          aria-label="Schedule table"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={5}
+          placeholder={'Activity,Planned start,Planned finish,Weight\nPlinth,01-11-2026,30-11-2026,5'}
+          className="font-mono text-[12px]"
+        />
+        {notes.length ? (
+          <Callout tone="info" title="How the dates were read">
+            <ul className="space-y-0.5">
+              {notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          </Callout>
+        ) : null}
+        {skipped.length ? (
+          <Callout tone="warning" title={`${skipped.length} row${skipped.length === 1 ? '' : 's'} skipped`}>
+            <ul className="space-y-0.5">
+              {skipped.map((row) => (
+                <li key={row.line}>
+                  Row {row.line}
+                  {row.name ? `, ${row.name}` : ''}: {row.reason}
+                </li>
+              ))}
+            </ul>
+          </Callout>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 /**
  * Construction › Progress: how far along the work is, against the milestones
  * the project reports to, from what the site logs every day — most of it from
@@ -141,7 +241,9 @@ export function ProgressBoard({
   const me = useMe();
   const toast = useToast();
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const summary = useMemo(() => progressSummary(project), [project]);
+  const schedule = useMemo(() => scheduleWatch(project, new Date()), [project]);
   const gate = useMemo(() => constructionGate(project), [project]);
   const role = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, 'construction') : undefined;
   const mayEdit = roleCanEdit(role);
@@ -199,17 +301,50 @@ export function ProgressBoard({
       </Card>
 
       <Card>
-        <CardHeader title="Milestones" subtitle="Weighted share of milestones complete" />
+        <CardHeader
+          title="Milestones"
+          subtitle="Weighted share of milestones complete"
+          action={
+            mayEdit ? (
+              <Button size="sm" icon={<Upload size={14} />} onClick={() => setImporting(true)}>
+                Import schedule
+              </Button>
+            ) : null
+          }
+        />
         <CardBody>
+          {schedule.plannedCompletion ? (
+            <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-secondary">
+              <span>
+                Planned completion <span className="font-mono text-ink">{schedule.plannedCompletion}</span>
+                {schedule.projectedCompletion ? (
+                  <>
+                    {' · at the current rate '}
+                    <span className="font-mono text-ink">{schedule.projectedCompletion}</span>
+                  </>
+                ) : null}
+              </span>
+              {schedule.extensionLikely ? <Badge tone="warning">Extension of time likely</Badge> : null}
+            </p>
+          ) : null}
           {milestones.length ? (
             <ul className="divide-y divide-hairline">
               {milestones.map((m) => (
-                <MilestoneRow key={m.id} project={project} milestone={m} mayEdit={mayEdit} mayRemove={mayRemove} onChanged={onChanged} marked={m.id === marked} />
+                <MilestoneRow
+                  key={m.id}
+                  project={project}
+                  milestone={m}
+                  watch={schedule.milestones.find((w) => w.id === m.id)}
+                  mayEdit={mayEdit}
+                  mayRemove={mayRemove}
+                  onChanged={onChanged}
+                  marked={m.id === marked}
+                />
               ))}
             </ul>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
-              <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No milestones yet. Start from the usual nine.</p>
+              <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No milestones yet. Import the schedule, or start from the usual nine.</p>
               {mayEdit ? (
                 <Button size="sm" loading={adding} onClick={() => void addUsualMilestones()}>
                   Use the usual milestones
@@ -268,6 +403,7 @@ export function ProgressBoard({
           )}
         </CardBody>
       </Card>
+      {importing ? <ScheduleImport project={project} onChanged={onChanged} onClose={() => setImporting(false)} /> : null}
     </div>
   );
 }
