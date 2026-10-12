@@ -212,6 +212,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     requests: (project.requests ?? []).filter(
       (r) => r.recipient.trim().toLowerCase() === access.email.trim().toLowerCase(),
     ),
+    // A checklist names every party the firm is chasing, and for what.
+    checklist: [],
     // A screen result carries an indicative value, so it travels with the
     // valuation rather than with the site.
     ...(area('valuation') ? {} : { lastScreen: undefined, lastScreenResult: undefined }),

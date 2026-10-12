@@ -31,6 +31,9 @@ export const FILE_MATCH_FLOOR = 0.5;
  */
 export const FILE_MATCH_MARGIN = 0.12;
 
+/** What a row has to say to be matched: its name, and whether it still waits. A checklist line says as much as a register row does. */
+export type MatchRow = Pick<EvidenceRecord, 'id' | 'title' | 'status'>;
+
 export interface EvidenceFileMatch {
   fileName: string;
   /** The row this file should be filed against, when one is clear. */
@@ -96,7 +99,7 @@ function words(s: string): string[] {
  * A word in one title out of a hundred identifies it; a word in half of them
  * identifies nothing.
  */
-function weights(rows: EvidenceRecord[]): Map<string, number> {
+function weights(rows: readonly MatchRow[]): Map<string, number> {
   const seen = new Map<string, number>();
   for (const row of rows) {
     for (const w of new Set(words(row.title))) {
@@ -110,7 +113,7 @@ function weights(rows: EvidenceRecord[]): Map<string, number> {
 }
 
 /** A row still waiting for a document beats one that already has what it needs. */
-function wanting(row: EvidenceRecord): boolean {
+function wanting(row: MatchRow): boolean {
   return row.status === 'expected' || row.status === 'requested';
 }
 
@@ -123,7 +126,7 @@ interface Fit {
 
 const NO_FIT: Fit = { coverage: 0, matched: 0 };
 
-function scoreAgainst(fileWords: Set<string>, row: EvidenceRecord, weight: Map<string, number>): Fit {
+function scoreAgainst(fileWords: Set<string>, row: MatchRow, weight: Map<string, number>): Fit {
   const titleWords = [...new Set(words(row.title))];
   if (titleWords.length === 0) return NO_FIT;
 
@@ -159,7 +162,7 @@ function scoreAgainst(fileWords: Set<string>, row: EvidenceRecord, weight: Map<s
  * that list, and matching against rows they cannot see is how a file ends up on
  * a different assessment's copy of the same expected title.
  */
-export function matchFilesToEvidence(rows: EvidenceRecord[], fileNames: string[]): EvidenceFileMatch[] {
+export function matchFilesToEvidence(rows: readonly MatchRow[], fileNames: string[]): EvidenceFileMatch[] {
   const weight = weights(rows);
 
   return fileNames.map((fileName) => {

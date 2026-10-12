@@ -58,6 +58,7 @@ export * from './civic-layers';
 export * from './gis-overlay';
 export * from './revenue-map';
 export * from './project-requests';
+export * from './checklist';
 export * from './portfolio';
 export * from './fact-review';
 export * from './review';
