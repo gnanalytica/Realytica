@@ -131,7 +131,7 @@ Under `/projects/:projectId/report-day`. The firm's own people only: a collabora
 | GET | `/` | The report day setting, the kept owner packs, what waits to be issued, whether email is set up, the firm's people, and whether the caller may prepare or issue |
 | PUT | `/` | `{ day: 1-31, reports: ['status','owner_pack'], every: 'month'\|'quarter', quarters?: 'financial'\|'calendar', tell: [emails of the firm's own people, at most 12] }` or `{ clear: true }`. Lead or signer in a department of the project |
 | POST | `/packs` | Keep the owner pack for one period: `{ month: 'YYYY-MM' }` or `{ quarter: 'FY2026-Q2' \| '2026-Q3' }` or `{ from, to }`; with `{ issue: true, name? }` it is issued in the same step. Keeping needs lead, contributor or signer; issuing needs lead or signer. A project keeps at most 60, and none can be deleted |
-| POST | `/packs/:packId/refresh`, `/issue`, `/reopen` | Read a waiting pack from the record again (lead, contributor or signer); issue it under the caller's name, body `{ name? }`; return an issued pack to waiting (lead or signer for both) |
+| POST | `/packs/:packId/refresh`, `/issue`, `/reopen` | Read a waiting pack from the record again (lead, contributor or signer); issue it under the caller's name, body `{ name? }`; reopen an issued pack, which stays as issued, and answer with the copy kept beside it, waiting, or the one already waiting for that period (lead or signer for both) |
 
 ## Procurement › Tenders
 
@@ -157,7 +157,7 @@ Under `/projects/:projectId/templates`. The firm's own people only (a collaborat
 | Method | Path | |
 |---|---|---|
 | GET | `/` | `?department=` — the templates this person may read, with counts, and whether a model is set up |
-| POST | `/` | Multipart: `file` (.docx or .xlsx, 4 MB at most), `department`, `title`. Finds the blanks. 201 `{ template, model }`. 413 when the file unpacks to more than may be opened; 400 when no blank is found or the file is another kind |
+| POST | `/` | Multipart: `file` (.docx or .xlsx, 4 MB at most), `department`, `title`. Finds the blanks. 201 `{ template, model }`. 413 when the file unpacks to more than may be opened (for a workbook, its sheets past 4 MB, or what it carries beside them past 16 MB); 400 when no blank is found or the file is another kind |
 | GET | `/:templateId` | `{ template: { rows: [{ field, status, offers }], summary }, model, mayEdit, mayDecide }` |
 | PUT | `/:templateId/fields` | `{ decisions: [{ fieldId, decision: accept \| type \| blank \| reopen, value? }] }`, 200 at most |
 | GET | `/:templateId/file?kind=filled \| sources \| original` | The same file filled, the PDF list of sources, or the file as sent. Taking the filled file out is noted on the audit trail, and a department viewer may |
@@ -182,7 +182,7 @@ Under `/projects/:projectId/daily-review`. Firm members only; 404 to a collabora
 |---|---|---|
 | GET | `/` | The suggestions nobody has decided, whether a model is set up, when the project was last reviewed, and the departments this person decides in |
 | POST | `/:suggestionId/accept` | Body `{ as?: "finding" \| "risk" }`. Lead or signer of the suggestion's department; 403 otherwise, 409 if already decided. Answers with the project and `{ record: { type, id } }` |
-| POST | `/:suggestionId/dismiss` | Body `{ reason }` (3 to 300 characters). Same role. The matter is not raised again |
+| POST | `/:suggestionId/dismiss` | Body `{ reason }` (3 to 300 characters). Same role. A later proposal about the very same entries is not raised again |
 
 ## Requests to outside parties
 
@@ -193,16 +193,16 @@ Under `/outside`. The firm's own people: collaborators get 404, writes need the 
 | GET | `/outside/status` | Which channels are set up |
 | POST | `/outside/projects/:projectId/requests/:requestId/send` | `{ channel: 'email' \| 'whatsapp', to }`. 409 naming the missing setting where the channel is not set up |
 | POST | `/outside/projects/:projectId/requests/:requestId/replies/:replyId/confirm`, `…/set-aside` | A person confirms a reply, or sets it aside. Nothing is marked received before |
-| GET | `/outside/tray`, `/outside/tray/:itemId/papers/:attachmentId` | Mail that named no open request or came from an unknown address |
+| GET | `/outside/tray`, `/outside/tray/:itemId/papers/:attachmentId` | Mail that named no open request, or came from anywhere but the address or number the request was sent to or a member of the firm, or by email from a sender whose domain did not pass DMARC. At most 500 items for a firm and 20 from one sender |
 | POST | `/outside/tray/:itemId/file`, `/outside/tray/:itemId/discard` | `{ projectId, requestId? }` files it to a project; or discard |
 
-Ahead of sign-in, each behind its provider's signature: `POST /outside/hooks/resend` (Resend `email.received`, Svix signature, five-minute tolerance), `GET /outside/hooks/whatsapp` (Meta's handshake) and `POST /outside/hooks/whatsapp` (`X-Hub-Signature-256`). A channel not set up answers 503. One delivery is taken once. Caps: 10 papers a message, 25 MB each, 50 MB a message, 1 MB webhook body. No link in a message is fetched. There is no rate limit on these routes beyond the signature check and the body cap.
+Ahead of sign-in, each behind its provider's signature: `POST /outside/hooks/resend` (Resend `email.received`, Svix signature, five-minute tolerance), `GET /outside/hooks/whatsapp` (Meta's handshake) and `POST /outside/hooks/whatsapp` (`X-Hub-Signature-256`). A channel not set up answers 503. One delivery is taken once. A reply is taken onto a request only from the address or number the request was sent to or one of the firm's own members, and by email only where the sender's domain passed DMARC; anything else goes to the tray. A message past 20 in the tray from one sender is answered 200 and dropped, and a full tray (500 for a firm) answers 500 so the provider sends the message again. A request holds five replies waiting; a sixth goes to the tray. Caps: 10 papers a message, 25 MB each, 50 MB a message, 1 MB webhook body. No link in a message is fetched. There is no rate limit on these routes beyond the signature check and the body cap.
 
 ## For other systems
 
-`GET /api/v1/projects`, `GET /api/v1/projects/:id`, `GET /api/v1/projects/:id/alerts` (`?state=all`), `GET /api/v1/projects/:id/reports`, `GET /api/v1/projects/:id/papers-owed` — API key only (`Authorization: Bearer rlk_…`), read-only, scopes `projects:read` / `reports:read` / `documents:read`; 401 unknown, revoked or expired key, 403 missing scope, 404 project not reachable, 429 over the key's limit. A key is refused with 401 on every other route. Reports are issued generated reports as metadata only. See [integrations.md](integrations.md).
+`GET /api/v1/projects`, `GET /api/v1/projects/:id`, `GET /api/v1/projects/:id/alerts` (`?state=all`), `GET /api/v1/projects/:id/reports`, `GET /api/v1/projects/:id/papers-owed` — API key only (`Authorization: Bearer rlk_…`), read-only, scopes `projects:read` / `reports:read` / `documents:read`; 401 unknown, revoked or expired key, 403 missing scope, 404 project not reachable, 429 over the key's limit or the caller's address, which is counted before any key is looked up. A key is refused with 401 on every other route. Reports are issued generated reports as metadata only. See [integrations.md](integrations.md).
 
-The firm's side, for an owner or manager (403 otherwise): `GET /api/integrations`, `POST /api/integrations/keys`, `DELETE /api/integrations/keys/:id`, `POST /api/integrations/endpoints`, `DELETE /api/integrations/endpoints/:id`, `POST /api/integrations/endpoints/:id/test`.
+The firm's side, for an owner or manager (403 otherwise): `GET /api/integrations`, `POST /api/integrations/keys` (`projectIds`, when given, names at least one project and at most 200; no list is every project), `DELETE /api/integrations/keys/:id`, `POST /api/integrations/endpoints`, `DELETE /api/integrations/endpoints/:id`, `POST /api/integrations/endpoints/:id/test`.
 
 ## Timed routes
 
@@ -231,7 +231,7 @@ Outside sign-in, each needing `Authorization: Bearer <CRON_SECRET>`, else 401. V
 | POST, PUT, DELETE | `/law-watch/sources`, `/law-watch/sources/:sourceId` | Add, change or pause, and remove a source. Admin |
 | POST | `/law-watch/sources/:sourceId/look` | Read one source now. Admin |
 | GET | `/law-watch/changes/:changeId/pages` | The page's words before and after a change |
-| POST | `/law-watch/changes/:changeId/confirm` | Body `{ summary, projects: [{ projectId, actions: [{ department, title }] }] }`; puts the actions on those projects. A firm admin, or a department's lead for the departments they lead; 403 otherwise, 409 if already decided |
+| POST | `/law-watch/changes/:changeId/confirm` | Body `{ summary, projects: [{ projectId, actions: [{ department, title }] }] }`; puts the actions on those projects. A firm admin, or a department's lead for the departments they lead; 403 otherwise, 409 if already decided. A lead decides only for the projects they lead: the change waits for the rest until their leads decide or an admin closes it, and a project decided once is refused a second decision (409), for admins too |
 | POST | `/law-watch/changes/:changeId/dismiss` | Body `{ why? }`; nothing reaches a project |
 | GET | `/libraries` | The check library |
 | GET, POST, PUT, DELETE | `/libraries/review`, `/libraries/review/:itemId` | The workspace's saved asks and playbooks for the review table |

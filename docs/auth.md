@@ -210,7 +210,10 @@ reach the route that accepts a tender's offer (404); the firm's own Finance
 lead or signer accepts.
 
 Kept owner packs, the report day, who was told of what (`tell`) and the
-connected folder are never on a collaborator's copy of a project.
+connected folder are never on a collaborator's copy of a project. A paper the
+folder brought is on it without its folder path or link. A report the timer
+prepared is not on it until a person issues it, and an issued status report is
+on it without the checklist's lines.
 
 ### Who runs the deployment
 
@@ -318,7 +321,10 @@ route with 403. Changing the list and asking for a look need an admin.
 Confirming or dismissing a change needs an admin or one of the firm's people
 who leads a department on a project, and a lead may put actions only on
 projects and departments they lead; a confirmation that names one they do not
-lead is refused whole and nothing is written. The sidebar shows the entry to
+lead is refused whole and nothing is written. A lead's decision stands for the
+projects they lead only: the change waits for the rest until their leads decide
+or an admin closes it, and a project decided once is refused a second decision,
+an admin's included. The sidebar shows the entry to
 everybody, and a collaborator who opens it reads the refusal.
 
 An owner pack is issued or reopened by a lead or a signer of any department

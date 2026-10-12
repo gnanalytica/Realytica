@@ -341,8 +341,12 @@ morning. Then each other job runs in its own try and its own time, so one that
 fails never stops the rest. The function has 800 s; the run allows itself 740 s
 and does not start a job its time no longer covers. The two that ask a model
 (the law watch's proposals and the daily review) are last, so they are the
-ones passed over on a slow day, and the next run takes them up. The report day
-is the one job with no catch-up: it acts only on the day itself.
+ones passed over on a slow day, and the next run takes them up. A report day
+that was missed is caught up by the next run, provided the report day had been
+set on the missed day; one set after its date prepares nothing until the next.
+A message of notices whose mail or push failed is tried again ten minutes
+later, three times in all, by the next timer run or save that finds it due;
+after that its notices stay in the app.
 
 Set `CRON_SECRET` in the Vercel project for Production. Vercel sends it as
 `Authorization: Bearer <CRON_SECRET>` with each cron call, and the routes answer
@@ -411,7 +415,8 @@ a party to reply from a mailbox whose domain has DMARC, or expect to file
 their replies by hand.
 
 The tray is bounded. It holds 500 items for a firm and 20 from any one address
-or number. A message that names no request, from a sender on no project of the
+or number; a message past a sender's 20 is answered as taken and dropped, not
+retried. A message that names no request, from a sender on no project of the
 firm, is kept as its words only, with its attachments named and not stored. When
 the tray is full the webhook answers 500, so Resend and Meta send the message
 again later; clear the tray and it arrives. One request holds five replies
