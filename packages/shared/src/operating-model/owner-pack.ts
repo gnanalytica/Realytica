@@ -34,6 +34,7 @@ import { DEPARTMENT_SHORT, stageAndStep } from './departments';
 import { meetingCalled, meetingDay, meetingItemStands, meetingsHeld } from './meetings';
 import { progressReadings, scheduleWatch, type MilestoneWatch, type ScheduleLevel } from './milestone-schedule';
 import { progressSummary } from './progress';
+import { quarterOfKey } from './quarters';
 import { requirementSheet } from './requirement-sheet';
 import { recordBehind, statusPeriodSaid, type StatusPeriod } from './status-report';
 import { sameEmail } from './tenancy';
@@ -93,13 +94,17 @@ const titled = (title: string): string => `“${title.replace(/[.\s]+$/, '')}”
 const packageLabel = (pack: { code?: string; name: string }): string => [pack.code, pack.name].filter(Boolean).join(' · ');
 
 /**
- * The period a pack is asked for: a month by `YYYY-MM`, or two days, both
- * taken in. The month the pack is made in when neither is given or readable.
+ * The period a pack is asked for: a month by `YYYY-MM`, a quarter by its key
+ * (`FY2026-Q2` of the financial year, `2026-Q3` of the calendar year), or two
+ * days, both taken in. The month the pack is made in when none is given or
+ * readable.
  */
-export function ownerPackPeriod(asked: { month?: string | null; from?: string | null; to?: string | null }, now = new Date()): StatusPeriod {
+export function ownerPackPeriod(asked: { month?: string | null; quarter?: string | null; from?: string | null; to?: string | null }, now = new Date()): StatusPeriod {
   const month = (year: number, at: number): StatusPeriod => ({ from: new Date(Date.UTC(year, at, 1)).toISOString(), to: new Date(Date.UTC(year, at + 1, 1)).toISOString() });
   const named = /^(\d{4})-(\d{2})$/.exec(asked.month ?? '');
   if (named && Number(named[2]) >= 1 && Number(named[2]) <= 12) return month(Number(named[1]), Number(named[2]) - 1);
+  const quarter = quarterOfKey(asked.quarter);
+  if (quarter) return quarter;
   const [from, to] = [Date.parse(`${asked.from}T00:00:00.000Z`), Date.parse(`${asked.to}T00:00:00.000Z`)];
   if (DAY.test(asked.from ?? '') && DAY.test(asked.to ?? '') && from <= to) return { from: new Date(from).toISOString(), to: new Date(to + DAY_MS).toISOString() };
   return month(now.getUTCFullYear(), now.getUTCMonth());

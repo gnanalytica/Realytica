@@ -214,6 +214,9 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     ),
     // A checklist names every party the firm is chasing, and for what.
     checklist: [],
+    // An owner pack is cost, meetings and the checklist on one paper, and the report day names who in the firm is told.
+    ownerPacks: [],
+    reportDay: undefined,
     // A screen result carries an indicative value, so it travels with the
     // valuation rather than with the site.
     ...(area('valuation') ? {} : { lastScreen: undefined, lastScreenResult: undefined }),

@@ -38,6 +38,7 @@ import {
   departmentDefinition,
   projectDepartments,
   requirementSheet,
+  checklistSheet,
   supportingDocuments,
   workstreamDefinition,
   SCOPE_KEYS,
@@ -798,7 +799,7 @@ export function createProjectTools(
   const getRequirementSheet = betaTool({
     name: 'get_requirement_sheet',
     description:
-      'The requirement sheet: every document the checks on the file expect, by discipline, each one pending, asked for or in hand, with the evidence id to ask for it by. Also lists supporting documents — filed papers that belong to a department this project does not run. Call it when asked what is missing, what to ask the client for, or how complete the documents are. To ask for documents, propose_update kind request_documents {evidenceIds, recipient, dueAt?, detail?}. To give a document to a workstream, propose_update kind assign_document {evidenceId, workstream}.',
+      'The requirement sheet: every document the checks on the file expect, by discipline, each one pending, asked for or in hand, with the evidence id to ask for it by. Also gives the checklist of papers owed that a desk loaded (`checklist`): each paper with its stage and package, who owes it, whether it is in hand, asked for or pending, and when it is due. Also lists supporting documents — filed papers that belong to a department this project does not run. Call it when asked what is missing, what to ask the client for, or how complete the documents are. To ask for documents, propose_update kind request_documents {evidenceIds, recipient, dueAt?, detail?}. To give a document to a workstream, propose_update kind assign_document {evidenceId, workstream}.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -820,8 +821,22 @@ export function createProjectTools(
           ),
         }))
         .filter((g) => g.documents.length);
+      // The checklist a desk loaded: the papers a party owes by a stage, which no check on the file need expect.
+      const list = checklistSheet(project, department ? { department: department as (typeof DEPARTMENT_KEYS)[number] } : {});
+      const owed = list.stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines)).filter((line) => !status || line.status === status);
+      const checklist = {
+        total: list.total,
+        received: list.received,
+        requested: list.requested,
+        pending: list.pending,
+        overdue: list.overdue,
+        papers: clipList(
+          owed.map((line) => ({ title: line.item.title, stage: line.item.stage, package: line.item.package, owedBy: line.item.owedBy ?? line.askedOf, status: line.status, dueAt: line.dueAt, overdue: line.overdue, document: line.fileName })),
+          60,
+        ),
+      };
       const supporting = clipList(supportingDocuments(project), 30).map((s) => ({ evidenceId: s.evidence.id, title: s.evidence.title, type: s.evidence.documentType, belongsTo: s.homeLabel }));
-      bag.toolCalls.push({ name: 'get_requirement_sheet', summary: `${sheet.received} of ${sheet.total} in hand${sheet.overdue ? ` · ${sheet.overdue} overdue` : ''}` });
+      bag.toolCalls.push({ name: 'get_requirement_sheet', summary: `${sheet.received} of ${sheet.total} in hand${sheet.overdue ? ` · ${sheet.overdue} overdue` : ''}${list.total ? ` · checklist ${list.received} of ${list.total}` : ''}` });
       return JSON.stringify({
         departmentsOnThisProject: projectDepartments(project),
         total: sheet.total,
@@ -831,8 +846,9 @@ export function createProjectTools(
         overdue: sheet.overdue,
         percent: sheet.percent,
         groups,
+        ...(list.total ? { checklist } : {}),
         supportingDocuments: supporting,
-        note: sheet.total ? undefined : 'No checks on the file yet, so nothing is expected. Start the checks for a workstream or a due diligence first.',
+        note: sheet.total ? undefined : list.total ? 'No checks on the file expect a document. The checklist a desk loaded is under `checklist`.' : 'No checks on the file yet, so nothing is expected. Start the checks for a workstream or a due diligence first.',
       });
     },
   });
