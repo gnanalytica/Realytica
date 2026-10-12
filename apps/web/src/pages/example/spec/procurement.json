@@ -132,6 +132,66 @@
        "source": "link",
        "from": "Budget and Progress",
        "add": ""
+      },
+      {
+       "type": "calendar",
+       "title": "Tender stages, Electrical works",
+       "items": [
+        {
+         "t": "Tender documents ready",
+         "due": "4 Sep 2026",
+         "who": "S. Kulkarni",
+         "state": "Done"
+        },
+        {
+         "t": "Issued to bidders",
+         "due": "7 Sep 2026",
+         "who": "D. Pinto",
+         "state": "Done"
+        },
+        {
+         "t": "Queries and addenda",
+         "due": "24 Sep 2026",
+         "who": "S. Kulkarni",
+         "state": "Done"
+        },
+        {
+         "t": "Bids received",
+         "due": "30 Sep 2026",
+         "who": "D. Pinto",
+         "state": "Done"
+        },
+        {
+         "t": "Comparison",
+         "due": "5 Oct 2026",
+         "who": "D. Pinto",
+         "state": "Overdue"
+        },
+        {
+         "t": "Negotiation",
+         "due": "8 Oct 2026",
+         "who": "D. Pinto",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Recommendation",
+         "due": "9 Oct 2026",
+         "who": "A. Fernandes",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Letter of acceptance",
+         "due": "15 Oct 2026",
+         "who": "S. Rao",
+         "state": "Upcoming"
+        },
+        {
+         "t": "Contract signed",
+         "due": "30 Oct 2026",
+         "who": "S. Rao",
+         "state": "Upcoming"
+        }
+       ]
       }
      ]
     },
@@ -448,6 +508,51 @@
       },
       {
        "type": "table",
+       "title": "Bidders",
+       "cols": [
+        "Bidder",
+        "Quoted",
+        "Revised",
+        "Against the others",
+        "Qualifications and exclusions"
+       ],
+       "rows": [
+        [
+         "Bidder A",
+         "₹ 5.48 Cr",
+         "₹ 5.44 Cr",
+         "1.1% above",
+         "Price holds 90 days"
+        ],
+        [
+         "Bidder B",
+         "₹ 5.38 Cr",
+         "₹ 5.38 Cr",
+         "the same",
+         "Excludes DG fuel tank"
+        ],
+        [
+         "Bidder C",
+         "₹ 5.12 Cr",
+         "₹ 5.12 Cr",
+         "4.8% below",
+         "None noted"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "Bidders",
+       "add": "Add bidder"
+      },
+      {
+       "type": "table",
        "title": "Bids received",
        "cols": [
         "Bidder",
@@ -653,6 +758,11 @@
      "t": "Lightning arrester quantity not on drawings",
      "by": "person",
      "level": "medium"
+    },
+    {
+     "t": "Bidder C, earthing: differs from the others by 37.1%",
+     "by": "rule",
+     "level": "medium"
     }
    ],
    "outputs": {
@@ -676,7 +786,8 @@
     "sent": [
      "Tender enquiry set to shortlisted bidders",
      "Addenda and query replies to all bidders",
-     "Awarded package, value and terms to Orders"
+     "Awarded package, value and terms to Orders",
+     "Awarded value to Budget as PO issued, for Finance to accept"
     ]
    },
    "mustHave": [

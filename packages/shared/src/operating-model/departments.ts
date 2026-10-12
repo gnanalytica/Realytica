@@ -328,9 +328,9 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     label: 'Procurement & Supply Chain',
     purpose: 'What is bought for the project, from whom, and when it arrives.',
     professions: ['Purchase Manager', 'Quantity Surveyor', 'Logistics Coordinator'],
-    status: 'coming_soon',
+    status: 'live',
     workstreams: [
-      ws('procurement', 'boq', 'BOQ & tenders', 'Quantities and the bids against them.', 'coming_soon', ['Quantity Surveyor'], ['design_tender', 'construction'], [['design_tender', 'Tender comparison']]),
+      ws('procurement', 'boq', 'BOQ & tenders', 'Each work package from tender papers to a signed contract, and the bids against it.', 'live', ['Quantity Surveyor'], ['design_tender', 'construction'], [['design_tender', 'Tender comparison']]),
       ws('procurement', 'orders', 'Purchase orders & commitments', 'Orders placed and the money they commit.', 'coming_soon', ['Purchase Manager'], ['design_tender', 'construction'], [['construction', 'Commitment ledger']]),
       ws('procurement', 'vendors', 'Vendors', 'Who supplies the project, their contracts and securities.', 'coming_soon', ['Purchase Manager'], ['design_tender', 'construction'], [['design_tender', 'Vendor register']]),
       ws('procurement', 'deliveries', 'Deliveries & materials', 'What is due on site and when.', 'coming_soon', ['Logistics Coordinator'], ['construction'], [['construction', 'Delivery tracker']]),

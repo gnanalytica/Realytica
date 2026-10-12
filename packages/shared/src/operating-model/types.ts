@@ -2197,6 +2197,8 @@ export interface DdProject {
   cost?: import('./cost').CostRegister;
   /** Finance › Budget: monthly Cost Reports — the editable figure of record for cost monitoring. See `cost-report.ts`. */
   costReports?: import('./cost-report').CostReportPeriod[];
+  /** Procurement › Tenders: each work package from tender papers to a signed contract, with its bidders. Withheld from a grant that does not name Procurement. See `tenders.ts`. */
+  procurement?: import('./tenders').ProcurementRegister;
   /** What the team should hear about; raised and resolved from the project's state. */
   alerts?: import('./alerts').ProjectAlert[];
   /** The folder kept elsewhere that this project takes its files from. Absent on a project connected to none. */

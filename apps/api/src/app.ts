@@ -16,6 +16,7 @@ import { projectMemoryRouter } from './routes/project-memory';
 import { reviewLibraryRouter, reviewTableRouter } from './routes/review-table';
 import { reportDayRouter } from './routes/report-day';
 import { outgoingRouter } from './routes/outgoing';
+import { procurementRouter } from './routes/procurement';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
@@ -177,6 +178,8 @@ app.use('/api/projects/:projectId/outgoing', outgoingRouter);
 // The folder kept elsewhere that a project takes its files from: the firm's own people's, with its own guard.
 app.use('/api/projects/:projectId/connector', connectorRouter);
 app.use('/api/projects/:projectId/report-day', reportDayRouter);
+// Procurement › Tenders: bidders and what they quoted, with its own guard for a grant that does not name Procurement.
+app.use('/api/projects/:projectId/procurement', procurementRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/outside', outsideRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
