@@ -21,6 +21,7 @@ import { api } from '../../lib/api';
 import { AssignCell } from '../../components/AssignCell';
 import { MeetingSource } from '../../components/meetings/MeetingNotes';
 import { OutgoingStart } from '../../components/outgoing/OutgoingStart';
+import { DailyReviewList } from '../../components/review/DailyReview';
 import { MineToggle, useMine } from '../../components/MineToggle';
 import { CreateButton } from '../../components/create/CreateWizard';
 import { RemedialCostChart } from '../../components/charts';
@@ -30,7 +31,7 @@ import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
 
 export function RisksActions() {
-  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds, onReviewDocument } = useOutletContext<ProjectOutlet>();
   const [searchParams] = useSearchParams();
   const liveIds = [
     ...(highlightIds ?? []),
@@ -63,6 +64,7 @@ export function RisksActions() {
         <CreateButton kind="add_action" project={project} onCreated={setProject} variant="ghost" />
         <CreateButton kind="add_risk" project={project} onCreated={setProject} />
       </div>
+      <DailyReviewList project={project} onAccepted={setProject} onOpenPaper={onReviewDocument} />
       <section className="space-y-2">
         <h2 className="text-[12px] font-semibold text-ink-secondary">Risks</h2>
         {risks.rows.length === 0 ? (

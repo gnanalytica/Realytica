@@ -105,3 +105,4 @@ export * from './site-notes';
 export * from './tell';
 export * from './connectors';
 export * from './analytics';
+export * from './file-sweep';

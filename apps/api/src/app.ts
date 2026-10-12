@@ -38,6 +38,7 @@ import { deviceClaimRouter, devicesRouter } from './routes/devices';
 import { cronRouter } from './routes/cron';
 import { connectorRouter } from './routes/connector';
 import { outsideHooksRouter, outsideRouter } from './routes/outside';
+import { fileSweepRouter } from './routes/file-sweep';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -181,6 +182,8 @@ app.use('/api/projects/:projectId/connector', connectorRouter);
 app.use('/api/projects/:projectId/report-day', reportDayRouter);
 // Procurement › Tenders: bidders and what they quoted, with its own guard for a grant that does not name Procurement.
 app.use('/api/projects/:projectId/procurement', procurementRouter);
+// What the daily review suggested, for a lead or signer to accept or dismiss. It asks no model: the review runs on the timer.
+app.use('/api/projects/:projectId/daily-review', fileSweepRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/outside', outsideRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);

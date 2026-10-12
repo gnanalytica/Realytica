@@ -32,6 +32,7 @@ import { DEPARTMENT_ICON } from '../../components/departments/icons';
 import { DepartmentsControl } from '../../components/departments/DepartmentsControl';
 import { StageRecord } from '../../components/departments/StageTimeline';
 import { DepartmentFigures } from '../../components/analytics/DepartmentFigures';
+import { DailyReviewCount } from '../../components/review/DailyReview';
 import { WORKSTREAM_PANE } from './cockpit/rail';
 import { formatWhen, healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -265,6 +266,7 @@ export default function Overview() {
 
       <PapersOwed project={project} />
 
+      <DailyReviewCount project={project} />
       <DepartmentFigures project={project} />
 
       <StageRecord project={project} stage={stage} onChanged={setProject} onOpen={(kind, id) => onOpenFromStage?.(kind, id)} />
