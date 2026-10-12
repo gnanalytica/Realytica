@@ -17,19 +17,24 @@ import {
   addChecklistItem,
   addChecklistItems,
   addEvidence,
+  checklistFunction,
+  checklistOwed,
   checklistSheet,
   createProject,
+  createProjectGrant,
   dismissChecklistMatch,
   parseChecklist,
   parseChecklistRows,
   parseChecklistSheets,
   patchChecklistItem,
+  projectView,
   raiseChecklistRequests,
   receiveChecklistItem,
   refreshProjectDerived,
   removeChecklistItem,
   reopenChecklistItem,
   requirementSheet,
+  functionSections,
   type ChecklistLine,
   type ChecklistSheet,
   type DdProject,
@@ -340,24 +345,25 @@ describe('a paper against the documents on file', () => {
   });
 });
 
-describe('asking for what is missing', () => {
-  function owing(): DdProject {
-    const p = project();
-    addChecklistItems(
-      p,
-      'finance',
-      [
-        { title: 'Soil investigation report', stage: 'Concept', package: 'Civil and structural', owedBy: 'Geotechnical consultant' },
-        { title: 'Structural drawings', stage: 'Concept', package: 'Civil and structural', owedBy: 'Structural consultant' },
-        { title: 'Column schedule', stage: 'Tender', owedBy: 'structural consultant' },
-        { title: 'Schedule of finishes', stage: 'Concept', owedBy: 'Architect' },
-        { title: 'Package strategy' },
-      ],
-      'tester',
-    );
-    return p;
-  }
+/** A finance desk's list of five papers: two parties named once, one named twice, one line with nobody named. */
+function owing(): DdProject {
+  const p = project();
+  addChecklistItems(
+    p,
+    'finance',
+    [
+      { title: 'Soil investigation report', stage: 'Concept', package: 'Civil and structural', owedBy: 'Geotechnical consultant' },
+      { title: 'Structural drawings', stage: 'Concept', package: 'Civil and structural', owedBy: 'Structural consultant' },
+      { title: 'Column schedule', stage: 'Tender', owedBy: 'structural consultant' },
+      { title: 'Schedule of finishes', stage: 'Concept', owedBy: 'Architect' },
+      { title: 'Package strategy' },
+    ],
+    'tester',
+  );
+  return p;
+}
 
+describe('asking for what is missing', () => {
   it('says who owes each missing paper', () => {
     const p = owing();
     file(p, 'Schedule of finishes');
@@ -412,6 +418,63 @@ describe('asking for what is missing', () => {
     assert.equal(structural.status, 'answered');
     assert.ok(structural.answeredAt);
     assert.equal(requests.find((r) => r.recipient === 'Architect')!.status, 'sent');
+  });
+});
+
+describe('the papers still owed, in a line', () => {
+  it('counts what is not in hand, asked for or not, and names who owes the most first', () => {
+    const p = owing();
+    file(p, 'Schedule of finishes');
+    // Asking for a paper does not make it any less owed.
+    raiseChecklistRequests(p, { department: 'finance', itemIds: [p.checklist!.find((i) => i.title === 'Structural drawings')!.id] }, 'tester');
+    const owed = checklistOwed(p);
+    assert.deepEqual([owed.owed, owed.total, owed.department], [4, 5, 'finance']);
+    assert.deepEqual(
+      owed.parties.map((party) => [party.owedBy, party.lines.map((l) => l.item.title)]),
+      [
+        ['Structural consultant', ['Structural drawings', 'Column schedule']],
+        ['Geotechnical consultant', ['Soil investigation report']],
+        [undefined, ['Package strategy']],
+      ],
+    );
+  });
+
+  it('reads every desk’s list together, or one desk’s, and opens the desk that holds the most', () => {
+    const p = owing();
+    addChecklistItems(p, 'construction', [{ title: 'Pour cards', owedBy: 'Contractor' }, { title: 'Cube test results', owedBy: 'Contractor' }], 'tester');
+    for (const title of ['Soil investigation report', 'Structural drawings', 'Column schedule', 'Schedule of finishes']) file(p, title);
+    const all = checklistOwed(p);
+    assert.deepEqual([all.owed, all.total, all.department], [3, 7, 'construction']);
+    assert.deepEqual(all.parties.map((party) => [party.owedBy, party.lines.length]), [['Contractor', 2], [undefined, 1]]);
+    assert.deepEqual([checklistOwed(p, { department: 'finance' }).owed, checklistOwed(p, { department: 'legal' }).total], [1, 0]);
+    // A line the list names nobody for is owed by whoever it was asked of.
+    raiseChecklistRequests(p, { department: 'finance', recipient: 'The developer' }, 'tester');
+    assert.deepEqual(checklistOwed(p).parties.map((party) => [party.owedBy, party.lines.length]), [['Contractor', 2], ['The developer', 1]]);
+  });
+
+  it('says so when nothing is owed, and when there is no list', () => {
+    const p = project();
+    assert.deepEqual(checklistOwed(p), { total: 0, owed: 0, parties: [] });
+    addChecklistItems(p, 'legal', [{ title: 'Sale deed', owedBy: 'The owner' }], 'tester');
+    file(p, 'Sale deed');
+    assert.deepEqual(checklistOwed(p), { total: 1, owed: 0, parties: [] });
+  });
+
+  it('opens on the Documents part of a function of the desk, for each department that is live', () => {
+    assert.deepEqual(
+      (['legal', 'construction', 'finance'] as const).map((department) => checklistFunction(department)),
+      ['legal.title', 'construction.progress', 'finance.budget'],
+    );
+    for (const department of ['legal', 'construction', 'finance'] as const) assert.ok(functionSections(checklistFunction(department)!).includes('documents'));
+    // A department with no built function laid out in parts has nowhere to open it.
+    assert.equal(checklistFunction('procurement'), undefined);
+  });
+
+  it('is nothing to a collaborator: the list is not in what they are handed', () => {
+    const p = owing();
+    const grant = createProjectGrant({ email: 'sam@site.in' }, { id: 'grt_1', tenantId: 'ten_1', projectId: p.id, createdBy: 'tester' });
+    const seen = projectView(p, { kind: 'granted', grant, email: 'sam@site.in' }).project;
+    assert.deepEqual(checklistOwed(seen), { total: 0, owed: 0, parties: [] });
   });
 });
 

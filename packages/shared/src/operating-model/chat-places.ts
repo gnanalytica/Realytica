@@ -235,6 +235,15 @@ export function functionSections(key: string): string[] {
   return ['standing', ...(centre ? [centre] : []), 'checks', 'documents', 'connections'];
 }
 
+/**
+ * The function a department's checklist of papers is opened on: the first of
+ * its built functions laid out in parts, at its Documents part. A department
+ * with no such function has none.
+ */
+export function checklistFunction(department: DepartmentKey): string | undefined {
+  return departmentDefinition(department).workstreams.find((ws) => functionSections(ws.key).includes('documents'))?.key;
+}
+
 /* ==================================================================== */
 /* A sentence read as a place                                            */
 /* ==================================================================== */

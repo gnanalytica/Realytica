@@ -676,6 +676,43 @@ export function checklistSheet(project: DdProject, opts: { department?: Departme
   };
 }
 
+/** The papers a checklist still waits for, and who owes them. */
+export interface ChecklistOwed {
+  total: number;
+  /** Lines not in hand, asked for or not. */
+  owed: number;
+  /**
+   * Who owes them, the party that owes the most first: the party the list names for a line, else
+   * whoever it was asked of. The lines with neither come last, under no name.
+   */
+  parties: Array<{ owedBy?: string; lines: ChecklistLine[] }>;
+  /** The desk whose list holds the most of what is owed. */
+  department?: DepartmentKey;
+}
+
+/** What is still owed on the checklist, across every desk's list or on one desk's. */
+export function checklistOwed(project: DdProject, opts: { department?: DepartmentKey; now?: string } = {}): ChecklistOwed {
+  const sheet = checklistSheet(project, opts);
+  const missing = sheet.stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines)).filter((line) => line.status !== 'received');
+  const parties = new Map<string, { owedBy?: string; lines: ChecklistLine[] }>();
+  const desks = new Map<DepartmentKey, number>();
+  for (const line of missing) {
+    const owedBy = line.item.owedBy ?? line.askedOf;
+    const key = fold(owedBy);
+    const party = parties.get(key) ?? { owedBy, lines: [] };
+    parties.set(key, party);
+    party.lines.push(line);
+    desks.set(line.item.department, (desks.get(line.item.department) ?? 0) + 1);
+  }
+  const department = [...desks].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return {
+    total: sheet.total,
+    owed: missing.length,
+    parties: [...parties.values()].sort((a, b) => Number(!a.owedBy) - Number(!b.owedBy) || b.lines.length - a.lines.length),
+    ...(department ? { department } : {}),
+  };
+}
+
 /* ==================================================================== */
 /* Asking for what is missing                                            */
 /* ==================================================================== */
