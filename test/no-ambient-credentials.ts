@@ -48,6 +48,9 @@ const AMBIENT = [
   'UNBLOCKER_ZYTE_API_KEY',
   'UNBLOCKER_BRIGHTDATA_API_KEY',
   'UNBLOCKER_OXYLABS_API_KEY',
+  // Mail and push: a save tells people, and a test's invented people must never be sent anything.
+  'REALYTICA_RESEND_API_KEY',
+  'REALYTICA_EXPO_ACCESS_TOKEN',
 ];
 
 for (const name of AMBIENT) delete process.env[name];

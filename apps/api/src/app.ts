@@ -19,6 +19,7 @@ import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { workRouter } from './routes/work';
+import { tellRouter } from './routes/tell';
 import { portfolioRouter } from './routes/portfolio';
 import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
@@ -174,6 +175,7 @@ app.use('/api/sources', needs('read'), sourcesRouter);
 app.use('/api/telemetry', needs('admin'), telemetryRouter);
 app.use('/api/prompts', needs('admin'), promptsRouter);
 app.use('/api/work', workRouter);
+app.use('/api/tell', tellRouter);
 app.use('/api/portfolio', portfolioRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
 // member's business and changing one is the workspace's — the router carries

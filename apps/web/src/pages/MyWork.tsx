@@ -25,6 +25,7 @@ import { useAsync } from '../lib/useAsync';
 import { useMe } from '../lib/useMe';
 import { Badge, Callout, Card, CardBody, EmptyState, PageHeader, Skeleton, cn } from '../components/ui/kit';
 import { severityTone } from './projects/shared';
+import { TellCard } from '../components/TellCard';
 
 /**
  * What I am supposed to be doing.
@@ -107,6 +108,9 @@ export default function MyWork() {
             : `${items.length} open across every project${overdue > 0 ? ` · ${overdue} late` : ''}`
         }
       />
+
+      {/* What I was told comes first: it is why some of the work below exists. */}
+      <TellCard />
 
       {error ? <Callout tone="critical" title="Could not load your work">{error}</Callout> : null}
       {loading && !data ? <Skeleton className="h-40 w-full" /> : null}

@@ -232,6 +232,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     reviewTable: undefined,
     // What the firm is drafting to send is its own until it sends it.
     outgoing: [],
+    // Who was told of what names every paper filed and every person told. A reader's own notices are read off the whole file, cut to this copy (`tell.ts`).
+    tell: undefined,
     // The site's own day-by-day entries, and the words of a voice note among them, are the firm's.
     siteLog: [],
     // The trail names everybody's actions across the whole project.

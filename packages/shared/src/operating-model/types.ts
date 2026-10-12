@@ -2192,6 +2192,8 @@ export interface DdProject {
   reviewTable?: import('./review-table').ReviewTable;
   /** What goes out: letters, replies, requests for information and minutes, each a draft until a person approves it by name. See `outgoing.ts`. */
   outgoing?: import('./outgoing').OutgoingDraft[];
+  /** Who was told of what was filed, accepted or answered, and who has quieted the project. See `tell.ts`. */
+  tell?: import('./tell').TellState;
   createdAt: string;
   updatedAt: string;
 }
