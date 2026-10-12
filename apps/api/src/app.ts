@@ -17,6 +17,7 @@ import { reviewLibraryRouter, reviewTableRouter } from './routes/review-table';
 import { reportDayRouter } from './routes/report-day';
 import { outgoingRouter } from './routes/outgoing';
 import { procurementRouter } from './routes/procurement';
+import { templatesRouter } from './routes/templates';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
@@ -184,6 +185,7 @@ app.use('/api/projects/:projectId/report-day', reportDayRouter);
 app.use('/api/projects/:projectId/procurement', procurementRouter);
 // What the daily review suggested, for a lead or signer to accept or dismiss. It asks no model: the review runs on the timer.
 app.use('/api/projects/:projectId/daily-review', fileSweepRouter);
+app.use('/api/projects/:projectId/templates', (req, res, next) => (req.method === 'POST' ? limits.upload(req, res, next) : next()), templatesRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/outside', outsideRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
