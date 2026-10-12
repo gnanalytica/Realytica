@@ -731,6 +731,8 @@ export interface EvidenceAttachment {
    * read off a document waits to be accepted before anything relies on it.
    */
   shows?: { text: string; by: string; at: string; fromModel: boolean };
+  /** Where the file was taken from, when a connected folder brought it and no person dropped it. */
+  origin?: import('./connectors').FileOrigin;
 }
 
 export interface FindingRecord {
@@ -2184,6 +2186,8 @@ export interface DdProject {
   costReports?: import('./cost-report').CostReportPeriod[];
   /** What the team should hear about; raised and resolved from the project's state. */
   alerts?: import('./alerts').ProjectAlert[];
+  /** The folder kept elsewhere that this project takes its files from. Absent on a project connected to none. */
+  connector?: import('./connectors').ProjectConnector;
   /** Meetings whose notes were kept: the day, who was there, where the words are stored and what was proposed from them. Never the words. See `meetings.ts`. */
   meetings?: import('./meetings').MeetingRecord[];
   /** Links between departments a person drew; the system's own are read on demand. */

@@ -97,3 +97,4 @@ export * from './turn-changes';
 export * from './review-table';
 export * from './outgoing';
 export * from './site-notes';
+export * from './connectors';

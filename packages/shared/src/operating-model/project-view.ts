@@ -234,6 +234,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     outgoing: [],
     // The site's own day-by-day entries, and the words of a voice note among them, are the firm's.
     siteLog: [],
+    // Which folder of the firm's the project reads, and what it left out of it, is the firm's.
+    connector: undefined,
     // The trail names everybody's actions across the whole project.
     audit: [],
     // So does the last instruction somebody gave the chat, and only staff can take it back.
