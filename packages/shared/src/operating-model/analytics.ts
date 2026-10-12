@@ -235,6 +235,7 @@ const ALERT_KIND_LABEL: Record<string, string> = {
   eot: 'Extension of time',
   issue: 'Site issues',
   action: 'Actions overdue',
+  tender: 'Tender stages past their date',
 };
 
 const ALERT_SEVERITY_ORDER: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
