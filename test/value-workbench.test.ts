@@ -104,13 +104,13 @@ describe('what the file offers', () => {
   it('offers the parcel’s own recent sale as the comparable rate, and the guidance value as the land rate', () => {
     const p = plot();
     const rate = best(p, 'rate_per_sqm')!;
-    assert.equal(Math.round(rate.value), 45833);
+    assert.equal(Math.round(Number(rate.value)), 45833);
     assert.deepEqual(rate.with, { rate_basis: 'reported transactions', comparable_count: 1 });
     assert.equal(rate.source.page, 3, 'cites the page the consideration is on');
 
     const land = best(p, 'land_rate_per_sqm')!;
     assert.equal(land.source.kind, 'revenue_map');
-    assert.equal(Math.round(land.value), Math.round(40000 / 0.83612736));
+    assert.equal(Math.round(Number(land.value)), Math.round(40000 / 0.83612736));
     assert.match(land.basis, /statutory floor, not a market rate/);
   });
 

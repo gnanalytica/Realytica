@@ -1833,7 +1833,7 @@ describe('what the valuation is offered', () => {
     applyRevenueMap(p, read('73', 160, { readAt: '2026-10-02T06:00:00.000Z', anchor: anchor(24_000) }), 'tester');
     const differ = valueOffers(p, NOW).filter((o) => o.input === 'land_rate_per_sqm');
     assert.equal(differ.length, 1, 'still one, not one for each');
-    assert.equal(Math.round(differ[0]!.value), Math.round(18_000 / 0.83612736), 'the first parcel’s, never an average');
+    assert.equal(Math.round(Number(differ[0]!.value)), Math.round(18_000 / 0.83612736), 'the first parcel’s, never an average');
     assert.match(differ[0]!.basis, /Sy\. 73 carries ₹24,000 per sq yd: the published values differ by parcel, and this is the one for Sy\. 72, not an average\./);
 
     createAssessment(p, { ddType: 'indicative_valuation', name: 'Valuation', owner: 'tester', targetType: 'project' });
