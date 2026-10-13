@@ -1187,7 +1187,9 @@ function standingPrompts(project: DdProject): string[] {
   const rows: string[] = [];
   const filed = project.evidence.filter((e) => (e.attachments ?? []).length).length;
   // Filed before the reader existed, or that it could not read then: the file is there, but nothing on the row says what it states.
-  const unread = project.evidence.filter((e) => (e.attachments ?? []).length && !(e.facts ?? []).length && !e.modelReadAt && e.status !== 'rejected' && e.status !== 'superseded').length;
+  // A report that states rows (a cost report's packages, a technical report's observations) offers them to their own desk and states no single value: it is not a paper left unread.
+  const statesRows = (type: string | undefined): boolean => type === 'Cost report' || type === 'Technical due diligence report';
+  const unread = project.evidence.filter((e) => (e.attachments ?? []).length && !(e.facts ?? []).length && !e.modelReadAt && e.status !== 'rejected' && e.status !== 'superseded' && !statesRows(e.documentType)).length;
   const material = project.findings.filter((f) => (f.severity === 'critical' || f.severity === 'high') && !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status)).length;
   const drafts = (project.aiDrafts ?? []).filter((d) => d.status === 'draft' || d.status === 'accepted' || d.status === 'in_review').length;
   // A project being built is asked what a person running it asks: the next step of a file at the land is not its opening.

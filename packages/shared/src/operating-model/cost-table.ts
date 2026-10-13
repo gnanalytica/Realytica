@@ -520,3 +520,218 @@ export function readCostPage(text: string): CostTableRead | null {
   // A page that names columns and has no line under them holds no table: a contents page, a covering letter.
   return read.rows.length || read.lines.some((line) => line.as !== 'heading') ? read : null;
 }
+
+/* ==================================================================== */
+/* A page of the report, from where its words sit                        */
+/* ==================================================================== */
+
+/** One word of a page and where it sits: fractions of the page's width and height from its top left. */
+export interface CostPageWord {
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface Run {
+  text: string;
+  x0: number;
+  x1: number;
+  /** The middle of its height. */
+  cy: number;
+}
+
+interface VisualLine {
+  cy: number;
+  runs: Run[];
+}
+
+const MONEY_LIKE = /^[(]?(?:₹|Rs\.?)?\d[\d,]*(?:\.\d+)?[)]?$/i;
+const moneyLike = (text: string): boolean => MONEY_LIKE.test(text) && (/,/.test(text) || text.replace(/\D/g, '').length >= 4);
+const median = (values: number[]): number => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted.length ? sorted[Math.floor(sorted.length / 2)]! : 0;
+};
+
+/**
+ * The cells of a cost table, from the words of a page and where each sits.
+ *
+ * A consultant's table is set in cells: a heading wraps over two or three
+ * lines, a long package name wraps under its row, and a figure sits at the
+ * middle of its cell. Read line by line, such a table gives a heading in
+ * pieces and a row whose name and figures are on different lines. Read by
+ * position it does not: the columns are the bands of the page that the lines
+ * of figures leave white between them, a heading is whatever is written over
+ * a band above the first figures, and a line with no figure and no number of
+ * its own belongs to the row it sits against.
+ *
+ * Null where the page has no three lines of figures, or its words name no
+ * columns: the page is then read line by line as before.
+ */
+export function costCellsFromWords(words: readonly CostPageWord[]): string[][] | null {
+  const held = words.filter((word) => word.text.trim() && word.w > 0 && word.h > 0);
+  if (held.length < 12) return null;
+  const height = median(held.map((word) => word.h));
+  if (!height) return null;
+
+  // Lines as the eye sees them: words whose middles are at one height.
+  const lines: VisualLine[] = [];
+  for (const word of [...held].sort((a, b) => a.y + a.h / 2 - (b.y + b.h / 2) || a.x - b.x)) {
+    const cy = word.y + word.h / 2;
+    const last = lines.at(-1);
+    const run = (): Run => ({ text: word.text, x0: word.x, x1: word.x + word.w, cy });
+    if (!last || cy - last.cy > height * 0.35) {
+      lines.push({ cy, runs: [run()] });
+      continue;
+    }
+    last.runs.push(run());
+  }
+  // Words a space apart are one run: a cell's words. A wider gap is the white between two cells.
+  for (const line of lines) {
+    const sorted = [...line.runs].sort((a, b) => a.x0 - b.x0);
+    const merged: Run[] = [];
+    for (const run of sorted) {
+      const before = merged.at(-1);
+      const char = before ? Math.max((before.x1 - before.x0) / Math.max(1, before.text.length), (run.x1 - run.x0) / Math.max(1, run.text.length)) : 0;
+      if (before && run.x0 - before.x1 < char * 1.5) {
+        before.text = `${before.text} ${run.text}`;
+        before.x1 = Math.max(before.x1, run.x1);
+      } else merged.push({ ...run });
+    }
+    line.runs = merged;
+  }
+
+  const figured = (line: VisualLine): number => line.runs.filter((run) => moneyLike(run.text)).length;
+  const firstAt = lines.findIndex((line) => figured(line) >= 2);
+  const lastAt = lines.reduce((last, line, at) => (figured(line) >= 2 ? at : last), -1);
+  if (firstAt < 0 || lines.slice(firstAt, lastAt + 1).filter((line) => figured(line) >= 2).length < 3) return null;
+
+  // The columns: what the lines that state figures leave white between them.
+  const spans = lines
+    .slice(firstAt, lastAt + 1)
+    .filter((line) => line.runs.some((run) => moneyLike(run.text)))
+    .flatMap((line) => line.runs.map((run) => [run.x0, run.x1] as [number, number]))
+    .sort((a, b) => a[0] - b[0]);
+  const bands: Array<[number, number]> = [];
+  for (const [x0, x1] of spans) {
+    const last = bands.at(-1);
+    if (last && x0 <= last[1]) last[1] = Math.max(last[1], x1);
+    else bands.push([x0, x1]);
+  }
+  if (bands.length < 3) return null;
+  /** The bands a run lies over. */
+  const over = (run: Run): number[] => bands.flatMap(([x0, x1], at) => (Math.min(run.x1, x1) - Math.max(run.x0, x0) > 0 ? [at] : []));
+  /** The one band a run belongs to: the one it lies over most, else the nearest. */
+  const bandOf = (run: Run): number => {
+    let best = 0;
+    let most = -Infinity;
+    bands.forEach(([x0, x1], at) => {
+      const shared = Math.min(run.x1, x1) - Math.max(run.x0, x0);
+      if (shared > most) [most, best] = [shared, at];
+    });
+    return best;
+  };
+  const straddles = (line: VisualLine): boolean => line.runs.some((run) => over(run).length > 1);
+  const worded = (line: VisualLine): boolean => !straddles(line) && !line.runs.some((run) => moneyLike(run.text));
+
+  // The heading: the line above the figures that names the most columns, with the lines its cells wrap onto.
+  const above = lines.slice(Math.max(0, firstAt - 12), firstAt);
+  const offset = firstAt - above.length;
+  const names = (line: VisualLine): number => (straddles(line) ? 0 : line.runs.filter((run) => costColumnOf(run.text) !== undefined).length);
+  const mainIn = above.reduce((best, line, at) => (names(line) > (best < 0 ? 1 : names(above[best]!)) ? at : best), -1);
+  if (mainIn < 0) return null;
+  const near = (a: VisualLine, b: VisualLine): boolean => Math.abs(a.cy - b.cy) <= height * 1.8;
+  const upTo: number[] = [];
+  for (let at = mainIn - 1; at >= 0 && upTo.length < 3 && worded(above[at]!) && near(above[at]!, above[at + 1]!); at -= 1) upTo.push(at);
+  const downTo: number[] = [];
+  for (let at = mainIn + 1; at < above.length && downTo.length < 3 && worded(above[at]!) && near(above[at]!, above[at - 1]!); at += 1) downTo.push(at);
+  const headingOf = (picked: number[]): string[] => {
+    const cells = bands.map(() => [] as string[]);
+    for (const at of [...picked].sort((a, b) => a - b)) for (const run of above[at]!.runs) cells[bandOf(run)]!.push(run.text);
+    return cells.map((parts) => parts.join(' '));
+  };
+  const namedBy = (cells: string[]): number => new Set(cells.map(costColumnOf).filter((column) => column !== undefined)).size;
+  let heading = headingOf([mainIn]);
+  let headTo = mainIn;
+  for (let up = 0; up <= upTo.length; up += 1) {
+    for (let down = 0; down <= downTo.length; down += 1) {
+      const cells = headingOf([...upTo.slice(0, up), mainIn, ...downTo.slice(0, down)]);
+      // More columns named wins; the same number named by fewer lines stands.
+      if (namedBy(cells) > namedBy(heading)) [heading, headTo] = [cells, mainIn + down];
+    }
+  }
+  const layout = heading.map(costColumnOf);
+  if (layout.filter(isMoney).length < 2) return null;
+  // A band of words left of the figures that no heading names is the package's, where none is named.
+  if (!layout.includes('name') && !layout.includes('description')) {
+    const firstMoney = layout.findIndex(isMoney);
+    const widest = bands.map(([x0, x1], at) => ({ at, width: x1 - x0 })).filter(({ at }) => at < firstMoney && layout[at] === undefined).sort((a, b) => b.width - a.width)[0];
+    if (!widest) return null;
+    heading[widest.at] = 'Packages';
+    layout[widest.at] = 'name';
+  }
+  const codeAt = layout.indexOf('code');
+  const nameAt = layout.indexOf('name') >= 0 ? layout.indexOf('name') : layout.indexOf('description');
+  const stated = new Set(layout.flatMap((column, at) => (isMoney(column) || column === 'perArea' ? [at] : [])));
+
+  // The rows: a line that states a figure, a dash under a figure's heading or a number of its own starts one; any other line is a cell's wrapped words and goes with the line it sits against.
+  const body = lines.slice(offset + headTo + 1).filter((line, at, all) => {
+    const index = offset + headTo + 1 + at;
+    if (index <= lastAt) return true;
+    // Under the last figures: only the rest of a wrapped cell.
+    return worded(line) && near(line, all[at - 1] ?? line) && index - lastAt <= 2;
+  });
+  const starts = (line: VisualLine): boolean => line.runs.some((run) => (stated.has(bandOf(run)) && (FIGURE.test(run.text) || DASH.test(run.text))) || (codeAt >= 0 && bandOf(run) === codeAt));
+  const groups: VisualLine[][] = [];
+  const groupOf = new Map<VisualLine, VisualLine[]>();
+  for (const line of body) if (starts(line)) { const group = [line]; groups.push(group); groupOf.set(line, group); }
+  const reach = height * 1.45;
+  for (const line of body) {
+    if (groupOf.has(line)) continue;
+    // The nearest line already in a row, above or below, within a line's pitch.
+    let nearest: VisualLine | undefined;
+    for (const other of body) {
+      if (!groupOf.has(other) || other === line) continue;
+      if (Math.abs(other.cy - line.cy) <= reach && (!nearest || Math.abs(other.cy - line.cy) < Math.abs(nearest.cy - line.cy))) nearest = other;
+    }
+    // A line in capitals beside a row that already names its package is a heading over a section set close to the rows, not the rest of a wrapped name.
+    const capitals = line.runs.every((run) => run.text === run.text.toUpperCase() && /[A-Z]{3}/.test(run.text));
+    const named = nearest ? groupOf.get(nearest)!.some((held) => starts(held) && held.runs.some((run) => bandOf(run) === nameAt)) : false;
+    if (nearest && !(capitals && named)) {
+      const group = groupOf.get(nearest)!;
+      group.push(line);
+      groupOf.set(line, group);
+    } else {
+      // A line of its own between the rows: a heading over a section.
+      const group = [line];
+      groups.push(group);
+      groupOf.set(line, group);
+    }
+  }
+  const rows = groups
+    .map((group) => {
+      const sorted = [...group].sort((a, b) => a.cy - b.cy);
+      const cells = bands.map(() => [] as string[]);
+      for (const line of sorted) for (const run of [...line.runs].sort((a, b) => a.x0 - b.x0)) cells[bandOf(run)]!.push(run.text);
+      return { cy: Math.min(...group.filter(starts).map((line) => line.cy), ...(group.some(starts) ? [] : [sorted[0]!.cy])), cells: cells.map((parts) => parts.join(' ')) };
+    })
+    .sort((a, b) => a.cy - b.cy);
+  return [heading, ...rows.map((row) => row.cells)];
+}
+
+/**
+ * A cost table from one page's words and where they sit. Null where the
+ * page's words cannot be set in columns, which leaves the page to be read
+ * line by line.
+ */
+export function readCostWords(words: readonly CostPageWord[]): CostTableRead | null {
+  const cells = costCellsFromWords(words);
+  if (!cells) return null;
+  try {
+    const read = readCostSheet(cells);
+    return read.header === 'found' && (read.rows.length || read.lines.some((line) => line.as !== 'heading')) ? read : null;
+  } catch {
+    return null;
+  }
+}

@@ -27,7 +27,7 @@
  */
 
 import type { DdProject, FieldAddress, FieldOrigin } from './types';
-import { ORIGIN_QUOTE_MOST, proposeFieldValues, type FieldProposal } from './field-sheets';
+import { ORIGIN_QUOTE_MOST, fieldRecords, proposeFieldValues, readSheet, type FieldProposal } from './field-sheets';
 
 export const REPORT_OBSERVATIONS_SET = 'construction.quality.observations';
 const FN = 'construction.quality';
@@ -154,18 +154,32 @@ const RISK_CELL = new RegExp(String.raw`(?<=\s)${RISK_WORD}(?:\s+[Rr]isk)?(?=\s|
 
 /** Observations written as the rows of a table: numbered lines in order, the risk between what was seen and what is recommended. */
 function rows(page: number, lines: string[], from: number): { found: ReportObservation[]; next: number } {
+  const strict = rowsFrom(page, lines, from, false);
+  // A table set in cells puts a row's number on a line of its own where a cell beside it wraps: read again taking such a line as a row's start, and keep whichever reading finds more.
+  const loose = rowsFrom(page, lines, from, true);
+  return loose.found.length > strict.found.length ? loose : strict;
+}
+
+const ROW_NUMBER_ALONE = /^(\d{1,3})[.)]?$/;
+
+function rowsFrom(page: number, lines: string[], from: number, alone: boolean): { found: ReportObservation[]; next: number } {
   const starts: Array<{ at: number; number: number }> = [];
   let expected = from;
   lines.forEach((line, at) => {
-    const said = ROW_START.exec(line);
-    if (said && Number(said[1]) === expected) {
+    const said = ROW_START.exec(line) ?? (alone ? ROW_NUMBER_ALONE.exec(line) : null);
+    // A numbered heading over the table ("1. SUMMARY OF OBSERVATIONS") is no row: a row's words are a sentence, not capitals.
+    const heading = /[A-Z]/.test(line) && !/[a-z]/.test(line);
+    if (said && !heading && Number(said[1]) === expected) {
       starts.push({ at, number: expected });
       expected += 1;
     }
   });
   const found: ReportObservation[] = [];
+  // Under the last row of a page a table's key may stand ("Risk categories: Critical, High, Medium, Low"): it is no part of the row.
+  const keyAt = lines.findIndex((line, at) => at > (starts.at(-1)?.at ?? lines.length) && /^(?:Risk\s+(?:categor\w*|ratings?|levels?)|Legend|Key|Notes?)\b.*:/i.test(line));
+  const end = keyAt < 0 ? lines.length : keyAt;
   starts.forEach((start, n) => {
-    const block = lines.slice(start.at, starts[n + 1]?.at ?? lines.length).join(' ').replace(ROW_START, '');
+    const block = lines.slice(start.at, starts[n + 1]?.at ?? end).join(' ').replace(ROW_START, '').replace(/^\d{1,3}[.)]?$/, '');
     const risk = RISK_CELL.exec(` ${block}`);
     if (!risk) return;
     const at = risk.index - 1;
@@ -228,4 +242,20 @@ export function offerReportObservations(project: DdProject, evidenceId: string, 
     if (proposeFieldValues(project, values, 'parser').some((outcome) => outcome.outcome === 'waiting')) offered += 1;
   }
   return offered;
+}
+
+/**
+ * How many observations these papers offered that still wait for somebody:
+ * records of the set nobody has accepted a value of, offered by one of the
+ * papers. Read through the sheet, so what stands is never counted as waiting.
+ */
+export function observationsWaitingFrom(project: DdProject, evidenceIds: readonly string[]): number {
+  if (!evidenceIds.length) return 0;
+  let waiting = 0;
+  for (const record of fieldRecords(project, REPORT_OBSERVATIONS_SET)) {
+    const sheet = readSheet(project, REPORT_OBSERVATIONS_SET, record.id);
+    if (!sheet?.pending) continue;
+    if (sheet.fields.some((field) => field.held?.origin?.kind === 'paper' && evidenceIds.includes(field.held.origin.evidenceId))) waiting += 1;
+  }
+  return waiting;
 }

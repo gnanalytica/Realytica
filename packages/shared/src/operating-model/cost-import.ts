@@ -25,7 +25,7 @@
 import type { DdProject } from './types';
 import { moneySaid } from './cost';
 import { addCostReportPackage, assertCostReportDraft, costReportOf, updateCostReportRow, type CostReportPackageRow, type CostReportPeriod } from './cost-report';
-import { COST_LEDGER_COLUMNS, COST_MONEY_COLUMNS, costAmount, costRowKind, readCostPage, readCostText, type CostMoneyColumn, type CostRowKind, type CostTableCheck, type CostTableLine, type CostTableRead, type CostTableRow } from './cost-table';
+import { COST_LEDGER_COLUMNS, COST_MONEY_COLUMNS, costAmount, costRowKind, readCostPage, readCostText, readCostWords, type CostMoneyColumn, type CostPageWord, type CostRowKind, type CostTableCheck, type CostTableLine, type CostTableRead, type CostTableRow } from './cost-table';
 import { recordAuditEvent } from './operations';
 
 export interface CostReportImportRow {
@@ -240,6 +240,9 @@ export interface CostPaper {
   model?: { at: string; rows: number; failure?: string };
 }
 
+/** The share of an OCR page's rows that have to sit cleanly in their columns for the page's rows to be offered, where they do not add up to its total. */
+export const COST_ROWS_READ_SHARE = 0.6;
+
 export function costPapersOf(project: Pick<DdProject, 'costPapers'>): CostPaper[] {
   return project.costPapers ?? [];
 }
@@ -268,6 +271,23 @@ function laidOver(paper: CostPaper, reader: ReadonlyArray<CostRowOffer['reader']
 }
 
 /**
+ * The cost table of one page: read from where its words sit where that is
+ * known, and line by line otherwise. A table set in cells (a heading over
+ * two lines, a name wrapped under its row) reads rightly only by position;
+ * a page whose positions give no table, or a worse one, is read by its lines.
+ * The reading whose rows add up to the page's own total is the one taken.
+ */
+function costTableOfPage(page: { text: string; words?: readonly CostPageWord[] }): CostTableRead | null {
+  const byLine = readCostPage(page.text);
+  const byPlace = page.words?.length ? readCostWords(page.words) : null;
+  if (!byPlace) return byLine;
+  if (!byLine) return byPlace;
+  const placed = (read: CostTableRead): number => read.rows.filter((row) => !row.unplaced && !row.problems?.length).length;
+  if (byPlace.addsUp !== byLine.addsUp) return byPlace.addsUp ? byPlace : byLine.addsUp ? byLine : placed(byPlace) >= placed(byLine) ? byPlace : byLine;
+  return placed(byPlace) >= placed(byLine) ? byPlace : byLine;
+}
+
+/**
  * Offers the rows of a cost report's tables, read from the words this server
  * got from each page. Nothing is written to any Cost Report.
  *
@@ -279,16 +299,23 @@ function laidOver(paper: CostPaper, reader: ReadonlyArray<CostRowOffer['reader']
 export function offerCostRowsFromPages(
   project: DdProject,
   evidenceId: string,
-  pages: ReadonlyArray<{ page: number; text: string; reader: 'text' | 'ocr' | 'model'; unsure?: boolean; picture?: boolean }>,
+  pages: ReadonlyArray<{ page: number; text: string; reader: 'text' | 'ocr' | 'model'; unsure?: boolean; picture?: boolean; words?: readonly CostPageWord[] }>,
   pagesInFile: number,
 ): CostPaper {
   const paper = paperFor(project, evidenceId, pagesInFile);
   const fresh: CostRowOffer[] = [];
   const read: CostPaperPage[] = [];
+  /** Pages OCR got a table from that was too poor to offer. */
+  const poor = new Set<number>();
   for (const page of pages) {
     if (page.reader === 'model') continue;
-    const table = readCostPage(page.text);
+    const table = costTableOfPage(page);
     if (!table) continue;
+    // A scan read so poorly that most of its rows could not be put in their columns, and that does not add up to its own total, is not offered row by row: the page is a picture to be read by eye.
+    if (page.reader === 'ocr' && table.addsUp !== true && table.rows.filter((row) => !row.unplaced && !row.problems?.length).length < table.rows.length * COST_ROWS_READ_SHARE) {
+      poor.add(page.page);
+      continue;
+    }
     read.push({ page: page.page, reader: page.reader, lines: table.lines, checks: table.checks, addsUp: table.addsUp, stated: table.stated });
     for (const row of table.rows) {
       fresh.push({
@@ -311,7 +338,7 @@ export function offerCostRowsFromPages(
   // Where a table may be that nobody here read: a page nobody got words from, a picture OCR was unsure of, a page of type with a picture it could not read.
   const maybe = (n: number): boolean => {
     const page = pages.find((held) => held.page === n && held.reader !== 'model');
-    return !page || Boolean(page.picture) || (page.reader === 'ocr' && Boolean(page.unsure));
+    return !page || Boolean(page.picture) || poor.has(n) || (page.reader === 'ocr' && Boolean(page.unsure));
   };
   paper.pictures = Array.from({ length: pagesInFile }, (_, i) => i + 1).filter((n) => !withTable.has(n) && maybe(n));
   laidOver(paper, ['text', 'ocr'], fresh);

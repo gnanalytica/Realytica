@@ -21,7 +21,7 @@
 
 import { COST_ROWS_LIMIT_MS, costRowsModelSetUp, readCostRowsByModel, type CostRowsRead } from '@realytica/agents';
 import { COST_LEDGER_COLUMNS, costPaperSaid, offerCostRowsFromModel, offerCostRowsFromPages, offerReportObservations, type ChatIngestFile, type CostPaper, type DdProject } from '@realytica/shared';
-import { pagesOf, type PaperPages } from './intake';
+import { layoutOf, pagesOf, type PaperPages } from './intake';
 
 /** The reader of a cost report's pictures. Given in tests; a model in the product. */
 export type CostRowsReader = (input: { fileBytes: Buffer; fileName: string; pages: readonly number[] }) => Promise<CostRowsRead | null>;
@@ -56,7 +56,13 @@ export function offerRowsOfPaper(project: DdProject, evidenceId: string | undefi
   if (!pages) return {};
   try {
     if (type === 'technical_report') return { observations: offerReportObservations(project, evidenceId, wordsRead(pages).map((text) => text ?? '')) };
-    const read: CostPaper = offerCostRowsFromPages(project, evidenceId, pages.pages, pages.pagesInFile);
+    // A page of type is read by where its words sit, so a table set in cells keeps its columns. A scan is read by its lines, as measured.
+    const layout = layoutOf(paper);
+    const placed = pages.pages.map((page) => {
+      const words = page.reader === 'text' ? layout?.find((held) => held.page === page.page)?.words : undefined;
+      return words?.length ? { ...page, words } : page;
+    });
+    const read: CostPaper = offerCostRowsFromPages(project, evidenceId, placed, pages.pagesInFile);
     const modelSetUp = opts.modelSetUp ?? costRowsModelSetUp();
     return {
       costRows: { offered: read.offers.filter((offer) => offer.status === 'offered').length, said: costPaperSaid(read, modelSetUp) },

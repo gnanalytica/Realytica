@@ -160,6 +160,11 @@ export function parseTrackedRows(table: readonly (readonly string[])[], sheetNam
       skipped.push({ row: line.sheetRow, text: line.row.filter(Boolean).join(' · ').slice(0, 120), reason: 'no description' });
       continue;
     }
+    // "Prepared by:" where the number would be is the block a list is signed in, under its last line: neither a section nor a paper.
+    if (!line.ref && /^\p{L}[\p{L} ./]*:$/u.test(at(line.row, 'ref'))) {
+      skipped.push({ row: line.sheetRow, text: line.row.filter(Boolean).join(' · ').slice(0, 120), reason: 'a signature line' });
+      continue;
+    }
     // A number and a name and nothing else is a section, never a paper: an item of a tracked list says at least how it stands.
     if (!line.others) {
       head(line.ref, line.title);

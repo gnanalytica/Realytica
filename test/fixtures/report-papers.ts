@@ -9,6 +9,9 @@
  * - A technical due diligence report: two typed pages of numbered
  *   observations, each with what was seen, a risk category and a
  *   recommendation, in the two ways such a list is written.
+ * - The cost report with its table set in cells, as a spreadsheet prints it:
+ *   headings wrapped over three lines, a long name and a contractor wrapped
+ *   over two, and every figure at the middle of its cell, set to the right.
  *
  * Every name, figure and observation is made up.
  */
@@ -126,5 +129,47 @@ export async function dueDiligenceReport(as: 'table' | 'labelled' = 'table'): Pr
       } else say(`${number} ${first} ${one.risk} ${one.action}`);
     });
   });
+  return pdf.save();
+}
+
+/** Where each column of the table set in cells starts and ends on the page. */
+const CELL_AT: Array<[number, number]> = [[30, 50], [56, 190], [200, 290], [300, 390], [400, 500], [510, 610], [620, 710], [720, 810]];
+/** Its headings, each as the lines its cell wraps it onto. */
+const CELL_HEADINGS: string[][] = [['Sl'], ['Packages'], ['Budget'], ['Awarded', 'value'], ['Awarded to'], ['Anticipated final', 'cost'], ['Amount', 'certified'], ['Cost per', 'sq ft']];
+
+/** A cell's words as the lines a narrow column wraps them onto: two where there are three words or more. */
+function wrapped(cell: string, column: number): string[] {
+  const words = cell.split(' ');
+  if ((column !== 1 && column !== 4) || words.length < 3 || /^[A-Z -]+$/.test(cell)) return [cell];
+  const half = Math.ceil(words.length / 2);
+  return [words.slice(0, half).join(' '), words.slice(half).join(' ')];
+}
+
+/**
+ * The cost report with its table set in cells. Read line by line, its heading
+ * is in pieces and a row's name is on other lines than its figures; the page
+ * is the same table all the same.
+ */
+export async function costReportSetInCells(): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  lines(pdf.addPage(A4_ACROSS), font, COVER, 480, 16);
+  const page = pdf.addPage(A4_ACROSS);
+  const size = 7;
+  const pitch = 8.4;
+  page.drawText('COST SUMMARY - BUDGET AGAINST ANTICIPATED FINAL COST', { x: 30, y: 560, size: 11, font });
+  /** A cell's lines about the middle of its row, numbers set to the right of their column. */
+  const cell = (said: string[], column: number, middle: number): void => {
+    said.forEach((line, n) => {
+      if (!line) return;
+      const [left, right] = CELL_AT[column]!;
+      const numeric = column !== 1 && column !== 4 && column !== 0;
+      const x = numeric ? right - font.widthOfTextAtSize(line, size) : left;
+      page.drawText(line, { x, y: middle + ((said.length - 1) / 2 - n) * pitch, size, font });
+    });
+  };
+  CELL_HEADINGS.forEach((said, column) => cell(said, column, 528));
+  COST_LINES.forEach((cells, row) => cells.forEach((said, column) => cell(wrapped(said, column), column, 496 - row * 22)));
+  page.drawText('All amounts in Indian rupees. GST shown separately.', { x: 30, y: 40, size: 8, font });
   return pdf.save();
 }

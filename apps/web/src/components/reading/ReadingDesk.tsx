@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Check, ClipboardList, Clock, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
-import { proposedFacts, type DdProject, type DocumentFact, type EvidenceRecord } from '@realytica/shared';
+import { costPapersOf, observationsWaitingFrom, proposedFacts, type DdProject, type DocumentFact, type EvidenceRecord } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { cardStateFor, type ReadingFile, type ReadingSession, type SourceFocus } from '../../lib/reading';
 import { Button, cn, useToast } from '../ui/kit';
@@ -286,6 +286,19 @@ export function ReadingDesk({
   /* Filed: what the row holds, each value with where it stands. Before that, what the stream read. */
   const row = rows.get(current.key);
   const rowFacts = shown && row ? row.facts ?? [] : [];
+  // A report states rows, not single values: what it offered, and the page where each waits to be accepted.
+  const costPaper = row ? costPapersOf(project).find((paper) => paper.evidenceId === row.id) : undefined;
+  const costRows = costPaper?.offers.filter((offer) => offer.status === 'offered').length ?? 0;
+  // A cost report whose tables are pictures nobody here could read: said plainly, with where the table can be pasted.
+  const tablesUnread = Boolean(costPaper && !costPaper.offers.length && costPaper.pictures.length);
+  const observations = row ? observationsWaitingFrom(project, [row.id]) : 0;
+  const offeredRows = costRows
+    ? { said: `${costRows} ${costRows === 1 ? 'row' : 'rows'} of its cost table offered to the Cost Report`, to: `/projects/${projectId}/w/finance.budget`, open: 'Open the Cost Report' }
+    : observations
+      ? { said: `${observations} ${observations === 1 ? 'observation' : 'observations'} offered under Technical`, to: `/projects/${projectId}/w/construction.quality`, open: 'Open Technical' }
+      : tablesUnread
+        ? { said: 'Its tables are pictures, and no row could be read from them', to: `/projects/${projectId}/w/finance.budget`, open: 'Paste the table on the Cost Report' }
+        : null;
   const pointed = focus && focus.key === current.key ? focus.fact : null;
   /*
    * The page in front while scanning. While the server is still reading, the
@@ -337,7 +350,7 @@ export function ReadingDesk({
                 : `Reading ${session.files.length === 1 ? 'the document' : `${session.files.length} documents`}`}
           </p>
           <p className="text-micro text-ink-muted" aria-live="polite">
-            {readCount} of {session.files.length} read · {factTotal} fact{factTotal === 1 ? '' : 's'}
+            {readCount} of {session.files.length} read · {!factTotal && offeredRows && !tablesUnread ? (costRows ? `${costRows} ${costRows === 1 ? 'row' : 'rows'} offered` : `${observations} ${observations === 1 ? 'observation' : 'observations'} offered`) : `${factTotal} fact${factTotal === 1 ? '' : 's'}`}
             {settled ? ' · all settled' : waitingTotal ? ` · ${waitingTotal} to accept` : ''}
           </p>
         </div>
@@ -463,9 +476,15 @@ export function ReadingDesk({
         <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(52%,520px)] shrink-0 pr-1' : 'flex-1')}>
           {rowFacts.length ? null : (
           <p className="text-[12px] font-semibold text-ink">
-            {scanning ? 'Reading…' : current.taken ? { questionnaire: 'A questionnaire', notes: 'Notes of a meeting', voice: 'A voice note', photo: 'A site photograph' }[current.taken.as] : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'No value was read from this paper'}
+            {scanning ? 'Reading…' : current.taken ? { questionnaire: 'A questionnaire', notes: 'Notes of a meeting', voice: 'A voice note', photo: 'A site photograph' }[current.taken.as] : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : offeredRows ? offeredRows.said : 'No value was read from this paper'}
           </p>
           )}
+          {!scanning && offeredRows ? (
+            <Link to={offeredRows.to} className="inline-flex items-center gap-1 text-[13px] font-medium text-brand hover:underline">
+              {offeredRows.open}
+              <ArrowRight size={13} aria-hidden />
+            </Link>
+          ) : null}
           {scanning ? (
             <div className="flex flex-col gap-1.5" aria-hidden>
               {[0, 1, 2, 3].map((i) => (

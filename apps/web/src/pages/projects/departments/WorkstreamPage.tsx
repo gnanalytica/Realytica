@@ -175,7 +175,8 @@ export default function WorkstreamPage() {
   return (
     <div className="space-y-4">
       <Reveal>
-        <div className="flex min-w-0 items-start gap-3">
+        {/* Above the ground the row of parts paints over itself for when it is held at the top: at rest that ground would cut this heading's last line. */}
+        <div className="relative z-[5] flex min-w-0 items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface text-ink shadow-card ring-1 ring-[var(--ring)]" aria-hidden>
             <DeptIcon size={18} />
           </span>

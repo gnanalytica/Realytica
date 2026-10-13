@@ -71,6 +71,11 @@ const PAGES = new WeakMap<ChatIngestFile, PaperPages>();
 /** Where each word sat on its page, with OCR's confidence in it: for judging a value a later reader lays over this one. Never stored. */
 const LAYOUTS = new WeakMap<ChatIngestFile, PageLayout[]>();
 
+/** Where each word of an ingest row's pages sits, where this process read it. Not stored: it is as large as the paper. */
+export function layoutOf(file: ChatIngestFile): PageLayout[] | undefined {
+  return LAYOUTS.get(file);
+}
+
 /** The pages read for an ingest row this process read, to be stored beside its file. */
 export function pagesOf(file: ChatIngestFile): PaperPages | undefined {
   return PAGES.get(file);

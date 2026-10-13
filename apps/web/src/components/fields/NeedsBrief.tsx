@@ -44,11 +44,14 @@ export function NeedsBrief({ project, fn, onOpenSheets }: { project: DdProject; 
         <ul className="divide-y divide-hairline" aria-label="What needs you">
           {lines.map((line) => {
             const where = needWhere(line);
+            // What the line says of itself, as on the sheets' own card: a rule's sentence, a standing's words. A value waiting is read on the sheet.
+            const valued = line.kind === 'proposed' || line.kind === 'disputed';
+            const under = [where, valued || line.text === where || line.text === line.label ? '' : line.text].filter(Boolean).join(' · ');
             return (
               <li key={line.key} className="py-1.5 text-[13px] text-ink">
                 <span className={cn('mr-2 text-[11px] font-semibold uppercase tracking-[0.06em]', TONE[line.need])}>{NEED_LABEL[line.need]}</span>
                 {line.label}
-                {where ? <span className="text-ink-muted"> · {where}</span> : null}
+                {under ? <span className="text-ink-muted"> · {under}</span> : null}
               </li>
             );
           })}

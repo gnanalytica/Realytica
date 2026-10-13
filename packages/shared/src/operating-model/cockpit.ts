@@ -18,6 +18,8 @@ import { contestedKeys, decideCheckFields, departmentOfCheck, departmentOfPaper,
 import type { MayDecide } from './team';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { moneySaid } from './cost';
+import { costPapersOf } from './cost-import';
+import { observationsWaitingFrom } from './report-observations';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import {
   detachReportBlock,
@@ -77,7 +79,7 @@ import {
   proposeReportCard,
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
-import { CHAT_NOT_ANSWERED, CHAT_QUESTION, chatNotAnswered, chatQuestionRuled, reportPlaceAsked } from './chat-questions';
+import { CHAT_NOT_ANSWERED, CHAT_QUESTION, chatNotAnswered, chatQuestionRuled, projectIsRunning, reportPlaceAsked } from './chat-questions';
 import { chatAnswerText, type ChatAnswerCard } from './chat-answer';
 import { placeProposalsFromIngest } from './place-extract';
 import { ddForDocumentsProposal, factsOnFile, pendingFactProposals } from './document-intake';
@@ -2035,7 +2037,9 @@ export function applyProjectChat(
      * gone, and with it the moment the next step was offered, so it is
      * offered here: one card, waiting in its register.
      */
-    if (!valuesWaiting && !rows.some((r) => r.status === 'proposed')) {
+    // Not on a project that is being built, and not where the papers offered rows of their own: a cost report dropped during construction is no cue to start a due diligence.
+    const offeredRows = costPapersOf(project).some((paper) => filedIds.includes(paper.evidenceId) && paper.offers.length > 0) || observationsWaitingFrom(project, filedIds) > 0;
+    if (!valuesWaiting && !rows.some((r) => r.status === 'proposed') && !offeredRows && !projectIsRunning(project)) {
       const next = projectNextStep(project, actor);
       if (next.kind !== 'idle' && next.proposals.length) {
         const filedCards = offered;
@@ -2073,7 +2077,8 @@ export function applyProjectChat(
       const raw = f.read!.label;
       // "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym.
       const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
-      return f.read!.method === 'text' ? label : `${label} (scan, read by OCR)`;
+      // A paper of typed pages with scanned ones among them is not a scan: only those pages were read by OCR.
+      return f.read!.method === 'text' ? label : f.read!.method === 'mixed' ? `${label} (its scanned pages read by OCR)` : `${label} (scan, read by OCR)`;
     });
     const redFlags = rows.filter((p) => p.kind === 'add_finding');
     const patches = rows.filter((p) => p.kind === 'patch_project').length;
@@ -2131,7 +2136,25 @@ export function applyProjectChat(
     // Not to an outside collaborator: what rests on a function is the firm's view of the whole project.
     const reach = !options.outside && (valuesWaiting || redFlags.length || disagreements.length) ? reachSentence(project, filedIds) : '';
     const extraLine = extras.join('; ');
-    assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${filedLine}${flagLine}${differLine}${waitingLine}${reach ? `\n${reach}` : ''}`;
+    /*
+     * What a report states in rows, and where each waits: a cost report's
+     * package rows on the Cost Report, a technical report's observations
+     * under Technical. Counted from what was laid on the record as the paper
+     * was filed, so the chat and the desk say one number.
+     */
+    const costRows = options.outside ? [] : costPapersOf(project).filter((paper) => filedIds.includes(paper.evidenceId));
+    const rowsWaiting = costRows.reduce((sum, paper) => sum + paper.offers.filter((offer) => offer.status === 'offered').length, 0);
+    const tablesUnread = costRows.some((paper) => !paper.offers.length && paper.pictures.length > 0);
+    const observed = options.outside ? 0 : observationsWaitingFrom(project, filedIds);
+    const rowsLine = [
+      rowsWaiting ? `${plural(rowsWaiting, 'row')} of its cost table ${rowsWaiting === 1 ? 'is' : 'are'} offered to the Cost Report on Finance › Budget, each with its page. None is on the report until a lead or signer of Finance accepts it there.` : '',
+      tablesUnread ? `Its tables are pictures and no row could be read from them${options.modelReader === false ? ': no model reader is set up here' : ''}. The table can be pasted on Finance › Budget, with the paper open beside it.` : '',
+      observed ? `${plural(observed, 'observation')} ${observed === 1 ? 'is' : 'are'} offered under Engineering › Technical, each with its risk and its page, to accept there.` : '',
+    ]
+      .filter(Boolean)
+      .map((line) => `\n${line}`)
+      .join('');
+    assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${filedLine}${flagLine}${differLine}${waitingLine}${rowsLine}${reach ? `\n${reach}` : ''}`;
     assistantText += partlyReadSentence(ingest, options.modelReader !== false);
     /*
      * The papers this reply brought, and nothing else. "Approve all" accepts

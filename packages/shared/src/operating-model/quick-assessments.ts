@@ -25,6 +25,11 @@ import { workstreamDefinition } from './departments';
 import { workstreamChecks } from './engagements';
 import { approvalsRegister, constructionGate } from './approvals';
 import { progressSummary } from './progress';
+import { scheduleWatch } from './milestone-schedule';
+import { costReportsOf, costReportTotals } from './cost-report';
+import { costReportDecisions } from './cost-report-compare';
+import { moneySaid } from './cost';
+import { daySaid } from './said';
 import { valueInputRows, valueOffers, type ValueOffer } from './value-inputs';
 import { valueSummary } from './value-standing';
 import { runValuationApproaches } from './valuation-run';
@@ -317,9 +322,11 @@ function progress(project: DdProject, at: string): QuickAssessment {
   if (!gate.open && ((project.siteLog ?? []).length > 0 || (p.percent ?? 0) > 0)) {
     points.push({ tone: 'critical', text: `Work is logged without ${gate.missing.join(' and ').toLowerCase()} on file.` });
   }
-  for (const late of p.late.slice(0, 4)) points.push({ tone: 'warning', text: `${late.name}: due ${late.plannedFinish}, at ${late.percent}%.` });
-  if (p.lastEntry) points.push({ tone: 'neutral', text: `Last site entry ${p.lastEntry.date} by ${p.lastEntry.author}: ${p.lastEntry.manpower} on site.` });
-  const verdict: QuickVerdict = p.percent === null ? 'insufficient' : points.some((x) => x.tone === 'critical') ? 'blockers' : p.late.length ? 'conditions' : 'clear';
+  // What the board warns of, in its own words: late, behind, or finishing late at the current rate. One reading, so this never says clear over a board that says behind.
+  const watched = scheduleWatch(project, new Date(at)).milestones.filter((m) => m.level);
+  for (const m of watched.slice(0, 4)) points.push({ tone: 'warning', text: `${m.name}: ${m.say ?? `${m.level === 'slipping' ? 'late at the current rate' : m.level}.`}` });
+  if (p.lastEntry) points.push({ tone: 'neutral', text: `Last site entry ${daySaid(p.lastEntry.date)} by ${p.lastEntry.author}: ${p.lastEntry.manpower} on site.` });
+  const verdict: QuickVerdict = p.percent === null ? 'insufficient' : points.some((x) => x.tone === 'critical') ? 'blockers' : p.late.length || watched.length ? 'conditions' : 'clear';
   return {
     workstream: 'construction.progress',
     department: 'construction',
@@ -333,6 +340,34 @@ function progress(project: DdProject, at: string): QuickAssessment {
     rough: false,
     gaps: p.milestones === 0 ? ['milestones for the work'] : p.lastEntry ? [] : ['a site log entry'],
     method: 'Weighted completion of the work milestones, as the site log reports them.',
+    at,
+  };
+}
+
+/**
+ * Budget: the last Cost Report issued, forecast against budget. A draft's
+ * figures are nobody's yet, so with none issued there is not enough on file.
+ */
+function budget(project: DdProject, at: string): QuickAssessment | undefined {
+  const report = costReportsOf(project).filter((held) => held.status === 'issued').at(-1);
+  if (!report || !report.rows.length) return undefined;
+  const totals = costReportTotals(report);
+  const said = (amount: number): string => moneySaid(amount, project.currency);
+  const over = costReportDecisions(report).overBudget;
+  const points: QuickPoint[] = over.slice(0, 4).map((pack) => ({ tone: 'warning' as const, text: `${pack.name}: ${said(pack.over)} over its budget.` }));
+  return {
+    workstream: 'finance.budget',
+    department: 'finance',
+    kind: 'figure',
+    headline: `Forecast ${said(totals.anticipatedCost)} against ${said(totals.budget)}`,
+    figure: { value: totals.anticipatedCost, unit: 'INR' },
+    verdict: totals.anticipatedVariance > 0 || over.length ? 'conditions' : 'clear',
+    points,
+    inputs: report.rows.map((row) => ({ label: row.name, value: said(row.anticipatedCost), tier: 1 as SourceTier, source: `Cost Report ${report.label}` })),
+    assumptionShare: 0,
+    rough: false,
+    gaps: [],
+    method: `The Cost Report issued for ${report.label}: anticipated cost against budget, package by package.`,
     at,
   };
 }
@@ -381,6 +416,8 @@ export function quickAssessment(project: DdProject, workstream: string, now = ne
       return approvals(project, at);
     case 'construction.progress':
       return progress(project, at);
+    case 'finance.budget':
+      return budget(project, at) ?? checksVerdict(project, workstream, at, 'The workstream’s checks, answered against the evidence on file.');
     case 'construction.quality':
       return checksVerdict(project, workstream, at, 'Inspections, tests and defects against the specification, and what the site reports.');
     case 'construction.site':
