@@ -88,6 +88,34 @@ const READS = /\b(?!checkSchema\b|waitingOnCheck\b|checkFieldReading\b)\w*[cC]he
 /** Handed straight to a standing function: that is the door, and the read is its argument. */
 const THROUGH = /\b(?:standingField|standingValues|fieldStands)\(\s*[\w.?!()[\]'" ,]*\.fields\b/;
 
+/**
+ * A copy of the project with values the file offers written in as if they
+ * were recorded (`withValueOffers`). A figure worked out from one is a
+ * figure from values nobody accepted: the Valuation page once said "Valued
+ * on 2,833 sqm" of an extent a paper offered and no person had accepted. The
+ * function may be defined and tested; nothing in the product may call it.
+ */
+const OFFERED_AS_RECORDED = /\bwithValueOffers\(/;
+
+describe('who works a figure out from values that wait', () => {
+  it('nobody: no figure is worked out from a copy of the project with offered values written in', () => {
+    const found: string[] = [];
+    for (const root of ROOTS) {
+      for (const file of sources(root)) {
+        readFileSync(file, 'utf8')
+          .split('\n')
+          .forEach((text, i) => {
+            const code = text.trim();
+            if (code.startsWith('*') || code.startsWith('//') || code.startsWith('/*') || code.startsWith('export function withValueOffers(')) return;
+            if (OFFERED_AS_RECORDED.test(code)) found.push(`${file.split(path.sep).join('/')}:${i + 1}  ${code.slice(0, 140)}`);
+          });
+      }
+    }
+    assert.deepEqual(found, [], 'Each of these works something out from values the file offers and nobody has accepted. Work it out from the project as it is recorded, and list what waits beside it.');
+    assert.ok(OFFERED_AS_RECORDED.test('const working = runValuationApproaches(withValueOffers(project, waiting));'), 'and it finds what it is meant to find');
+  });
+});
+
 describe('who reads a field’s stored value', () => {
   const found: Array<{ file: string; line: number; text: string }> = [];
   for (const root of ROOTS) {

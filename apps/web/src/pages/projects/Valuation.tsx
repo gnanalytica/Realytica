@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Landmark, Sparkles } from 'lucide-react';
 import {
-  computeIndicativeValuation,
   parcelLabels,
   revenueReads,
   rule8Summary,
@@ -15,7 +14,6 @@ import {
   valueOffers,
   valueReadingsWaiting,
   valueSummary,
-  withValueOffers,
   VALUATION_RUN_STATUS_LABEL,
   VALUATION_SIGN_OFF_LABEL,
   type DdProject,
@@ -98,10 +96,8 @@ export default function Valuation() {
   const readingsWaiting = useMemo(() => valueReadingsWaiting(project), [project]);
   const rows = useMemo(() => valueInputRows(project, offers), [project, offers]);
   const waiting = useMemo(() => rows.flatMap((r) => (r.waiting ? [r.waiting] : [])), [rows]);
-  // While the page fills, the figure counts only what has landed so far.
-  const counted = useMemo(() => (fill.revealed ? waiting.filter((o) => fill.revealed!.has(o.input)) : waiting), [waiting, fill.revealed]);
-  const shownProject = useMemo(() => withValueOffers(project, counted), [project, counted]);
-  const working = useMemo(() => runValuationApproaches(shownProject), [shownProject]);
+  // The figure is worked out from what is recorded. A value the file offers waits in its row until a person accepts it, and moves nothing before.
+  const working = useMemo(() => runValuationApproaches(project), [project]);
   const summary = useMemo(() => valueSummary(project, working), [project, working]);
   const screen = project.lastScreenResult;
   const checks = useMemo(() => valueChecks(project, working, summary, screen), [project, working, summary, screen]);
@@ -110,19 +106,13 @@ export default function Valuation() {
   const runs = useMemo(() => [...(project.valuationRuns ?? [])].reverse(), [project.valuationRuns]);
   const latest = runs.find((r) => r.status !== 'superseded');
   const rule8 = useMemo(() => {
-    if (shownProject !== project) {
-      const provisional = computeIndicativeValuation(shownProject);
-      return rule8Summary(provisional.ibbi, provisional.ibbi.rule8 ?? {});
-    }
     return latest ? rule8Summary(latest.ibbi, latest.ibbi.rule8 ?? {}) : null;
-  }, [shownProject, project, latest]);
+  }, [latest]);
 
   const recordedFigure = latest && (!latest.working || latest.working.reconciliation.outcome === 'indicated') && latest.indicatedValue > 0 ? latest.indicatedValue : null;
   const filling = fill.phase === 'checking' || fill.phase === 'filling';
   const status: ValueStatus =
-    counted.length > 0
-      ? 'provisional'
-      : summary.fairMarket === null
+    summary.fairMarket === null
         ? 'none'
         : recordedFigure !== null && Math.abs(summary.fairMarket - recordedFigure) / summary.fairMarket < 0.005
           ? 'recorded'
