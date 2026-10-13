@@ -273,7 +273,9 @@ describe('Design › Electrical load: demand from the unit mix, capacity from pa
 
     // Nothing on file to hold it against yet: said, and not a pass.
     assert.equal(sheet(p, 'design.electrical.capacity').text('sanction_standing'), 'Sanctioned load not on file');
-    assert.equal(sheet(p, 'design.electrical.capacity').text('transformer_standing'), 'Transformers smaller than the demand');
+    // No transformer is recorded yet: a capacity of nought is a sum over nothing, and no standing is drawn from it.
+    assert.equal(sheet(p, 'design.electrical.capacity').text('transformer_standing'), '—');
+    assert.ok(!sheet(p, 'design.electrical.capacity').said.some((line) => line.startsWith('Transformers add to')));
 
     onCheck(p, 'technical.mep_capacity', { sanctioned_load_kw: 200, connected_load_kw: 400 });
     const transformer = add(p, 'design.electrical.equipment', { tag: 'TR-1', kind: 'transformer', rating: 250, location: 'outdoor yard' });
@@ -350,9 +352,12 @@ describe('Design › Water and Sewage treatment: people from the unit mix, a nor
     // Fresh water is what is left after reuse, and no source covers it yet.
     const supply = sheet(p, 'design.water.supply');
     assert.equal(supply.text('fresh_demand'), '34 KLD');
-    assert.equal(supply.text('supply_standing'), 'Sources fall short of the demand');
+    // With no source recorded the supply is a sum over nothing: it is not said to fall short, and it is not said to cover.
+    assert.equal(supply.text('supply_standing'), '—');
     assert.equal(supply.view('borewells').shown, 'hidden');
-    add(p, 'design.water.sources', { source: 'water board', supply: 40 });
+    const board = add(p, 'design.water.sources', { source: 'water board', supply: 20 });
+    assert.equal(sheet(p, 'design.water.supply').text('supply_standing'), 'Sources fall short of the demand');
+    assert.deepEqual(setFieldValues(p, { set: 'design.water.sources', record: board.id }, { supply: 40 }, BY).rejected, []);
     assert.equal(sheet(p, 'design.water.supply').text('supply_standing'), 'Sources cover the demand');
   });
 });

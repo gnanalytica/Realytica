@@ -909,6 +909,12 @@ export interface CheckFieldValue {
   v?: number;
   /** The rule rows a worked-out value was read from. Never stored: set when the value is resolved. */
   cites?: RuleCitation[];
+  /** The usual values a worked-out value rests on, each by its field's label: nobody entered them. Never stored: set when the value is resolved. */
+  assumes?: string[];
+  /** A worked-out zero that is a sum over nothing entered: no rule fires on it and no standing is drawn from it. Never stored: set when the value is resolved. */
+  overNothing?: boolean;
+  /** What the field held when it was marked not applicable: put back as it was when the field is asked again. */
+  was?: Omit<CheckFieldValue, 'was'>;
 }
 
 /**

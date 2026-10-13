@@ -276,7 +276,9 @@ describe('Feasibility', () => {
     assert.equal(whole.view('owner_share_assumed_pct').shown, 'hidden');
     assert.equal(whole.value('assumption_age_days'), 73);
     assert.deepEqual(whole.view('assumption_age_limit').cites?.map((c) => [c.key, c.verified]), [['feasibility_assumption_age_days', false]]);
-    assert.equal(whole.value('revenue_standing'), 'In order');
+    // The limit on the selling rate is on file and no comparable is, so the rate cannot be held to it: the revenue is not said to be in order.
+    assert.equal(whole.value('rate_over_comparables'), null);
+    assert.equal(whole.value('revenue_standing'), null);
 
     setSituation(p, FEA, 'joint_development', true, 'tester');
     assert.equal(sheet(p, 'finance.feasibility.revenue').view('owner_share_assumed_pct').missing, true);

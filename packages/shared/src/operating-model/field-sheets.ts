@@ -22,11 +22,11 @@
  */
 
 import { APPROVAL_KINDS } from './approvals';
-import { checkInsights, computedValue, dayNumber, evaluateFormula, evaluateStatus, ownRows, rowMeets, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
+import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
 import { checkFieldsAsRead, checkOfferCards, checkOfferStanding, decideCheckWaiting, type CheckOffer } from './check-waiting';
 import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey } from './departments';
 import { surveyNumbersIn } from './document-intake';
-import type { DocumentFact } from './document-parse';
+import type { DocumentFact, FactProof } from './document-parse';
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, settled, standingFacts } from './fact-review';
 import { projectFigure } from './field-figures';
@@ -34,6 +34,7 @@ import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSe
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { RULE_ROWS } from './field-sets';
 import { SHARED_FN } from './field-sets/shared-records';
+import { indiaToday } from './quarters';
 import { ruleCitation, ruleRow } from './rule-tables';
 import { recordAuditEvent } from './operations';
 import { decisionRefused } from './review';
@@ -94,7 +95,7 @@ export function departmentOfFunction(fn: string): DepartmentKey | undefined {
 }
 
 /** The check that holds a check set's values on this project: the one last written of those with the definition. */
-function checkHolding(project: DdProject, definitionId: string) {
+export function checkHolding(project: DdProject, definitionId: string) {
   const held = allChecks(project).filter((check) => check.definitionId === definitionId);
   return held.sort((a, b) => Number(Boolean(Object.keys(b.fields ?? {}).length)) - Number(Boolean(Object.keys(a.fields ?? {}).length)) || b.updatedAt.localeCompare(a.updatedAt))[0];
 }
@@ -122,8 +123,14 @@ function stored(project: DdProject, catalog: FieldCatalog, setId: string, record
     return check ? checkFieldsAsRead(project, check) : {};
   }
   const sheet = sheetOf(project, setId);
-  if (recordId) return sheet?.records?.find((record) => record.id === recordId)?.values ?? {};
+  // A record taken off its list is kept and read by nothing: no formula, no link and no rule reaches it.
+  if (recordId) return sheet?.records?.find((record) => record.id === recordId && !record.removed)?.values ?? {};
   return sheet?.values ?? {};
+}
+
+/** Whether a record is one yet: somebody has accepted or typed a value on it. One that only holds what was offered is nothing until then. */
+function recordStands(record: Pick<FieldRecord, 'values'>): boolean {
+  return Object.values(record.values).some((value) => fieldStands(value) && !isBlank(value));
 }
 
 /** The holder to write into, made if it is not there. A check's is the check itself. */
@@ -196,15 +203,23 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
     if (!held) kept.set(key, (held = stored(project, catalog, setId, recordId)));
     return held;
   };
-  const today = at.toISOString().slice(0, 10);
+  const today = indiaToday(at);
   // One reading of the project: several figures of one module (the valuation, say) work it out once.
   const figures = new Map<string, unknown>();
 
-  const outside = (set: FieldSet, recordId: string | undefined, cites: RuleCitation[]): FormulaOutside => ({
+  // What a worked-out value rests on that nobody entered: a usual value standing in, by its field's label.
+  const rests = (assumes: string[], value: CheckFieldValue | undefined, label: () => string) => {
+    if (value?.state === 'assumed' && !isBlank(value)) assumes.push(label());
+    assumes.push(...(value?.assumes ?? []));
+  };
+  const labelAt = (address: FieldAddress) => catalog.sets.get(address.set)?.fields.find((f) => f.key === address.field)?.label ?? address.field;
+
+  const outside = (set: FieldSet, recordId: string | undefined, cites: RuleCitation[], assumes: string[]): FormulaOutside => ({
     // A field of the same set that repeats, asked from one of its records, is that record's.
     read: (address) => {
       const value = read(address.set === set.id && !address.record && recordId ? { ...address, record: recordId } : address);
       cites.push(...(value?.cites ?? []));
+      rests(assumes, value, () => labelAt(address));
       return value;
     },
     records: (setId) => records(setId),
@@ -234,54 +249,91 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       value = owner && !isBlank(owner) ? { ...owner, origin: { kind: 'field', address: def.sameAs } } : undefined;
     } else if (def.kind === 'computed') {
       const cites: RuleCitation[] = [];
+      const assumes: string[] = [];
       const values = new Proxy({} as Record<string, CheckFieldValue>, {
         get: (_, name) => {
           const read = typeof name === 'string' ? own(name) : undefined;
           cites.push(...(read?.cites ?? []));
+          if (typeof name === 'string') rests(assumes, read, () => set.fields.find((f) => f.key === name)?.label ?? name);
           return read;
         },
       });
-      value = computedValue(def, def.formula ? evaluateFormula(def.formula, values, outside(set, recordId, cites)) : null);
+      const around = outside(set, recordId, cites, assumes);
+      value = computedValue(def, def.formula ? evaluateFormula(def.formula, values, around) : null);
       if (cites.length) value.cites = uniqueCites(cites);
+      if (assumes.length && !isBlank(value)) value.assumes = [...new Set(assumes)];
+      // A zero that is a sum over nothing entered is said to be one, so no rule fires on it.
+      if (def.formula && !isBlank(value) && formulaOverNothing(def.formula, values, around)) value.overNothing = true;
     } else if (def.kind === 'status') {
       // The rule engine reads plain values: what the holder stores that stands, and the fields the cases name, resolved.
       const values: Record<string, CheckFieldValue> = {};
       const cites: RuleCitation[] = [];
+      const assumes: string[] = [];
       for (const [name, held] of Object.entries(storedOf(set.id, recordId))) if (fieldStands(held) && !isBlank(held)) values[name] = held;
       for (const name of (def.cases ?? []).flatMap((option) => option.when.fields)) {
         const resolved = own(name);
         cites.push(...(resolved?.cites ?? []));
+        rests(assumes, resolved, () => set.fields.find((f) => f.key === name)?.label ?? name);
         if (resolved && !isBlank(resolved)) values[name] = resolved;
         else delete values[name];
       }
-      value = { value: evaluateStatus(def, set.fields, values, at)?.label ?? null, at: '', by: 'computed', ...(cites.length ? { cites: uniqueCites(cites) } : {}) };
+      const standing = evaluateStatus(def, set.fields, values, at)?.label ?? null;
+      value = { value: standing, at: '', by: 'computed', ...(cites.length ? { cites: uniqueCites(cites) } : {}), ...(assumes.length && standing !== null ? { assumes: [...new Set(assumes)] } : {}) };
     } else {
-      value = standingField(storedOf(set.id, recordId)[def.key]);
-      // Nothing recorded and nothing waiting: a usual value stands in, said to be assumed, until a real one arrives.
       const held = storedOf(set.id, recordId)[def.key];
-      if (isBlank(value) && !held?.state && isBlank(held) && def.defaults?.length) {
+      value = standingField(held);
+      // Nothing stands: a usual value stands in, said to be assumed, until a real one is typed or accepted. A value somebody
+      // offered changes nothing while it waits, so it does not switch the usual value off. A field marked not applicable has
+      // none, and neither has one in dispute: its two values are a question nobody has settled.
+      const state = fieldState(held);
+      if (isBlank(value) && state !== 'not_applicable' && state !== 'disputed' && def.defaults?.length) {
         const usual = def.defaults.find((rule) => showing(rule.when, { fn: set.fn, set: set.id, record: recordId }));
         if (usual) value = { value: usual.value, at: '', by: 'default', state: 'assumed', origin: { kind: 'default', from: usual.from, ...(usual.cite ? { cite: usual.cite } : {}) } };
       }
     }
     open.delete(key);
     memo.set(key, value);
+    // A field a person fills that is not in play feeds nothing: no formula, no standing, no situation and no count reads it, as
+    // no rule does. What it holds is kept, and reads again the moment it is back in play. What is worked out is another matter:
+    // a count kept out of sight until its set holds a record is still the working behind a standing, and it reads only what is
+    // in play itself. Asked after the value is kept above, so a condition that reads the field itself sees what it holds.
+    if (value !== undefined && !fieldIsDerived(def) && !inPlay(set, recordId, def)) {
+      value = undefined;
+      memo.set(key, value);
+    }
     return value;
+  };
+
+  /** Whether a field is asked now: its own condition and its section's hold, and its section is not marked not applicable. */
+  const inPlay = (set: FieldSet, recordId: string | undefined, def: CheckFieldDef): boolean => {
+    const section = def.sheet ? undefined : (set.sections ?? []).find((held) => held.key === def.section);
+    if (!def.showWhen && !section?.showWhen && !section) return true;
+    const from = { fn: set.fn, set: set.id, record: recordId };
+    if (!showing(def.showWhen, from) || !showing(section?.showWhen, from)) return false;
+    return !(section && !catalog.checks.has(set.id) && sheetOf(project, set.id)?.na?.[section.key]);
   };
 
   const read = (address: FieldAddress): CheckFieldValue | undefined => {
     const set = catalog.sets.get(address.set);
     const def = set?.fields.find((f) => f.key === address.field);
     if (!set || !def) return undefined;
-    // A set that repeats has no one value for a field: name the record.
-    if (set.records && !address.record) return undefined;
+    // A set that repeats has no one value for a field: name the record. And one that is not on its list holds nothing to read.
+    if (set.records && (!address.record || !listed(set.id, address.record))) return undefined;
     return field(set, address.record, def);
+  };
+
+  // The records on each set's list, found once: a record taken off it is read by nothing, not even for a usual value.
+  const lists = new Map<string, Set<string>>();
+  const listed = (setId: string, recordId: string): boolean => {
+    let ids = lists.get(setId);
+    if (!ids) lists.set(setId, (ids = new Set(fieldRecords(project, setId).map((record) => record.id))));
+    return ids.has(recordId);
   };
 
   const holder = (setId: string, recordId?: string): Record<string, CheckFieldValue> => {
     const set = catalog.sets.get(setId);
     const out: Record<string, CheckFieldValue> = {};
-    if (!set) return out;
+    if (!set || (set.records && recordId && !catalog.checks.has(setId) && !listed(setId, recordId))) return out;
     for (const def of set.fields) {
       const value = field(set, recordId, def);
       if (value) out[def.key] = value;
@@ -292,7 +344,7 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
   const records = (setId: string) => {
     if (!catalog.sets.get(setId)?.records) return undefined;
     return fieldRecords(project, setId)
-      .filter((record) => Object.values(record.values).some((value) => fieldStands(value) && !isBlank(value)))
+      .filter(recordStands)
       .map((record) => holder(setId, record.id));
   };
 
@@ -371,14 +423,14 @@ export interface MatchReading {
   /** Every list paired, the left first: two, or more where the table pairs further lists to the left one. */
   sides: MatchSideReading[];
   /** Each row as it pairs the lists: one cell a side, empty where the row names nothing for it. `differs` where the columns that should agree do not. */
-  rows: Array<{ cells: Array<{ id: string; label: string }>; differs: boolean }>;
+  rows: Array<{ cells: Array<{ id: string; label: string }>; differs: boolean; gone?: boolean }>;
 }
 
 function matchList(project: DdProject, catalog: FieldCatalog, resolution: FieldResolution, list: MatchList): MatchItem[] {
   if ('target' in list) return refChoices(project, list.target, catalog);
   if ('records' in list) {
     const def = catalog.sets.get(list.records)?.fields.find((field) => field.key === list.field);
-    return fieldRecords(project, list.records).flatMap((record) => {
+    return fieldRecords(project, list.records).filter(recordStands).flatMap((record) => {
       const value = resolution.holder(list.records, record.id)[list.field];
       return def && !isBlank(value) ? [{ id: record.id, label: formatFieldValue(def, value, (id) => optionSetById(id, catalog)) }] : [];
     });
@@ -404,10 +456,13 @@ export function readMatch(project: DdProject, def: CheckFieldDef, value: CheckFi
   if (def.display !== 'match' || !def.match) return undefined;
   const lists = matchSides(def).map((side) => ({ side, items: matchList(project, catalog, resolution, side.of) }));
   const held = (Array.isArray(value?.value) ? value!.value : []).filter((row): row is Record<string, string | number | boolean | null> => typeof row === 'object' && row !== null);
-  const cell = (index: number, row: Record<string, string | number | boolean | null>) => {
+  const cell = (index: number, row: Record<string, string | number | boolean | null>): { id: string; label: string; gone?: boolean } => {
     const raw = row[lists[index]!.side.column];
     const id = raw === null || raw === undefined ? '' : String(raw);
-    return { id, label: id ? (lists[index]!.items.find((item) => item.id === id)?.label ?? id) : '' };
+    const named = id ? lists[index]!.items.find((item) => item.id === id)?.label : '';
+    const of = lists[index]!.side.of;
+    const gone = id && named === undefined ? removedLabel(project, catalog, 'target' in of ? refSet(of.target) : 'records' in of ? of.records : undefined, id) : undefined;
+    return { id, label: named ?? gone ?? id, ...(gone ? { gone: true } : {}) };
   };
   const agree = (def.match.agree ?? []).map((column) => lists.findIndex((list) => list.side.column === column)).filter((index) => index >= 0);
   const rows = held
@@ -416,7 +471,7 @@ export function readMatch(project: DdProject, def: CheckFieldDef, value: CheckFi
     .filter((cells) => cells[0]!.id && cells.slice(1).some((other) => other.id))
     .map((cells) => {
       const said = agree.map((index) => cells[index]!.label.trim().toLowerCase()).filter(Boolean);
-      return { cells, differs: new Set(said).size > 1 };
+      return { cells: cells.map(({ id, label }) => ({ id, label })), differs: new Set(said).size > 1, ...(cells.some((one) => one.gone) ? { gone: true } : {}) };
     });
   const sides: MatchSideReading[] = lists.map(({ side, items }, index) => ({
     column: side.column,
@@ -452,6 +507,8 @@ export interface FieldSource {
   asOf?: string;
   /** What stands behind a model's reading, as `proofSaid` words it. */
   reader?: 'parser' | 'model';
+  /** Whether a model's words were found on the page it named: `unverified` where they were not. */
+  proof?: FactProof;
   address?: FieldAddress;
 }
 
@@ -486,6 +543,14 @@ export interface FieldView {
   match?: MatchReading;
   /** The rule rows a worked-out value was read from, each with whether a person has verified it. */
   cites?: RuleCitation[];
+  /** A worked-out value or a standing that rests on a rule row nobody has verified: drawn as "rule not checked". */
+  ruleUnchecked?: boolean;
+  /** The usual values a worked-out value or a standing rests on, by label: nobody entered them. */
+  assumes?: string[];
+  /** A mirror's own field: where its value is held, and where a decision on what waits beside it is sent. */
+  heldAt?: FieldAddress;
+  /** A link that names a record since taken off its list. */
+  removedLink?: boolean;
 }
 
 /** The party a field's value is waited on from. */
@@ -538,7 +603,7 @@ export interface SheetReading {
   /** What the holder's own rules say. A depth sheet's are on it. */
   insights: CheckInsight[];
   /** Every rule that fired, with which rule of the set it was and the depth sheet it belongs to. */
-  findings: Array<{ insight: CheckInsight; rule: number; sheet?: string }>;
+  findings: Array<{ insight: CheckInsight; rule: number; sheet?: string; ruleUnchecked?: boolean; assumes?: string[] }>;
   /** The hard cases this holder can open, each a small sheet of its own. */
   depth: DepthReading[];
   /** Values kept under a key nothing declares any more: shown as no longer asked, and never lost. */
@@ -547,6 +612,8 @@ export interface SheetReading {
   total: number;
   /** On a shared record read for one function (`sheetSeenFrom`): the other functions that keep facts of their own on it, with how many each holds. */
   elsewhere?: Array<{ fn: string; held: number }>;
+  /** A record nobody has accepted or typed anything on: it holds only what was offered, asks nothing and counts for nothing until one value is accepted. */
+  pending?: boolean;
 }
 
 /**
@@ -591,9 +658,10 @@ function plainly(value: CheckFieldValue): string {
 function sourceOf(project: DdProject, catalog: FieldCatalog, value: CheckFieldValue | undefined, origin: FieldOrigin | undefined): FieldSource | undefined {
   if (origin?.kind === 'paper') {
     const row = project.evidence.find((e) => e.id === origin.evidenceId);
-    return { kind: 'paper', label: row?.title ?? 'A paper not on this copy', evidenceId: origin.evidenceId, page: origin.page, quote: origin.quote, reader: origin.reader };
+    return { kind: 'paper', label: row?.title ?? 'A paper not on this copy', evidenceId: origin.evidenceId, page: origin.page, quote: origin.quote, reader: origin.reader, ...(origin.proof ? { proof: origin.proof } : {}) };
   }
-  if (origin?.kind === 'external') return { kind: 'external', label: origin.source, url: origin.url, asOf: origin.asOf, quote: origin.quote };
+  // A link is followed only where it is a plain https address: anything else a value was saved with is not handed to a screen.
+  if (origin?.kind === 'external') return { kind: 'external', label: origin.source, ...(safeLink(origin.url) ? { url: origin.url } : {}), asOf: origin.asOf, quote: origin.quote };
   if (origin?.kind === 'field') {
     const set = catalog.sets.get(origin.address.set);
     return { kind: 'field', label: set?.title ?? origin.address.set, address: origin.address };
@@ -608,6 +676,26 @@ function sourceOf(project: DdProject, catalog: FieldCatalog, value: CheckFieldVa
   return undefined;
 }
 
+/** A public source's link as it may be kept and shown: https, no spaces, bounded. */
+function safeLink(url: unknown): url is string {
+  return typeof url === 'string' && /^https:\/\/[^\s"'<>]{1,500}$/.test(url);
+}
+
+/**
+ * What a `ref` reads as where the record it names has been taken off its
+ * list: the record's own title as it stood, said to be off the list. Undefined
+ * where the id names no record of the set at all.
+ */
+function removedLabel(project: DdProject, catalog: FieldCatalog, setId: string | undefined, id: string): string | undefined {
+  const set = setId ? catalog.sets.get(setId) : undefined;
+  const record = set?.records ? sheetOf(project, set.id)?.records?.find((held) => held.id === id && held.removed) : undefined;
+  if (!set?.records || !record) return undefined;
+  const titleDef = set.fields.find((def) => def.key === set.records!.titleField);
+  const title = titleDef ? standingField(record.values[titleDef.key]) : undefined;
+  const named = titleDef && !isBlank(title) ? formatFieldValue(titleDef, title, (list) => optionSetById(list, catalog)) : `A ${set.records.of}`;
+  return `${named} (taken off ${set.title})`;
+}
+
 /** A value as the fact-review rules see one, so the one rule about what is accepted one at a time is asked, not copied. */
 function asFact(def: CheckFieldDef, value: CheckFieldValue): DocumentFact {
   const origin = value.origin;
@@ -618,7 +706,8 @@ function asFact(def: CheckFieldDef, value: CheckFieldValue): DocumentFact {
     display: String(value.value),
     page: origin?.kind === 'paper' ? origin.page : 0,
     quote: origin?.kind === 'paper' ? origin.quote : '',
-    source: origin?.kind === 'paper' ? origin.reader : value.proposedBy === 'model' ? 'model' : 'parser',
+    // A paper's value saved with no reader named is its proposer's: a model's, where a model offered it.
+    source: origin?.kind === 'paper' && origin.reader ? origin.reader : value.proposedBy === 'model' ? 'model' : 'parser',
     ...(origin?.kind === 'paper' && origin.proof ? { proof: origin.proof } : {}),
   };
 }
@@ -651,14 +740,17 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     if (def.kind !== 'ref' || isBlank(value)) return formatFieldValue(def, value, lists);
     const key = JSON.stringify(def.target);
     if (!linked.has(key)) linked.set(key, refChoices(project, def.target, catalog));
-    return linked.get(key)!.find((choice) => choice.id === value!.value)?.label ?? String(value!.value);
+    return linked.get(key)!.find((choice) => choice.id === value!.value)?.label ?? removedLabel(project, catalog, refSet(def.target), String(value!.value)) ?? String(value!.value);
   };
+  const linkGone = (def: CheckFieldDef, value: CheckFieldValue | undefined): boolean => def.kind === 'ref' && !isBlank(value) && removedLabel(project, catalog, refSet(def.target), String(value!.value)) !== undefined;
+  // A record nobody has accepted or typed anything on holds only what was offered: it asks nothing and counts for nothing.
+  const pending = Boolean(recordId) && !catalog.checks.has(setId) && !Object.values(held).some((value) => fieldStands(value) && !isBlank(value));
   const na = sheetOf(project, setId)?.na ?? {};
   const sectionDefs = [...(set.sections ?? [])];
   if (set.fields.some((def) => !def.section && !def.sheet)) sectionDefs.unshift({ key: '', label: '' });
   // Whether a field is expected yet: its step of the project has come, or its day has.
   const step = SUB_STAGES.indexOf(project.currentStage);
-  const today = at.toISOString().slice(0, 10);
+  const today = indiaToday(at);
   const dueNow = (def: CheckFieldDef): boolean => {
     if (!def.dueFrom) return true;
     return /^\d{4}-\d{2}-\d{2}$/.test(def.dueFrom) ? def.dueFrom <= today : SUB_STAGES.indexOf(def.dueFrom as LifecycleStage) <= step;
@@ -680,7 +772,9 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     const derived = fieldIsDerived(def);
     // A usual value standing in is what the field shows while it stores nothing.
     const assumed = !derived && acting[def.key]?.state === 'assumed' ? acting[def.key] : undefined;
-    const own = derived ? acting[def.key] : (assumed ?? held[def.key]);
+    const kept = held[def.key];
+    // A value that waits is what the field shows, so a person can accept it; the usual value goes on standing in behind it.
+    const own = derived ? acting[def.key] : fieldState(kept) === 'proposed' ? kept : assumed ? (kept?.other?.length ? { ...assumed, other: kept.other } : assumed) : kept;
     const state: FieldState = derived ? (isBlank(own) ? 'empty' : 'accepted') : fieldState(own);
     const holds = !isBlank(own) || state === 'not_applicable' || Boolean(own?.other?.length);
     const inPlay = resolved.showing(def.showWhen, from) && resolved.showing(section?.showWhen, from) && !def.retired;
@@ -692,7 +786,7 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     const must = def.requiredWhen ? resolved.showing(def.requiredWhen, from) : def.required !== false;
     const due = dueNow(def);
     // Asked for only where it is in play, not folded away as expert, and holds nothing: not even a usual value.
-    const asked = shown === 'shown' && !derived && !sectionNa && must && !expert && due;
+    const asked = shown === 'shown' && !derived && !sectionNa && must && !expert && due && !pending;
     const owed = asked ? owedOf(def) : undefined;
     // What another party owes is theirs to give: it is waited on, and never counted against the reader.
     const expected = asked && !owed;
@@ -715,7 +809,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
         source: sourceOf(project, catalog, undefined, other.origin),
         proposedBy: other.proposedBy,
       })),
-      oneAtATime: state === 'proposed' && own ? acceptedOneAtATime(asFact(def, own)) : false,
+      // A model's words that were not found on the page it named are never swept up by "accept all".
+      oneAtATime: state === 'proposed' && own ? acceptedOneAtATime(asFact(def, own)) || (own.origin?.kind === 'paper' && own.proposedBy === 'model' && own.origin.proof === 'unverified') : false,
       missing,
       expected,
       due,
@@ -723,6 +818,10 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       awaited: Boolean(owed) && empty,
       ...(shown !== 'hidden' && def.display === 'match' ? { match: readMatch(project, def, acting[def.key], resolved, catalog) } : {}),
       ...(own?.cites?.length ? { cites: own.cites } : {}),
+      ...(own?.cites?.some((cite) => !cite.verified) ? { ruleUnchecked: true } : {}),
+      ...(derived && own?.assumes?.length ? { assumes: own.assumes } : {}),
+      ...(def.sameAs ? { heldAt: { ...def.sameAs, fn: catalog.sets.get(def.sameAs.set)?.fn ?? def.sameAs.fn } } : {}),
+      ...(shown !== 'hidden' && linkGone(def, own) ? { removedLink: true } : {}),
     };
   });
 
@@ -735,9 +834,13 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
   // Rules read what stands, and only of fields that are in play: a rule about a field that is not showing has nothing to say.
   const playing = new Set(fields.filter((view) => view.shown !== 'hidden' && (view.def.sheet || !na[view.def.section ?? ''])).map((view) => view.def.key));
   const findings = set.rules.flatMap((rule, index) => {
-    if (!resolved.showing(rule.when, from) || !rule.fields.every((key) => playing.has(key) || rule.at?.[key])) return [];
+    if (pending || !resolved.showing(rule.when, from) || !rule.fields.every((key) => playing.has(key) || rule.at?.[key])) return [];
     const abroad = ruleAbroad(rule, resolved, catalog);
-    return checkInsights([...set.fields, ...abroad.defs], { ...acting, ...abroad.values }, [rule], at).map((insight) => ({ insight, rule: index, ...(rule.sheet ? { sheet: rule.sheet } : {}) }));
+    const read = { ...acting, ...abroad.values };
+    // What the line rests on that nobody checked or entered: a rule row not verified, a usual value standing in.
+    const unchecked = rule.fields.some((key) => read[key]?.cites?.some((cite) => !cite.verified));
+    const assumes = [...new Set(rule.fields.flatMap((key) => [...(read[key]?.state === 'assumed' ? [(set.fields.find((f) => f.key === key) ?? abroad.defs.find((f) => f.key === key))?.label ?? key] : []), ...(read[key]?.assumes ?? [])]))];
+    return checkInsights([...set.fields, ...abroad.defs], read, [rule], at).map((insight) => ({ insight, rule: index, ...(rule.sheet ? { sheet: rule.sheet } : {}), ...(unchecked ? { ruleUnchecked: true } : {}), ...(assumes.length ? { assumes } : {}) }));
   });
   const insights = findings.filter((found) => !found.sheet).map((found) => found.insight);
   const recorded = (view: FieldView) => (fieldStands(view.held) && !isBlank(view.held)) || view.state === 'not_applicable';
@@ -769,10 +872,12 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
 
   const answerable = fields.filter((view) => view.expected);
   const titleDef = set.records ? set.fields.find((def) => def.key === set.records!.titleField) : undefined;
-  const titleHeld = titleDef ? (acting[titleDef.key] ?? held[titleDef.key]) : undefined;
+  // A record is called by what stands on it. A name somebody offered is not its name until a person accepts it.
+  const titleHeld = titleDef ? acting[titleDef.key] : undefined;
   return {
     set,
     ...(recordId ? { recordId } : {}),
+    ...(pending ? { pending } : {}),
     title: set.records ? (titleDef && !isBlank(titleHeld) ? said(titleDef, titleHeld) : `New ${set.records.of}`) : set.title,
     chips: (set.records?.summaryFields ?? []).flatMap((key) => {
       const def = set.fields.find((f) => f.key === key);
@@ -850,6 +955,12 @@ export interface FieldException {
   /** For a situation: the key it is kept under. */
   situation?: string;
   oneAtATime?: boolean;
+  /** Rests on a rule row nobody has verified against the instrument: drawn as "rule not checked". */
+  ruleUnchecked?: boolean;
+  /** Rests on a usual value standing in, by the labels of the fields nobody entered. */
+  assumes?: string[];
+  /** For a value waiting beside a mirror: the mirror's own field, where the line is drawn. `address` is the field that holds the value, where it is accepted. */
+  shownAt?: FieldAddress;
 }
 
 export interface SituationView {
@@ -938,7 +1049,7 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
   for (const situation of situations) {
     if (situation.state === 'proposed') all.push({ kind: 'situation', need: 'decide', key: `situation::${situation.at}`, sheet: '', label: situation.situation.label, text: situation.situation.hint ?? '', source: situation.suggestedBy, situation: situation.at });
   }
-  const today = Math.floor(at.getTime() / 86_400_000);
+  const today = dayNumber(indiaToday(at))!;
   for (const read of readings) {
     const where = { sheet: read.set.records ? `${read.set.title} · ${read.title}` : read.set.title, ...(read.recordId ? { record: read.recordId } : {}) };
     for (const view of read.fields) {
@@ -949,8 +1060,18 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
       if (view.state === 'proposed') all.push({ kind: 'proposed', need: 'accept', key: `${key}::proposed`, ...on, text: view.text, source: view.source, oneAtATime: view.oneAtATime });
       else if (view.state === 'disputed') all.push({ kind: 'disputed', need: 'decide', key: `${key}::disputed`, ...on, text: [view.text, ...view.waiting.map((w) => w.text)].join(' / '), source: view.source, tone: 'critical' });
       if (view.state !== 'disputed') {
-        for (const waiting of view.waiting) all.push({ kind: 'proposed', need: 'accept', key: `${key}::proposed::${waiting.index}`, ...on, text: waiting.text, source: waiting.source, pick: waiting.index, oneAtATime: true });
+        // A value waiting beside a mirror waits on the field the mirror reads: the line is drawn here and accepted there, in one tap.
+        // One line for one value, however many mirrors of the field the page holds.
+        const holds = view.heldAt ?? view.address;
+        for (const waiting of view.waiting) {
+          const line = `${addressKey(holds)}::proposed::${waiting.index}`;
+          if (all.some((other) => other.key === line)) continue;
+          all.push({ kind: 'proposed', need: 'accept', key: line, ...on, address: holds, ...(view.heldAt ? { shownAt: view.address } : {}), text: waiting.text, source: waiting.source, pick: waiting.index, oneAtATime: true });
+        }
       }
+      // A record that holds only what was offered asks for nothing more than a decision on what was offered.
+      if (read.pending) continue;
+      if (view.removedLink) all.push({ kind: 'rule', need: 'failing', key: `${key}::removed_link`, ...on, text: view.text, tone: 'critical' });
       if (view.missing) all.push({ kind: 'missing', need: 'missing', key: `${key}::missing`, ...on, text: view.def.from ?? '' });
       // What another party owes is listed under that party, and asks nothing of the reader.
       if (view.awaited && view.owed) {
@@ -964,6 +1085,7 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
       }
       for (const row of view.match?.rows ?? []) {
         if (row.differs) all.push({ kind: 'rule', need: 'failing', key: `${key}::differs::${row.cells[0]!.id}`, ...on, text: row.cells.filter((cell) => cell.label).map((cell) => cell.label).join(' / '), tone: 'critical' });
+        else if (row.gone) all.push({ kind: 'rule', need: 'failing', key: `${key}::removed_link::${row.cells[0]!.id}`, ...on, text: row.cells.filter((cell) => cell.label).map((cell) => cell.label).join(' / '), tone: 'critical' });
       }
       // A day that has run out, or is about to.
       const runsOut = view.def.expires && fieldStands(view.held) ? dayNumber(view.held?.value) : null;
@@ -977,7 +1099,7 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
       const firing = view.def.kind === 'status' ? view.def.cases?.find((option) => option.label === view.held?.value)?.when : undefined;
       const saidByRule = firing && read.set.rules.some((rule) => rule.kind === firing.kind && rule.fields.join() === firing.fields.join());
       if (view.def.kind === 'status' && !saidByRule && (view.tone === 'critical' || view.tone === 'warning')) {
-        all.push({ kind: 'rule', need: view.tone === 'critical' ? 'failing' : 'due_soon', key: `${key}::status`, ...on, text: view.text, tone: view.tone });
+        all.push({ kind: 'rule', need: view.tone === 'critical' ? 'failing' : 'due_soon', key: `${key}::status`, ...on, text: view.text, tone: view.tone, ...(view.ruleUnchecked ? { ruleUnchecked: true } : {}), ...(view.assumes?.length ? { assumes: view.assumes } : {}) });
       }
     }
     for (const found of read.findings) {
@@ -985,11 +1107,11 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
       if (found.insight.severity === 'low') continue;
       const failing = found.insight.severity === 'critical' || found.insight.severity === 'high';
       const depth = depthSheet(read.set, found.sheet);
-      all.push({ kind: 'rule', need: failing ? 'failing' : 'due_soon', key: `${read.set.id}::${read.recordId ?? ''}::rule::${found.rule}`, ...where, label: depth?.title ?? read.set.title, ...(depth ? { depth: depth.id } : {}), text: found.insight.text, tone: SEVERITY_TONE[found.insight.severity] ?? 'neutral' });
+      all.push({ kind: 'rule', need: failing ? 'failing' : 'due_soon', key: `${read.set.id}::${read.recordId ?? ''}::rule::${found.rule}`, ...where, label: depth?.title ?? read.set.title, ...(depth ? { depth: depth.id } : {}), text: found.insight.text, tone: SEVERITY_TONE[found.insight.severity] ?? 'neutral', ...(found.ruleUnchecked ? { ruleUnchecked: true } : {}), ...(found.assumes?.length ? { assumes: found.assumes } : {}) });
     }
   }
   // A line under Due soon a person put off stays off the page until its day, or until it starts failing.
-  const day = at.toISOString().slice(0, 10);
+  const day = indiaToday(at);
   const snoozed: FieldException[] = [];
   const exceptions: FieldException[] = [];
   for (const exception of all) {
@@ -1100,7 +1222,8 @@ export function refChoices(project: DdProject, target: RefTarget | undefined, ca
   if (!target) return [];
   // The records of the set it names, or of the shared record it is a target of.
   const setId = refSet(target);
-  const records = setId && catalog.sets.get(setId)?.records ? fieldRecords(project, setId).map((record) => ({ id: record.id, label: readSheet(project, setId, record.id, undefined, catalog)?.title ?? record.id })) : [];
+  // A record nobody has accepted or typed anything on is not one yet: nothing links to it.
+  const records = setId && catalog.sets.get(setId)?.records ? fieldRecords(project, setId).filter(recordStands).map((record) => ({ id: record.id, label: readSheet(project, setId, record.id, undefined, catalog)?.title ?? record.id })) : [];
   if (typeof target === 'object') return records;
   // And what the project already keeps of the kind, linked to as it is and never entered a second time.
   const named = new Set(records.map((record) => record.label.toLowerCase()));
@@ -1142,6 +1265,13 @@ function assertMayDecide(fn: string, what: string, options: FieldWriteOptions): 
   if (!may) throw decisionRefused(what, department, options.mayDecide);
 }
 
+/** Whether the caller may make a value count in a function. With nobody asking, nothing is refused. */
+function mayDecideIn(fn: string, options: FieldWriteOptions): boolean {
+  if (!options.mayDecide) return true;
+  const department = departmentOfFunction(fn);
+  return fn === SHARED_FN ? DEPARTMENT_KEYS.some((key) => options.mayDecide!(key)) : Boolean(department && options.mayDecide(department));
+}
+
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /** A value checked against its field and against the project: a link has to name something that exists. */
@@ -1170,7 +1300,13 @@ export interface FieldWriteResult {
  * write with it. A typed value stands at once, under the name of whoever
  * typed it. Typed over a value that was accepted from a paper or a public
  * source, it does not replace it: the two are kept side by side as disputed,
- * and neither stands until a lead or signer keeps one.
+ * and neither stands until a lead or signer keeps one. Typing again while
+ * they are disputed adds a third beside them and settles nothing, and typing
+ * the value a field already holds leaves it as it is, source and all.
+ *
+ * Clearing is typing nothing. A value accepted from a paper is cleared only
+ * by somebody who may decide, and is then kept among what was set aside. A
+ * value in dispute is not cleared at all: one of the two is kept.
  */
 export function setFieldValues(
   project: DdProject,
@@ -1199,15 +1335,38 @@ export function setFieldValues(
       continue;
     }
     const held = holder[key];
+    const state = fieldState(held);
+    const sourced = Boolean(held) && state === 'accepted' && (held!.origin?.kind === 'paper' || held!.origin?.kind === 'external' || Boolean(held!.sourceEvidenceId));
     if (parsed.value === null) {
+      if (held && !isBlank(held) && state === 'disputed') {
+        rejected.push({ key, error: `${def.label} is in dispute. A lead or signer keeps one of the values; it is not cleared.` });
+        continue;
+      }
+      if (held && sourced && !isBlank(held)) {
+        if (!mayDecideIn(set.fn, options)) {
+          rejected.push({ key, error: `${def.label} was accepted from a source. A lead or signer clears it; type the other figure to dispute it.` });
+          continue;
+        }
+        // Cleared by somebody who may decide: set aside, and remembered with what else was set aside here.
+        next[key] = { value: null, at, by: actor, declined: [...(held.declined ?? []), { value: held.value, by: actor, at }], ...(held.other?.length ? { other: held.other } : {}) };
+        continue;
+      }
       // Cleared. What waits beside it still waits.
       next[key] = held?.other?.length ? { value: null, at, by: actor, other: held.other } : null;
       continue;
     }
+    // The value the field already holds, typed again: nothing changes, and where it came from is kept.
+    if (held && !isBlank(held) && (fieldStands(held) || state === 'disputed') && same(held.value, parsed.value)) {
+      next[key] = held;
+      continue;
+    }
     const typed: CheckFieldValue = { value: parsed.value, at, by: actor, state: 'typed', origin: { kind: 'person' }, v: set.v, ...('entered' in parsed && parsed.entered ? { entered: parsed.entered } : {}) };
-    const sourced = held && fieldState(held) === 'accepted' && (held.origin?.kind === 'paper' || held.origin?.kind === 'external' || Boolean(held.sourceEvidenceId));
-    if (sourced && !same(held!.value, parsed.value)) {
-      next[key] = { ...held!, state: 'disputed', other: [...(held!.other ?? []), { value: parsed.value, origin: { kind: 'person' }, proposedBy: actor, at, ...(typed.entered ? { entered: typed.entered } : {}) }] };
+    const beside = { value: parsed.value, origin: { kind: 'person' as const }, proposedBy: actor, at, ...(typed.entered ? { entered: typed.entered } : {}) };
+    if (held && !isBlank(held) && state === 'disputed') {
+      // Still in dispute: another figure typed is one more beside the two, and settles nothing.
+      next[key] = held.other?.some((other) => same(other.value, parsed.value)) ? held : { ...held, other: [...(held.other ?? []), beside] };
+    } else if (sourced) {
+      next[key] = { ...held!, state: 'disputed', other: [...(held!.other ?? []), beside] };
     } else if (held && fieldState(held) === 'proposed' && !same(held.value, parsed.value)) {
       // The proposal is not lost by typing: it waits beside what was typed.
       next[key] = { ...typed, other: [...(held.other ?? []), { value: held.value, origin: held.origin ?? { kind: 'person' }, proposedBy: held.proposedBy, at: held.at, ...(held.entered ? { entered: held.entered } : {}) }] };
@@ -1229,7 +1388,52 @@ export function setFieldValues(
 export interface FieldProposal {
   address: FieldAddress;
   value: unknown;
+  /** Where it was read, as the proposer gives it. Only its named members are read: see `offeredOrigin`. */
   origin: FieldOrigin;
+}
+
+/** The most that is kept of a paper's words, of a public source's name, and of its link. */
+export const ORIGIN_QUOTE_MOST = 220;
+export const ORIGIN_SOURCE_MOST = 120;
+
+/** Where a model's words for a value are on its paper: the page that holds them, or undefined where no page of the paper does. */
+export type QuotePlaced = (evidenceId: string, page: number, quote: string) => number | undefined;
+
+/**
+ * The origin that is kept for a value somebody offered, built here from the
+ * named members of what was sent and nothing else.
+ *
+ * - Who read it is the proposer, never what the proposal says of itself: a
+ *   model's value is a model's. Only the parser's own offer says which of
+ *   the two read a paper's value, and what stands behind it.
+ * - A model's words are held to the page (`placed`): found there, the value
+ *   is proven by the page's text; not found, or with no pages to look in, it
+ *   is unverified and a person names it to accept it.
+ * - Every string is cut to a bound, and a link is kept only as https.
+ *
+ * Undefined where what was sent is no source at all.
+ */
+function offeredOrigin(sent: unknown, proposer: 'model' | 'parser', placed: QuotePlaced | undefined): Extract<FieldOrigin, { kind: 'paper' | 'external' }> | undefined {
+  if (!sent || typeof sent !== 'object') return undefined;
+  const given = sent as Record<string, unknown>;
+  const text = (value: unknown, most: number): string => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, most) : '');
+  if (given.kind === 'paper') {
+    const evidenceId = text(given.evidenceId, 200);
+    const quote = text(given.quote, ORIGIN_QUOTE_MOST);
+    const page = typeof given.page === 'number' ? Math.floor(given.page) : Number.NaN;
+    if (!evidenceId || !quote || !(page >= 1)) return { kind: 'paper', evidenceId, page: 0, quote, reader: proposer };
+    if (proposer === 'parser') {
+      const proof = given.proof === 'page_text' || given.proof === 'second_reader' || given.proof === 'unverified' ? given.proof : undefined;
+      return { kind: 'paper', evidenceId, page, quote, reader: given.reader === 'model' ? 'model' : 'parser', ...(proof ? { proof } : {}) };
+    }
+    const found = placed?.(evidenceId, page, quote);
+    return { kind: 'paper', evidenceId, page: found ?? page, quote, reader: 'model', proof: found ? 'page_text' : 'unverified' };
+  }
+  if (given.kind === 'external') {
+    const quote = text(given.quote, ORIGIN_QUOTE_MOST);
+    return { kind: 'external', source: text(given.source, ORIGIN_SOURCE_MOST), asOf: text(given.asOf, 10), ...(safeLink(given.url) ? { url: given.url } : {}), ...(quote ? { quote } : {}) };
+  }
+  return undefined;
 }
 
 export interface FieldProposalOutcome {
@@ -1265,7 +1469,7 @@ export function proposeFieldValues(
   proposals: readonly FieldProposal[],
   proposer: 'model' | 'parser',
   catalog: FieldCatalog = fieldCatalogFor(project),
-  cards: { pending?: readonly ChatProposal[]; raise?: (card: ChatProposal) => void } = {},
+  cards: { pending?: readonly ChatProposal[]; raise?: (card: ChatProposal) => void; placed?: QuotePlaced } = {},
 ): FieldProposalOutcome[] {
   const at = now();
   const fresh = new Map<string, FieldRecord>();
@@ -1283,13 +1487,13 @@ export function proposeFieldValues(
       refuse(`${def.label} is no longer asked.`);
       continue;
     }
-    const origin = proposal.origin;
-    if (!origin || (origin.kind !== 'paper' && origin.kind !== 'external')) {
+    const origin = offeredOrigin(proposal.origin, proposer, cards.placed);
+    if (!origin) {
       refuse(`${def.label} needs a source: a paper with its page and words, or a public source with its date.`);
       continue;
     }
     if (origin.kind === 'paper') {
-      if (!origin.quote?.trim() || !(origin.page >= 1)) {
+      if (!origin.quote || !(origin.page >= 1)) {
         refuse(`${def.label} needs the page and the paper’s own words.`);
         continue;
       }
@@ -1297,7 +1501,7 @@ export function proposeFieldValues(
         refuse(`${def.label} cites a paper that is not on this project.`);
         continue;
       }
-    } else if (!origin.source?.trim() || !/^\d{4}-\d{2}-\d{2}/.test(origin.asOf ?? '')) {
+    } else if (!origin.source || dayNumber(origin.asOf) === null || dayOfNumber(dayNumber(origin.asOf)!) !== origin.asOf) {
       refuse(`${def.label} needs the source’s name and the date it was read.`);
       continue;
     }
@@ -1320,7 +1524,7 @@ export function proposeFieldValues(
         refuse(`${def.label} has to cite a paper on this project: give the paper, the page and its words.`);
         continue;
       }
-      const offer: CheckOffer = { check, def, value: parsed.value, origin: origin.kind === 'paper' ? { ...origin, quote: origin.quote.slice(0, 220) } : origin };
+      const offer: CheckOffer = { check, def, value: parsed.value, origin };
       const twice = onChecks.some((other) => other.check.id === check.id && other.def.key === def.key && same(other.value, offer.value));
       const standing = twice ? 'waiting' : checkOfferStanding(project, offer, cards.pending);
       if (!standing) onChecks.push(offer);
@@ -1351,11 +1555,11 @@ export function proposeFieldValues(
       at,
       by: proposer,
       state: 'proposed',
-      origin: origin.kind === 'paper' ? { ...origin, quote: origin.quote.slice(0, 220) } : origin,
+      origin,
       proposedBy: proposer,
       v: set.v,
       ...('entered' in parsed && parsed.entered ? { entered: parsed.entered } : {}),
-      ...(origin.kind === 'paper' ? { sourceEvidenceId: origin.evidenceId, page: origin.page, quote: origin.quote.slice(0, 220) } : {}),
+      ...(origin.kind === 'paper' ? { sourceEvidenceId: origin.evidenceId, page: origin.page, quote: origin.quote } : {}),
     };
     if (held?.declined?.some((declined) => same(declined.value, parsed.value))) {
       out.push({ address, outcome: 'declined' });
@@ -1517,12 +1721,19 @@ export function decideField(
       const reason = naReasonOf(input.reason);
       const note = (input.note ?? '').trim();
       if (note.length > NA_NOTE_MOST) throw new FieldRefused(`The note takes ${NA_NOTE_MOST} characters at most.`);
-      next = { value: null, at, by: actor, state: 'not_applicable', naReason: reason, ...(note ? { naNote: note } : {}), acceptedBy: actor, acceptedAt: at, ...(held && !isBlank(held) ? { declined: declined(held.value) } : held?.declined ? { declined: held.declined } : {}) };
+      // What the field held is kept as it was, with what waited beside it, and comes back when the field is asked again.
+      // It is not set aside: marking a field not applicable is no judgement on the value a paper gave for it.
+      const { declined: setAside, was: before, ...holding } = held ?? ({} as CheckFieldValue);
+      const was = held && state !== 'not_applicable' && (!isBlank(held) || held.other?.length) ? holding : before;
+      next = { value: null, at, by: actor, state: 'not_applicable', naReason: reason, ...(note ? { naNote: note } : {}), acceptedBy: actor, acceptedAt: at, ...(setAside?.length ? { declined: setAside } : {}), ...(state === 'not_applicable' && held?.other?.length ? { other: held.other } : {}), ...(was ? { was } : {}) };
       break;
     }
     case 'reopen': {
       if (state !== 'not_applicable') throw new FieldRefused('This field is not marked not applicable.');
-      next = held?.declined?.length ? { value: null, at, by: actor, declined: held.declined } : undefined;
+      // As it was: the value it held, and everything offered for it before and since.
+      const waiting = [...(held?.was?.other ?? []), ...(held?.other ?? [])];
+      if (held?.was) next = { ...held.was, ...(waiting.length ? { other: waiting } : {}), ...(held.declined?.length ? { declined: held.declined } : {}) };
+      else next = held?.declined?.length || waiting.length ? { value: null, at, by: actor, ...(waiting.length ? { other: waiting } : {}), ...(held?.declined?.length ? { declined: held.declined } : {}) } : undefined;
       break;
     }
   }
@@ -1576,9 +1787,9 @@ export function snoozeNeed(project: DdProject, fn: string, key: string, until: s
   const next = { ...(project.fieldSnoozes ?? {}) };
   if (until === null) delete next[key];
   else {
-    const today = at.toISOString().slice(0, 10);
-    const last = new Date(at.getTime() + SNOOZE_DAYS_MOST * 86_400_000).toISOString().slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(until) || Number.isNaN(Date.parse(until))) throw new FieldRefused('Give the day it comes back, as a date.');
+    const today = indiaToday(at);
+    const last = dayOfNumber(dayNumber(today)! + SNOOZE_DAYS_MOST);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(until) || dayNumber(until) === null || dayOfNumber(dayNumber(until)!) !== until) throw new FieldRefused('Give the day it comes back, as a date.');
     if (until <= today) throw new FieldRefused('The day it comes back is after today.');
     if (until > last) throw new FieldRefused(`A line is put off for ${SNOOZE_DAYS_MOST} days at most.`);
     next[key] = { until, by: actor, at: when };
@@ -1633,6 +1844,9 @@ export function setSituation(project: DdProject, fn: string, key: string, on: bo
   if (!catalog.situations.has(at)) throw new FieldRefused(`No situation called "${key}".`);
   const declared = catalog.situations.get(at)!;
   if (declared.derive) throw new FieldRefused('This follows from what is recorded. Nobody sets it.');
+  // A situation the whole project shares is decided from a function that declares it or has fields waiting on it, by that
+  // function's lead or signer. From anywhere else it is somebody else's to decide.
+  if (!at.startsWith(`${fn}:`) && !situationsOf(fn, catalog).some((named) => named.at === at)) throw new FieldRefused(`${declared.label} is not one of this function’s to decide.`);
   assertMayDecide(fn, 'Setting a situation', options);
   if (!on && declared.impliedBy && resolveFields(project, new Date(), catalog).showing(declared.impliedBy, { fn, set: '' })) {
     throw new FieldRefused(`${declared.label} is in play because of what is recorded. It goes out of play when that does.`);
@@ -1756,7 +1970,9 @@ export interface FieldLine {
 /**
  * Every value a project's sheets hold that stands, one line for each, with
  * its address. What the graph and memory read: a proposed or disputed value
- * is not among them, and a field that is not in play is.
+ * is not among them, and a field that is not in play is, as what it holds.
+ * A record nobody has accepted or typed anything on is not among them at
+ * all: not its usual values, and not a name somebody offered for it.
  */
 export function standingFieldLines(project: DdProject, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project)): FieldLine[] {
   if (!project.fieldSheets) return [];
@@ -1766,12 +1982,14 @@ export function standingFieldLines(project: DdProject, at: Date = new Date(), ca
   for (const sets of catalog.sheets.values()) {
     for (const set of sets) {
       if (!project.fieldSheets[set.id]) continue;
-      const holders = set.records ? fieldRecords(project, set.id).map((record) => record.id) : [undefined];
+      const holders = set.records ? fieldRecords(project, set.id).filter(recordStands).map((record) => record.id) : [undefined];
       for (const recordId of holders) {
         const acting = resolution.holder(set.id, recordId);
+        const kept = stored(project, catalog, set.id, recordId);
         const titled = set.records ? readSheet(project, set.id, recordId, resolution, catalog, at)?.title : undefined;
         for (const def of set.fields) {
-          const value = acting[def.key];
+          // What is not in play feeds nothing, and is still a fact somebody recorded: it is told as what the field holds.
+          const value = acting[def.key] ?? (fieldIsDerived(def) ? undefined : standingField(kept[def.key]));
           if (isBlank(value)) continue;
           lines.push({
             address: { fn: set.fn, set: set.id, field: def.key, ...(recordId ? { record: recordId } : {}) },

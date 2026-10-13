@@ -430,6 +430,9 @@ describe('a function’s page', () => {
         { address: at('possession_verified'), value: true, origin: paper(row.id, 'in vacant possession') },
       ],
       'model',
+      undefined,
+      // The words of each were found on the page the model named: the server looked, the model did not say so.
+      { placed: (_paper, pageNamed) => pageNamed },
     );
     const page = readFunctionFields(p, FN);
     assert.deepEqual([...new Set(page.exceptions.map((e) => e.kind))], ['proposed'], 'what waits is not also counted as empty');
