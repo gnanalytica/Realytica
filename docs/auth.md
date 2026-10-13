@@ -227,6 +227,27 @@ folder brought is on it without its folder path or link. A report the timer
 prepared is not on it until a person issues it, and an issued status report is
 on it without the checklist's lines.
 
+**Field sheets on a collaborator's copy.** A function's sheets and records are
+on it only where the grant names a scope the function's checks sit in. Three
+things are narrower than that, whatever the grant names:
+
+- **Buyers are nobody's outside the firm.** The buyers' set
+  (`commercial.inventory.buyers`, the sets in `CUSTOMER_SETS`) is never on the
+  copy, and neither is a party record one of them names (a buyer, a
+  co-applicant) or that carries the role customer.
+- **A shared record carries only what is in reach.** A unit, a party, a
+  building is one record that several departments add their own facts to. The
+  copy holds the record's own fields and the additions of functions in the
+  grant's reach: a surveyor on Handover reads the unit and its possession, and
+  none of its sale.
+- **A report is cut by the same rule.** A section that names a field out of
+  reach, a buyers' set, a department's addition out of reach, or a list of
+  parties kept as it read one day, is left out of the copy whole.
+
+A firm's own fields (Set up › Fields) and the rule rows it has verified are
+read by anybody who can read; only a firm admin changes the first or verifies
+the second.
+
 ### Who runs the deployment
 
 Two things reach past a workspace and are therefore not any admin's:
@@ -355,6 +376,7 @@ what they find. They decide nothing that was read.
 |---|---|
 | What a document states, on its own row | The department whose function holds the document. While no function holds it: a lead or signer of any department the project uses. |
 | A value waiting on a check | The check's department |
+| A value waiting on a field of a function's sheet, a dispute between two values, a situation, a field or section marked not applicable, a record taken off its list, a Due-soon line put off | A lead or signer of the function's department. On a shared record: a lead or signer of any department. |
 | A value offered to the valuation, and which comparables count | Finance |
 | Moving a document out of the function that holds it | The department that holds it now |
 | Saying what kind of document a row is, once a value on it has been decided | The department that holds it |

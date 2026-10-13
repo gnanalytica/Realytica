@@ -348,7 +348,7 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
         ['design_tender', 'RERA registration'],
         ['construction', 'Quarterly progress report'],
       ]),
-      ws('legal', 'contracts', 'Contracts & disputes', 'JDAs, agreements for sale and litigation.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [['pre_development', 'Development agreement review']]),
+      ws('legal', 'contracts', 'Contracts', 'Land purchases, joint development agreements and the agreement for sale.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [['pre_development', 'Development agreement review']]),
       ws('legal', 'handover', 'Handover & society', 'Conveying common areas and the land to the owners’ society.', 'coming_soon', ['Advocate'], ['construction', 'operations'], [['operations', 'Deed of conveyance']]),
       ws('legal', 'litigation', 'Litigation & notices', 'Every case, hearing, order and notice that names the land, a seller or the company, and the money at stake.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [
         ['pre_development', 'Litigation search report'],

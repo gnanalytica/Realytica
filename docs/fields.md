@@ -12,12 +12,12 @@ Every function keeps fixed, typed fields. A person fills or links them, a paper 
 
 ## Declaring a field set
 
-1. Create one file in `packages/shared/src/operating-model/field-sets/`, named for your group of departments. Export one array: `export const LEGAL_FIELD_SETS: FieldSet[] = [ … ]`.
+1. Create one file in `packages/shared/src/operating-model/field-sets/`, named for your group of departments. Export one array: `export const LEGAL_FIELD_SETS: FieldSet[] = [ … ]`. A large group keeps its sets in a folder of the same name (`field-sets/finance/`, `field-sets/design/`, `field-sets/construction-procurement/`) and gathers them in that one file.
 2. Register it with one line in `field-sets/index.ts`: import the array and spread it into `FIELD_SETS`.
 
 Nothing else is edited. `pnpm check` runs two tests over the whole catalog (`test/field-catalog.test.ts`): one fails on anything that cannot work, the other on anything past the limits below, and both name your field set.
 
-The worked example is `field-sets/example-land-holding.ts`: Legal › Title's land holding and its owners. Read it beside this page.
+The worked example is `field-sets/example-land-holding.ts`: Legal › Title's land holding and its owners. Read it beside this page. Title's real catalog is `field-sets/titles-litigation.ts`, which adds to the example's Owners record (`legal.title.owner_facts`). Every department's sets, with counts, are listed in [departments.md](departments.md).
 
 ```ts
 export interface FieldSet {
@@ -33,6 +33,7 @@ export interface FieldSet {
   optionSets?: OptionSet[];
   extends?: string;      // adds these fields to a shared record in place of making a sheet
   sheets?: DepthSheet[]; // hard cases, each a small sheet opened from the holder that needs it
+  reports?: FieldReportTemplate[]; // the reports this set's function hands over: see Reports
 }
 ```
 
@@ -70,7 +71,7 @@ They change how a field is drawn, never what it holds. Use the plain one unless 
 | `control: 'tick'` | `boolean` | A thing that was done or was not, checked on site |
 | `control: 'switch'` | `boolean` | A yes or no where "not looked" must stay visible |
 | `control: 'scale'` | `number` with `min` and `max` | A judgement on a short scale. At most eleven steps |
-| `display: 'timeline'` | `table` with a date column | Events in order: a chain of title, hearings |
+| `display: 'timeline'` | `table` with a date column | Events in order: a chain of title, hearings. A `ref` column reads as the name of what it links to |
 | `display: 'chart'` | `table` with `chart: { x, y, mark?, stack? }` | A handful of figures worth comparing by eye |
 | `display: 'match'` | `table` with `match` | Lists that should pair up: demands to milestones, survey numbers to owners |
 
@@ -91,7 +92,7 @@ They change how a field is drawn, never what it holds. Use the plain one unless 
            right: { column: 'stage',  label: 'Stages',  of: { target: 'milestone' } } } }
 ```
 
-A side's list is `{ records, field }` (a field of every record of a set), `{ table, column }` (a column of another table, by its address) or `{ target }` (a register).
+A side's list is `{ records, field }` (a field of every record of a set), `{ table, column }` (a column of another table, by its address) or `{ target }` (a register). A side may carry `optional: true`: nothing of that side is then left over (a parcel in no suit is in order). With both sides optional the table is a pairing and nothing more, as design changes to variations are.
 
 To pair more than two lists, add the further ones under `also`: each is paired to the left one, so a row names the left item and what it pairs to in every other list. `agree` names the columns that should read the same on a row; a row where they differ is a line under Needs you (Failing).
 
@@ -162,7 +163,8 @@ type FieldAddress = { fn: string; set: string; field: string; column?: string; r
 `set` is a field set's id or a check definition's id: every check's fields are in the same catalog, unchanged, under the check's id and the function the check sits in.
 
 - **`sameAs`** makes a field a read-only mirror of the one at an address, with that field's source. Use it for the second appearance of any fact.
-- **`ref`** holds the id of something entered once. `target` is `'party'`, `'parcel'`, `'building'`, `'unit'`, `'drawing'`, `'approval'`, `'matter'`, `'contract'`, `'account'`, `'package'`, `'document'`, `'milestone'`, or `{ set }` for the records of any set that repeats.
+- **`ref`** holds the id of something entered once. `target` is `'party'`, `'parcel'`, `'building'`, `'unit'`, `'drawing'`, `'approval'`, `'matter'`, `'contract'`, `'account'`, `'package'`, `'document'`, `'milestone'`, or `{ set }` for the records of any set that repeats. A `ref` whose target is its own set overflows the stack (`refChoices` and `readSheet` call each other): until that is fixed, hold such a link as a name with `suggest`.
+- A **status** cannot be mirrored as kind `status`, which needs cases of its own: mirror it as `text`. A status case cannot read another set through `at`: mirror the field first, then name the mirror.
 
 ## Shared records
 
@@ -176,7 +178,13 @@ To hold your department's own facts about a party, a unit or a parcel, extend th
   fields: [{ key: 'resident', label: 'Resident in India', kind: 'boolean', required: false }], rules: [] }
 ```
 
-A function's page lists the shared records its fields link to, below its own sheets.
+A function's page lists the shared records its fields link to, and the ones it adds to, below its own sheets.
+
+- **One record, each department's own view of it.** A unit carries Sales', Tax's, the Architect's and the site's facts. A function's page draws the record with its own fields and the ones that function added, and says in one line who else keeps something on it (`sheetSeenFrom`). Formulas and rules read the whole record.
+- **A key is added once.** Two sets that add the same key to one record fail the catalog test, as does a key one of the record's depth sheets already holds. Where two departments need the same fact of a party or a unit, one adds it and the other reads it.
+- **What a rule in an adding set may read:** any field of the record as it stands merged, its own or another department's.
+- **A shared record asks nothing of a function.** Its missing fields, rule lines and expiring dates are not raised under the Needs you of a function that links to it. A function that needs them surfaced counts them on a sheet of its own, as the approvals register counts approvals past validity. A function-scoped situation cannot gate a field added to a shared record: use a project-scoped one or a field condition.
+- **Who is handed what.** A department's additions to a shared record go to an outside collaborator only where that department's function is in their reach, and the sets in `CUSTOMER_SETS` with the party records they name go to none. A report is cut by the same rule.
 
 ## Records: anything there can be more than one of
 
@@ -188,7 +196,7 @@ A set with `records` repeats. Each record is a small sheet of its own; the page 
   fields: [ … at most twenty … ], rules: [] }
 ```
 
-Make it a set of records, not a `table`, when a row has a status, an expiry or a paper of its own, is linked to from elsewhere, or needs more than six columns. A parent counts or sums its records with `{ op: 'records', set, reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct', field }`. Inside a record's own fields, a `showWhen` or a formula that names a field of the same set reads that record's.
+Make it a set of records, not a `table`, when a row has a status, an expiry or a paper of its own, is linked to from elsewhere, or needs more than six columns. A count or a sum over no records is 0, not empty: see the note on standings under Rules. A parent counts or sums its records with `{ op: 'records', set, reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct', field }`. Inside a record's own fields, a `showWhen` or a formula that names a field of the same set reads that record's.
 
 **The same figure stated by several people** (cost to complete by the quantity surveyor, the engineer, the accountant and the lender's engineer) is a set of records, one for each person who states it, so nobody's figure overwrites another's. `statedBySeveral({ id, fn, title, key, figure, tolerancePct })` in `field-sets/builders.ts` returns the set and the parent's four fields: lowest, highest, spread and a status that turns when the spread passes the tolerance.
 
@@ -226,7 +234,9 @@ type ShowWhen =
 | `situational` | When its `showWhen` holds, its own or its section's | While it holds |
 | `expert` | Folded under "More"; shown once it holds a value | Never |
 
-A field hidden by its condition that still holds a value is kept, under "Recorded, not asked for now".
+A field hidden by its condition that still holds a value is kept, under "Recorded, not asked for now". A field that is worked out, a standing or a mirror is nobody's entry: out of play, it is not listed there. An expert field that is worked out stays folded however much it holds: it is the working behind a standing.
+
+**One declaration.** A project-scoped situation is declared once, by the department that owns it, and named by every other set that waits on it; a second declaration that differs by a character fails the catalog test. The ones several departments answer to: `joint_development` and `leasehold_land` (Law, proposed from the agreement or the lease), `lender_funded` (Lenders, derived from a facility recorded), `designated_account_kept` (Finance), `rera_registered`, `revised_sanction`, `stop_work_order` and `agricultural_needs_conversion` (Law and Liaison, derived), `tdr_or_premium_far`, `high_rise` and `mixed_use` (the Architect), `litigation_pending` (Litigation). `agricultural_land` (Title) says the land is or was agricultural; `agricultural_needs_conversion` says it is not yet converted. The four valuation approaches are declared with the valuation checks (`check-conditions.ts`). A function's page shows a derived situation as a chip only while it holds.
 
 **Not applicable.** A person marks a field or a section not applicable with one of five reasons: not in this project, not at this stage, done by another party, exempt, no such paper. The reason is a key, never a sentence.
 
@@ -286,6 +296,8 @@ A lead or signer may **put a line under Due soon off** until a day they name, at
 
 On a phone the card is the first screen of the function. On a laptop it is the first card on the function's page.
 
+**Below it, a sheet is one line.** A function that keeps more than one sheet draws each as a line (its title, how full it is, what is still to fill, and where its standings are) that unfolds when pressed. A sheet none of whose fields is in play yet is not drawn as an empty card: the page names such sheets in one sentence. So keep a sheet's standing honest on an untouched project (see Rules): it is what a person reads without opening anything.
+
 ## Rules
 
 A rule is arithmetic with a sentence template. It reads values that stand and says nothing about a field nobody has filled.
@@ -303,6 +315,11 @@ A rule is arithmetic with a sentence template. It reads values that stand and sa
 - `against: 100` puts a figure in place of the second field.
 - `when: ShowWhen` makes the rule exist only under a condition.
 - `at: { key: FieldAddress }` makes a key named in `fields` another set's field, so a rule can read another function.
+- `at_least` and `at_most` are strict. "At or above a threshold" is written the other way round: short of the threshold is not above 0.
+- `{a}` prints a stored choice by its key, not its label: word the template without it for an option-set field.
+- Where a field is asked for by a rule that says why, mark it `required: false`, so it is not also counted as still empty. Do not repeat on a sheet above its records what a record's own standing already says.
+
+**A standing over nothing.** A status is empty until a field its cases read holds a value, and a count or a sum over no records holds 0. So a standing with an `otherwise` reads as that label on an untouched sheet, and "In order" over nothing recorded tells a reader the work is done. Open such a status with a case for nothing recorded, in a neutral tone ("No approval recorded"), or read a figure that is blank until its inputs exist (`finance/kit.ts` has `totalOf`, `tallyWhere`, `once` and `limitFor` for this). `test/field-catalog.test.ts` fails on any standing in a good tone on a project nobody has touched.
 
 ## Formulas
 
@@ -310,19 +327,57 @@ A formula is a tree. Every leaf is a field, a figure or a rule row; nothing in i
 
 | `op` | Gives |
 |---|---|
-| `field` `{ key, at? }` | A field of this set, or with `at` of any set |
+| `field` `{ key, at?, via? }` | A field of this set, or with `at` of any set. With `via` as well, `at` names a field of a set that repeats and `via` one of this set's own links: the field is read from the record that link holds (the agreed value of this ledger's unit) |
+| `figure` `{ key, of? }` | A figure a module of its own works out, read and never entered: see Figures from other modules |
 | `const` | A figure. Never one a law sets: see the rule table |
 | `add` `subtract` `multiply` `divide` `power` `variance_pct` | Arithmetic on `left` and `right` |
 | `min` `max` `{ of: [] }` | The least or the most, leaving out what is not known |
 | `if` `{ when, then, else }` | By a condition: two amounts compared, or what a field holds |
 | `sum` `count` | Over a table of this set |
-| `sum_if` `count_if` `{ over, column, where }` | Over the rows of a table or the records of a set that meet a condition |
+| `sum_if` `count_if` `{ over, column, where }` | Over the rows of a table or the records of a set that meet a condition. `where: { column, is: 'own', value? }` joins rows to the record being worked out: the row's column holds that record's id, or what its own field named in `value` holds (the demands of this unit, the claims of this contract). The same join works in a `showWhen` over records |
 | `records` `{ set, reduce, field }` | Count, sum, least, most or spread over a set that repeats |
 | `rate` `{ table, on?, where? }` | A figure from the rule table |
 | `irr` `npv` `{ over, date, amount }` | A yearly rate of return, or a present value, of dated cash flows |
-| `date` `today` `add_days` `add_months` `days_between` | Dates as day numbers; `yields: 'date'` on the field turns the answer back |
+| `date` `{ key, at?, via? }` `today` `add_days` `add_months` `days_between` | Dates as day numbers; `yields: 'date'` on the field turns the answer back |
 
 Fields are worked out in the order of what they read, across sets and functions. A ring fails the catalog test, with the ring named.
+
+What formulas cannot do, so that nobody hunts for it: group rows, window by date, take the latest of dated records, run an ordered window over records, or hold two row conditions at once. A money field refuses a negative value unless it declares a negative `min` (an overdrawn balance, a net outflow).
+
+## Figures from other modules
+
+The schedule, the site log, the tender tracker, the cost register, the monthly cost report, the comparable schedule and the valuation keep their figures in modules of their own. A field set does not hold those a second time. A computed field reads one with `{ op: 'figure', key }`:
+
+```ts
+{ key: 'actual_percent', label: 'Progress, by the weight of the milestones', kind: 'computed', unit: '%', formula: { op: 'figure', key: 'progress.percent' } }
+{ key: 'awarded_on', label: 'Awarded on', kind: 'computed', yields: 'date', formula: { op: 'figure', key: 'package.award_day', of: 'package' } }   // of one work package: `of` names this set's own link to it
+```
+
+`field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, and `package.*` for one work package). A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
+
+## Links to other departments
+
+A fact has one home. Where a set needs a fact another department owns, it reads it, and those readings are declared together at the foot of the reader's file as one list, laid in with `withLinks` (`field-sets/builders.ts`):
+
+```ts
+const LINKS: SetLinks[] = [
+  { set: 'finance.funding.plan',
+    fields: [mirror('peak_funding', 'Peak funding need, per the appraisal', 'money', at('finance.feasibility', 'finance.feasibility.returns', 'peak_funding'), { tier: 'situational', showWhen: … })],
+    rules: [{ kind: 'at_least', fields: ['planned_total', 'peak_funding'], say: 'Sources of {a} are planned and the appraisal’s cash flow needs {b} at its deepest.', severity: 'high' }] },
+];
+export const FINANCE_TAX_LENDERS_FIELD_SETS: FieldSet[] = withLinks([...FUNDING_SETS, …], LINKS);
+```
+
+An entry names a set of the file and gives any of: `fields` (a mirror, a `ref`, or a figure worked out from the owner's records), `replace` (a field the set already declares, given again as a reading of its owner, never as a typed kind), `repoint` (a mirror pointed at the field its owner now keeps), `rules` (holding a figure of this set to another department's with `at`), `sections` and `reports`. A link that names a set or a field that is not there stops the build.
+
+Choose the lightest form that is true:
+
+- **A rule**, where this set holds a dated statement of its own (receivables as at a day, a certificate's figure) that should agree with the owner's live figure. It costs no screen and speaks only when the two differ.
+- **A mirror shown when its owner holds something** (`tier: 'situational'`, `showWhen: { field: owner, is: 'set' }`, or `{ records: ownerSet, is: 'any' }` for a count), where a reader of this sheet wants the owner's figure beside their own.
+- **A working field** (`tier: 'expert'`, worked out) where a rule needs a figure of the linked record: `{ op: 'field', at, via }` or a `sum_if` joined with `own`.
+- **A `ref`** where two records are one fact seen by two departments (a lender's security and the charge Title finds).
+
+Who owns what, so two files do not both declare it: variations and extension-of-time claims are Procurement's; the unit, the unit mix and the area statement the Architect's; milestones and progress Construction's; RERA filings Law's, which types none of the figures; the designated account, GST and TDS Finance's and Tax's; comparables Valuation's; snags the site's (Technical); a lift's permission and licence Liaison's; the party record is shared.
 
 ## The rule table and the state pack
 
@@ -337,7 +392,11 @@ A figure a legislature, a regulator or a standards body can change is never in a
   verified: false }
 ```
 
-Add rows in a file of your own beside `field-sets/rule-rows.ts` and register it in `RULE_ROWS` in `field-sets/index.ts`. Read one with `{ op: 'rate', table: 'far_limit', where: { road_width_m: { field: 'road_width' } }, on: 'sanction_date' }`: the row for the project's state and city, in force on that day (today when `on` is left out), whose conditions the fields meet. The value worked out carries the row it came from, and so does a status that reads it; a row with `verified: false` shows as not verified beside every value that used it. Mark a row verified only with the name of the person who checked it against the instrument.
+Add your group's rows in `field-sets/rules/<group>.ts`, or in your group's own folder (`field-sets/finance/rule-rows.ts`), and register them in `RULE_ROWS` in `field-sets/index.ts`. Not in a `.ts` file directly in `field-sets/`: the catalog test takes every file there for a field-set file. Read one with `{ op: 'rate', table: 'far_limit', where: { road_width_m: { field: 'road_width' } }, on: 'sanction_date' }`: the row for the project's state and city, in force on that day (today when `on` is left out), whose conditions the fields meet. The value worked out carries the row it came from, and so does a status that reads it; a row with `verified: false` shows as not verified beside every value that used it. Mark a row verified only with the name of the person who checked it against the instrument. **No built-in row is verified today**: every figure worked out from one says so on the sheet, in a report and in the chat's card.
+
+- **One key for one fact.** The height that makes a high-rise is `high_rise_height_m`, whichever department reads it. Before adding a row, look for the fact under another department's key.
+- **A rule with no figure yet** is a `RuleShape` in `RULE_SHAPES` (`field-sets/design/rule-rows.ts`): a formula may name it, it gives no answer, and the standing over it has to say the limit is not on file.
+- **A firm's own rows.** The law watch offers a row where a confirmed change moves a rate; a firm admin verifies it by name (`POST /api/law-watch/rule-rows/:offerId/verify`). A verified row is the firm's: it supersedes the built-in row from the day it takes effect, and every formula on that firm's projects reads it, on the server and on the page (`ruleRowsFor(project)`, installed as the firm's fields are). An offered row nobody has verified changes no figure.
 
 What differs by state and is not a rate (form numbers, the size of a ground) is in `field-sets/state-packs.ts`, keyed by state, Karnataka first.
 
@@ -359,11 +418,13 @@ A field that a kind of paper states names that kind:
   factKey: 'extent_title' }                // the key the paper's reading files the value under, where it is not the field's own
 ```
 
-`fromTypes` are the register's document types as it writes them (the labels in `document-parse.ts`: "Sale deed", "Encumbrance certificate", "DC conversion order", …). When a paper of one of those kinds is read, each value that stands on the paper is offered to every field naming its kind, with the page and the paper's words, and waits there for a person. A value for a set of records with no record named makes one new record, which is nothing until one of its values is accepted.
+`fromTypes` are the register's document types as it writes them (the labels in `document-parse.ts`: "Sale deed", "Encumbrance certificate", "DC conversion order", …). When a paper of one of those kinds is read, each value that stands on the paper is offered to every field naming its kind, with the page and the paper's words, and waits there for a person. A value for a set of records with no record named makes one new record, which is nothing until one of its values is accepted. So a Sale deed is offered to Title's holding and, as a new purchase record, to `legal.contracts.purchases`. A paper reaches a field only through `fromTypes`: most papers the catalogs name in `from` are not document types yet, and offer nothing by themselves.
 
 The model's tools are `get_fields({ fn })` and `propose_field_values({ values: [{ address, value, origin }] })`. A proposal is refused without a source, for a choice not on the list, for a link to something not on the project, and for any field that is computed, a status, a mirror or prose. On a check, a field whose `proof` is `'required'` takes a value only from a paper on the project.
 
 The copilot is told the rule in one paragraph (`FIELD_RULE` in `packages/agents/src/agents/project-copilot.ts`): it reads values off papers with the page and the paper's words, looks up named public sources with the date read, maps each value to a field key from the list `get_fields` gave it, and writes no prose into any field. `get_fields` also says of each field whether it is on a depth sheet, not yet due, or owed by another party, so the model does not ask a person for those.
+
+**What a model may hand back.** Every model call answers with keys, picks, values with a source, or a paper's own words quoted. It writes no sentence that is kept or shown: the daily review's lines, the law watch's changes, the chat's answer and a report are all printed by code from the record. `test/no-model-prose.test.ts` fails on anything else, and a new tool or free-text member has to be classified there.
 
 ## What a value carries
 
@@ -376,12 +437,14 @@ entered?, proposedBy?, acceptedBy?, acceptedAt?, other?, declined?, naReason?, n
 
 Accepted, typed and assumed values stand. Typing over a value accepted from a paper does not replace it: the two are disputed until a lead or signer keeps one. On screen an accepted or typed value carries no mark; pressing its label shows where it came from. Only what needs somebody is marked.
 
-**Who may do what.** Whoever edits in the function's department (lead, contributor, signer) types values, adds records and raises a dispute. Only a lead or signer accepts, keeps, sets aside, marks not applicable, sets a situation or takes a record off its list. An outside collaborator is handed a function's sheets only where their grant names a scope the function's checks sit in.
+**In a report and in the chat.** An accepted, entered or worked-out value prints with a footnote: the paper and page, the public source and the day read, or the person and the day. An assumed one prints "assumed". A proposed or disputed one prints "waiting" and never its figure. A figure from a rule row prints the row's citation and "not verified". A field that is not in play is left out. The chat's card says the same of each row, and calls a worked-out figure worked out, never accepted.
+
+**Who may do what.** Whoever edits in the function's department (lead, contributor, signer) types values, adds records and raises a dispute. Only a lead or signer accepts, keeps, sets aside, marks not applicable, sets a situation or takes a record off its list. An outside collaborator is handed a function's sheets only where their grant names a scope the function's checks sit in. They are never handed a set in `CUSTOMER_SETS` (buyers) or a party record one of those names, and are handed a department's additions to a shared record only where that department's function is in their reach.
 
 ## Limits the catalog test holds you to
 
 - At most **twelve core fields** on a sheet. Past that: give a field a `showWhen`, fold it as `expert`, or make what repeats a set of records.
-- At most **twenty fields** on a record.
+- At most **twenty fields** on a record. A set that adds to a shared record is held to twenty of its own; the record as merged is not, because each function's page draws only its own additions.
 - At most **twenty fields in four sections** on a depth sheet.
 - A table of more than **six columns**, or whose rows carry a status, a date that runs out or a paper, is a set of records.
 - A `situational` field has a `showWhen`, its own or its section's.
@@ -389,7 +452,26 @@ Accepted, typed and assumed values stand. Typing over a value accepted from a pa
 - No option called "not applicable" or "unknown".
 - Every `longtext` has a `maxLength`; every usual value a `cite`.
 
-`catalogLimits()` reports each breach by field set; `catalogFaults()` reports what cannot work at all.
+`catalogLimits()` reports each breach by field set; `catalogFaults()` reports what cannot work at all. The same test holds the whole catalog to three more things on a project nobody has touched: no standing in a good tone, no rule line, and no sheet that opens on more than twelve fields.
+
+Adding sheets to a function moves a few tests that follow the catalog and not you: which sets a paper is offered to (`test/fields.test.ts`), which functions have page parts (`test/record-places.test.ts`), and the function a stray paper is first offered to (`test/document-drop.test.ts`). Function counts are worked out from `WORKSTREAMS`.
+
+## Reports
+
+A report is put together by code from fields. A function's report is a template: an ordered list of sections, declared on a field set (`reports`) or, where it draws on several sets, in the file's links list.
+
+```ts
+{ id: 'legal.title.report', title: 'Title report', sections: [
+  { heading: 'Opinion', fields: ['title_standing', 'verdict', 'opinion_date'] },                      // a key alone is a field of the set the template sits on
+  { heading: 'Land records', fields: [{ fn: 'legal.title', set: 'legal.title.records', field: 'extent_net' }] },
+  { heading: 'Owners', records: 'legal.title.owners', columns: ['name', 'share_pct', 'capacity'] },
+  { heading: 'Shares held', chart: { of: { records: 'legal.title.owners' }, x: 'name', y: 'share_pct' } },   // mark: 'bar' | 'line'
+  { heading: 'Chain of title', table: 'chain' },
+  { heading: 'Advocate’s remarks', note: { maxLength: 800, hint: '…' } },                              // a person's own words, capped at 2,000
+] }
+```
+
+A section is one of `fields` (with `layout`), `table`, `records` (with `columns`), `chart`, `note` or `register` (a reading of the project's registers). `reportTemplateFaults()` names anything a template points at that is not there, and `test/report-fields.test.ts` holds every declared template to it, and to being fields, tables, charts and at most one capped note. Every department declares at least one; they are listed in [departments.md](departments.md). A function whose fields are on checks in Legal, Finance or Engineering also gets a generated `<fn>.checks` template.
 
 ## The firm's own fields
 
@@ -421,8 +503,12 @@ A stored value may be one that waits. Code that acts on a field reads it through
 | `check-fields.ts` | Kinds, validation, formulas, rules, what stands |
 | `check-conditions.ts` | When a check's fields are asked, and the situations checks answer to |
 | `check-waiting.ts` | The one way a value waits for a check's field |
-| `firm-fields.ts` | A firm's overlay, and the catalog for a project's firm |
+| `firm-fields.ts` | A firm's overlay, the catalog for a project's firm, and the rule table a firm reads once it has verified rows of its own |
+| `field-figures.ts` | The one door to figures other modules work out: schedule, site log, tenders, cost register, cost report, comparables, valuation, appraisal cash flow |
+| `field-sets/builders.ts` | Shapes written once: one figure stated by several people, and a file's links to other departments (`withLinks`) |
+| `report-fields.ts` | A report's field sections: resolving, templates, freezing, and what a grant's copy keeps |
+| `sweep-rules.ts`, `law-change.ts`, `chat-answer.ts` | The daily review's rules, a law change as fields with its lists and offered rule rows, and the chat's card |
 | `field-charts.ts` | A table's rows shaped for its chart |
 | `rule-tables.ts`, `units.ts` | Dated figures a law sets; units and money |
 
-The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets, records and depth sheets) over `CheckFields.tsx`, which draws every kind of field.
+The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets folded to a line each, records and depth sheets, and the units' stack plan from `StackPlan.tsx`) over `CheckFields.tsx`, which draws every kind of field. Construction's Technical page draws its sheets too, though it is not laid out in parts.
