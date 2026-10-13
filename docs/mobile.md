@@ -22,11 +22,16 @@ Every entry goes to an outbox on the phone first, with an id the phone generates
 |---|---|
 | `POST /devices/claim`, `GET /devices/me`, `DELETE /devices/me`, `POST /devices/push-token` | Pairing, who am I, sign out, notifications |
 | `GET /projects` | The projects list |
-| `GET /projects/:id/site` | One project's site view: milestones, progress, the construction gate, recent entries, construction alerts |
+| `GET /projects/:id/site` | One project's site view: milestones, progress, the construction gate, recent entries, construction alerts, and the photo stations not photographed this period |
 | `POST /projects/:id/site-log/photos`, `POST /projects/:id/site-log` | Photographs, then the day's entry |
 | `PATCH /projects/:id/milestones/:milestoneId` | A milestone's progress |
 | `GET /projects/:id/site-log/:entryId/photos/:index` | A photograph |
+| `GET /projects/:id/stations/:stationId/guide` | A station's last shot before this period, to frame the next one against |
 | `POST /projects/:id/alerts/read` | Marking alerts read |
+
+## Photo stations
+
+A station is a place the site shoots again and again from the same spot, kept in the web app under Site. The site view lists the ones with no shot this period (`stations`: label, place, standing, the period, and whether there is an earlier shot). The day's log shows them above the photos, each with its last shot drawn faintly as a guide for framing, and a camera button. A photo taken from a station's row carries that station's id in the entry (`photos[].stationId`), and the server files it there. A photo taken any other way is matched by the server: to the one station within 30 m of where it was taken, else it waits in the web app as "place not set" for a person. The list is as old as the cached site view; a station shot from another phone since then is still listed until the view is refreshed.
 
 ## Notifications
 

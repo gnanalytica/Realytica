@@ -42,6 +42,10 @@ export interface SiteLogPhoto {
   takenAt?: string;
   point?: GeoPoint;
   caption?: string;
+  /** Where on the project it was taken, the station it is a shot of, and how those were set (`photo-stations.ts`). */
+  place?: import('./capture').PhotoPlace;
+  stationId?: string;
+  placed?: import('./capture').PhotoPlacing;
 }
 
 export interface SiteLogEntry {

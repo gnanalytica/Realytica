@@ -116,6 +116,26 @@ export interface SitePhotoRef {
   caption?: string;
   takenAt?: string;
   point?: GeoPoint;
+  /** The photo station it is a shot of, where it was given one. */
+  stationId?: string;
+}
+
+/**
+ * A photo station with no shot this period, as /site lists it: a place shot
+ * again and again from the same spot. `guide` says there is an earlier shot
+ * to frame the next one against; its bytes are at /stations/:id/guide.
+ */
+export interface StationDue {
+  id: string;
+  label: string;
+  /** Where it is, in a line: the building, the floor, the milestone and the element. */
+  place: string;
+  every: 'week' | 'month' | 'quarter';
+  standing: 'shot' | 'due' | 'overdue' | 'never';
+  period: { key: string; said: string; to: string };
+  lastDay?: string;
+  point?: GeoPoint;
+  guide?: { takenAt: string };
 }
 
 export interface SiteLogEntry {
@@ -163,6 +183,8 @@ export interface SiteView {
   gate: Gate;
   log: SiteLogEntry[];
   alerts: SiteAlert[];
+  /** The stations not photographed this period. Absent from a server that keeps none. */
+  stations?: StationDue[];
 }
 
 export interface UploadedPhoto {
@@ -179,7 +201,7 @@ export interface SiteLogBody {
   workDone?: string;
   milestoneUpdates?: { milestoneId: string; percent: number }[];
   issues?: { title: string; severity?: IssueSeverity; note?: string }[];
-  photos?: (UploadedPhoto & { takenAt?: string; point?: GeoPoint; caption?: string })[];
+  photos?: (UploadedPhoto & { takenAt?: string; point?: GeoPoint; caption?: string; stationId?: string })[];
   point?: GeoPoint;
 }
 

@@ -29,7 +29,7 @@ import { surveyNumbersIn } from './document-intake';
 import { paperCarries, type DocumentFact, type FactProof } from './document-parse';
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, proposedFacts, settled, standingFacts } from './fact-review';
-import { LIVE, projectFigure } from './field-figures';
+import { LIVE, PROJECT_FIGURES, projectFigure } from './field-figures';
 import { asAtMoment, isPastDay, projectAsAt } from './as-at';
 import { AS_NOW_NO_HISTORY, fieldHistorySaid, figureReadsAsAt, indiaDayEnd, stand, type FieldHistorySaid } from './field-history';
 import { periodsOf, periodsStanding, setPeriods, type SetPeriods } from './field-periods';
@@ -285,7 +285,9 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       if (row) cites.push(ruleCitation(row));
       return row?.value ?? null;
     },
-    figure: (key, of, asAt) => {
+    figure: (key, named, asAt) => {
+      // A figure of the record that asks (a station's own shots) is given that record, where the formula names no link.
+      const of = named ?? (PROJECT_FIGURES[key]?.own ? recordId : undefined);
       // A figure asked for as at one of the holder's own days is read from the project as it stood then, where the day has gone by.
       const past = asAt && asAt !== project.asAt && isPastDay(asAt, at) ? pastOn(asAt) : undefined;
       // A figure of a module that keeps no past is today's, on whatever day the project is read as at.

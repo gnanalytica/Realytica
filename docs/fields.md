@@ -105,7 +105,7 @@ match: { left:  { column: 'survey_no',  label: 'Survey numbers', of: { target: '
          agree: ['rtc_owner', 'purchaser', 'khata_holder'] }
 ```
 
-**Viewers.** `viewer` on an `evidence` field is `pdf`, `image`, `drawing` or `deed`, each opening the paper in the app's own viewer, or `ifc`, which says the model is filed and not drawn yet.
+**Viewers.** `viewer` on an `evidence` field is `pdf`, `image`, `drawing` or `deed`, each opening the paper in the app's own viewer, or `ifc`, which says the model is filed and not drawn yet. `series` draws photographs by the period each was taken in, two periods side by side: see Photographs. An `image` field is drawn the same way once its photographs span more than one month.
 
 ## Attributes
 
@@ -376,7 +376,7 @@ The schedule, the site log, the tender tracker, the cost register, the monthly c
 
 Planned progress is one of them, and is typed by nobody: `progress.planned_percent` is each milestone's planned start and finish read by its weight (none before the start, all of it from the finish, a straight line between), and is null while any milestone has no planned finish. `progress.planned_value`, `progress.earned_value`, `progress.schedule_index` and `progress.cost_index` are the work in money, and are null unless every milestone is tied to a work package with a budget (`earnedValue` in `milestone-schedule.ts`): a milestone's weight is a share somebody judged, not money. `progress.building_percent` and `progress.building_planned_percent` are of one building, by the link the set names.
 
-`field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, and `package.*` for one work package). One group of them is worked out from field records by code, because it moves milestones and a formula does not: what the extensions of time granted do to the schedule. The days of a search period no encumbrance certificate covers and the plan sanction as the last sanctioned revision leaves it used to be figures too; they are formulas now (`span_days`, `records` with `latest`). Each reads only values that stand, through `standing-records.ts`. A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
+`field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, `photos.*`, and `package.*` for one work package). A figure marked `own` (`photos.station_*`) is of the record that asks for it: read from a field of a set that repeats, it is given that record with no link named. One group of them is worked out from field records by code, because it moves milestones and a formula does not: what the extensions of time granted do to the schedule. The days of a search period no encumbrance certificate covers and the plan sanction as the last sanctioned revision leaves it used to be figures too; they are formulas now (`span_days`, `records` with `latest`). Each reads only values that stand, through `standing-records.ts`. A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
 
 ## Links to other departments
 
@@ -604,7 +604,35 @@ A report is put together by code from fields. A function's report is a template:
 ] }
 ```
 
-A section is one of `fields` (with `layout`), `table`, `records` (with `columns`), `chart`, `note` or `register` (a reading of the project's registers). A chart may draw a field of a set kept by period, period by period (`of: { periods }`). A report made for a period reads its field sections as at the period's last day: see As at a day. `reportTemplateFaults()` names anything a template points at that is not there, and `test/report-fields.test.ts` holds every declared template to it, and to being fields, tables, charts and at most one capped note. Every department declares at least one; they are listed in [departments.md](departments.md). A function whose fields are on checks in Legal, Finance or Engineering also gets a generated `<fn>.checks` template.
+A section is one of `fields` (with `layout`), `table`, `records` (with `columns`), `chart`, `note`, `photos` (photographs by place and period: see Photographs) or `register` (a reading of the project's registers). A chart may draw a field of a set kept by period, period by period (`of: { periods }`). A report made for a period reads its field sections as at the period's last day: see As at a day. `reportTemplateFaults()` names anything a template points at that is not there, and `test/report-fields.test.ts` holds every declared template to it, and to being fields, tables, charts and at most one capped note. Every department declares at least one; they are listed in [departments.md](departments.md). A function whose fields are on checks in Legal, Finance or Engineering also gets a generated `<fn>.checks` template.
+
+## Photographs: a place, a station and a period
+
+A photograph is kept where photographs are kept: on the phone's site log, or as a file on the document register. Both carry the same three optional members, and `photo-stations.ts` reads the two stores as one list of shots (`projectShots`).
+
+```ts
+interface PhotoPlace { building?: string; floor?: string; unit?: string; milestone?: string; element?: PhotoElement }
+// SiteLogPhoto and CaptureFacts:  place?: PhotoPlace;  stationId?: string;  placed?: { how: 'picked' | 'near' | 'person'; by; at; metres? }
+```
+
+- **A place** is links, never a sentence: a building and a unit of the shared records, a milestone of the schedule, an element off the list a model picks from (`PHOTO_ELEMENTS`), and a floor as a word or two. The free-text `zone` a person wrote before this still reads. A person sets a place (`setShotPlace`, `PUT /photos/place`). A model writes none of it: the element it picked in a photograph is offered beside the place and is the place's only once a person accepts it, and words a model wrote about a photograph before photographs were read as picks are shown as "Written by a model, before this change".
+- **A station** is a place shot again and again from the same spot: a record of `construction.site.stations`, the Site record's own sheet, with its label, building, floor, element, milestone, how often it is to be shot (week, month, quarter) and its `shots`, an evidence field with `viewer: 'series'`. Its shots are not held on its sheet: they are the photographs of either store that name it, with any register row a person files on the station itself.
+- **Its standing is worked out each time it is read**, from the days its shots were taken by the day it is in India: shot this period; due, where its last shot is in the period before; overdue, where a whole period has gone by; never shot. The station's sheet reads it as figures (`photos.station_shots`, `photos.station_last_shot`, `photos.station_behind`), in no tone that raises a line of its own.
+- **A shot reaches a station by code** (`matchStation`, `placeEntryShots`): the station picked on the phone, else the one station whose point the photograph's own position is within `STATION_MATCH_M` (30 m) of, else it waits as "place not set" for a person. Two stations both within the distance are a question for a person, since position cannot tell the same corner on two floors apart. A station's point is the one recorded on it, else where it was first shot from by somebody who picked it.
+- **What is due is one line.** The sheet above the stations (`construction.site.round`) counts the stations not photographed this period, and its rule is one line under the Site record's Needs you, with the count and Open; the stations are listed inside. A station marked as needed by its milestone is on that milestone's checklist (`milestonePhotoChecklist`): once the milestone is reported complete with no shot from the period it was completed in or later, the round says so in a sentence made by `milestonePhotoSaid`, and that is a line under Failing. It does not stop the milestone reading a hundred per cent.
+- **The series viewer** (`PhotoSeries.tsx`) groups the shots by period (`photoSeries`), newest first, and puts two periods side by side (`seriesPair`): this one and the last, or any two picked. Under each photograph is its date and who took it, and nothing else. On a phone the two stack. Every field that holds photographs (`photo()`: snags, non-conformances, pours, the lender's engineer's report) takes a place for each, and is drawn through the same viewer once its photographs span more than one month.
+- **One function works out a period**: `photoPeriod(day, every, shift)` in `photo-stations.ts`. A week is Monday to Sunday by ISO number (`2026-W42`), a month the calendar month (`2026-10`), a quarter one of `quarters.ts` (`FY2026-Q3`). The standing, the series and the report section all ask it, so a general notion of a period replaces that one function.
+
+**In a report.** A section that names `photos` prints the shots of stations for a period:
+
+```ts
+{ heading: 'Site photographs, this month beside the last', photos: { show: 'period_and_last', most: 12 } }
+// photos: { stations?: string[]; place?: PhotoPlace; show: 'period' | 'period_and_last'; most: number; every?: 'week' | 'month' | 'quarter' }
+```
+
+It becomes a block that reads `station_photographs`, resolved by code (`resolveStationPhotos`): the stations named, else those at the place, else every one; each gives its newest shot of the period the report is of (its `to`, else the period today is in), and a station with none is printed as not photographed. Each row is a station, its place, the period, the day taken and who took it. Construction's monthly progress report carries the section, the owner pack places it under Time where the project keeps stations (`ownerPackPhotos`), and any report takes it from the list of what a section reads. The older section of photographs a person ticked (`site_photographs`) reads as before.
+
+**On a collaborator's copy.** The Site record's sheets go with the scope its checks sit in and the Site record area. A station is on the copy only where the copy holds the building and the milestone it names. A photograph the grant holds by its own scope keeps the parts of its place the copy holds, and its station only where the station is on the copy. The site log's own photographs are the firm's, as the site log is.
 
 ## The firm's own fields
 
@@ -645,6 +673,7 @@ A stored value may be one that waits. Code that acts on a field reads it through
 | `period-keys.ts`, `field-periods.ts`, `sheet-periods.ts` | The calendar's periods; a set of records kept by period (open, compare, issue, revise, due); a sheet kept by period, and the Cost Report read as periods |
 | `as-at.ts` | The project as it stood when a past day ended |
 | `field-charts.ts` | A table's rows shaped for its chart, and a field's trend over time |
+| `photo-stations.ts`, `photo-report.ts`, `photo-figures.ts` | Photographs tied to a place and a period: stations, their standing, matching a shot to one, the series, the report section, and the figures the Site record's sheets read |
 | `rule-tables.ts`, `units.ts` | Dated figures a law sets; units and money |
 
 The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets folded to a line each, records and depth sheets, the band a past day or an issued period is read under, and the units' stack plan from `StackPlan.tsx`) over `CheckFields.tsx`, which draws every kind of field and the popover a label opens. `Periods.tsx` draws a set kept by period (its open period, the one line that opens the past, the comparison, issue and revise), and `TrendChart.tsx` a field over time. Construction's Technical page draws its sheets too, though it is not laid out in parts.

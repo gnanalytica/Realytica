@@ -307,7 +307,7 @@ export default function LogScreen() {
       </Section>
 
       <Section title="Photos" hint="Tagged with where and when they were taken">
-        <PhotosEditor photos={draft.photos} onChange={(change) => update((d) => ({ ...d, photos: change(d.photos) }))} />
+        <PhotosEditor photos={draft.photos} onChange={(change) => update((d) => ({ ...d, photos: change(d.photos) }))} projectId={projectId} stations={site?.stations} />
       </Section>
 
       <Section title="Your location">

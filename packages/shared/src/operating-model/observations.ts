@@ -153,7 +153,17 @@ export function fileSiteLogPhoto(project: DdProject, entryId: string, index: num
       mimeType: photo.mimeType,
       sizeBytes: 0,
       storageKey: photo.storageKey,
-      capture: { purpose: 'diligence_inspection', takenAt: photo.takenAt ?? entry.createdAt, lat: photo.point?.lat ?? entry.point?.lat, lng: photo.point?.lng ?? entry.point?.lng, caption: photo.caption },
+      capture: {
+        purpose: 'diligence_inspection',
+        takenAt: photo.takenAt ?? entry.createdAt,
+        lat: photo.point?.lat ?? entry.point?.lat,
+        lng: photo.point?.lng ?? entry.point?.lng,
+        caption: photo.caption,
+        // Its station and place go with it onto the register: it is the same shot.
+        ...(photo.stationId ? { stationId: photo.stationId } : {}),
+        ...(photo.place ? { place: photo.place } : {}),
+        ...(photo.placed ? { placed: photo.placed } : {}),
+      },
     },
     actor,
   );

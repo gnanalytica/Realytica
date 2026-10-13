@@ -68,6 +68,7 @@ import { useFirmCatalog } from '../../lib/firmFields';
 import { useMe } from '../../lib/useMe';
 import { CheckFields } from '../CheckFields';
 import { PeriodHead, PeriodRecords, ReadOnlyBand, SheetPeriodsBar } from './Periods';
+import { PhotoHolder, PhotoProject, SheetInside } from '../site/PhotoSeries';
 import { StackPlan, drawsAsStackPlan } from './StackPlan';
 import { NEEDS_SHOWN, needAction, needAssumes, needChips, needLines, needRuleRows, needRuleUnchecked, needSource, needUnverified, needWhere, sheetItem, sheetItemOf, type NeedAction, type NeedTarget } from './needs';
 import { AiMark, Badge, Button, Card, CardBody, CardHeader, Modal, cn, useToast } from '../ui/kit';
@@ -257,6 +258,7 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
       .catch((error: unknown) => toast(error instanceof Error ? error.message : 'That could not be added', 'critical'));
 
   return (
+    <PhotoProject.Provider value={{ project, onChanged, mayEdit: seat.mayEdit, openRecord: (set, record) => setOpen({ set, record }) }}>
     <div className="space-y-4">
       {part !== 'sheets' ? (
         <NeedsYou
@@ -406,7 +408,8 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
         open={Boolean(opened && (open?.record || depth))}
         onClose={() => setOpen(null)}
         title={depth ? `${opened!.set.records ? `${opened!.title} · ` : ''}${depth.sheet.title}` : (opened?.title ?? '')}
-        width="md"
+        // A record that shows photographs side by side is given the room for two.
+        width={opened?.set.fields.some((def) => def.viewer === 'series') ? 'lg' : 'md'}
         footer={
           opened && open?.record && !depth && seat.mayDecide && instanceOf(opened.set.id, opened.recordId)?.status !== 'issued' ? (
             <Button
@@ -441,6 +444,7 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
         ) : null}
       </Modal>
     </div>
+    </PhotoProject.Provider>
   );
 }
 
@@ -907,6 +911,7 @@ function SheetBody({
   // A hard case shows on the holder that needs it, as one line that says how full it is. Nowhere else, and never by itself.
   const depth = reading.depth.filter((held) => held.shown);
   return (
+    <PhotoHolder.Provider value={{ set: reading.set.id, record: reading.recordId }}>
     <div className="space-y-4 @container">
       {reading.sections
         .filter((section) => section.shown !== 'hidden')
@@ -1015,7 +1020,9 @@ function SheetBody({
           ))}
         </ul>
       ) : null}
+      <SheetInside set={reading.set.id} />
     </div>
+    </PhotoHolder.Provider>
   );
 }
 

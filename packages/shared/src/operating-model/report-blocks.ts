@@ -44,6 +44,7 @@ import { SCOPE_LABEL } from './catalogs';
 import { stageAndStep, type DepartmentKey } from './departments';
 import { CAPTURE_PURPOSE_LABEL } from './capture';
 import { RISK_LABEL, observationStatement, observations, projectPhotos } from './observation-table';
+import { resolveStationPhotos } from './photo-report';
 import { ANSWER_SOURCE_LABEL, questionStatus, questionnairesOf } from './questionnaire';
 import { remedialCostSummary } from './remedial';
 import { frozenFieldBlock, isFieldSource, isFrozenFieldBlock, resolveFieldBlock } from './report-fields';
@@ -88,6 +89,7 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'requirement_sheet',
   'risk_summary',
   'site_photographs',
+  'station_photographs',
   'status_changed',
   'status_waiting',
   'status_next',
@@ -120,6 +122,7 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   requirement_sheet: 'Documents reviewed and outstanding',
   risk_summary: 'At a glance',
   site_photographs: 'Site photographs',
+  station_photographs: 'Photographs by place and period',
   status_changed: 'Status: what changed',
   status_waiting: 'Status: waiting, and on whom',
   status_next: 'Status: what comes next',
@@ -147,6 +150,7 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   requirement_sheet: 'Every document the checks expect, by discipline: in hand, asked for, or not received.',
   risk_summary: 'How many observations fall in each risk category, counted from the table below it.',
   site_photographs: 'The photographs chosen for the report that no observation already shows, each with its caption, where and when it was taken, and the description a person accepted or wrote.',
+  station_photographs: 'The photographs of the stations named, or of a place, for the period: each station’s shot with its day and who took it, alone or beside the period before. Resolved by code; nobody ticks them.',
   status_changed: 'What happened in the period: papers filed and read, values accepted, decisions, actions done and overdue, approvals that moved, findings raised. Each line with the record behind it.',
   status_waiting: 'What waits now and on whom: overdue and undated actions, decisions still to be made, cards and values nobody has accepted, papers asked for.',
   status_next: 'What has a date ahead of it: actions due, approvals running out, papers promised, milestones planned.',
@@ -319,6 +323,9 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
         note: rows.some((p) => p.shows) ? 'What a photograph shows is a description of what is visible in it, not a diagnosis.' : undefined,
       };
     }
+
+    case 'station_photographs':
+      return resolveStationPhotos(project, source);
 
     case 'questionnaire': {
       // Each department prints its own sheet: a lawyer's requisitions are not building information.

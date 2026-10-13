@@ -35,6 +35,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMe } from '../../lib/useMe';
 import { FieldBlockDialog, ReportChartView, ReportFootnotes } from '../../components/report/ReportFieldBlock';
 import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
+import { StationReportPhotos } from '../../components/report/StationReportPhotos';
 import { TitleChainDiagram } from '../../components/charts';
 import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, SlidersHorizontal, Trash2 } from 'lucide-react';
 import {
@@ -546,7 +547,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
               <ReportTableView table={resolved.table} onOpenRecord={onOpenRecord} />
               {reads && resolved.note ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null}
               <ReportFootnotes footnotes={resolved.footnotes} />
-              <ReportPhotos project={project} table={resolved.table} />
+              {block.source?.kind === 'station_photographs' ? <StationReportPhotos project={project} table={resolved.table} /> : <ReportPhotos project={project} table={resolved.table} />}
             </>
           ) : (
             <>

@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
-import { LocalPhotoThumb } from '@/components/site/photo-thumb';
-import { Button, ButtonRow, Field, Icon, IconButton, Text, useToast } from '@/components/ui';
+import { GuidePhoto, LocalPhotoThumb } from '@/components/site/photo-thumb';
+import { Button, ButtonRow, Field, Icon, IconButton, Pill, Text, useToast } from '@/components/ui';
 import { useLayout } from '@/hooks/use-layout';
 import { dateTime } from '@/lib/format';
 import type { LocalPhoto } from '@/lib/outbox/engine';
 import { choosePhotos, deletePhotoFiles, takePhoto, type PickResult } from '@/lib/photos';
 import { openPhoneSettings } from '@/lib/push';
+import type { StationDue } from '@/lib/types';
 import { viewLocalPhoto } from '@/lib/viewer';
 import { radius, space, useTheme } from '@/theme';
 import { appear, arrive, leave, pop, reflow } from '@/theme/motion';
@@ -19,20 +20,34 @@ export const MAX_PHOTOS = 40;
 interface Props {
   photos: LocalPhoto[];
   onChange: (change: (photos: LocalPhoto[]) => LocalPhoto[]) => void;
+  /** The project, for the guide photo of a station. */
+  projectId?: string;
+  /** The stations not photographed this period, as the site view last listed them. */
+  stations?: StationDue[];
 }
 
-/** Photos for the day: each new one arrives as a row whose thumbnail pops in; removed ones fade and the rest close up. */
-export function PhotosEditor({ photos, onChange }: Props) {
+const STANDING_SAID: Record<StationDue['standing'], string> = { shot: 'Shot this period', due: 'Due', overdue: 'Overdue', never: 'Never shot' };
+
+/**
+ * Photos for the day: each new one arrives as a row whose thumbnail pops in; removed ones fade and the rest close up.
+ *
+ * Above them, the stations due this period. Each shows its last shot faintly, to frame the next one against, and a
+ * photo taken from its row carries the station, so the server files it there without guessing.
+ */
+export function PhotosEditor({ photos, onChange, projectId, stations }: Props) {
   const { colors, shadow } = useTheme();
   const toast = useToast();
   // On a small phone the thumbnail gives up a little, so the caption beside it keeps room to be typed in.
   const { compact } = useLayout();
   const [busy, setBusy] = useState<'camera' | 'library' | null>(null);
   const room = MAX_PHOTOS - photos.length;
+  const due = stations ?? [];
+  const stationLabel = (id: string | undefined) => (id ? due.find((s) => s.id === id)?.label : undefined);
 
-  const handle = (result: PickResult) => {
+  const handle = (result: PickResult, stationId?: string) => {
     if (result.ok) {
-      onChange((prev) => [...prev, ...result.photos].slice(0, MAX_PHOTOS));
+      const taken = stationId ? result.photos.map((p) => ({ ...p, stationId })) : result.photos;
+      onChange((prev) => [...prev, ...taken].slice(0, MAX_PHOTOS));
       return;
     }
     if (result.reason === 'denied') {
@@ -43,23 +58,26 @@ export function PhotosEditor({ photos, onChange }: Props) {
     }
   };
 
-  const fromCamera = async () => {
+  const fromCamera = async (stationId?: string) => {
     setBusy('camera');
     try {
-      handle(await takePhoto());
+      handle(await takePhoto(), stationId);
     } finally {
       setBusy(null);
     }
   };
 
-  const fromLibrary = async () => {
+  const fromLibrary = async (stationId?: string) => {
     setBusy('library');
     try {
-      handle(await choosePhotos(room));
+      handle(await choosePhotos(stationId ? 1 : room), stationId);
     } finally {
       setBusy(null);
     }
   };
+
+  /** A station's own shot: the camera on a phone, the picker in a browser, which has no camera to open. */
+  const shootFor = (stationId: string) => (Platform.OS === 'web' ? fromLibrary(stationId) : fromCamera(stationId));
 
   const remove = (photo: LocalPhoto) => {
     onChange((prev) => prev.filter((p) => p.id !== photo.id));
@@ -70,15 +88,48 @@ export function PhotosEditor({ photos, onChange }: Props) {
 
   return (
     <View style={{ gap: space.md }}>
+      {due.length && projectId ? (
+        <View style={{ gap: space.sm }}>
+          <Text variant="label">Stations to photograph this period</Text>
+          {due.map((station) => {
+            const taken = photos.some((p) => p.stationId === station.id);
+            return (
+              <View
+                key={station.id}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.sm, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.hairline }}
+              >
+                {station.guide ? (
+                  <GuidePhoto projectId={projectId} stationId={station.id} takenAt={station.guide.takenAt} size={compact ? 56 : 68} />
+                ) : (
+                  <View style={{ width: compact ? 56 : 68, height: compact ? 56 : 68, borderRadius: radius.md, backgroundColor: colors.sunken, alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="camera-outline" size={22} tone="textMuted" />
+                  </View>
+                )}
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text numberOfLines={1}>{station.label}</Text>
+                  <Text variant="caption" numberOfLines={2}>
+                    {[station.place, STANDING_SAID[station.standing], station.period.said].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>
+                {taken ? (
+                  <Pill label="In this entry" tone="good" icon="checkmark" />
+                ) : (
+                  <IconButton icon="camera" label={`Take the photo for ${station.label}`} tone="brand" disabled={!!busy || room <= 0} onPress={() => void shootFor(station.id)} />
+                )}
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
       <ButtonRow>
         {Platform.OS !== 'web' ? (
-          <Button title="Take photo" icon="camera" onPress={fromCamera} loading={busy === 'camera'} disabled={!!busy || room <= 0} />
+          <Button title="Take photo" icon="camera" onPress={() => void fromCamera()} loading={busy === 'camera'} disabled={!!busy || room <= 0} />
         ) : null}
         <Button
           title={Platform.OS === 'web' ? 'Add photos' : 'From phone'}
           icon="images-outline"
           variant="secondary"
-          onPress={fromLibrary}
+          onPress={() => void fromLibrary()}
           loading={busy === 'library'}
           disabled={!!busy || room <= 0}
         />
@@ -119,6 +170,11 @@ export function PhotosEditor({ photos, onChange }: Props) {
               maxLength={400}
               style={{ minHeight: 48 }}
             />
+            {stationLabel(p.stationId) ? (
+              <Text variant="caption" numberOfLines={1}>
+                Station: {stationLabel(p.stationId)}
+              </Text>
+            ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Icon name={p.point ? 'location' : 'location-outline'} size={14} tone={p.point ? 'goodText' : 'textMuted'} />
               <Text variant="caption" style={{ flex: 1 }} numberOfLines={1}>
