@@ -25,7 +25,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { addWorkPackages, createProject, setTeamMember, startCostReport, type DdProject, type ProjectGrant, type Tender } from '@realytica/shared';
+import { addFieldRecord, addWorkPackages, createProject, setTeamMember, startCostReport, type DdProject, type ProjectGrant, type Tender } from '@realytica/shared';
 
 const JWKS_URL = 'https://example.test/jwks-tenders';
 const ISSUER = 'https://securetoken.google.com/realytica-tenders';
@@ -324,5 +324,31 @@ describe('a tender, by the people who may work it', () => {
     assert.equal(accepted.body.project.costReports[0].rows.find((row: any) => row.workPackageId === packageId).poIssued, 53_500_000);
     assert.equal((await call('DELETE', `${at}/tenders/${tenderId}/letter-of-acceptance`, { token: buyer() })).status, 400, 'the letter stays once Finance has accepted');
     assert.equal((await call('DELETE', `${at}/tenders/${tenderId}/bidders/${c}`, { token: buyer() })).status, 200, 'a bidder who was neither recommended nor awarded may still be taken off');
+  });
+
+  it('offers an approved variation to Finance the same way: only a lead or signer in Finance takes it onto the Cost Report', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === project.id)!;
+    const contract = addFieldRecord(live, 'shared.contracts', { title: 'Electrical works', package: packageId }, 'pat@builders.example').record!.id;
+    const variation = addFieldRecord(live, 'procurement.orders.variations', { ref: 'VO-03', contract, kind: 'extra item', claimed: 600_000, assessed: 550_000, stage: 'approved', approved_on: day(-2) }, 'pat@builders.example').record!.id;
+    await store.save();
+
+    const read = await call('GET', at, { token: owner() });
+    assert.deepEqual(read.body.variationsWaitingOnFinance.map((w: any) => [w.ref, w.packageName, w.amount, w.onto.poIssued]), [['VO-03', 'E1 Electrical works', 550_000, 53_500_000]]);
+    assert.equal(await poIssued(), 53_500_000, 'approved by Procurement, and not written');
+
+    for (const [name, route, body] of [['accept', `${at}/variations/${variation}/offer/accept`, undefined], ['decline', `${at}/variations/${variation}/offer/decline`, { reason: 'No.' }]] as const) {
+      const refused = await call('POST', route, { token: buyer(), body });
+      assert.deepEqual([refused.status, refused.body.error], [403, 'That needs a lead or signer in Finance.'], name);
+    }
+    assert.equal((await call('POST', `${at}/variations/${variation}/offer/accept`, { token: owner(), body: { forecast: 'sometimes' } })).status, 400);
+    assert.equal(await poIssued(), 53_500_000);
+
+    const accepted = await call('POST', `${at}/variations/${variation}/offer/accept`, { token: owner() });
+    assert.deepEqual([accepted.status, accepted.body.decision.status, accepted.body.decision.decidedBy, accepted.body.decision.amount], [200, 'accepted', 'dev@builders.example', 550_000]);
+    assert.equal(await poIssued(), 54_050_000);
+    assert.deepEqual((await call('GET', at, { token: owner() })).body.variationsWaitingOnFinance, []);
+    const again = await call('POST', `${at}/variations/${variation}/offer/accept`, { token: owner() });
+    assert.deepEqual([again.status, again.body.error], [404, 'No approved variation by that id is waiting on Finance.']);
   });
 });

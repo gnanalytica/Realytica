@@ -761,3 +761,34 @@ describe('the rules a look rests on', () => {
     assert.deepEqual(lawTextDiff('one\ntwo', 'one\ntwo\ntwo'), { added: ['two'], removed: [], addedCount: 1, removedCount: 0 });
   });
 });
+
+describe('the rule rows, as a list to check', () => {
+  it('lists them by department to the firm’s own people, none verified, and not to somebody working from a grant', async () => {
+    const listed = await call('GET', '/api/law-watch/rule-rows', { token: viewer() });
+    assert.equal(listed.status, 200);
+    assert.deepEqual([listed.body.verified, listed.body.mayCheck], [0, false]);
+    assert.ok(listed.body.total > 100, 'every row of the table');
+    assert.ok(listed.body.groups.every((group: any) => group.label && group.rows.every((row: any) => row.citation && Array.isArray(row.readBy))));
+    assert.equal((await call('GET', '/api/law-watch/rule-rows', { token: contractor() })).status, 403);
+  });
+
+  it('lets only a firm admin mark one checked, with the clause and the day read, under their name', async () => {
+    const listed = (await call('GET', '/api/law-watch/rule-rows', { token: owner() })).body;
+    assert.equal(listed.mayCheck, true);
+    const row = listed.groups.flatMap((group: any) => group.rows).find((held: any) => held.key === 'age_of_majority_years');
+    const body = { row: row.ref, clause: 'section 3(1)', readOn: '2026-10-01' };
+    for (const [who, token] of [['a department’s lead', lead], ['a viewer', viewer], ['somebody working from a grant', contractor]] as const) {
+      assert.equal((await call('POST', '/api/law-watch/rule-rows/check', { token: token(), body })).status, 403, who);
+    }
+    assert.equal((await call('POST', '/api/law-watch/rule-rows/check', { token: owner(), body: { ...body, clause: ' ' } })).status, 400);
+    assert.equal((await call('POST', '/api/law-watch/rule-rows/check', { token: owner(), body: { ...body, row: { ...row.ref, from: '1900-01-01' } } })).status, 404);
+    assert.equal((await call('GET', '/api/law-watch/rule-rows', { token: owner() })).body.verified, 0, 'nothing was marked by a refusal');
+
+    const checked = await call('POST', '/api/law-watch/rule-rows/check', { token: owner(), body });
+    assert.equal(checked.status, 200, JSON.stringify(checked.body));
+    const now = checked.body.groups.flatMap((group: any) => group.rows).find((held: any) => held.key === 'age_of_majority_years');
+    assert.deepEqual([now.verified, now.verifiedOn, now.source.clause, /dev@builders\.example/.test(now.verifiedBy)], [true, '2026-10-01', 'section 3(1)', true]);
+    assert.equal(checked.body.verified, 1);
+    assert.equal((await call('POST', '/api/law-watch/rule-rows/check', { token: owner(), body })).status, 409, 'a row the firm has verified is not checked twice');
+  });
+});
