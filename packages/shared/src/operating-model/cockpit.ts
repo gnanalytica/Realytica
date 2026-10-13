@@ -2398,7 +2398,10 @@ export function applyProjectChat(
       const report = read.report;
       const cmd = read.command;
       try {
-        if (cmd.kind === 'issue') {
+        if (options.outside && (cmd.kind === 'issue' || cmd.kind === 'detach_block')) {
+          // As the report routes refuse it: what a frozen section says is read off the whole file, and an issued report is signed.
+          assistantText = 'Freezing what a report reads, and issuing it, are for the firm’s own people. Nothing has changed.';
+        } else if (cmd.kind === 'issue') {
           issueReport(project, report.id, actor);
           assistantText =
             `Issued “${report.title}”. Every live section is now frozen at what it said just now, and the report will not move again. `
