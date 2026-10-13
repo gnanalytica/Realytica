@@ -7,8 +7,9 @@
  * often it is to be shot, and reads the rest as figures
  * (`photo-figures.ts`). Its standing is worked out each time it is read.
  *
- * The round is the one sheet above them. What needs a person is said there
- * once, as a count: the stations not photographed this period are one line
+ * The round is the one sheet above them. Every figure on it is blank, never
+ * nought, until a station is kept, so a project that keeps none is shown no
+ * round. What needs a person is said there once, as a count: the stations not photographed this period are one line
  * under Needs you, not one for each station, so a station's own standing is
  * never in a tone that would raise a line of its own.
  */
@@ -16,7 +17,10 @@
 import { PHOTO_ELEMENTS, PHOTO_ELEMENT_LABEL } from '../../photo-picks';
 import { SITE_FN, STATIONS_SET, STATION_EVERY, STATION_EVERY_LABEL, STATION_ROUND_SET } from '../../photo-stations';
 import type { FieldSet } from '../../types';
-import { at, computed, computedDay, countOf, figure, text } from './parts';
+import { at, computed, computedDay, figure, text } from './parts';
+
+/** The round is about the stations: until one is kept, none of its fields is in play, and the page draws no round. */
+const KEPT = { tier: 'situational', showWhen: { records: STATIONS_SET, is: 'any' } } as const;
 
 export const SITE_SETS: FieldSet[] = [
   {
@@ -25,18 +29,18 @@ export const SITE_SETS: FieldSet[] = [
     title: 'Photograph round',
     v: 1,
     fields: [
-      computed('stations', 'Stations', countOf(STATIONS_SET), { precision: 0 }),
-      computed('shot', 'Photographed this period', figure('photos.stations_shot'), { precision: 0 }),
-      computed('due', 'Not photographed this period', figure('photos.stations_due'), { precision: 0 }),
-      computed('overdue', 'A whole period behind', figure('photos.stations_overdue'), { precision: 0 }),
-      computed('place_not_set', 'Recent photographs with no place set', figure('photos.place_not_set'), { precision: 0 }),
-      computed('milestones_short', 'Milestones complete with a required photograph missing', figure('photos.milestones_short'), { precision: 0 }),
+      computed('stations', 'Stations', figure('photos.stations'), { precision: 0, ...KEPT }),
+      computed('shot', 'Photographed this period', figure('photos.stations_shot'), { precision: 0, ...KEPT }),
+      computed('due', 'Not photographed this period', figure('photos.stations_due'), { precision: 0, ...KEPT }),
+      computed('overdue', 'A whole period behind', figure('photos.stations_overdue'), { precision: 0, ...KEPT }),
+      computed('place_not_set', 'Recent photographs with no place set', figure('photos.place_not_set'), { precision: 0, ...KEPT }),
+      computed('milestones_short', 'Milestones complete with a required photograph missing', figure('photos.milestones_short'), { precision: 0, ...KEPT }),
       {
         key: 'standing',
         label: 'Standing',
         kind: 'status',
+        ...KEPT,
         cases: [
-          { when: { kind: 'at_least', fields: ['stations'], against: 1, say: 'No photo station is kept.', severity: 'low' }, label: 'No station kept', tone: 'neutral' },
           { when: { kind: 'at_most', fields: ['milestones_short'], against: 0, say: 'Milestones reported complete with a required photograph missing: {a}.', severity: 'high' }, label: 'Milestone photographs missing', tone: 'critical' },
           { when: { kind: 'at_most', fields: ['due'], against: 0, say: 'Stations with no photograph this period: {a}.', severity: 'medium' }, label: 'Stations to photograph', tone: 'warning' },
         ],

@@ -45,6 +45,8 @@ export interface LocalPhoto {
   caption?: string;
   takenAt?: string;
   point?: GeoPoint;
+  /** The photo station it was taken for, picked on the capture screen. Sent with the entry. */
+  stationId?: string;
   /** Set once the server has stored it. */
   uploaded?: UploadedPhoto;
 }
@@ -186,6 +188,7 @@ export function siteLogBody(item: SiteLogItem): SiteLogBody {
       ...(p.takenAt ? { takenAt: p.takenAt } : {}),
       ...(p.point ? { point: p.point } : {}),
       ...(p.caption?.trim() ? { caption: p.caption.trim().slice(0, 400) } : {}),
+      ...(p.stationId ? { stationId: p.stationId } : {}),
     };
   });
   return { ...item.payload, ...(photos.length ? { photos } : {}) };

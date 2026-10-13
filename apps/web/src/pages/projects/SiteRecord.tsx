@@ -34,7 +34,6 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, InfoTip, Input, Modal, Select, SubmitButton, Textarea, cn, useToast } from '../../components/ui/kit';
-import { FieldSheets } from '../../components/fields/FieldSheets';
 import { MARKED_ROW } from '../../components/workspace/marked';
 import type { ProjectOutlet } from './ProjectLayout';
 import { SheetPlacer } from '../../components/SheetPlacer';
@@ -99,8 +98,6 @@ export default function SiteRecord() {
 
   return (
     <div ref={record} className="space-y-6">
-      {/* What the site's sheets need of a person, then the sheets: the photo stations and the round above them. */}
-      <FieldSheets project={project} fn="construction.site" onChanged={setProject} />
       {/* The empty state carries its own call to action, so showing this one
           beside it offered the same thing twice. It appears once there is a
           list to add to. */}

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Platform, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Icon, Touchable } from '@/components/ui';
-import { photoSource } from '@/lib/api';
+import { photoSource, stationGuideSource } from '@/lib/api';
 import { radius, useTheme } from '@/theme';
 
 interface RemoteProps {
@@ -55,6 +55,32 @@ export function RemotePhoto({ projectId, entryId, index, size = 76, onPress, sty
     >
       {image}
     </Touchable>
+  );
+}
+
+/**
+ * A station's last shot, shown faintly: a guide to stand in the same place
+ * and frame the same view, not a photo of today. Kept on disk like any
+ * filed photo, so it is still there with no signal.
+ */
+export function GuidePhoto({ projectId, stationId, takenAt, size = 76 }: { projectId: string; stationId: string; takenAt: string; size?: number }) {
+  const { colors } = useTheme();
+  const source = stationGuideSource(projectId, stationId);
+  return (
+    <View
+      accessibilityRole="image"
+      accessibilityLabel="The last photo of this station, as a guide for framing"
+      style={{ width: size, height: size, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sunken, borderWidth: 1, borderColor: colors.hairline }}
+    >
+      <View style={{ flex: 1, opacity: 0.45 }}>
+        {!source ? null : Platform.OS === 'web' ? (
+          <WebAuthImage uri={source.uri} headers={source.headers} />
+        ) : (
+          // The key changes when a newer shot becomes the guide, so last period's copy is not shown for this one.
+          <Image source={{ ...source, cacheKey: `station-guide:${projectId}:${stationId}:${takenAt}` }} style={{ width: '100%', height: '100%' }} contentFit="cover" cachePolicy="disk" transition={200} />
+        )}
+      </View>
+    </View>
   );
 }
 

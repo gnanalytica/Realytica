@@ -11,7 +11,7 @@ How to read the tables:
 - **Situations** are the ones the function's fields wait on, its own and the project's.
 - **Reports** are the ones its file declares, put together from fields.
 
-Two functions keep no field sheets: the Site record and Property management.
+One function keeps no field sheets: Property management.
 
 ## Finance & Investment
 
@@ -69,7 +69,7 @@ Two functions keep no field sheets: the Site record and Property management.
 |---|---|---|---|---|
 | Progress & schedule (`construction.progress`) | Programme; Delay events (records); Site log; Month at a glance; Decisions awaited (records) | 50, 18, 6 | A delay event is recorded; Projected to finish late; Registered with RERA; A stop-work order is in force; Litigation pending | Monthly progress report |
 | Technical due diligence (`construction.quality`) | Quality standing; Mix designs (records); Pours (records); Cube samples (records); Groups of four samples (records); Reinforcement lots (records); Material and system tests (records); Inspection requests (records); Non-conformances (records); Handover; adds to Units; Snags (records); Systems commissioned (records); Warranties (records) | 171, 8, 16 | A critical non-conformance is open; Units are handed over | None declared |
-| Site record (`construction.site`) | No sheet yet | | | |
+| Site record (`construction.site`) | Photograph round; Photo stations (records) | 9, 8, 4 | None | None declared: its photographs are a section of the Monthly progress report |
 | Safety & environment (`construction.safety`) | Safety statistics; Site establishment; Incidents (records); Permits to work (records); Training and talks (records); Lifting and plant certificates (records); Contractors’ labour licences (records) | 55, 15, 5 | A reportable accident is recorded; Workforce at the figure that asks for a safety officer; Work under permit; More than one contractor on site | None declared |
 
 ## Procurement & Supply Chain

@@ -244,6 +244,7 @@ the function passes the gate the rest of the copy is cut by
 | Procurement's (bids, earnest money, orders, vendors) | The scope `procurement` on the grant. `allScopes` does not name it, and a scope the function shares with Finance does not open it |
 | Finance › Budget | The Budget and figures area |
 | Finance › Valuation | The Valuation area |
+| Engineering › Site record (the photo stations) | The Site record area |
 
 The same test decides what they may write: a sheet that is not on their copy
 is not found by the routes that type into it, add a record to it, decide one

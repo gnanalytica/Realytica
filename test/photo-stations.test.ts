@@ -487,8 +487,10 @@ describe('an old project, with photographs and no stations', () => {
     const page = readFunctionFields(project, 'construction.site', NOW);
     assert.equal(page.counts.total, 0, 'nothing under Needs you');
     const round = readSheet(project, STATION_ROUND_SET, undefined, undefined, undefined, NOW)!;
-    assert.deepEqual(round.fields.filter((field) => field.def.kind === 'computed').map((field) => [field.def.key, field.held?.value ?? null]), [['stations', 0], ['shot', null], ['due', null], ['overdue', null], ['place_not_set', null], ['milestones_short', null]], 'a round it does not run has no figures, never noughts');
-    assert.deepEqual(round.fields.find((field) => field.def.key === 'standing')!.held?.value, 'No station kept');
+    assert.deepEqual(round.fields.filter((field) => field.def.kind === 'computed').map((field) => [field.def.key, field.held?.value ?? null]), [['stations', null], ['shot', null], ['due', null], ['overdue', null], ['place_not_set', null], ['milestones_short', null]], 'a round it does not run has no figures, never noughts');
+    assert.equal(round.fields.find((field) => field.def.key === 'standing')!.held?.value ?? null, null, 'and no standing, so the page draws no round');
+    assert.equal(round.filled, 0);
+    assert.ok(round.fields.every((field) => field.shown === 'hidden'), 'none of its fields is in play, so the sheet is named and not drawn');
     assert.deepEqual([stationRound(project, NOW).rows, stationRound(project, NOW).placeNotSet, stationsDue(project, NOW), milestonePhotoChecklist(project, NOW)], [[], [], [], []]);
     // The photographs list is what it was: the same rows, with no new member on any.
     const listed = projectPhotos(project).filter((photo) => photo.key === filed.evidenceId || photo.siteLog?.entryId === entry.id);

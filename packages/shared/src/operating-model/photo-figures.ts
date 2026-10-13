@@ -45,6 +45,7 @@ const ofStation = (read: (row: StationRow) => number | null) => (project: DdProj
 const FROM = 'photo stations';
 
 export const PHOTO_FIGURES: Readonly<Record<string, ProjectFigure>> = {
+  'photos.stations': { label: 'Photo stations kept', from: FROM, read: ofRound((held) => held.round.rows.length) },
   'photos.stations_shot': { label: 'Stations photographed this period', from: FROM, read: ofRound((held) => held.round.rows.length - held.round.due.length) },
   'photos.stations_due': { label: 'Stations not photographed this period', from: FROM, read: ofRound((held) => held.round.due.length) },
   'photos.stations_overdue': { label: 'Stations a whole period behind', from: FROM, read: ofRound((held) => held.round.due.filter((row) => row.standing === 'overdue').length) },

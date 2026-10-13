@@ -66,10 +66,12 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 | PATCH, DELETE | `/projects/:id/milestones/:milestoneId` | `{ percent?, name?, weight?, plannedFinish? }` |
 | POST | `/projects/:id/milestones/import` | A schedule: multipart `file` (CSV, TSV or .xlsx, 4 MB) or `{ text }`, a header row then a row a milestone → `{ project, added, updated, unchanged, skipped: [{ line, name, reason }] }`. A milestone named again keeps its recorded progress. |
 | GET | `/cron/alerts` | The daily timer, outside sign-in: needs `Authorization: Bearer <CRON_SECRET>`, else 401. Brings every project's alerts up to date, then runs every other timed job; see [Timed routes](#timed-routes). Safe to call twice. |
-| GET | `/projects/:id/site` | The site app's whole view: project, role, milestones, progress, construction gate, recent log, construction alerts |
+| GET | `/projects/:id/site` | The site app's whole view: project, role, milestones, progress, construction gate, recent log, construction alerts, and the photo stations not photographed this period (`stations`) |
 | POST | `/projects/:id/site-log/photos` | Multipart `photos` (up to 6, 4 MB each) → `{ photos: [{ storageKey, fileName, mimeType }] }` |
-| POST | `/projects/:id/site-log` | `{ clientId, date, weather?, manpower?, workDone?, milestoneUpdates?, issues?, photos?, point? }`. Idempotent on `clientId`: a resend answers 200 with `duplicate: true`. |
+| POST | `/projects/:id/site-log` | `{ clientId, date, weather?, manpower?, workDone?, milestoneUpdates?, issues?, photos?, point? }`. Idempotent on `clientId`: a resend answers 200 with `duplicate: true`. A photograph may carry `stationId`, the photo station picked for it; one that carries none is given the one station within 30 m of where it was taken, or none. |
 | GET | `/projects/:id/site-log/:entryId/photos/:index` | A photograph's bytes |
+| GET | `/projects/:id/stations/:stationId/guide` | The bytes of a station's last shot before this period, to frame the next against. 404 where it has none |
+| PUT | `/projects/:id/photos/place` | `{ evidenceId } or { entryId, index }` with `stationId?` and `place?: { building?, floor?, unit?, milestone?, element? }`: a person says where a photograph was taken. `null` takes a station or a place away. Lead, contributor or signer in the photograph's department |
 
 ## Pairing phones
 
@@ -82,7 +84,7 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 | GET | `/devices` | Your phones (every phone, for an admin) |
 | DELETE | `/devices/:id` | Revoke one |
 
-A device token reaches only `GET /projects`, `GET /projects/:id/site`, the site log and its photos, milestone progress, alert reads and its own pairing; anything else is a 403.
+A device token reaches only `GET /projects`, `GET /projects/:id/site`, the site log and its photos, a station's guide, milestone progress, alert reads and its own pairing; anything else is a 403.
 
 ## Alerts, links, documents, the graph
 

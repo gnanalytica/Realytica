@@ -16,7 +16,7 @@
  */
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { Camera } from 'lucide-react';
+import { Camera, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   PHOTO_ELEMENTS,
   PHOTO_ELEMENT_LABEL,
@@ -82,25 +82,44 @@ function shotSaid(shot: StationShot): string {
 }
 
 function Side({ project, group, groups, label, onPick }: { project: DdProject; group: SeriesGroup; groups: readonly SeriesGroup[]; label: string; onPick: (key: string) => void }) {
+  // A period shot more than once shows its newest shot, and steps to the others: the two sides stay level.
+  const [step, setStep] = useState<{ key: string; at: number }>({ key: group.period.key, at: 0 });
+  const at = step.key === group.period.key ? Math.min(step.at, group.shots.length - 1) : 0;
+  const shot = group.shots[at]!;
+  const to = (next: number) => setStep({ key: group.period.key, at: next });
+  const stepCls = 'grid size-7 place-items-center rounded-md text-ink-secondary hover:bg-sunken disabled:opacity-40 coarse:size-11';
   return (
     <section className="min-w-0 space-y-2" data-series-side={group.period.key}>
-      {groups.length > 2 ? (
-        <select aria-label={label} value={group.period.key} onChange={(event) => onPick(event.target.value)} className="h-8 max-w-full rounded-md border border-hairline bg-surface px-2 text-[13px] font-semibold text-ink coarse:h-11">
-          {groups.map((held) => (
-            <option key={held.period.key} value={held.period.key}>
-              {held.period.said}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <h4 className="text-[13px] font-semibold text-ink">{group.period.said}</h4>
-      )}
-      {group.shots.map((shot) => (
-        <figure key={shot.key}>
-          <ShotImage project={project} shot={shot} className="aspect-[4/3] w-full" />
-          <figcaption className="mt-1 text-[12px] text-ink-secondary">{shotSaid(shot)}</figcaption>
-        </figure>
-      ))}
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        {groups.length > 2 ? (
+          <select aria-label={label} value={group.period.key} onChange={(event) => onPick(event.target.value)} className="h-8 min-w-0 rounded-md border border-hairline bg-surface px-2 text-[13px] font-semibold text-ink coarse:h-11">
+            {groups.map((held) => (
+              <option key={held.period.key} value={held.period.key}>
+                {held.period.said}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <h4 className="text-[13px] font-semibold text-ink">{group.period.said}</h4>
+        )}
+        {group.shots.length > 1 ? (
+          <span className="flex shrink-0 items-center text-[12px] text-ink-muted">
+            <button type="button" aria-label={`A later shot of ${group.period.said}`} disabled={at === 0} onClick={() => to(at - 1)} className={stepCls}>
+              <ChevronLeft size={14} aria-hidden />
+            </button>
+            <span className="font-mono tabular-nums">
+              {at + 1} of {group.shots.length}
+            </span>
+            <button type="button" aria-label={`An earlier shot of ${group.period.said}`} disabled={at === group.shots.length - 1} onClick={() => to(at + 1)} className={stepCls}>
+              <ChevronRight size={14} aria-hidden />
+            </button>
+          </span>
+        ) : null}
+      </div>
+      <figure>
+        <ShotImage project={project} shot={shot} className="aspect-[4/3] w-full" />
+        <figcaption className="mt-1 text-[12px] text-ink-secondary">{shotSaid(shot)}</figcaption>
+      </figure>
     </section>
   );
 }

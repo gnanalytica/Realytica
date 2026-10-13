@@ -297,7 +297,8 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
         open={Boolean(opened && (open?.record || depth))}
         onClose={() => setOpen(null)}
         title={depth ? `${opened!.set.records ? `${opened!.title} · ` : ''}${depth.sheet.title}` : (opened?.title ?? '')}
-        width="md"
+        // A record that shows photographs side by side is given the room for two.
+        width={opened?.set.fields.some((def) => def.viewer === 'series') ? 'lg' : 'md'}
         footer={
           opened && open?.record && !depth && seat.mayDecide ? (
             <Button

@@ -126,10 +126,10 @@ describe('the Construction and Procurement catalog', () => {
   });
 
   it('gives each function of the two departments a page of sheets', () => {
-    for (const fn of ['construction.progress', 'construction.quality', 'construction.safety', 'procurement.boq', 'procurement.orders', 'procurement.vendors', 'procurement.deliveries']) {
+    for (const fn of ['construction.progress', 'construction.quality', 'construction.site', 'construction.safety', 'procurement.boq', 'procurement.orders', 'procurement.vendors', 'procurement.deliveries']) {
       assert.ok(fieldSetsOf(fn).length > 0, fn);
     }
-    assert.deepEqual([...new Set(mine.map((set) => set.fn))].sort(), ['construction.progress', 'construction.quality', 'construction.safety', 'procurement.boq', 'procurement.deliveries', 'procurement.orders', 'procurement.vendors']);
+    assert.deepEqual([...new Set(mine.map((set) => set.fn))].sort(), ['construction.progress', 'construction.quality', 'construction.safety', 'construction.site', 'procurement.boq', 'procurement.deliveries', 'procurement.orders', 'procurement.vendors']);
   });
 
   it('keeps every figure a code, an Act or a form of contract sets in the rule table, each unverified and with where it is written', () => {
