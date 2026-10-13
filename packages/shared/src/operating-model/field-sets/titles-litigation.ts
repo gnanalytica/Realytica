@@ -477,10 +477,8 @@ const OWNER_FACTS: FieldSet = {
       tier: 'situational',
       requiredWhen: holds(owner('property_character'), 'equals', 'ancestral'),
     },
-    { key: 'guardian_kind', label: 'Guardian is', kind: 'enum', control: 'segmented', options: ['natural', 'testamentary', 'court-appointed'], section: 'minority', tier: 'situational' },
-    { key: 'date_of_birth', label: 'Date of birth', kind: 'date', section: 'minority', tier: 'situational' },
-    { key: 'court_permission_no', label: 'Court permission number', kind: 'text', section: 'minority', tier: 'situational', from: 'Court order' },
-    { key: 'permission_order', label: 'Court’s order', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'minority', tier: 'situational', required: false },
+    // The minor's own facts (date of birth, the guardian, the court's leave and its order) are on the owner's Guardianship sheet, declared
+    // with the owner record; what follows here is only what is worked out from them.
     {
       key: 'majority_on',
       label: 'Comes of age on',

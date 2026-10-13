@@ -382,7 +382,13 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
     if (set.extends) {
       const target = sheets.find((other) => other.id === set.extends);
       if (!target?.records) faults.push(`${at()}: extends "${set.extends}", which is not a set that repeats.`);
-      for (const def of set.fields) if (target?.fields.some((held) => held.key === def.key)) faults.push(`${at(def.key)}: "${set.extends}" already has a field of this key.`);
+      const held = target ? withDepthSheets(target).fields : [];
+      for (const def of set.fields) if (held.some((own) => own.key === def.key)) faults.push(`${at(def.key)}: "${set.extends}" already has a field of this key.`);
+      // Two departments adding to one record under one key: the second would be dropped without a word.
+      for (const other of sheets) {
+        if (other === set || other.extends !== set.extends || sheets.indexOf(other) > sheets.indexOf(set)) continue;
+        for (const def of set.fields) if (other.fields.some((own) => own.key === def.key)) faults.push(`${at(def.key)}: "${other.id}" already adds a field of this key to "${set.extends}".`);
+      }
     }
     const sections = new Set((set.sections ?? []).map((section) => section.key));
     const keys = new Set<string>();

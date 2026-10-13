@@ -316,12 +316,12 @@ describe('a depth sheet', () => {
     const read = () => readSheet(p, OWNERS, minor.id)!;
     assert.equal(read().depth[0]!.shown, true);
     assert.equal(read().depth[0]!.sheet.title, 'Guardianship');
-    assert.deepEqual([read().depth[0]!.filled, read().depth[0]!.total], [0, 2]);
+    assert.deepEqual([read().depth[0]!.filled, read().depth[0]!.total], [0, 3]);
     assert.ok(read().sections.every((section) => section.fields.every((view) => !view.def.sheet)), 'the row’s own sheet does not grow by the hard case’s fields');
 
     setFieldValues(p, { set: OWNERS, record: minor.id }, { guardian_kind: 'court-appointed', date_of_birth: '2014-05-02' }, LEAD);
     assert.equal(p.fieldSheets![OWNERS]!.records!.find((r) => r.id === minor.id)!.values.guardian_kind!.value, 'court-appointed');
-    assert.deepEqual([read().depth[0]!.filled, read().depth[0]!.total, read().depth[0]!.failing], [2, 2, 1]);
+    assert.deepEqual([read().depth[0]!.filled, read().depth[0]!.total, read().depth[0]!.failing], [2, 3, 1]);
 
     const failing = readFunctionFields(p, FN).needs.failing;
     assert.equal(failing.length, 1);
@@ -539,7 +539,7 @@ describe('a table’s display', () => {
   });
 
   it('pairs more than two lists, and says what no row pairs and which rows disagree', () => {
-    const OWNER_MATCH = 'legal.title.records';
+    const OWNER_MATCH = 'legal.title.owner_records_fixture';
     const set: FieldSet = {
       id: OWNER_MATCH,
       fn: FN,
@@ -591,6 +591,7 @@ describe('a table’s display', () => {
 
     const page = readFunctionFields(p, FN, new Date(), catalog);
     assert.ok(page.needs.failing.some((line) => /M\. Shetty \/ M Shetty/.test(line.text)));
-    assert.deepEqual(page.needs.missing.filter((line) => line.kind === 'unmatched').map((line) => line.text), [`Survey numbers: ${parcels[1]!.label}`, 'RTC owners: K. Gowda']);
+    // Of this table's own: Title's real sheets pair lists of their own on the same function.
+    assert.deepEqual(page.exceptions.filter((line) => line.kind === 'unmatched' && line.key.startsWith(`${OWNER_MATCH}::`)).map((line) => line.text), [`Survey numbers: ${parcels[1]!.label}`, 'RTC owners: K. Gowda']);
   });
 });

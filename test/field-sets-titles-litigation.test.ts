@@ -97,7 +97,9 @@ describe('Titles and Litigation, as a catalog', () => {
   it('keeps every record small, the shared ones with what is added to them', () => {
     const catalog = fieldCatalog();
     for (const id of ['shared.parcels', 'shared.matters', 'legal.title.owners', ...OURS.filter((set) => set.records).map((set) => set.id)]) {
-      assert.ok(catalog.sets.get(id)!.fields.length <= 20, `${id} has ${catalog.sets.get(id)!.fields.length} fields`);
+      // A depth sheet’s fields are not the record’s own: they open as a sheet of their own.
+      const own = catalog.sets.get(id)!.fields.filter((def) => !def.sheet);
+      assert.ok(own.length <= 20, `${id} has ${own.length} fields`);
     }
   });
 

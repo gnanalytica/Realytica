@@ -222,7 +222,8 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
         fields: [
           { key: 'date_of_birth', label: 'Date of birth', kind: 'date', section: 'minor' },
           { key: 'guardian_kind', label: 'Guardian is', kind: 'enum', control: 'segmented', options: ['natural', 'testamentary', 'court-appointed'], section: 'minor' },
-          { key: 'court_permission_no', label: 'Order number', kind: 'text', section: 'permission', required: false },
+          // Asked of every minor: a guardian sells a minor's land only with the court's leave, so its absence is a gap and never a blank.
+          { key: 'court_permission_no', label: 'Order number', kind: 'text', section: 'permission', from: 'Court order' },
           { key: 'court_permission_date', label: 'Order date', kind: 'date', section: 'permission', required: false },
           { key: 'permission_order', label: 'Order', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'permission', required: false },
         ],
