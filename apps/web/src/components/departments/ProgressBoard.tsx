@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Camera, HardHat, Smartphone, Upload, Users } from 'lucide-react';
 import {
   constructionGate,
+  daySaid,
   departmentRole,
   progressSummary,
   roleCanDecide,
@@ -87,9 +88,11 @@ function MilestoneRow({
         <p className="text-[13px] text-ink">{milestone.name}</p>
         <p className="text-micro text-ink-muted">
           Weight {milestone.weight}
-          {milestone.plannedFinish ? ` · planned ${milestone.plannedFinish}` : ''}
-          {moved ? ` (was ${milestone.baselineFinish})` : ''}
-          {milestone.completedOn ? ` · done ${milestone.completedOn}` : ''}
+          {/* The day it is held to now: its planned finish, moved by the days of extension granted on its contract. */}
+          {(watch?.plannedFinish ?? milestone.plannedFinish) ? ` · planned ${daySaid(watch?.plannedFinish ?? milestone.plannedFinish)}` : ''}
+          {watch?.extensionDays ? ` (moved ${watch.extensionDays} ${watch.extensionDays === 1 ? 'day' : 'days'} by extensions granted, from ${daySaid(milestone.plannedFinish)})` : ''}
+          {moved ? ` (first planned ${daySaid(milestone.baselineFinish)})` : ''}
+          {milestone.completedOn ? ` · done ${daySaid(milestone.completedOn)}` : ''}
           {!milestone.completedOn && watch?.expectedPercent !== undefined ? ` · expected ${watch.expectedPercent}% today` : ''}
         </p>
       </div>
@@ -316,11 +319,12 @@ export function ProgressBoard({
           {schedule.plannedCompletion ? (
             <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-secondary">
               <span>
-                Planned completion <span className="font-mono text-ink">{schedule.plannedCompletion}</span>
+                Planned completion <span className="font-mono text-ink">{daySaid(schedule.plannedCompletion)}</span>
+                {schedule.extensionDays ? ` · moved ${schedule.extensionDays} ${schedule.extensionDays === 1 ? 'day' : 'days'} by extensions of time granted, from ${daySaid(schedule.completionBeforeExtensions)}` : ''}
                 {schedule.projectedCompletion ? (
                   <>
                     {' · at the current rate '}
-                    <span className="font-mono text-ink">{schedule.projectedCompletion}</span>
+                    <span className="font-mono text-ink">{daySaid(schedule.projectedCompletion)}</span>
                   </>
                 ) : null}
               </span>

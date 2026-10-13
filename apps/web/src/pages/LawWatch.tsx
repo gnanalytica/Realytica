@@ -1,3 +1,4 @@
+import { RuleRows } from '../components/law/RuleRows';
 import { useState } from 'react';
 import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import {
@@ -446,6 +447,8 @@ export default function LawWatch() {
               </CardBody>
             </Card>
           ) : null}
+
+          <RuleRows />
 
           {data.decided.length ? (
             <Disclosure title="Decided" count={data.decided.length}>

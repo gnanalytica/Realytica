@@ -28,4 +28,7 @@ export const procurementApi = {
   acceptOffer: (projectId: string, tenderId: string): Changed<{ offer: TenderOffer }> => request(at(projectId, `/tenders/${tenderId}/offer/accept`), send('POST', {})),
   declineOffer: (projectId: string, tenderId: string, reason: string): Changed<{ offer: TenderOffer }> => request(at(projectId, `/tenders/${tenderId}/offer/decline`), send('POST', { reason })),
   offerAgain: (projectId: string, tenderId: string): Changed<{ offer: TenderOffer }> => request(at(projectId, `/tenders/${tenderId}/offer/again`), send('POST', {})),
+  /** Finance takes an approved variation onto the draft Cost Report: PO issued and the anticipated cost, or PO issued alone where the forecast carries it already. */
+  acceptVariation: (projectId: string, variationId: string, forecast?: 'add' | 'already_in'): Changed => request(at(projectId, `/variations/${variationId}/offer/accept`), send('POST', forecast ? { forecast } : {})),
+  declineVariation: (projectId: string, variationId: string, reason: string): Changed => request(at(projectId, `/variations/${variationId}/offer/decline`), send('POST', { reason })),
 };

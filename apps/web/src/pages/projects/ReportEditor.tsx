@@ -32,6 +32,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMe } from '../../lib/useMe';
 import { FieldBlockDialog, ReportChartView, ReportFootnotes } from '../../components/report/ReportFieldBlock';
 import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
 import { TitleChainDiagram } from '../../components/charts';
@@ -74,6 +75,8 @@ interface Props {
 }
 
 export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props) {
+  // Somebody working from a grant edits a report within their reach, and neither freezes a section nor issues it: those are the firm's.
+  const outside = useMe()?.role === 'collaborator';
   const toast = useToast();
   const frozen = reportIsFrozen(report.status);
   const [busy, setBusy] = useState<string | null>(null);
@@ -148,7 +151,8 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
             <Printer size={13} aria-hidden />
             Print or save as PDF
           </a>
-          {!frozen ? (
+          {/* Issuing a report is the firm's: somebody working from a grant is not shown a button the server refuses. */}
+          {!frozen && !outside ? (
             <Button variant="primary" icon={<Lock size={13} />} disabled={busy !== null} onClick={() => setIssuing(true)}>
               Issue
             </Button>
@@ -370,6 +374,7 @@ interface RowProps {
 }
 
 function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRecord, onRun }: RowProps) {
+  const outside = useMe()?.role === 'collaborator';
   const live = isLiveBlock(block);
   const reads = isFieldSource(block.source?.kind);
   // A block detached from fields keeps its table as it stood, and is shown, not typed into.
@@ -431,7 +436,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
                 <GripVertical size={13} className="rotate-90" />
               </IconBtn>
             ) : null}
-            {live ? (
+            {live && !outside ? (
               <IconBtn
                 title={reads ? 'Freeze: keep what the fields say today. It stops updating, and is marked with the day.' : 'Detach: keep what it says now and edit it. It stops updating.'}
                 disabled={busy}

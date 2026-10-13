@@ -1,4 +1,4 @@
-import type { DepartmentKey, LawChange, LawChangeFields, LawProposedAction, LawRuleRowOffer, LawSource, LawSourceInput } from '@realytica/shared';
+import type { DepartmentKey, LawChange, LawChangeFields, LawProposedAction, LawRuleRowOffer, LawSource, LawSourceInput, RuleRowGroup, RuleRowListed } from '@realytica/shared';
 import { request } from './api';
 
 /**
@@ -27,6 +27,15 @@ export interface LawWatchShown {
   said?: string;
 }
 
+/** Every rule row the firm's projects read, by the department whose fields read it. */
+export interface RuleRowsShown {
+  groups: RuleRowGroup[];
+  total: number;
+  verified: number;
+  /** Whether this person may mark a row checked: a firm admin. */
+  mayCheck: boolean;
+}
+
 const send = (method: string, body?: unknown): RequestInit => ({ method, body: JSON.stringify(body ?? {}) });
 
 export const lawWatchApi = {
@@ -38,5 +47,8 @@ export const lawWatchApi = {
   pages: (changeId: string) => request<{ before: string; after: string }>(`/law-watch/changes/${changeId}/pages`),
   confirm: (changeId: string, fields: LawChangeFields, projects: Array<{ projectId: string; actions: LawProposedAction[] }>) => request<LawWatchShown>(`/law-watch/changes/${changeId}/confirm`, send('POST', { fields, projects })),
   verifyRow: (offerId: string) => request<LawWatchShown>(`/law-watch/rule-rows/${offerId}/verify`, send('POST')),
+  ruleRows: () => request<RuleRowsShown>('/law-watch/rule-rows'),
+  /** Marks a row checked against its instrument: the clause the figure was read in and the day it was read. */
+  checkRuleRow: (body: { row: RuleRowListed['ref']; clause: string; readOn: string }) => request<RuleRowsShown>('/law-watch/rule-rows/check', send('POST', body)),
   dismiss: (changeId: string, why?: string) => request<LawWatchShown>(`/law-watch/changes/${changeId}/dismiss`, send('POST', why ? { why } : {})),
 };

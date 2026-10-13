@@ -614,6 +614,17 @@ export function PapersOwedCard({
         ) : (
           <p className="text-[13px] text-ink-secondary">Nothing is asked for yet. Load the list of papers as it was sent, or add a line.</p>
         )}
+        {/* What the checks would want and nobody has asked for: owed by nobody yet, counted nowhere, and one press away to ask for. */}
+        {view.expected.length && (only === 'all' || only === 'not_asked') ? (
+          <details className="rounded-xl ring-1 ring-inset ring-[var(--ring)]">
+            <summary className="flex cursor-pointer select-none items-center gap-2 rounded-xl px-3 py-2 hover:bg-sunken/60 coarse:min-h-11">
+              <span className="flex-1 text-[13px] font-semibold text-ink-secondary">The checks also expect</span>
+              <span className="font-mono text-micro tabular-nums text-ink-secondary">{view.expected.length}</span>
+            </summary>
+            <p className="border-t border-hairline px-3 py-2 text-[12px] text-ink-muted">Not asked for and not counted as owed. Tick the ones this project needs and ask for them.</p>
+            <ul className="divide-y divide-hairline border-t border-hairline">{view.expected.map(row)}</ul>
+          </details>
+        ) : null}
         {startable ? (
           <div className="flex flex-wrap items-center gap-3">
             <p className="min-w-0 flex-1 text-[12px] text-ink-muted">This desk’s checks are not started, so the documents they expect are not listed.</p>

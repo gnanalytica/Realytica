@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FileText, X } from 'lucide-react';
-import type { DdProject } from '@realytica/shared';
+import { papersInHand, type DdProject } from '@realytica/shared';
 import { forgetReading, readingProgress, readingRemembered, type ReadingRemembered } from '../../lib/reading-pending';
 import { AiMark } from '../ui/kit';
 
@@ -27,7 +27,11 @@ export function ReadingContinues({ project, refresh, live, onOpenPaper }: { proj
   }, [project.id, live]);
 
   const progress = useMemo(() => (remembered ? readingProgress(remembered, project.evidence) : null), [remembered, project.evidence]);
-  const waiting = Boolean(progress && !progress.done && !progress.stale && !live);
+  // What the record itself says is still on its way, whoever dropped it and from which machine: papers being read now,
+  // and papers a reading left behind unread. This browser's own note of a drop says the same thing sooner, and wins.
+  const inHand = useMemo(() => papersInHand(project), [project]);
+  const others = remembered && progress && !progress.stale ? { reading: [], unread: [] } : inHand;
+  const waiting = Boolean((progress && !progress.done && !progress.stale && !live) || (others.reading.length && !live));
 
   useEffect(() => {
     if (!waiting) return;
@@ -43,7 +47,34 @@ export function ReadingContinues({ project, refresh, live, onOpenPaper }: { proj
     }
   }, [progress?.stale, project.id]);
 
-  if (!remembered || !progress || progress.stale || live) return null;
+  if (live) return null;
+  if (!remembered || !progress || progress.stale) {
+    if (!others.reading.length && !others.unread.length) return null;
+    return (
+      <section aria-label="Papers being read" aria-live="polite" className="mb-3 overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-inset ring-ai/25">
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          <AiMark size="xs" busy={others.reading.length > 0} />
+          <p className="min-w-0 flex-1 text-[13px] font-semibold text-ink">
+            {others.reading.length ? 'Reading continues' : 'Not read yet'}
+            <span className="ml-1.5 font-normal text-ink-secondary">
+              {others.reading.length
+                ? `${others.reading.length === 1 ? '1 paper is' : `${others.reading.length} papers are`} still being read. You can leave this page; each arrives as it is read.`
+                : `${others.unread.length === 1 ? '1 paper was' : `${others.unread.length} papers were`} dropped and not read. Ask in the chat to read the filed documents.`}
+            </span>
+          </p>
+        </div>
+        <ul className="divide-y divide-hairline border-t border-hairline">
+          {[...others.reading.map((paper) => ({ paper, said: 'being read' })), ...others.unread.map((paper) => ({ paper, said: 'not read yet' }))].map(({ paper, said }) => (
+            <li key={paper.storageKey} className="flex items-center gap-2.5 px-3 py-2">
+              <FileText size={14} className="shrink-0 text-ink-muted" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">{paper.fileName}</span>
+              <span className="shrink-0 text-[12px] text-ink-muted">{said}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
   const close = () => {
     forgetReading(project.id);
     setRemembered(null);
