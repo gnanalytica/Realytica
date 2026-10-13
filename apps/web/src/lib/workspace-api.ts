@@ -42,6 +42,7 @@ import type {
   ProjectLink,
   ScheduleSkippedRow,
   TeamMember,
+  PhotoPlace,
 } from '@realytica/shared';
 import { fetchWithAuth, request } from './api';
 
@@ -425,6 +426,10 @@ export const workspaceApi = {
   revokeDevice: (id: string) => request<void>(`/devices/${id}`, { method: 'DELETE' }),
 
   sitePhotoUrl: (projectId: string, entryId: string, index: number) => `/api/projects/${projectId}/site-log/${entryId}/photos/${index}`,
+
+  /** Say where a photograph was taken: a station, a place, or both. `null` takes one away. */
+  setPhotoPlace: (projectId: string, body: ({ evidenceId: string } | { entryId: string; index: number }) & { stationId?: string | null; place?: PhotoPlace | null }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/photos/place`, { method: 'PUT', body: JSON.stringify(body) }),
 
   /** Load a checklist onto a department's desk: an .xlsx, .csv, .tsv or .txt file, or the list pasted as text. */
   importChecklist: (projectId: string, input: ({ file: File } | { text: string }) & { department: DepartmentKey }) => {

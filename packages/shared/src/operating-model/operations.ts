@@ -8,6 +8,7 @@ import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
+import { stationPhotosFault } from './photo-report';
 import { fieldSourceFault, freezeFieldBlock, functionReportTemplate, isFieldSource, isFrozenFieldBlock, projectHoldsFields, reportNoteCap, statusFieldsBlock, templateBlocks, thawFieldBlock, type TemplateBlock } from './report-fields';
 import { statusTitle, statusWeekSoFar } from './status-report';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
@@ -1901,7 +1902,7 @@ function blockIn(report: GeneratedReport, blockId: string): ReportBlock {
 /** A source a block may read: one of the closed set, and for fields, ones that are declared. */
 function readableSource(source: ReportBoundSource): void {
   if (!isReportBoundSource(source.kind)) throw new Error(`"${source.kind}" is not something a report block can read.`);
-  const fault = fieldSourceFault(source);
+  const fault = fieldSourceFault(source) ?? (source.kind === 'station_photographs' ? stationPhotosFault(source) : undefined);
   if (fault) throw new Error(fault);
 }
 

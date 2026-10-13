@@ -37,6 +37,7 @@ import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { fieldRecords, readSheet, refChoices, resolveFields, type FieldResolution, type FieldView } from './field-sheets';
 import { fieldCatalogFor } from './firm-fields';
 import { meetingDay } from './meetings';
+import { stationPhotosFault } from './photo-report';
 import { departmentReportKind } from './report-blocks';
 import { ruleSourceSaid } from './rule-tables';
 import { statusPeriodSaid } from './status-report';
@@ -584,6 +585,7 @@ export function templateBlocks(template: FunctionReportTemplate): TemplateBlock[
       const what = typeof of === 'object' && 'records' in of ? { records: of.records } : { address: addressIn(template, of) };
       return { heading: section.heading, source: { kind: 'field_chart', ...what, x: section.chart.x, y: section.chart.y, mark: section.chart.mark ?? 'bar' } };
     }
+    if ('photos' in section) return { heading: section.heading, source: { kind: 'station_photographs', photos: section.photos } };
     if ('note' in section) return { heading: section.heading, text: '', cap: Math.min(section.note.maxLength, REPORT_NOTE_MOST), ...(section.note.hint ? { hint: section.note.hint } : {}) };
     return { heading: section.heading, source: section.register };
   });
@@ -604,6 +606,11 @@ export function reportTemplateFaults(all: readonly FunctionReportTemplate[] = fu
       if (!section.heading.trim()) faults.push(`${at}, section ${index + 1}: needs a heading.`);
       if ('note' in section) {
         if (!(section.note.maxLength > 0) || section.note.maxLength > REPORT_NOTE_MOST) faults.push(`${at}, “${section.heading}”: a note is capped at between 1 and ${REPORT_NOTE_MOST} characters.`);
+        return;
+      }
+      if ('photos' in section) {
+        const fault = stationPhotosFault({ kind: 'station_photographs', photos: section.photos });
+        if (fault) faults.push(`${at}, “${section.heading}”: ${fault}`);
         return;
       }
       if ('register' in section) {

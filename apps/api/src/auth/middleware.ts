@@ -181,6 +181,7 @@ const DEVICE_ROUTES: ReadonlyArray<[string, RegExp]> = [
   ['POST', /^\/projects\/[\w-]+\/site-log$/],
   ['POST', /^\/projects\/[\w-]+\/site-log\/photos$/],
   ['GET', /^\/projects\/[\w-]+\/site-log\/[\w-]+\/photos\/\d+$/],
+  ['GET', /^\/projects\/[\w-]+\/stations\/[\w-]+\/guide$/],
   ['PATCH', /^\/projects\/[\w-]+\/milestones\/[\w-]+$/],
   ['POST', /^\/projects\/[\w-]+\/alerts\/read$/],
 ];

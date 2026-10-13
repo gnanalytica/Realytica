@@ -19,6 +19,7 @@ import { useMe } from '../../lib/useMe';
 import { useAsync } from '../../lib/useAsync';
 import { ReportFootnotes } from '../../components/report/ReportFieldBlock';
 import { ReportTableView } from '../../components/report/ReportTableView';
+import { StationReportPhotos } from '../../components/report/StationReportPhotos';
 import { Spinner } from '../../components/ui/kit';
 
 function Line({ line }: { line: OwnerPackLine }) {
@@ -191,6 +192,14 @@ export default function OwnerPackPrint() {
                 <ReportTableView table={section.fields.table} print />
                 {section.fields.note ? <p className="mt-1 text-[11px] text-black/60">{section.fields.note}</p> : null}
                 <ReportFootnotes footnotes={section.fields.footnotes} print />
+              </div>
+            ) : null}
+            {/* The photo stations for the period, beside the period before: resolved by code, each with its day and who took it. */}
+            {section.photos?.table ? (
+              <div className="mt-3">
+                <h3 className="break-after-avoid text-[12px] font-semibold uppercase tracking-[0.08em] text-black/60">Photographs, this period beside the last</h3>
+                <StationReportPhotos project={project} table={section.photos.table} print />
+                {section.photos.note ? <p className="mt-1 text-[11px] text-black/60">{section.photos.note}</p> : null}
               </div>
             ) : null}
           </section>

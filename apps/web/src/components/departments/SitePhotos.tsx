@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Camera, Check, MapPin, Pencil, Sparkles } from 'lucide-react';
-import { departmentRole, projectPhotos, roleCanEdit, type DdProject, type PhotoCandidate } from '@realytica/shared';
+import { departmentRole, projectPhotos, projectShots, roleCanEdit, type DdProject, type PhotoCandidate, type StationShot } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, Textarea, cn, useToast } from '../ui/kit';
 import { CandidateThumb } from './ObservationsCard';
+import { ShotPlace } from '../site/PhotoSeries';
 import { daySaid } from '@realytica/shared';
 
 type Filter = 'all' | 'in' | 'out';
@@ -23,12 +24,15 @@ type Filter = 'all' | 'in' | 'out';
 function PhotoCard({
   project,
   photo,
+  shot,
   mayEdit,
   refresh,
   onChanged,
 }: {
   project: DdProject;
   photo: PhotoCandidate;
+  /** The same photograph as the stations read it: where it was taken, and what is offered for that. */
+  shot?: StationShot;
   mayEdit: boolean;
   refresh: () => Promise<void>;
   onChanged: (next: DdProject) => void;
@@ -167,6 +171,7 @@ function PhotoCard({
           </Button>
         </div>
       ) : null}
+      {shot ? <ShotPlace project={project} shot={shot} mayEdit={mayEdit} onChanged={onChanged} /> : null}
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-1">
         <label className={cn('inline-flex items-center gap-1.5 text-[12px]', on ? 'font-medium text-ink' : 'text-ink-secondary')}>
           <input
@@ -199,6 +204,8 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
   const toast = useToast();
   const mayEdit = me ? roleCanEdit(departmentRole(project, { email: me.email, workspaceRole: me.role }, 'construction')) : false;
   const photos = useMemo(() => projectPhotos(project, 'construction'), [project]);
+  // Each photograph once more as the stations read it, by where it is kept.
+  const shots = useMemo(() => new Map(projectShots(project).map((shot) => [shot.evidenceId ?? `${shot.siteLog?.entryId}:${shot.siteLog?.index}`, shot])), [project]);
   const [filter, setFilter] = useState<Filter>('all');
   const [busy, setBusy] = useState(false);
   const inReport = photos.filter((p) => p.inReport || p.usedIn.length > 0);
@@ -292,7 +299,7 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
         </div>
         <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(13rem,1fr))]">
           {shown.map((photo) => (
-            <PhotoCard key={`${photo.key}:${photo.caption ?? ''}:${photo.area ?? ''}`} project={project} photo={photo} mayEdit={mayEdit} refresh={refresh} onChanged={onChanged} />
+            <PhotoCard key={`${photo.key}:${photo.caption ?? ''}:${photo.area ?? ''}`} project={project} photo={photo} shot={shots.get(photo.key)} mayEdit={mayEdit} refresh={refresh} onChanged={onChanged} />
           ))}
         </ul>
       </CardBody>

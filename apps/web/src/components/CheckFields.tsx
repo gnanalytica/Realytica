@@ -62,6 +62,7 @@ import {
   type OptionSet,
 } from '@realytica/shared';
 import { AiMark, Badge, cn } from './ui/kit';
+import { FieldPhotos } from './site/PhotoSeries';
 import { person } from '../lib/format';
 import { ChartSvg, DirectedBar, GridLine, Legend, compactAxisNumber, niceTicks, padDomain, scaleLinear, useMeasure } from './charts/primitives';
 
@@ -1292,14 +1293,21 @@ function MatchField({ def, reading, rows, disabled, onChange }: { def: CheckFiel
   );
 }
 
-const VIEWER_SAID: Record<NonNullable<CheckFieldDef['viewer']>, string> = { pdf: 'Open paper', image: 'Open image', drawing: 'Open drawing', deed: 'Open deed', ifc: '' };
+const VIEWER_SAID: Record<NonNullable<CheckFieldDef['viewer']>, string> = { pdf: 'Open paper', image: 'Open image', series: 'Open image', drawing: 'Open drawing', deed: 'Open deed', ifc: '' };
 
 /** The file itself, one press away: the paper's own viewer, opened at the row cited. A model file has no viewer here yet, and says so. */
 function Viewer({ def, value, evidence, onOpen }: { def: CheckFieldDef; value: CheckFieldValue | undefined; evidence: EvidenceRecord[]; onOpen?: (evidenceId: string) => void }) {
   const ids = Array.isArray(value?.value) ? (value!.value as string[]) : [];
+  // Photographs are drawn through the series viewer: a station's shots always, any other field's once they span more than one period.
+  if (def.viewer === 'series' || (def.viewer === 'image' && ids.length)) return <FieldPhotos def={def} ids={ids} fallback={<ViewerLinks def={def} ids={ids} evidence={evidence} onOpen={onOpen} />} />;
   if (!ids.length) return null;
   if (def.viewer === 'ifc') return <p className="mt-1 text-[12px] text-ink-muted">IFC models are filed here and are not drawn on screen yet.</p>;
-  if (!onOpen) return null;
+  return <ViewerLinks def={def} ids={ids} evidence={evidence} onOpen={onOpen} />;
+}
+
+/** Each file as a link that opens it in the app's own viewer. */
+function ViewerLinks({ def, ids, evidence, onOpen }: { def: CheckFieldDef; ids: readonly string[]; evidence: EvidenceRecord[]; onOpen?: (evidenceId: string) => void }) {
+  if (!onOpen || !ids.length) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
       {ids.map((id) => (

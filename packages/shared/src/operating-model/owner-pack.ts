@@ -35,6 +35,7 @@ import { meetingCalled, meetingDay, meetingItemStands, meetingsHeld } from './me
 import { progressReadings, scheduleWatch, type MilestoneWatch, type ScheduleLevel } from './milestone-schedule';
 import { progressSummary } from './progress';
 import { quarterOfKey } from './quarters';
+import { ownerPackPhotos } from './photo-report';
 import { ownerPackFields } from './report-fields';
 import { requirementSheet } from './requirement-sheet';
 import { recordBehind, statusPeriodSaid, type StatusPeriod } from './status-report';
@@ -75,6 +76,8 @@ export interface OwnerPackSection {
    * the project keeps none of them.
    */
   fields?: ResolvedReportBlock;
+  /** The photo stations' shots for the period beside the period before (`ownerPackPhotos`). Absent where the project keeps no station. */
+  photos?: ResolvedReportBlock;
 }
 
 export interface OwnerPack {
@@ -402,13 +405,14 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
 
   const timeFields = ownerPackFields(project, 'time', now);
   const costFields = ownerPackFields(project, 'cost', now);
+  const timePhotos = ownerPackPhotos(project, period, now);
   return {
     period,
     periodSaid,
     asOf: today,
     sections: [
       { key: 'standing', title: 'Where the project stands', parts: [{ lines: standing, empty: '' }] },
-      { key: 'time', title: 'Time', parts: time, ...(timeFields ? { fields: timeFields } : {}) },
+      { key: 'time', title: 'Time', parts: time, ...(timeFields ? { fields: timeFields } : {}), ...(timePhotos ? { photos: timePhotos } : {}) },
       { key: 'cost', title: 'Cost', parts: cost, ...(costFields ? { fields: costFields } : {}) },
       { key: 'decisions', title: 'Decisions needed from the owner', parts: [{ lines: decisions, empty: 'Nothing on the record needs a decision from the owner.' }] },
       { key: 'meetings', title: 'Decided in the period, and who owes what', parts: meetings },

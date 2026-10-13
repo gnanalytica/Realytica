@@ -32,6 +32,7 @@ import { costReportPeriodOrder, costReportsOf, costReportTotals, type CostReport
 import { costReportChanges } from './cost-report-compare';
 import { findingIsOpen } from './engineering';
 import { scheduleWatch } from './milestone-schedule';
+import { PHOTO_FIGURES } from './photo-figures';
 import { milestoneExtensions, progressSummary } from './progress';
 import { tenderComparison, tenderStagesPastDue, tendersOf, variationOffersWaiting, type Tender } from './tenders';
 import { approachIsUsable } from './valuation-model';
@@ -45,6 +46,8 @@ export interface ProjectFigure {
   from: string;
   /** What it is a figure of, where it is of one thing and not of the project. */
   of?: 'package';
+  /** A figure of the record that asks for it: read from a field of a set that repeats, it is given that record's id with nothing named. */
+  own?: true;
   /** `shared` lasts one reading of the project, so several figures of one module work it out once. */
   read(project: DdProject, at: Date, of: string | undefined, shared: Map<string, unknown>): number | null;
 }
@@ -301,6 +304,8 @@ export const PROJECT_FIGURES: Readonly<Record<string, ProjectFigure>> = {
   'cash_flow.peak_funding': { label: 'Peak funding need before finance', from: 'appraisal cash flow', read: (p) => known(appraisalCashFlow(p)?.peakFunding) },
   'cash_flow.peak_month': { label: 'Month of the peak', from: 'appraisal cash flow', read: (p) => known(appraisalCashFlow(p)?.peakDay) },
   'cash_flow.payback_month': { label: 'Month the money is back', from: 'appraisal cash flow', read: (p) => known(appraisalCashFlow(p)?.paybackDay) },
+
+  ...PHOTO_FIGURES,
 };
 
 /** A figure by its key, or null where there is none by that key or it cannot be told. `shared` is one reading's memo: pass the same map for every figure of that reading. */

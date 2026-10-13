@@ -232,7 +232,8 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       if (row) cites.push(ruleCitation(row));
       return row?.value ?? null;
     },
-    figure: (key, of) => projectFigure(project, key, at, of, figures),
+    // A figure of the record that asks (a station's own shots) is given that record, where the formula names no link.
+    figure: (key, of) => projectFigure(project, key, at, of ?? recordId, figures),
     record: recordId,
     today: at,
   });

@@ -618,7 +618,24 @@ export type FieldReportSection =
   | { heading: string; records: string; columns?: string[] }
   | { heading: string; chart: { of: string | FieldAddress | { records: string }; x: string; y: string; mark?: 'bar' | 'line' } }
   | { heading: string; note: { maxLength: number; hint?: string } }
+  | { heading: string; photos: ReportPhotosAsk }
   | { heading: string; register: ReportBoundSource };
+
+/**
+ * The photographs a report section prints, by place and period: the shots of
+ * named stations, or of every station at a place, for the period the report
+ * is of, alone or beside the period before. Resolved by code
+ * (`photo-report.ts`); nobody ticks them.
+ */
+export interface ReportPhotosAsk {
+  stations?: string[];
+  place?: import('./capture').PhotoPlace;
+  show: 'period' | 'period_and_last';
+  /** The most stations printed. */
+  most: number;
+  /** The length of a period. A month where left out. */
+  every?: 'week' | 'month' | 'quarter';
+}
 
 /** A report a function hands over: its sections in order. A person may then arrange them. */
 export interface FieldReportTemplate {
@@ -855,7 +872,7 @@ export interface CheckFieldDef {
   cases?: Array<{ when: CheckInsightRule; label: string; tone: Tone }>;
   otherwise?: { label: string; tone: Tone };
   /** `evidence` only: how the file is shown. */
-  viewer?: 'pdf' | 'image' | 'drawing' | 'deed' | 'ifc';
+  viewer?: 'pdf' | 'image' | 'drawing' | 'deed' | 'ifc' | 'series';
   /** `table` only: drawn as a timeline, as two columns matched, or as a chart. */
   display?: 'timeline' | 'match' | 'chart';
   /**
@@ -1543,6 +1560,8 @@ export type ReportBoundSourceKind =
   | 'requirement_sheet'
   | 'risk_summary'
   | 'site_photographs'
+  /** The photographs of stations or of a place for a period, alone or beside the period before: resolved by code. */
+  | 'station_photographs'
   /** The three sections of a status report: what changed in a period, what is waiting, what comes next. */
   | 'status_changed'
   | 'status_waiting'
@@ -1593,6 +1612,8 @@ export interface ReportBoundSource {
   x?: string;
   y?: string;
   mark?: 'bar' | 'line';
+  /** `station_photographs`: which stations or place, and whether the period before is printed beside. The period is `from` and `to` where given, else the one today falls in. */
+  photos?: ReportPhotosAsk;
 }
 
 export type ReportBlockOrigin = 'derived' | 'authored';
@@ -1678,6 +1699,8 @@ export interface ReportTable {
     recordId?: string;
     /** Photographs and documents that stand behind the row, printed after the table. */
     evidenceIds?: string[];
+    /** A photograph still only in the site log, where the row is one: the entry and its place in it. */
+    sitePhoto?: { entryId: string; index: number };
     /** The row's words are a model's wording of the line code wrote. */
     worded?: boolean;
     /** The field the row prints, on a block that reads fields. */

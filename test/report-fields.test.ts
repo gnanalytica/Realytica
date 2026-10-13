@@ -258,11 +258,11 @@ describe('a function’s report template', () => {
     const template = functionReportTemplate(TEMPLATE)!;
     assert.deepEqual([template.fn, template.set, template.title], [FN, HOLDING, 'Land holding report']);
     assert.deepEqual(reportTemplateFaults(), []);
-    // Every department hands over at least one report its own file declares, and each is fields, tables, charts and capped notes: no section holds prose.
+    // Every department hands over at least one report its own file declares, and each is fields, tables, charts, photographs resolved by place and period, and capped notes: no section holds prose.
     const declared = functionReportTemplates().filter((template) => !template.id.endsWith('.checks'));
     assert.deepEqual([...new Set(declared.map((template) => workstreamDefinition(template.fn)!.department))].sort(), ['commercial', 'construction', 'design', 'finance', 'legal', 'procurement']);
     for (const template of declared) {
-      assert.ok(template.sections.every((section) => 'fields' in section || 'table' in section || 'records' in section || 'chart' in section || 'note' in section), template.id);
+      assert.ok(template.sections.every((section) => 'fields' in section || 'table' in section || 'records' in section || 'chart' in section || 'note' in section || 'photos' in section), template.id);
       assert.ok(template.sections.filter((section) => 'note' in section).length <= 1, `${template.id} has one note at most`);
     }
     // The functions that keep their fields on checks, in the departments that hand over a report, each have one.

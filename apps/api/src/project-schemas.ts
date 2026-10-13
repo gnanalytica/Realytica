@@ -17,6 +17,7 @@ import {
   SEVERITY_LABEL,
   type DdTypeKey,
   type ScopeKey,
+  PHOTO_ELEMENTS,
 } from '@realytica/shared';
 
 const keys = <T extends string>(record: Record<T, unknown> | Array<{ key: T }>): [T, ...T[]] => {
@@ -363,6 +364,7 @@ export const reportBoundSourceSchema = z.object({
     'checks',
     'valuation',
     'changes_since_previous',
+    'station_photographs',
     'status_changed',
     'status_waiting',
     'status_next',
@@ -387,6 +389,17 @@ export const reportBoundSourceSchema = z.object({
   x: z.string().min(1).max(80).optional(),
   y: z.string().min(1).max(80).optional(),
   mark: z.enum(['bar', 'line']).optional(),
+  // Photographs by place and period: which stations or place, whether the period before is beside it, and how many at most.
+  photos: z
+    .object({
+      stations: z.array(z.string().min(1).max(80)).max(24).optional(),
+      place: z.object({ building: z.string().max(80).optional(), floor: z.string().trim().min(1).max(40).optional(), unit: z.string().max(80).optional(), milestone: z.string().max(80).optional(), element: z.enum(PHOTO_ELEMENTS).optional() }).strict().optional(),
+      show: z.enum(['period', 'period_and_last']),
+      most: z.number().int().min(1).max(24),
+      every: z.enum(['week', 'month', 'quarter']).optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export const insertReportBlockBodySchema = z.object({

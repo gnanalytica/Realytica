@@ -34,6 +34,8 @@
  * POST   /site-log                        a day's entry from site (idempotent on the phone's id)
  * POST   /site-log/photos                 photographs for an entry, before it is filed
  * GET    /site-log/:entryId/photos/:index
+ * GET    /stations/:stationId/guide        a station's last shot before this period, to frame the next against
+ * PUT    /photos/place                    a person says where a photograph was taken: a station, a place, or both
  * POST   /alerts/read
  * POST   /links                           a link a person draws between two records
  * DELETE /links/:linkId
@@ -105,6 +107,12 @@ import {
   fileCertifiedReport,
   graphImpact,
   logSiteEntry,
+  PHOTO_ELEMENTS,
+  PLACE_FLOOR_MOST,
+  placeEntryShots,
+  setShotPlace,
+  stationRound,
+  stationsDue,
   markAlertsRead,
   MILESTONE_TEMPLATE,
   noteProjectEdit,
@@ -1249,7 +1257,9 @@ projectWorkspaceRouter.get<Params>('/site', (req, res) => {
   // Whether a write would actually go through: the department role, and the
   // workspace-wide write gate every project write passes first.
   const canLog = roleCanEdit(role) && can(principalOf(req).role, 'write');
-  const log = [...(project.siteLog ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  // The reader's own copy: the site's day-by-day entries and the photo stations are not handed to everybody who may open the project.
+  const copy = viewFor(req, project).project;
+  const log = [...(copy.siteLog ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   const timeline = stageTimeline(project);
   res.json({
     project: { id: project.id, name: project.name, reference: project.reference, location: project.location, city: project.city, stage: timeline.current, stageLabel: timeline.stages.find((s) => s.key === timeline.currentStage)?.label, siteCoordinate: project.siteCoordinate ?? null },
@@ -1258,9 +1268,11 @@ projectWorkspaceRouter.get<Params>('/site', (req, res) => {
     milestones: project.milestones ?? [],
     progress: progressSummary(project),
     gate: constructionGate(project),
-    log: log.slice(0, 30).map((e) => ({ ...e, photos: e.photos.map((p, i) => ({ index: i, fileName: p.fileName, caption: p.caption, takenAt: p.takenAt, point: p.point })) })),
+    log: log.slice(0, 30).map((e) => ({ ...e, photos: e.photos.map((p, i) => ({ index: i, fileName: p.fileName, caption: p.caption, takenAt: p.takenAt, point: p.point, stationId: p.stationId })) })),
+    // The stations not photographed this period, each with the last shot to frame the next against. Read from the reader's own copy.
+    stations: stationsDue(copy, new Date()),
     // The reader's own copy of the alerts: somebody working from a grant is not told of an action or a meeting withheld from them.
-    alerts: openAlerts(viewFor(req, project).project).filter((a) => a.department === 'construction').slice(0, 20),
+    alerts: openAlerts(copy).filter((a) => a.department === 'construction').slice(0, 20),
   });
 });
 
@@ -1274,7 +1286,7 @@ const siteLogSchema = z.object({
   milestoneUpdates: z.array(z.object({ milestoneId: z.string().max(80), percent: z.number().min(0).max(100) })).max(60).optional(),
   issues: z.array(z.object({ title: z.string().trim().min(1).max(200), severity: z.enum(['low', 'medium', 'high']).optional(), note: z.string().trim().max(1000).optional() })).max(40).optional(),
   photos: z
-    .array(z.object({ storageKey: z.string().max(200), fileName: z.string().max(200), mimeType: z.string().max(80), takenAt: z.string().max(40).optional(), point: point.optional(), caption: z.string().max(400).optional() }))
+    .array(z.object({ storageKey: z.string().max(200), fileName: z.string().max(200), mimeType: z.string().max(80), takenAt: z.string().max(40).optional(), point: point.optional(), caption: z.string().max(400).optional(), stationId: z.string().max(80).optional() }))
     .max(40)
     .optional(),
   point: point.optional(),
@@ -1299,6 +1311,8 @@ projectWorkspaceRouter.post<Params>('/site-log', async (req, res) => {
     const me = principalOf(req);
     const { entry, duplicate } = logSiteEntry(project, parsed.data, me.name ? `${me.name} (${me.email})` : me.email);
     if (!duplicate) {
+      // Each photograph is given its station by code: the one picked on the phone, else the one station its own position is within the set distance of.
+      placeEntryShots(project, entry);
       noteProjectEdit(project, `Site log for ${entry.date}: ${entry.workDone.slice(0, 120) || 'entry filed'}${entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}.`, { actor: actorOf(me) });
       touch(project);
       await store.save();
@@ -1350,7 +1364,8 @@ projectWorkspaceRouter.post<Params>('/site-log/photos', photoUpload.array('photo
 projectWorkspaceRouter.get<Params & { entryId: string; index: string }>('/site-log/:entryId/photos/:index', async (req, res) => {
   const project = load(req, res);
   if (!project) return;
-  const entry = (project.siteLog ?? []).find((e) => e.id === req.params.entryId);
+  // Found on the reader's own copy: a site entry is not somebody's to open because they know its id.
+  const entry = (viewFor(req, project).project.siteLog ?? []).find((e) => e.id === req.params.entryId);
   const photo = entry?.photos[Number(req.params.index)];
   if (!photo) {
     res.status(404).json({ error: 'No such photograph.' });
@@ -1365,6 +1380,74 @@ projectWorkspaceRouter.get<Params & { entryId: string; index: string }>('/site-l
   res.setHeader('Cache-Control', 'private, max-age=86400');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.end(bytes);
+});
+
+/**
+ * The last shot of a station before this period, for the phone to frame the
+ * next one against. Read from the reader's own copy, so a station or a file
+ * they are not handed is not there to be asked for.
+ */
+projectWorkspaceRouter.get<Params & { stationId: string }>('/stations/:stationId/guide', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const copy = viewFor(req, project).project;
+  const guide = stationRound(copy, new Date()).rows.find((row) => row.station.id === req.params.stationId)?.guide;
+  const file = guide?.evidenceId
+    ? copy.evidence.find((row) => row.id === guide.evidenceId)?.attachments.find((held) => held.id === guide.fileId)
+    : guide?.siteLog
+      ? (copy.siteLog ?? []).find((entry) => entry.id === guide.siteLog!.entryId)?.photos[guide.siteLog.index]
+      : undefined;
+  const bytes = file ? await storageAdapter.getDocument(project.id, file.storageKey) : null;
+  if (!file || !bytes) {
+    res.status(404).json({ error: 'No earlier photograph of that station.' });
+    return;
+  }
+  res.setHeader('Content-Type', file.mimeType);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(bytes);
+});
+
+const placeSchema = z
+  .object({
+    building: z.string().max(80).optional(),
+    floor: z.string().trim().min(1).max(PLACE_FLOOR_MOST).optional(),
+    unit: z.string().max(80).optional(),
+    milestone: z.string().max(80).optional(),
+    element: z.enum(PHOTO_ELEMENTS).optional(),
+  })
+  .strict();
+const shotPlaceSchema = z
+  .object({
+    evidenceId: z.string().max(80).optional(),
+    entryId: z.string().max(80).optional(),
+    index: z.number().int().min(0).max(39).optional(),
+    stationId: z.string().max(80).nullable().optional(),
+    place: placeSchema.nullable().optional(),
+  })
+  .strict()
+  .refine((body) => Boolean(body.evidenceId) !== (body.entryId !== undefined && body.index !== undefined), 'Name one photograph: a filed one by its id, or a site entry and the photograph’s place in it.')
+  .refine((body) => body.stationId !== undefined || body.place !== undefined, 'Say the station, the place, or both.');
+
+/** A person says where a photograph was taken: a station, a place, or both. `null` takes one away. */
+projectWorkspaceRouter.put<Params>('/photos/place', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = shotPlaceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Validation failed' });
+    return;
+  }
+  const { evidenceId, entryId, index, stationId, place } = parsed.data;
+  if (!allowed(req, res, project, evidenceId ? evidenceDepartment(project, evidenceId) : 'construction', 'edit')) return;
+  try {
+    setShotPlace(project, evidenceId ? { evidenceId } : { entryId: entryId!, index: index! }, { ...(stationId !== undefined ? { stationId } : {}), ...(place !== undefined ? { place } : {}) }, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not set that place');
+  }
 });
 
 /* ==================================================================== */
