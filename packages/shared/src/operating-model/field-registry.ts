@@ -546,9 +546,13 @@ export const TABLE_COLUMNS_MOST = 6;
 export const DEPTH_FIELDS_MOST = 20;
 export const DEPTH_SECTIONS_MOST = 4;
 
-const NOT_A_CHOICE = /^(?:n\/?a|not applicable|unknown|not known|none of these)$/i;
-/** A figure a law could change, written into a key or a label: a percentage, a period, a height, a section number. */
-const STATUTORY = /\b\d+(?:\.\d+)?\s*(?:%|per ?cent|percent|days?|months?|years?|m|metres?|meters?|sqm|sq\.? ?ft)\b|\b(?:section|s\.|rule|form)\s*\d/i;
+/** "Not applicable" and "unknown" however they are abbreviated: N/A, N.A., NA, "Not applicable (NA)", "Don't know". */
+const NOT_A_CHOICE = /^(?:n\.?\s*\/?\s*a\.?|not applicable(?:\s*\(\s*n\.?\s*\/?\s*a\.?\s*\))?|unknown|not known|don[’']?t know|none of these)$/i;
+/**
+ * A figure a law could change, written into a key or a label: a percentage, a period, a height, a section number.
+ * The unit ends where no letter follows it: "%" is followed by a space or nothing, which is no word boundary.
+ */
+const STATUTORY = /\b\d+(?:\.\d+)?\s*(?:%|per ?cent|percent|days?|months?|years?|m|metres?|meters?|sqm|sq\.? ?ft)(?![a-z])|\b(?:section|s\.|rule|form)\s*\d/i;
 
 /**
  * Where a catalog goes past the limits that keep a sheet readable, each
@@ -566,6 +570,8 @@ const STATUTORY = /\b\d+(?:\.\d+)?\s*(?:%|per ?cent|percent|days?|months?|years?
  */
 export function catalogLimits(sheets: readonly FieldSet[] = FIELD_SETS): CatalogLimitBreach[] {
   const out: CatalogLimitBreach[] = [];
+  // A shared list is declared on the set that owns it and named from any other.
+  const lists = new Map(sheets.flatMap((set) => (set.optionSets ?? []).map((list) => [list.id, list] as const)));
   for (const set of sheets) {
     const section = (key: string | undefined) => (set.sections ?? []).find((s) => s.key === key);
     const core = set.fields.filter((def) => !def.retired && !def.showWhen && def.tier !== 'expert' && def.tier !== 'situational' && !section(def.section)?.showWhen && section(def.section)?.tier !== 'expert');
@@ -573,20 +579,26 @@ export function catalogLimits(sheets: readonly FieldSet[] = FIELD_SETS): Catalog
       out.push({ set: set.id, limit: 'core_fields', said: `${core.length} fields are always shown; ${CORE_FIELDS_MOST} at most. Give some a showWhen, fold some as expert, or make what repeats a set of records.` });
     }
     if (set.records && set.fields.length > RECORD_FIELDS_MOST) out.push({ set: set.id, limit: 'record_fields', said: `A record of it has ${set.fields.length} fields; ${RECORD_FIELDS_MOST} at most.` });
+    // What a set adds to a shared record is held to the same number of its own.
+    if (set.extends && !set.records && set.fields.length > RECORD_FIELDS_MOST) out.push({ set: set.id, limit: 'record_fields', said: `It adds ${set.fields.length} fields to "${set.extends}"; ${RECORD_FIELDS_MOST} of its own at most.` });
     for (const sheet of set.sheets ?? []) {
       if (sheet.fields.length > DEPTH_FIELDS_MOST) out.push({ set: set.id, limit: 'depth_fields', said: `Depth sheet "${sheet.title}" has ${sheet.fields.length} fields; ${DEPTH_FIELDS_MOST} at most.` });
       if ((sheet.sections ?? []).length > DEPTH_SECTIONS_MOST) out.push({ set: set.id, limit: 'depth_sections', said: `Depth sheet "${sheet.title}" has ${(sheet.sections ?? []).length} sections; ${DEPTH_SECTIONS_MOST} at most.` });
     }
     for (const def of [...set.fields, ...(set.sheets ?? []).flatMap((sheet) => sheet.fields)]) {
-      if (STATUTORY.test(def.key.replace(/_/g, ' ')) || STATUTORY.test(def.label)) out.push({ set: set.id, field: def.key, limit: 'statutory_number', said: `"${def.label}" carries a figure a law sets. Put it in the rule table and read it with a rate formula.` });
+      // A table's columns are read as its fields are: a figure a law sets is no more a column's name than a field's.
+      const statutory = [def, ...(def.columns ?? [])].find((named) => STATUTORY.test(named.key.replace(/_/g, ' ')) || STATUTORY.test(named.label));
+      if (statutory) out.push({ set: set.id, field: def.key, limit: 'statutory_number', said: `"${statutory.label}" carries a figure a law sets. Put it in the rule table and read it with a rate formula.` });
       for (const holder of [def, ...(def.columns ?? [])]) {
-        const named = [...(holder.options ?? []), ...(holder.optionSet ? (set.optionSets ?? []).find((list) => list.id === holder.optionSet)?.options.filter((o) => !o.retired).map((o) => o.label) ?? [] : [])];
+        const named = [...(holder.options ?? []), ...(holder.optionSet ? lists.get(holder.optionSet)?.options.filter((o) => !o.retired).map((o) => o.label) ?? [] : [])];
         const bad = named.find((option) => NOT_A_CHOICE.test(option.trim()));
         if (bad) out.push({ set: set.id, field: def.key, limit: 'option_not_applicable', said: `"${bad}" is not a choice. Not applicable is a state of the field, and unknown is the field left empty.` });
       }
-      if (def.kind !== 'table' || def.display === 'match') continue;
+      if (def.kind !== 'table') continue;
       const columns = def.columns ?? [];
+      // A table that pairs lists is held to the same width as any other.
       if (columns.length > TABLE_COLUMNS_MOST) out.push({ set: set.id, field: def.key, limit: 'wide_table', said: `${columns.length} columns; ${TABLE_COLUMNS_MOST} at most. Make it a set of records.` });
+      if (def.display === 'match') continue;
       const lifecycle = columns.find((column) => column.kind === 'evidence' || column.expires || (column.kind === 'enum' && /status|standing|stage/.test(column.key)) || (column.kind === 'date' && /valid|expir|due/.test(column.key)));
       if (lifecycle) out.push({ set: set.id, field: def.key, limit: 'table_is_records', said: `Its rows carry "${lifecycle.label}": a status, a date that runs out or a paper. Make it a set of records.` });
     }

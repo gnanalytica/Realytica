@@ -18,7 +18,7 @@
  * a tool: this file hands it to the tool, because the pages are in storage.
  */
 
-import { setPaperSearch } from '@realytica/agents';
+import { setPaperPages, setPaperSearch } from '@realytica/agents';
 import { papersAsked, type ChatIngestFile, type DdProject, type PaperPassage, type PaperWordsAsked } from '@realytica/shared';
 import { storageAdapter } from '../storage';
 import { pagesOf, type PaperPages } from './intake';
@@ -250,3 +250,14 @@ export async function paperPassages(project: Pick<DdProject, 'id' | 'evidence'>,
 
 // A model in the chat searches the same pages, through the tool the agents package gives it.
 setPaperSearch((project, words) => searchPageTexts(project, words, { loose: true, maxHits: 8 }));
+
+// And a quote a model gives for a value is held to these pages: the ones this server read, never the passages a model quoted itself.
+setPaperPages(async (project, evidenceId) => {
+  const row = project.evidence.find((held) => held.id === evidenceId);
+  const file = row?.attachments[row.attachments.length - 1];
+  const kept = file ? await loadPageTexts(project.id, file.storageKey) : null;
+  if (!kept) return null;
+  const texts: string[] = [];
+  for (const page of kept.pages) if (page.reader !== 'model' && page.page >= 1) texts[page.page - 1] = page.text;
+  return Array.from(texts, (text) => text ?? '');
+});

@@ -151,7 +151,7 @@ import { asksForOutgoing, outgoingAsked } from './outgoing';
 import { draftToSendSaid } from './plans';
 import { questionnaireDepartment, questionnaireSummary } from './questionnaire';
 import { runValuationApproaches } from './valuation-run';
-import { valueInputRows, withValueOffers } from './value-inputs';
+import { valueInputRows } from './value-inputs';
 import { valueSummary } from './value-standing';
 
 export const PROJECT_COCKPIT_PANES = [
@@ -907,14 +907,12 @@ function valuationSaid(project: DdProject, run: ValuationRun): { figure?: string
   const amount = value ? value.fairMarket : run.indicatedValue > 0 ? run.indicatedValue : null;
   if (amount === null) {
     if (value?.outcome === 'approaches_disagree') return { text: `No figure: the approaches disagree. ${run.working!.reconciliation.spreadBasis}`, tag: 'No figure' };
-    // The page counts the values the file offers before anybody accepts them, and a run does not. Those are said to wait, and an approach needs only what nothing offers.
+    // Values the file offers and nobody has accepted are said to wait. No figure is worked out from them, here or on the page.
     const waiting = valueInputRows(project).flatMap((row) => (row.waiting ? [row.waiting] : []));
-    const shown = waiting.length ? valueSummary(project, runValuationApproaches(withValueOffers(project, waiting))) : value;
-    const needs = (shown?.approaches ?? []).filter((a) => a.amount === null && a.missing.length).slice(0, 2).map((a) => `${a.label} needs ${a.missing.slice(0, 2).join(' and ').toLowerCase()}.`);
+    const needs = (value?.approaches ?? []).filter((a) => a.amount === null && a.missing.length).slice(0, 2).map((a) => `${a.label} needs ${a.missing.slice(0, 2).join(' and ').toLowerCase()}.`);
     if (!waiting.length) return { text: ['No figure yet.', ...needs].join(' '), tag: 'No figure yet' };
     const wait = `No figure yet. ${plural(waiting.length, 'value')} ${waiting.length === 1 ? 'waits' : 'wait'} on the Valuation page to be accepted.`;
-    const then = shown?.fairMarket ? [`With ${waiting.length === 1 ? 'it' : 'them'} the page shows ${amountSaid(shown.fairMarket, run.currency)}, provisional.`] : needs;
-    return { text: [wait, ...then].join(' '), tag: `No figure yet · ${waiting.length} to accept` };
+    return { text: [wait, ...needs].join(' '), tag: `No figure yet · ${waiting.length} to accept` };
   }
   const figure = amountSaid(amount, run.currency);
   const by = (value?.approaches ?? []).filter((a) => a.amount !== null && a.share > 0).map((a) => `${a.label}: ${amountSaid(a.amount!, run.currency)} (${Math.round(a.share * 100)}%)`);

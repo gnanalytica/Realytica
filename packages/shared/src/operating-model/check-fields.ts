@@ -32,7 +32,8 @@
  */
 
 import type { CheckFieldDef, CheckFieldValue, CheckFormula, CheckInsight, CheckInsightRule, CheckInstance, CheckTableRow, Dimension, FieldAddress, FieldState, FindingSeverity, FormulaCondition, FormulaRows, OptionDef, OptionSet, RowCondition, Tone } from './types';
-import { formatMeasure, formatMoney, parseMeasure, unitNamed, type Entered, type UnitContext } from './units';
+import { indiaToday } from './quarters';
+import { formatMeasure, formatMoney, formatMoneyInFull, parseMeasure, unitNamed, type Entered, type UnitContext } from './units';
 
 /* ==================================================================== */
 /* Reading and writing a value                                           */
@@ -130,6 +131,9 @@ export function longtextCap(def: CheckFieldDef): number {
   return def.maxLength ?? 600;
 }
 
+/** The most a reader that is not a person may put in a one-line field. */
+export const MODEL_TEXT_MOST = 300;
+
 /** Kinds nobody writes: worked out, or read from where they are entered. */
 export function fieldIsDerived(def: CheckFieldDef): boolean {
   return def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
@@ -156,7 +160,8 @@ export function validateFieldValue(
   if (def.sameAs) return { error: `${def.label} is entered on ${def.sameAs.set}. It is read here, not written.` };
   // Prose is a person's. A model picks keys and values with a source; it writes no sentence that is kept.
   if (def.kind === 'longtext' && ctx.proposer && ctx.proposer !== 'person') return { error: `${def.label} is written by a person.` };
-  if (raw === null || raw === undefined || raw === '') return { value: null };
+  // Nothing typed is nothing recorded: spaces alone are not a value of any kind.
+  if (raw === null || raw === undefined || (typeof raw === 'string' && !raw.trim())) return { value: null };
 
   if ((def.kind === 'enum' || def.kind === 'multi_enum') && def.optionSet) {
     const options = fieldOptions(def, ctx.optionSet);
@@ -249,7 +254,10 @@ export function validateFieldValue(
     case 'money':
     case 'area':
     case 'percent': {
-      let n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[,\s]/g, ''));
+      // A figure is digits, with commas between them and at most one point. Anything else is not read as one: "," is no zero, and "0x10" is not sixteen.
+      const plain = typeof raw === 'string' ? raw.trim().replace(/\s/g, '') : '';
+      let n = typeof raw === 'number' ? raw : /^-?(?:\d[\d,]*(?:\.\d*)?|\.\d+)$/.test(plain) ? Number(plain.replace(/,/g, '')) : Number.NaN;
+      if (typeof raw !== 'number' && typeof raw !== 'string') return { error: `${def.label} is a number${def.unit ? ` in ${def.unit}` : ''}.` };
       let entered: Entered | undefined;
       /*
        * A measure may be typed in any unit of its dimension and is kept in
@@ -289,7 +297,9 @@ export function validateFieldValue(
       const allowsNegative = def.kind === 'number' || def.kind === 'duration' || (def.min !== undefined && def.min < 0);
       if (n < 0 && !allowsNegative) return { error: `${def.label} cannot be negative.` };
       if (def.min !== undefined && n < def.min) return { error: `${def.label} cannot be below ${def.min}${def.unit ? ` ${def.unit}` : ''}.` };
-      if (def.max !== undefined && n > def.max) return { error: `${def.label} cannot be above ${def.max}${def.unit ? ` ${def.unit}` : ''}.` };
+      // A percentage runs to 100 unless the field says it may run further.
+      const max = def.max ?? (def.kind === 'percent' ? 100 : undefined);
+      if (max !== undefined && n > max) return { error: `${def.label} cannot be above ${max}${def.unit ? ` ${def.unit}` : def.kind === 'percent' ? '%' : ''}.` };
       return entered ? { value: n, entered } : { value: n };
     }
     case 'boolean': {
@@ -302,7 +312,9 @@ export function validateFieldValue(
     case 'date': {
       const s = String(raw).trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return { error: `${def.label} is a date as YYYY-MM-DD.` };
-      if (Number.isNaN(Date.parse(s))) return { error: `"${s}" is not a real date.` };
+      // A day the calendar does not have (31 February) is refused, not read as the day it would roll over to.
+      const day = dayNumber(s);
+      if (day === null || dayOfNumber(day) !== s) return { error: `"${s}" is not a real date.` };
       return { value: s };
     }
     case 'enum': {
@@ -322,8 +334,12 @@ export function validateFieldValue(
       return { value: text };
     }
     case 'text':
-    default:
-      return { value: String(raw).slice(0, 2000) };
+    default: {
+      // One line. A reader that is not a person gives a value, never a passage: a long or broken one is refused.
+      const text = String(raw);
+      if (ctx.proposer && ctx.proposer !== 'person' && (text.length > MODEL_TEXT_MOST || /[\r\n]/.test(text))) return { error: `${def.label} is one line of ${MODEL_TEXT_MOST} characters at most.` };
+      return { value: text.slice(0, 2000) };
+    }
   }
 }
 
@@ -568,7 +584,8 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
         return at ? dayNumber(outside?.read(at)?.value) : null;
       }
     case 'today':
-      return Math.floor((outside?.today ?? new Date()).getTime() / 86_400_000);
+      // The day it is in India, as every other "today" in the product is.
+      return dayNumber(indiaToday(outside?.today ?? new Date()));
     case 'add_days': {
       const date = evaluateFormula(formula.date, values, outside);
       const days = evaluateFormula(formula.days, values, outside);
@@ -644,6 +661,60 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
   }
 }
 
+/**
+ * Whether a formula's answer is a zero nobody entered anything for: a sum
+ * over no rows, or a figure made of nothing but such sums.
+ *
+ * A count of nothing is a fact (no heir is recorded). A sum of nothing is
+ * not an amount anybody stated: a share worked out from it is 0% of nothing
+ * entered, and a rule that fired on it would be failing over an empty sheet.
+ */
+export function formulaOverNothing(formula: CheckFormula, values: Record<string, CheckFieldValue>, outside?: FormulaOutside): boolean {
+  const over = (part: CheckFormula) => formulaOverNothing(part, values, outside);
+  switch (formula.op) {
+    case 'field': {
+      if (!formula.at) return Boolean(values[formula.key]?.overNothing);
+      const at = through(formula.at, formula.via, values);
+      return Boolean(at && outside?.read(at)?.overNothing);
+    }
+    case 'records': {
+      if (formula.reduce !== 'sum') return false;
+      const rows = outside?.records(formula.set);
+      return Boolean(rows) && !rows!.some((row) => fieldNumber(row[formula.field ?? '']) !== null);
+    }
+    case 'sum': {
+      const rows = tableRows(values[formula.table]);
+      return rows !== null && !rows.some((row) => cellNumber(row[formula.column]) !== null);
+    }
+    case 'sum_if': {
+      const rows = formulaRows(formula.over, values, outside);
+      if (rows === null) return false;
+      const where = ownRows(formula.where, values, outside?.record);
+      return !(where ? rows.filter((row) => rowMeets(row, where)) : []).some((row) => cellNumber(row[formula.column]) !== null);
+    }
+    case 'add':
+    case 'subtract':
+      return over(formula.left) && over(formula.right);
+    case 'multiply':
+      return over(formula.left) || over(formula.right);
+    case 'divide':
+    case 'power':
+    case 'variance_pct':
+      return over(formula.left);
+    case 'min':
+    case 'max': {
+      const known = formula.of.filter((part) => evaluateFormula(part, values, outside) !== null);
+      return known.length > 0 && known.every(over);
+    }
+    case 'if': {
+      const holds = conditionHolds(formula.when, values, outside);
+      return holds === null ? false : over(holds ? formula.then : formula.else);
+    }
+    default:
+      return false;
+  }
+}
+
 /** The rows of a table field, or null when nothing has been entered. */
 export function tableRows(value: CheckFieldValue | undefined): CheckTableRow[] | null {
   if (!value || !Array.isArray(value.value)) return null;
@@ -669,7 +740,9 @@ export function withComputed(defs: CheckFieldDef[], values: Record<string, Check
   }
   for (const def of defs) {
     if (def.kind !== 'computed' || !def.formula) continue;
-    out[def.key] = computedValue(def, evaluateFormula(def.formula, out, outside ?? { read: () => undefined, records: () => undefined, today: now }));
+    const around = outside ?? { read: () => undefined, records: () => undefined, today: now };
+    out[def.key] = computedValue(def, evaluateFormula(def.formula, out, around));
+    if (!isBlank(out[def.key]) && formulaOverNothing(def.formula, out, around)) out[def.key]!.overNothing = true;
   }
   for (const def of defs) {
     if (def.kind !== 'status') continue;
@@ -693,13 +766,41 @@ export function computedValue(def: CheckFieldDef, result: number | null): CheckF
  */
 export function evaluateStatus(def: CheckFieldDef, defs: CheckFieldDef[], values: Record<string, CheckFieldValue>, now: Date = new Date()): { label: string; tone: Tone } | null {
   // With nothing recorded under any field its cases read, there is no standing yet: an untouched sheet is not "in order".
-  // What counts as recorded is what this holder has of its own. A mirror of another function's field is that function's.
+  // What counts as recorded is what this holder has of its own. A mirror of another function's field is that function's,
+  // and a sum over nothing entered is nobody's figure.
   const own = (key: string) => !defs.find((d) => d.key === key)?.sameAs;
-  if (!(def.cases ?? []).some((option) => option.when.fields.some((key) => own(key) && !isBlank(values[key])))) return null;
+  if (!(def.cases ?? []).some((option) => option.when.fields.some((key) => own(key) && !isBlank(values[key]) && !values[key]!.overNothing))) return null;
+  // A case that would fire on a zero nobody entered anything for is silent, and so is the standing: neither that case's
+  // label nor "otherwise" is true of a sheet with nothing on it. A later case that fires on what is recorded still speaks.
+  let overNothing = false;
   for (const option of def.cases ?? []) {
     if (checkInsights(defs, values, [option.when], now).length) return { label: option.label, tone: option.tone };
+    if (option.when.fields.some((key) => values[key]?.overNothing)) {
+      const plain = { ...values };
+      for (const key of option.when.fields) if (plain[key]?.overNothing) plain[key] = { ...plain[key]!, overNothing: false };
+      if (checkInsights(defs, plain, [option.when], now).length) overNothing = true;
+    }
   }
+  if (overNothing) return null;
+  // "Otherwise" says the cases were asked and none fired. A case whose limit is on file while the figure it limits could not
+  // be worked out was not asked, and "within the limit" would be said of a figure nobody has.
+  if ((def.cases ?? []).some((option) => ruleLacksItsFigure(option.when, defs, values))) return null;
   return def.otherwise ?? null;
+}
+
+/**
+ * Whether a comparison has what it is held against and not the figure it
+ * holds, where that figure is one that is worked out: the limit is on file,
+ * and an input of the figure is not. A field a person has not filled yet is
+ * another matter (a variation not yet assessed is not out of order), and so
+ * is a figure with no limit recorded for it (a promoter's share with no
+ * lender): rules say nothing of either.
+ */
+function ruleLacksItsFigure(rule: CheckInsightRule, defs: CheckFieldDef[], values: Record<string, CheckFieldValue>): boolean {
+  if (rule.against !== undefined || (rule.kind !== 'compare' && rule.kind !== 'at_least' && rule.kind !== 'at_most')) return false;
+  const [aKey, bKey] = rule.fields;
+  const known = (key: string | undefined) => fieldNumber(values[key ?? '']) !== null;
+  return !known(aKey) && known(bKey) && defs.find((d) => d.key === aKey)?.kind === 'computed';
 }
 
 /** The tone of a status field's value, or of a choice that carries one. */
@@ -720,7 +821,9 @@ export function formatFieldValue(def: CheckFieldDef, value: CheckFieldValue | un
     return Array.isArray(raw) ? raw.map(label).join(', ') : label(raw);
   }
   // A measure that says what it measures prints as it was typed, through the one formatter.
-  if ((def.dimension || def.currency || value!.entered) && typeof raw === 'number' && def.kind !== 'percent') {
+  // An amount with no currency named is in rupees, unless its unit says it is a rate or another money.
+  const rupees = def.kind === 'money' && !def.currency && (!def.unit || /^(?:inr|rs\.?|₹)$/i.test(def.unit.trim()));
+  if ((def.dimension || def.currency || rupees || value!.entered) && typeof raw === 'number' && def.kind !== 'percent') {
     const dimension = fieldDimension(def);
     if (dimension === 'money') return formatMoney(raw, def.currency, def.precision);
     if (def.dimension) return formatMeasure(raw, def.dimension, { entered: value!.entered, precision: def.precision });
@@ -749,6 +852,14 @@ export function formatFieldValue(def: CheckFieldDef, value: CheckFieldValue | un
 /* ==================================================================== */
 
 const DEFAULT_TOLERANCE = 0.01;
+
+/** A figure written out in full: an amount to the rupee, anything else to every digit it holds. */
+function figureInFull(def: CheckFieldDef, value: CheckFieldValue | undefined): string {
+  const n = fieldNumber(value);
+  if (n === null) return formatFieldValue(def, value);
+  if (fieldDimension(def) === 'money') return formatMoneyInFull(n, def.currency);
+  return `${n.toLocaleString('en-IN', { maximumFractionDigits: 6 })}${def.unit ? ` ${def.unit}` : ''}`;
+}
 
 function fill(template: string, parts: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => parts[key] ?? `{${key}}`);
@@ -784,9 +895,13 @@ export function checkInsights(
       const a = fieldNumber(values[aKey!]);
       const b = rule.against ?? fieldNumber(values[bKey!]);
       if (a === null || b === null) continue;
+      // A zero that is a sum over nothing entered is not a shortfall: there is nothing yet to fall short.
+      if (values[aKey!]?.overNothing || (rule.against === undefined && values[bKey!]?.overNothing)) continue;
       if (rule.kind === 'at_least' ? a >= b : a <= b) continue;
-      const figure = (key: string | undefined, n: number) => (key && byKey.get(key) && values[key] ? formatFieldValue(byKey.get(key)!, values[key]) : n.toLocaleString('en-IN'));
-      out.push({ severity: rule.severity, text: fill(rule.say, { a: figure(aKey, a), b: rule.against !== undefined ? b.toLocaleString('en-IN') : figure(bKey, b) }), fields: rule.fields.filter(Boolean), computed: true });
+      const figure = (key: string | undefined, n: number, full = false) => (key && byKey.get(key) && values[key] ? (full ? figureInFull : formatFieldValue)(byKey.get(key)!, values[key]) : n.toLocaleString('en-IN'));
+      // Two amounts that differ and would print the same in lakh and crore are written out, so the line shows the difference it reports.
+      const same = rule.against === undefined && figure(aKey, a) === figure(bKey, b);
+      out.push({ severity: rule.severity, text: fill(rule.say, { a: figure(aKey, a, same), b: rule.against !== undefined ? b.toLocaleString('en-IN') : figure(bKey, b, same) }), fields: rule.fields.filter(Boolean), computed: true });
       continue;
     }
 
@@ -795,16 +910,19 @@ export function checkInsights(
       const a = fieldNumber(values[aKey!]);
       const b = rule.against ?? fieldNumber(values[bKey!]);
       if (a === null || b === null) continue;
+      if (values[aKey!]?.overNothing || (rule.against === undefined && values[bKey!]?.overNothing)) continue;
       const base = Math.max(Math.abs(a), Math.abs(b));
       if (base === 0) continue;
       const divergence = Math.abs(a - b) / base;
       const tolerance = rule.tolerance ?? DEFAULT_TOLERANCE;
       if (divergence <= tolerance) continue;
+      const same = rule.against === undefined && formatFieldValue(byKey.get(aKey!)!, values[aKey!]) === formatFieldValue(byKey.get(bKey!)!, values[bKey!]);
+      const said = same ? figureInFull : formatFieldValue;
       out.push({
         severity: rule.severity,
         text: fill(rule.say, {
-          a: formatFieldValue(byKey.get(aKey!)!, values[aKey!]),
-          b: rule.against !== undefined ? b.toLocaleString('en-IN') : formatFieldValue(byKey.get(bKey!)!, values[bKey!]),
+          a: said(byKey.get(aKey!)!, values[aKey!]),
+          b: rule.against !== undefined ? b.toLocaleString('en-IN') : said(byKey.get(bKey!)!, values[bKey!]),
           divergence: `${(divergence * 100).toFixed(1)}%`,
           tolerance: `${(tolerance * 100).toFixed(1)}%`,
         }),
@@ -880,9 +998,11 @@ export function checkInsights(
         // and only the second is this rule's business. `row_missing` is how you
         // ask about the first.
         if (typeof cell !== 'string' || !cell.trim()) continue;
-        const when = new Date(`${cell}T00:00:00Z`);
-        if (Number.isNaN(when.getTime()) || when.getTime() >= now.getTime()) continue;
-        const days = Math.floor((now.getTime() - when.getTime()) / 86_400_000);
+        // By the day in India. The day named is its last good day: it has run out from the day after.
+        const when = dayNumber(cell.trim());
+        const today = dayNumber(indiaToday(now))!;
+        if (when === null || when >= today) continue;
+        const days = today - when;
         out.push({
           severity: rule.severity,
           text: fill(rule.say, { row: label, a: cell, days: String(days) }),

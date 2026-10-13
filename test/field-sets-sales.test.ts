@@ -197,15 +197,22 @@ describe('a unit and its sale', () => {
     assert.equal(status(), UNIT_STATUS.held);
     write(p, UNITS, { sale_allotment_letter: [paper(p, 'Allotment letter')] }, id);
     assert.equal(status(), UNIT_STATUS.booked);
+    // The agreement's fields come into play once the day of allotment is recorded. Before that the paper is kept and reads as nothing.
     write(p, UNITS, { sale_agreement: [paper(p, 'Agreement for sale')] }, id);
+    assert.equal(status(), UNIT_STATUS.booked, 'a field that is not in play feeds no standing');
+    write(p, UNITS, { sale_allotted_on: '2026-10-01' }, id);
     assert.equal(status(), UNIT_STATUS.agreement);
     write(p, UNITS, { sale_deed: [paper(p, 'Sale deed')] }, id);
     assert.equal(status(), UNIT_STATUS.saleDeed);
     assert.equal(sheet(p, UNITS, id).view('sale_status').tone, 'info');
+    // Possession is asked about once the occupancy certificate is issued. A certificate filed before that is kept, and is no handover.
     write(p, UNITS, { sale_possession_certificate: [paper(p, 'Possession certificate')] }, id);
+    assert.equal(status(), UNIT_STATUS.saleDeed);
+    const occupancy = p.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks)).find((c) => c.definitionId === 'regulatory.occupancy')!;
+    recordCheckFields(p, occupancy.id, { oc_issued: true, oc_date: '2026-09-01' }, LEAD);
     assert.equal(status(), UNIT_STATUS.handedOver);
 
-    const other = add(p, UNITS, { number: 'B-205', sale_released: true, sale_allotment_letter: [paper(p, 'Allotment letter B-205')], sale_cancellation: [paper(p, 'Cancellation letter B-205')] });
+    const other = add(p, UNITS, { number: 'B-205', sale_released: true, sale_allotment_letter: [paper(p, 'Allotment letter B-205')], sale_allotted_on: '2026-10-02', sale_cancellation: [paper(p, 'Cancellation letter B-205')] });
     assert.equal(sheet(p, UNITS, other).value('sale_status'), UNIT_STATUS.cancelled);
     assert.equal(sheet(p, UNITS, other).view('sale_status').tone, 'critical');
   });

@@ -144,7 +144,11 @@ export function fieldPrinted(project: DdProject, view: FieldView): FieldPrinted 
     notes.push(`${cite.label}, ${cite.value.toLocaleString('en-IN')}${cite.unit ? ` ${cite.unit}` : ''}: ${ruleSourceSaid(cite.source)}, in force from ${day(cite.from) || cite.from}${cite.verified ? '' : '; not verified'}`);
   }
   const unverified = cites.some((cite) => !cite.verified);
-  const standing = view.state === 'assumed' ? 'assumed' : def.kind === 'computed' || def.kind === 'status' ? 'worked out' : view.state === 'typed' ? 'entered' : 'accepted';
+  // A figure worked out from a usual value nobody entered says so, and names the fields that stood in.
+  const assumes = view.assumes ?? [];
+  if (assumes.length) notes.push(`Rests on a usual value nobody entered: ${assumes.join(', ')}.`);
+  const worked = assumes.length ? 'worked out, on an assumed value' : 'worked out';
+  const standing = view.state === 'assumed' ? 'assumed' : def.kind === 'computed' || def.kind === 'status' ? worked : view.state === 'typed' ? 'entered' : 'accepted';
   return { value, standing: unverified ? `${standing}, not verified` : standing, notes, waits: false, unverified };
 }
 

@@ -6,7 +6,7 @@ Every function keeps fixed, typed fields. A person fills or links them, a paper 
 
 - **A value somebody offered counts for nothing until a person accepts it.** A model's value, a parser's, another paper's: each waits on its field as `proposed`. No formula reads it, no rule fires on it, no status is drawn from it, and neither the graph nor memory hears of it, until a lead or signer of the function's department accepts it.
 - **A model picks keys and gives values with a source.** A paper's page and its exact words, or a named public source and the date it was read. It writes no prose, and cannot offer a value for a field that is worked out, mirrored or `longtext`.
-- **Complexity is more fields, not more screen.** A field shows when its condition holds. Expert fields stay folded. A field that is not showing is never counted as missing.
+- **Complexity is more fields, not more screen.** A field shows when its condition holds. Expert fields stay folded. A field that is not showing is never counted as missing, and a field a person fills that is not in play feeds nothing: no formula, standing, situation or count reads it, as no rule does. What it holds is kept, and reads again the moment it is back in play.
 - **Nothing is thrown away.** Taking a situation out of play keeps what its fields hold. A record taken off its list is kept. A value under a key no longer declared is kept as it is.
 - **A fact has one home.** The second place a fact appears is a mirror (`sameAs`) or a link (`ref`), never a second box to type in.
 
@@ -136,7 +136,8 @@ Give a measure a `dimension`: `area`, `length`, `volume`, `mass`, `money`, `time
 - **Area:** `sqm`, `sqft`, `sqyd`, `acre`, `gunta`, `cent`, `hectare`, and `ground`. A ground has a size only where the state's pack gives it one (`field-sets/state-packs.ts`); elsewhere the person is asked for another unit.
 - **Length:** `m`, `ft`, `in`, `mm`, `cm`, `km`, `yd`. **Volume:** `cum`, `cft`, `litre`. **Mass:** `kg`, `tonne`, `quintal`, `g`.
 - **Money:** typed as `4,20,00,000`, `4.2 Cr` or `45 lakh`; printed in lakh and crore by one formatter (`rupeesSaid`, `formatMoney`). Another currency is kept in its own, never converted.
-- `enterIn` narrows what may be typed. A bare number is in the base unit.
+- `enterIn` narrows what may be typed. A bare number is in the base unit, or in the first unit of `enterIn` where the base is not one of them. `m2` and `m3` are read as square and cubic metres.
+- What is typed is read strictly. Spaces alone are nothing recorded, never a zero; a figure is digits, commas and one point (`0x10` and a lone comma are refused); a day has to be one the calendar has. An amount with no `currency` and no unit of its own prints in rupees, and a rule prints two amounts in full where they would read the same in lakh and crore.
 
 Do not write a conversion factor anywhere. `units.ts` is the one table.
 
@@ -196,7 +197,7 @@ A set with `records` repeats. Each record is a small sheet of its own; the page 
   fields: [ … at most twenty … ], rules: [] }
 ```
 
-Make it a set of records, not a `table`, when a row has a status, an expiry or a paper of its own, is linked to from elsewhere, or needs more than six columns. A count or a sum over no records is 0, not empty: see the note on standings under Rules. A parent counts or sums its records with `{ op: 'records', set, reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct', field }`. Inside a record's own fields, a `showWhen` or a formula that names a field of the same set reads that record's.
+Make it a set of records, not a `table`, when a row has a status, an expiry or a paper of its own, is linked to from elsewhere, or needs more than six columns. A record is one once somebody has accepted or typed a value on it. Until then it holds only what was offered (`SheetReading.pending`): it is listed so its values can be accepted, and it has no name, no place in the graph, nothing links to it and it raises no Missing line. A record taken off its list is kept and read by nothing; a link that still names it says so, under Failing. A count or a sum over no records is 0, not empty: see the note on standings under Rules. A parent counts or sums its records with `{ op: 'records', set, reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct', field }`. Inside a record's own fields, a `showWhen` or a formula that names a field of the same set reads that record's.
 
 **The same figure stated by several people** (cost to complete by the quantity surveyor, the engineer, the accountant and the lender's engineer) is a set of records, one for each person who states it, so nobody's figure overwrites another's. `statedBySeveral({ id, fn, title, key, figure, tolerancePct })` in `field-sets/builders.ts` returns the set and the parent's four fields: lowest, highest, spread and a status that turns when the spread passes the tolerance.
 
@@ -240,7 +241,7 @@ A field hidden by its condition that still holds a value is kept, under "Recorde
 
 **Not applicable.** A person marks a field or a section not applicable with one of five reasons: not in this project, not at this stage, done by another party, exempt, no such paper. The reason is a key, never a sentence.
 
-**Usual values.** `defaults: [{ when?, value, from, cite }]` fills a field as `assumed`: it is said to be assumed, feeds what is worked out, needs nobody, and gives way the moment a value is typed or accepted. `cite` is required unless `from` is `'firm'`.
+**Usual values.** `defaults: [{ when?, value, from, cite }]` fills a field as `assumed`: it is said to be assumed, feeds what is worked out, needs nobody, and gives way the moment a value is typed or accepted. A value somebody offered does not switch it off: the offer shows on the field to be accepted, and the usual value goes on standing in behind it. A value worked out from one carries the labels of the fields that stood in (`assumes`), and a report prints it as "worked out, on an assumed value". `cite` is required unless `from` is `'firm'`.
 
 ## Due and owed
 
@@ -285,12 +286,14 @@ A function does not open on its form. It opens on five lines, in this order, eac
 | Line | Holds | Why it is in this place |
 |---|---|---|
 | **Decide** | Two values in dispute; a situation a paper proposes | A situation changes what every later line holds, and a dispute blocks a report |
-| **Accept** | Values offered and waiting, with "Accept all" for each paper that offered more than one | The cheapest act with the largest effect |
+| **Accept** | Values offered and waiting, with "Accept all" for each paper that offered more than one. A value waiting beside a mirror is one line, drawn at the mirror (`shownAt`) and addressed to the field that holds it (`address`), where one tap accepts it | The cheapest act with the largest effect |
 | **Failing** | A rule firing at high or critical; a day that has run out; a pairing whose names differ | Needs judgement, best made once the values under it are settled |
 | **Due soon** | A day within its `expires.leadDays`; a rule at medium; a standing whose tone is a warning | Can wait a day |
 | **Missing** | A must-field the function's own people owe that holds nothing; a thing with no counterpart in a match | Last, because most of it is cured by filing a paper |
 
 Not on the card: expert fields; fields before their `dueFrom`; what another party owes (one quiet line, "Waiting on others"); usual values standing in (one quiet line); a rule at low, which is said on the sheet it is about.
+
+A line that rests on a rule row nobody has verified carries `ruleUnchecked`, and one that rests on a usual value carries `assumes`: the page marks the first "rule not checked". "Today" is the day in India everywhere a day is compared with one (`indiaToday`): a date runs out, a field falls due and a rule row comes into force at midnight there.
 
 A lead or signer may **put a line under Due soon off** until a day they name, at most ninety days ahead. It comes back on that day, or at once if it starts failing. Nothing else can be put off. `readFunctionFields(project, fn)` returns the five lines as `needs`, what is put off as `snoozed`, and what others owe as `waitingOn`.
 
@@ -319,7 +322,7 @@ A rule is arithmetic with a sentence template. It reads values that stand and sa
 - `{a}` prints a stored choice by its key, not its label: word the template without it for an option-set field.
 - Where a field is asked for by a rule that says why, mark it `required: false`, so it is not also counted as still empty. Do not repeat on a sheet above its records what a record's own standing already says.
 
-**A standing over nothing.** A status is empty until a field its cases read holds a value, and a count or a sum over no records holds 0. So a standing with an `otherwise` reads as that label on an untouched sheet, and "In order" over nothing recorded tells a reader the work is done. Open such a status with a case for nothing recorded, in a neutral tone ("No approval recorded"), or read a figure that is blank until its inputs exist (`finance/kit.ts` has `totalOf`, `tallyWhere`, `once` and `limitFor` for this). `test/field-catalog.test.ts` fails on any standing in a good tone on a project nobody has touched.
+**A standing over nothing.** A sum over nothing entered is a zero nobody stated (`overNothing`): a count of no heirs is a fact, a sum of no contributions is not an amount. No comparison fires on one, and a standing whose failing case would have fired on one is empty: neither "short of the minimum" nor "in step" is true of a sheet with nothing on it. Nor is `otherwise` read while a limit is on file and the figure it limits could not be worked out (FAR allowed recorded, plot area not): "within the limit" would be said of a figure nobody has. Apart from those, a status is empty until a field its cases read holds a value, and a count or a sum over no records holds 0. So a standing with an `otherwise` reads as that label on an untouched sheet, and "In order" over nothing recorded tells a reader the work is done. Open such a status with a case for nothing recorded, in a neutral tone ("No approval recorded"), or read a figure that is blank until its inputs exist (`finance/kit.ts` has `totalOf`, `tallyWhere`, `once` and `limitFor` for this). `test/field-catalog.test.ts` fails on any standing in a good tone on a project nobody has touched.
 
 ## Formulas
 
@@ -420,7 +423,7 @@ A field that a kind of paper states names that kind:
 
 `fromTypes` are the register's document types as it writes them (the labels in `document-parse.ts`: "Sale deed", "Encumbrance certificate", "DC conversion order", …). When a paper of one of those kinds is read, each value that stands on the paper is offered to every field naming its kind, with the page and the paper's words, and waits there for a person. A value for a set of records with no record named makes one new record, which is nothing until one of its values is accepted. So a Sale deed is offered to Title's holding and, as a new purchase record, to `legal.contracts.purchases`. A paper reaches a field only through `fromTypes`: most papers the catalogs name in `from` are not document types yet, and offer nothing by themselves.
 
-The model's tools are `get_fields({ fn })` and `propose_field_values({ values: [{ address, value, origin }] })`. A proposal is refused without a source, for a choice not on the list, for a link to something not on the project, and for any field that is computed, a status, a mirror or prose. On a check, a field whose `proof` is `'required'` takes a value only from a paper on the project.
+The model's tools are `get_fields({ fn })` and `propose_field_values({ values: [{ address, value, origin }] })`. A proposal is refused without a source, for a choice not on the list, for a link to something not on the project, and for any field that is computed, a status, a mirror or prose. What is kept as a value's origin is built by the server from the named members of what was sent (`offeredOrigin`), never stored as sent: who read it is the proposer; a model's words are looked for on the pages this server read (`setPaperPages`, the page check a review answer is held to) and the value is `page_text` on the page that holds them or `unverified`, which "accept all" never takes; every string is cut to a bound and a link is kept only as https. Words given to `suggest_answers` as a paper's are laid beside a question only where a page of the paper holds them. On a check, a field whose `proof` is `'required'` takes a value only from a paper on the project.
 
 The copilot is told the rule in one paragraph (`FIELD_RULE` in `packages/agents/src/agents/project-copilot.ts`): it reads values off papers with the page and the paper's words, looks up named public sources with the date read, maps each value to a field key from the list `get_fields` gave it, and writes no prose into any field. `get_fields` also says of each field whether it is on a depth sheet, not yet due, or owed by another party, so the model does not ask a person for those.
 
@@ -435,11 +438,11 @@ origin?: { kind: 'paper', evidenceId, page, quote, reader } | { kind: 'external'
 entered?, proposedBy?, acceptedBy?, acceptedAt?, other?, declined?, naReason?, naNote?
 ```
 
-Accepted, typed and assumed values stand. Typing over a value accepted from a paper does not replace it: the two are disputed until a lead or signer keeps one. On screen an accepted or typed value carries no mark; pressing its label shows where it came from. Only what needs somebody is marked.
+Accepted, typed and assumed values stand. Typing over a value accepted from a paper does not replace it: the two are disputed until a lead or signer keeps one, and typing again adds a third beside them. Typing the value a field already holds changes nothing, source and all. A value accepted from a source is cleared only by a lead or signer, and is then kept among what was set aside; a disputed one is not cleared at all. Marking a field not applicable keeps what it held (`was`), and asking it again puts that back as it was. On screen an accepted or typed value carries no mark; pressing its label shows where it came from. Only what needs somebody is marked.
 
 **In a report and in the chat.** An accepted, entered or worked-out value prints with a footnote: the paper and page, the public source and the day read, or the person and the day. An assumed one prints "assumed". A proposed or disputed one prints "waiting" and never its figure. A figure from a rule row prints the row's citation and "not verified". A field that is not in play is left out. The chat's card says the same of each row, and calls a worked-out figure worked out, never accepted.
 
-**Who may do what.** Whoever edits in the function's department (lead, contributor, signer) types values, adds records and raises a dispute. Only a lead or signer accepts, keeps, sets aside, marks not applicable, sets a situation or takes a record off its list. An outside collaborator is handed a function's sheets only where their grant names a scope the function's checks sit in. They are never handed a set in `CUSTOMER_SETS` (buyers) or a party record one of those names, and are handed a department's additions to a shared record only where that department's function is in their reach.
+**Who may do what.** Whoever edits in the function's department (lead, contributor, signer) types values, adds records and raises a dispute. Only a lead or signer accepts, keeps, sets aside, marks not applicable, sets a situation or takes a record off its list. A situation the whole project shares is set from a function that declares it or has fields waiting on it, and from no other. A check's field is decided on its check: a collaborator whose grant leaves that check out does not decide it. A decision sent to a mirror is made on the field it reads, in that field's function. An outside collaborator is handed a function's sheets only where their grant names a scope the function's checks sit in. They are never handed a set in `CUSTOMER_SETS` (buyers) or a party record one of those names, and are handed a department's additions to a shared record only where that department's function is in their reach.
 
 ## Limits the catalog test holds you to
 
@@ -448,8 +451,8 @@ Accepted, typed and assumed values stand. Typing over a value accepted from a pa
 - At most **twenty fields in four sections** on a depth sheet.
 - A table of more than **six columns**, or whose rows carry a status, a date that runs out or a paper, is a set of records.
 - A `situational` field has a `showWhen`, its own or its section's.
-- No statutory figure in a key or a label.
-- No option called "not applicable" or "unknown".
+- No statutory figure in a key or a label, a table's columns included.
+- No option called "not applicable" or "unknown", however it is abbreviated and whichever set declares the list.
 - Every `longtext` has a `maxLength`; every usual value a `cite`.
 
 `catalogLimits()` reports each breach by field set; `catalogFaults()` reports what cannot work at all. The same test holds the whole catalog to three more things on a project nobody has touched: no standing in a good tone, no rule line, and no sheet that opens on more than twelve fields.

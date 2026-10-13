@@ -471,8 +471,8 @@ describe('the status report and the owner pack', () => {
     const cost = after.sections.find((section) => section.key === 'cost')!;
     assert.deepEqual(cost.fields!.table!.columns, ['Where', 'Field', 'Value', 'Standing']);
     assert.deepEqual(cost.fields!.table!.rows.map((row) => [row.cells[1], row.cells[2]!.replace(/ \[\d\]$/, ''), row.cells[3]]).slice(0, 3), [
-      ['Sanctioned budget', '42,00,00,000 INR', 'entered'],
-      ['Current forecast at completion', '44,50,00,000 INR', 'entered'],
+      ['Sanctioned budget', '₹42 Cr', 'entered'],
+      ['Current forecast at completion', '₹44.5 Cr', 'entered'],
       ['Spent to date', '—', 'not recorded'],
     ]);
     assert.match(cost.fields!.footnotes![0]!.text, /^Entered by lead@firm\.example on /);

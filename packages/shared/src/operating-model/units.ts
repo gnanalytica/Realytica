@@ -178,8 +178,9 @@ export function parseMeasure(
   dimension: Dimension,
   options: UnitContext & { defaultUnit?: string; enterIn?: readonly string[] } = {},
 ): { value: number; entered: Entered } | { error: string } {
-  const fallback = options.defaultUnit ?? baseUnit(dimension);
   const allowed = options.enterIn?.length ? options.enterIn : unitsOf(dimension);
+  // A bare number is in the base unit, or in the first unit the field allows where the base is not one of them.
+  const fallback = options.defaultUnit ?? (allowed.includes(baseUnit(dimension)) ? baseUnit(dimension) : allowed[0]!);
   if (typeof typed === 'number') {
     const base = toBase(typed, fallback, dimension, options);
     if (base === null || !Number.isFinite(base)) return { error: `"${typed}" is not a measure in ${fallback}.` };
@@ -197,7 +198,8 @@ export function parseMeasure(
   }
 
   // One or more "number unit" parts, with "and" or a comma between them.
-  const part = new RegExp(`${NUMBER}\\s*([^\\d,]+?)\\s*(?:,|\\band\\b)?\\s*(?=\\d|$)`, 'gi');
+  // A unit may end in the 2 or 3 of "m2" and "m3".
+  const part = new RegExp(`${NUMBER}\\s*([^\\d,]+?(?:(?<=[a-z])[23](?![\\d.,]))?)\\s*(?:,|\\band\\b)?\\s*(?=\\d|$)`, 'gi');
   const parts = [...text.matchAll(part)];
   if (!parts.length || text.replace(part, '').trim()) return { error: `"${typed}" is not a measure. Write a number and a unit, as 2,450 sqft.` };
   let total = 0;
@@ -240,12 +242,14 @@ const grouped = (n: number, places = 2): string => n.toLocaleString('en-IN', { m
  * Rupees in words a person says: crore from one crore up, lakh from one lakh
  * up, the figure below that. The one place lakh and crore are written.
  */
-export function rupeesSaid(n: number, sign = 'Rs '): string {
+export function rupeesSaid(n: number, sign = 'Rs ', places = 2): string {
   const a = Math.abs(n);
   const minus = n < 0 ? '−' : '';
-  if (a >= 1e7) return `${minus}${sign}${grouped(a / 1e7)} Cr`;
-  if (a >= 1e5) return `${minus}${sign}${grouped(a / 1e5)} lakh`;
-  return `${minus}${sign}${grouped(a)}`;
+  // The band is chosen by the figure as it will print: 99,99,999 is a crore to two places, never "100 lakh".
+  const to = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
+  if (a >= 1e7 || to(a / 1e5, 2) >= 100) return `${minus}${sign}${grouped(a / 1e7)} Cr`;
+  if (a >= 1e5 || to(a, places) >= 1e5) return `${minus}${sign}${grouped(a / 1e5)} lakh`;
+  return `${minus}${sign}${grouped(a, places)}`;
 }
 
 const CURRENCY_SIGN: Record<FieldCurrency, { sign: string; locale: string }> = {
@@ -258,8 +262,14 @@ const CURRENCY_SIGN: Record<FieldCurrency, { sign: string; locale: string }> = {
 /** An amount in its own currency. Rupees in lakh and crore; another currency in full, never converted. */
 export function formatMoney(amount: number, currency: FieldCurrency = 'INR', precision = 2): string {
   const { sign, locale } = CURRENCY_SIGN[currency];
-  if (currency === 'INR') return rupeesSaid(amount, sign);
+  if (currency === 'INR') return rupeesSaid(amount, sign, precision);
   return `${amount < 0 ? '−' : ''}${sign}${Math.abs(amount).toLocaleString(locale, { maximumFractionDigits: precision })}`;
+}
+
+/** An amount written out to the rupee, for where two amounts would read the same in lakh and crore. */
+export function formatMoneyInFull(amount: number, currency: FieldCurrency = 'INR'): string {
+  const { sign, locale } = CURRENCY_SIGN[currency];
+  return `${amount < 0 ? '−' : ''}${sign}${Math.abs(amount).toLocaleString(locale, { maximumFractionDigits: 2 })}`;
 }
 
 /**
