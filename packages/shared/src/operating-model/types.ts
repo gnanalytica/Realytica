@@ -383,6 +383,8 @@ export interface MatchSide {
   column: string;
   label: string;
   of: MatchList;
+  /** An item of this side needs no partner: a parcel named in no suit is in order. Nothing of it is left over. */
+  optional?: true;
 }
 
 /**

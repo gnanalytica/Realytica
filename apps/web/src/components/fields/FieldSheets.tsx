@@ -111,6 +111,9 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part }: Props
       : undefined,
   });
 
+  // A situation that follows from what is recorded is drawn only while it holds: nobody can put it in play by hand.
+  const inPlayOrAskable = page.situations.filter((view) => !view.situation.derive || view.state === 'on');
+
   const holders: SheetReading[] = [...page.sheets.flatMap((sheet) => (sheet.reading ? [sheet.reading] : (sheet.records ?? []))), ...page.shared.flatMap((sheet) => sheet.records)];
   const opened = open ? holders.find((reading) => reading.set.id === open.set && reading.recordId === open.record) : undefined;
   const depth = opened && open?.depth ? opened.depth.find((held) => held.sheet.id === open.depth) : undefined;
@@ -141,7 +144,7 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part }: Props
 
       {part !== 'needs' ? (
         <>
-          {page.situations.length ? <Situations situations={page.situations} mayDecide={seat.mayDecide} onSet={(key, on) => run(() => api.setSituation(project.id, fn, key, on), 'That could not be set')} /> : null}
+          {inPlayOrAskable.length ? <Situations situations={inPlayOrAskable} mayDecide={seat.mayDecide} onSet={(key, on) => run(() => api.setSituation(project.id, fn, key, on), 'That could not be set')} /> : null}
 
           {page.sheets.map((sheet) =>
             sheet.reading ? (

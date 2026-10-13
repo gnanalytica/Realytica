@@ -280,7 +280,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                 <MatchField def={def} reading={view.match} rows={tableRows(values[def.key]) ?? []} disabled={disabled} onChange={(rows) => onCommit({ [def.key]: rows })} />
               ) : def.kind === 'table' ? (
                 <>
-                  {def.display === 'timeline' ? <Timeline def={def} rows={tableRows(values[def.key]) ?? []} /> : null}
+                  {def.display === 'timeline' ? <Timeline def={def} rows={tableRows(values[def.key]) ?? []} choices={choices} /> : null}
                   {def.display === 'chart' ? <TableChart def={def} rows={tableRows(values[def.key]) ?? []} /> : null}
                   {def.display && (tableRows(values[def.key]) ?? []).length ? (
                     // Drawn above; the rows themselves are one press away, to change.
@@ -853,9 +853,12 @@ function Scale({ min, max, value, disabled, label, onChange }: { min: number; ma
 }
 
 /** A table whose first date column orders it, read as a line of events. The rows are edited in the table under it. */
-function Timeline({ def, rows }: { def: CheckFieldDef; rows: CheckTableRow[] }) {
+function Timeline({ def, rows, choices }: { def: CheckFieldDef; rows: CheckTableRow[]; choices?: (target: RefTarget | undefined) => Array<{ id: string; label: string }> }) {
   const listOf = useContext(Lists);
   const columns = def.columns ?? [];
+  // A link reads as the name of what it links to, never as its id.
+  const said = (column: CheckFieldDef, cell: CheckTableRow[string]) =>
+    column.kind === 'ref' ? (choices?.(column.target).find((choice) => choice.id === cell)?.label ?? String(cell)) : formatFieldValue(column, { value: cell, at: '', by: '' }, listOf);
   const date = columns.find((column) => column.kind === 'date');
   if (!date || !rows.length) return null;
   const rest = columns.filter((column) => column.key !== date.key);
@@ -868,7 +871,7 @@ function Timeline({ def, rows }: { def: CheckFieldDef; rows: CheckTableRow[] }) 
           <span className="font-mono text-[11px] text-ink-muted">{String(row[date.key])}</span>{' '}
           {rest
             .filter((column) => row[column.key] !== null && row[column.key] !== undefined && row[column.key] !== '')
-            .map((column) => formatFieldValue(column, { value: row[column.key]!, at: '', by: '' }, listOf))
+            .map((column) => said(column, row[column.key]!))
             .join(' · ')}
         </li>
       ))}

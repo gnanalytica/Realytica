@@ -355,6 +355,7 @@ const FUNCTION_ALSO: Record<string, string[]> = {
   'finance.valuation': ['value', 'valuations'],
   'legal.title': ['land records'],
   'legal.approvals': ['nocs'],
+  'legal.litigation': ['cases', 'court cases'],
   'construction.quality': ['technical dd', 'tdd'],
   'construction.site': ['visits', 'site visits'],
   'procurement.boq': ['tender', 'tendering'],

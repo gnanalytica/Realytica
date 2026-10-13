@@ -41,6 +41,7 @@ const EXAMPLE_FUNCTION: Record<string, readonly [department: string, fn: string]
   'legal.rera': ['legal', 'RERA'],
   'legal.contracts': ['legal', 'Contracts'],
   'legal.handover': ['legal', 'Handover'],
+  'legal.litigation': ['legal', 'Litigation'],
   'design.drawings': ['engineering', 'Design'],
   'design.compliance': ['engineering', 'Design'],
   'design.rfis': ['engineering', 'Design'],

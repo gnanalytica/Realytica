@@ -411,7 +411,8 @@ export function readMatch(project: DdProject, def: CheckFieldDef, value: CheckFi
     column: side.column,
     label: side.label,
     items,
-    leftover: items.filter((item) => !rows.some((row) => row.cells[index]!.id === item.id)),
+    // Nothing of an optional side is left over: a parcel in no suit is in order.
+    leftover: side.optional ? [] : items.filter((item) => !rows.some((row) => row.cells[index]!.id === item.id)),
   }));
   return {
     left: sides[0]!,
@@ -656,7 +657,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       def,
       address,
       shown,
-      notInPlay: !inPlay && holds,
+      // What is worked out is nobody's entry: out of play, it is not something recorded and set aside.
+      notInPlay: !inPlay && holds && !derived,
       state,
       held: own,
       text: said(def, own),

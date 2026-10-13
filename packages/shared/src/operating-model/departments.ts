@@ -289,6 +289,10 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
       ]),
       ws('legal', 'contracts', 'Contracts & disputes', 'JDAs, agreements for sale and litigation.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [['pre_development', 'Development agreement review']]),
       ws('legal', 'handover', 'Handover & society', 'Conveying common areas and the land to the owners’ society.', 'coming_soon', ['Advocate'], ['construction', 'operations'], [['operations', 'Deed of conveyance']]),
+      ws('legal', 'litigation', 'Litigation & notices', 'Every case, hearing, order and notice that names the land, a seller or the company, and the money at stake.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [
+        ['pre_development', 'Litigation search report'],
+        ['construction', 'Litigation register'],
+      ]),
     ],
   },
   {
@@ -445,6 +449,7 @@ export const FUNCTION_SHORT: Record<string, string> = {
   'legal.rera': 'RERA',
   'legal.contracts': 'Contracts',
   'legal.handover': 'Handover',
+  'legal.litigation': 'Litigation',
   'construction.progress': 'Progress',
   'construction.quality': 'Technical',
   'construction.site': 'Site',
