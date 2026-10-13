@@ -242,7 +242,7 @@ describe('a unit and its sale', () => {
     assert.equal(done.value('sale_agreement_days_left'), null);
     assert.equal(done.value('sale_agreement_standing'), null);
     assert.equal(done.value('sale_discount_pct'), 3.6);
-    assert.ok(done.said().includes('The discount is 3.6 %; the price list allows 3% without further approval.'), done.said().join('\n'));
+    assert.ok(done.said().includes('The discount is 3.6%; the price list allows 3% without further approval.'), done.said().join('\n'));
     write(p, UNITS, { sale_carpet_in_agreement: '72 sqm' }, agreed);
     assert.ok(sheet(p, UNITS, agreed).said().some((text) => /^The agreement states 72 sqm of carpet area and the unit register 70 sqm/.test(text)));
   });
@@ -265,7 +265,7 @@ describe('a unit and its sale', () => {
     assert.equal(bookings.value('bookings_standing'), 'An advance is above the cap');
 
     const sales = page(p, 'commercial.inventory');
-    assert.ok(sales.exceptions.some((e) => e.kind === 'rule' && e.text === '1 unit(s) hold an advance above the cap the Act sets before a registered agreement.'));
+    assert.ok(sales.exceptions.some((e) => e.kind === 'rule' && e.text === '1 unit holds an advance above the cap the Act sets before a registered agreement.'));
     assert.deepEqual(sales.shared.map((s) => s.set.id).sort(), ['shared.parties', 'shared.units'], 'the units are listed on the Sales page, as the project’s');
     assert.deepEqual(sales.exceptions.filter((e) => e.kind === 'missing').map((e) => `${e.sheet}: ${e.label}`), ['Enquiries and site visits: Leads are kept in', 'Enquiries and site visits: Counts last read on', 'Enquiries and site visits: Enquiries and visits by week'], 'the sheets worked out from the units ask for nothing');
 
@@ -309,7 +309,7 @@ describe('a unit and its sale', () => {
     const brokerage = sheet(p, 'commercial.inventory.brokerage');
     assert.deepEqual(['partners', 'expected', 'invoiced', 'paid', 'unpaid'].map(brokerage.value), [1, 120_000, 150_000, 0, 150_000]);
     assert.equal(brokerage.value('brokerage_standing'), 'Invoiced above what the sales give');
-    assert.ok(page(p, 'commercial.inventory').exceptions.some((e) => e.text === 'Runs out on 2026-11-15'), 'an agent registration about to run out is said');
+    assert.ok(page(p, 'commercial.inventory').exceptions.some((e) => e.text === 'Runs out on 15 Nov 2026'), 'an agent registration about to run out is said');
   });
 
   it('holds a buyer as ticks for papers, and asks for the rest only where it applies', () => {
@@ -414,7 +414,7 @@ describe('demands and collections', () => {
     });
     const plan = sheet(p, 'commercial.buyers.plans', id);
     assert.deepEqual(['stages_total_pct', 'before_agreement_pct', 'advance_cap_pct', 'plan_standing'].map(plan.value), [90, 20, 10, 'Does not add up']);
-    assert.deepEqual(plan.said(), ['The stages add to 90 %, not 100.', 'The plan asks 20 % before the registered agreement; the cap is 10 %.']);
+    assert.deepEqual(plan.said(), ['The stages add to 90%, not 100.', 'The plan asks 20% before the registered agreement; the cap is 10%.']);
     assert.equal(plan.shown('interest_borne_until'), 'hidden');
     write(p, 'commercial.buyers.plans', { stages: [{ stage_no: 1, pct: 10, before_agreement: true }, { stage_no: 2, pct: 90, before_agreement: false }] }, id);
     const fixed = sheet(p, 'commercial.buyers.plans', id);
@@ -523,7 +523,7 @@ describe('possession and defects', () => {
     add(p, 'construction.quality.snags', { snag_no: 'SN-014', unit, raised_on: '2026-09-20' });
     const handover = sheet(p, 'commercial.handover.possession');
     assert.deepEqual(['snags_open', 'requests_open', 'requests_overdue', 'handover_standing'].map(handover.value), [1, 1, 1, 'A defect is past its time']);
-    assert.ok(page(p, 'commercial.handover').exceptions.some((e) => e.text === '1 defect(s) are past the time the Act gives to rectify them.'));
+    assert.ok(page(p, 'commercial.handover').exceptions.some((e) => e.text === 'Defects past the time the Act gives to rectify them: 1.'));
 
     write(p, 'commercial.handover.requests', { closed_on: '2026-10-11' }, id);
     assert.equal(sheet(p, 'commercial.handover.requests', id).value('request_standing'), null);
@@ -560,7 +560,7 @@ describe('the market and the launch', () => {
     const launch = sheet(p, 'commercial.marketing.launch');
     assert.deepEqual(['units_released', 'value_released', 'price_list'].map(launch.value), [3, 19_455_000, 'PL-3']);
     assert.equal(launch.view('kind').def.control, 'tiles');
-    assert.deepEqual(launch.said(), ['A launch date of 2026-11-15 is set and nobody is recorded as approving the launch.']);
+    assert.deepEqual(launch.said(), ['A launch date of 15 Nov 2026 is set and nobody is recorded as approving the launch.']);
     assert.ok(launch.reading.fields.filter((f) => f.shown === 'shown').length <= 12);
   });
 });
@@ -578,19 +578,19 @@ describe('an advertisement', () => {
     assert.deepEqual(first.view('lettering_least').cites?.map((c) => [c.key, c.value, c.source.clause, c.verified]), [['rera_ad_lettering_ratio_min', 0.5, 'paragraph 1(a)', false]]);
     assert.deepEqual(first.said(), [
       'The registration number’s lettering is 0.4 of the project name’s; the circular asks for at least 0.5.',
-      'The registered block measures 8%; the circular asks for at least 10 %.',
+      'The registered block measures 8%; the circular asks for at least 10%.',
       'The lowest price stated is ₹50 lakh; the lowest on the price list is ₹56 lakh.',
     ]);
 
     write(p, 'commercial.marketing.advertisements', { lettering_ratio: 0.6, block_pct: 12, lowest_price_stated: 5_600_000, claims: [{ claim: 'Clubhouse with a pool', kind: 'amenity', backed_by: 'nothing' }] }, id);
     const second = sheet(p, 'commercial.marketing.advertisements', id);
     assert.equal(second.value('measured'), 'A claim is backed by nothing');
-    assert.deepEqual(second.said(), ['1 claim(s) in the advertisement are backed by neither the agreement’s schedules, the sanctioned plan nor a filed paper.']);
+    assert.deepEqual(second.said(), ['Claims in the advertisement backed by neither the agreement’s schedules, the sanctioned plan nor a filed paper: 1.']);
 
     write(p, 'commercial.marketing.advertisements', { claims: [{ claim: 'Clubhouse with a pool', kind: 'amenity', backed_by: 'agreement schedule' }], released_on: '2026-11-16' }, id);
     const third = sheet(p, 'commercial.marketing.advertisements', id);
     assert.equal(third.value('measured'), 'No measured check fails');
-    assert.deepEqual(third.said(), ['Released on 2026-11-16 with no verdict recorded.']);
+    assert.deepEqual(third.said(), ['Released on 16 Nov 2026 with no verdict recorded.']);
     assert.equal(third.view('verdict').def.control, 'tiles');
     assert.equal(third.view('verdict').def.kind, 'enum', 'the verdict is a person’s choice; the measured standing is not');
 

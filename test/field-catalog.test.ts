@@ -565,8 +565,8 @@ describe('a day that runs out', () => {
       return readFunctionFields(p, FN, new Date(now), catalog).exceptions.map((e) => `${e.tone}: ${e.text}`);
     };
     assert.deepEqual(said('2026-12-31', '2026-10-12T00:00:00Z'), []);
-    assert.deepEqual(said('2026-11-01', '2026-10-12T00:00:00Z'), ['warning: Runs out on 2026-11-01']);
-    assert.deepEqual(said('2026-10-01', '2026-10-12T00:00:00Z'), ['critical: Ran out on 2026-10-01']);
+    assert.deepEqual(said('2026-11-01', '2026-10-12T00:00:00Z'), ['warning: Runs out on 1 Nov 2026']);
+    assert.deepEqual(said('2026-10-01', '2026-10-12T00:00:00Z'), ['critical: Ran out on 1 Oct 2026']);
   });
 });
 

@@ -97,7 +97,7 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
       },
       {
         key: 'extent_on_check',
-        label: 'Extent per title, on the parcel check',
+        label: 'Land area in the title deeds',
         kind: 'area',
         unit: 'sqm',
         section: 'holding',
@@ -113,7 +113,7 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
       },
       {
         key: 'value_at_rate',
-        label: 'Extent at the rate applied in Valuation',
+        label: 'Value of the land at Valuation’s rate',
         kind: 'computed',
         dimension: 'money',
         currency: 'INR',

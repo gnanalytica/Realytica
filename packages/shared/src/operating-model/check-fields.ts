@@ -33,6 +33,7 @@
 
 import type { CheckFieldDef, CheckFieldValue, CheckFormula, CheckInsight, CheckInsightRule, CheckInstance, CheckTableRow, Dimension, FieldAddress, FieldState, FindingSeverity, FormulaCondition, FormulaRows, OptionDef, OptionSet, RowCondition, Tone } from './types';
 import { formatMeasure, formatMoney, parseMeasure, unitNamed, type Entered, type UnitContext } from './units';
+import { agreeSaid, countSaid, daySaid, looksLikeDay, percentSaid } from './said';
 
 /* ==================================================================== */
 /* Reading and writing a value                                           */
@@ -727,20 +728,32 @@ export function formatFieldValue(def: CheckFieldDef, value: CheckFieldValue | un
     if (value!.entered?.text) return `${value!.entered.text} (${raw.toLocaleString('en-IN')}${def.unit ? ` ${def.unit}` : ''})`;
   }
   if (Array.isArray(raw)) {
-    if (def.kind === 'table') return `${raw.length} row(s)`;
+    if (def.kind === 'table') return countSaid(raw.length, 'row');
     // Evidence holds ids, and an id is not a thing to print at a reader. The
     // titles live on the project, which this function cannot see, so it says
     // how many and leaves the naming to whoever has the register.
-    if (def.kind === 'evidence') return `${raw.length} document(s)`;
+    if (def.kind === 'evidence') return countSaid(raw.length, 'paper');
     return (raw as string[]).join(', ');
   }
   if (typeof raw === 'boolean') return raw ? 'yes' : 'no';
   if (def.kind === 'money' || def.kind === 'area' || def.kind === 'number' || def.kind === 'computed' || def.kind === 'duration') {
+    // A figure that is a day (a formula that yields one) reads as a day.
+    if (def.yields === 'date' && looksLikeDay(raw)) return daySaid(raw);
     const n = fieldNumber(value);
     if (n === null) return String(raw);
+    // One way to write each: an amount in lakh and crore, a share with its sign against it, an area never bare.
+    // A rate in rupees ("INR/sqm/month") keeps what it is a rate of, with the rupee sign in place of the code.
+    if (def.unit && /^INR[ /]/.test(def.unit)) return `₹${n.toLocaleString('en-IN')}${def.unit.slice(3)}`;
+    if (def.kind === 'money' || def.unit === 'INR') return formatMoney(n, def.currency, def.precision);
+    if (def.unit === '%') return percentSaid(n);
+    if (def.kind === 'area' && !def.unit) return formatMeasure(n, 'area', { precision: def.precision });
     return `${n.toLocaleString('en-IN')}${def.unit ? ` ${def.unit}` : ''}`;
   }
-  if (def.kind === 'percent') return `${fieldNumber(value) ?? raw}%`;
+  if (def.kind === 'percent') {
+    const n = fieldNumber(value);
+    return n === null ? `${raw}%` : percentSaid(n);
+  }
+  if (def.kind === 'date' && looksLikeDay(raw)) return daySaid(raw);
   return String(raw);
 }
 
@@ -751,7 +764,8 @@ export function formatFieldValue(def: CheckFieldDef, value: CheckFieldValue | un
 const DEFAULT_TOLERANCE = 0.01;
 
 function fill(template: string, parts: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_, key: string) => parts[key] ?? `{${key}}`);
+  // The count and its noun agree: "1 deed was", never "1 deed(s) were".
+  return agreeSaid(template.replace(/\{(\w+)\}/g, (_, key: string) => parts[key] ?? `{${key}}`));
 }
 
 /**

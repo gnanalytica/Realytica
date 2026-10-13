@@ -165,7 +165,7 @@ describe('Valuation', () => {
     const let_ = sheet(p, 'finance.valuation.approaches');
     assert.equal(let_.value('rent_on_leases'), 1_200);
     assert.equal(let_.value('income_standing'), 'Rent assumed differs from the leases');
-    assert.deepEqual(let_.said(), ['The leases work out at 1,200 INR/sqm/month and the rent assumed is 1,500 INR/sqm/month: 20.0% apart, outside 10.0%.']);
+    assert.deepEqual(let_.said(), ['The leases work out at ₹1,200/sqm/month and the rent assumed is ₹1,500/sqm/month: 20.0% apart, outside 10.0%.']);
     onCheck(p, 'indicative_valuation.income_inputs', { achievable_rent: 1_250 });
     assert.equal(sheet(p, 'finance.valuation.approaches').value('income_standing'), 'Rent follows the leases');
     assert.deepEqual(sheet(p, 'finance.valuation.approaches').said(), []);
@@ -197,7 +197,7 @@ describe('Valuation', () => {
     assert.equal(lending.view('realisable_share_stated').shown, 'hidden');
     assert.equal(lending.value('guideline_standing'), 'Past the limit: say why');
     assert.equal(lending.view('guideline_standing').cites?.[0]?.verified, false);
-    assert.deepEqual(lending.said(), ['The value is 66.7 % from the guidance value; past 20 % the report says why.']);
+    assert.deepEqual(lending.said(), ['The value is 66.7% from the guidance value; past 20% the report says why.']);
     assert.equal(sheet(p, 'finance.valuation.instruction').view('lender').missing, true, 'and the instruction now asks who the lender is');
 
     // The lender's own shares, off its sanction letter: the row for general practice is read no longer.
@@ -349,7 +349,7 @@ describe('Feasibility', () => {
     const wide = sheet(p, 'finance.feasibility.sensitivity');
     assert.equal(wide.value('margin_price_down_2'), -5.2);
     assert.equal(wide.value('sensitivity_standing'), 'Two steps down in price lose money');
-    assert.deepEqual(wide.said(), ['Two steps down in price leave a margin of -5.2 %.']);
+    assert.deepEqual(wide.said(), ['Two steps down in price leave a margin of -5.2%.']);
   });
 
   it('asks for conditions only when the decision carries them, and counts them as a list of ticks', () => {
@@ -431,7 +431,7 @@ describe('Budget', () => {
     assert.equal(contingency.value('contingency_left_pct'), 1.8);
     assert.equal(contingency.value('contingency_standing'), 'Thin');
     assert.deepEqual(contingency.view('contingency_standing').cites?.map((c) => [c.key, c.value, c.verified]), [['budget_contingency_floor', 3, false]]);
-    assert.deepEqual(contingency.said(), ['Contingency is 1.8 % of the work left; 3 % at least.']);
+    assert.deepEqual(contingency.said(), ['Contingency is 1.8% of the work left; 3% at least.']);
 
     const over = sheet(p, 'finance.budget.to_complete');
     assert.equal(over.value('cost_to_complete'), 45 * CR);

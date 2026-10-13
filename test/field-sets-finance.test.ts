@@ -234,7 +234,7 @@ describe('Finance: the RERA designated account', () => {
     assert.equal(short.view('deposit_standing').cites![0]!.verified, false);
     assert.equal(short.value('deposit_standing'), 'Short of the share to deposit');
     assert.equal(short.view('deposit_standing').tone, 'critical');
-    assert.deepEqual(short.said(), ['70 % of what was realised was deposited; 100 % is required.']);
+    assert.deepEqual(short.said(), ['70% of what was realised was deposited; 100% is required.']);
 
     write(p, DEPOSIT, { deposited: '10 Cr' });
     assert.equal(sheet(p, DEPOSIT).value('deposit_standing'), 'Deposited as required');
@@ -291,7 +291,7 @@ describe('Finance: the funding plan and cash', () => {
     const funded = sheet(p, 'finance.funding.plan');
     assert.equal(funded.view('lender_minimum_share').shown, 'shown');
     assert.equal(funded.value('plan_standing'), 'Promoter contribution below the lender’s minimum');
-    assert.deepEqual(funded.said(), ['Promoter contribution is 25 % of cost and the lender’s minimum is 30 %.']);
+    assert.deepEqual(funded.said(), ['Promoter contribution is 25% of cost and the lender’s minimum is 30%.']);
   });
 
   it('opens the shortfall fields only when the forecast runs below zero', () => {
@@ -435,7 +435,7 @@ describe('Lenders', () => {
     assert.equal(situation(q, 'finance.lenders', 'lender_funded'), 'on');
     const facility = page(q, 'finance.lenders').sheets.find((s) => s.set.id === 'finance.lenders.facilities')!.records![0]!;
     assert.equal(facility.title, 'Construction term loan');
-    assert.ok(facility.chips.includes('Rate now 9.75 %'));
+    assert.ok(facility.chips.includes('Rate now 9.75%'));
     assert.ok(sheet(q, 'finance.lenders.drawdown').shown().length > 0);
     // Beyond the facility's own terms, the sheets ask three things. Escrow routing and the statement wait for an escrow account and a drawdown.
     const asked = page(q, 'finance.lenders').exceptions.filter((e) => e.kind === 'missing' && !e.record).map((e) => e.label);
@@ -544,7 +544,7 @@ describe('Ledgers', () => {
     write(p, 'finance.ledgers.reconciliation_lines', { reason: 'error' }, line);
     assert.equal(sheet(p, 'finance.ledgers.reconciliation_lines', line).value('line_standing'), 'Open');
     write(p, 'finance.ledgers.reconciliation', { package: 'tally', imported_on: '2026-11-10', signed_off_on: '2026-11-12' });
-    assert.deepEqual(sheet(p, 'finance.ledgers.reconciliation').said(), ['Differences with the books still open: 1.', 'Signed off on 2026-11-12, and nobody is named.']);
+    assert.deepEqual(sheet(p, 'finance.ledgers.reconciliation').said(), ['Differences with the books still open: 1.', 'Signed off on 12 Nov 2026, and nobody is named.']);
   });
 
   it('sets what is certified and unpaid on a contract against the books, and an advance against its guarantee', () => {

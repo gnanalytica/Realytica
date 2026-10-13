@@ -437,7 +437,8 @@ describe('a function’s page', () => {
     assert.equal(page.exceptions[0]!.source?.page, 3);
     assert.equal(fieldsNeeding(p)[0]!.counts.proposed, 3);
     const needs = projectBrief(p, new Date('2026-10-12T00:00:00Z')).find((line) => line.key === 'needs')!;
-    assert.ok(needs.parts.some((part) => part.text === '3 values to accept'));
+    // One count of what waits to be accepted, opening the function that holds it.
+    assert.deepEqual(needs.parts.filter((part) => /to accept/.test(part.text)).map((part) => [part.text, 'pane' in part.open && part.open.pane === 'workstream' ? part.open.extra?.workstream : undefined]), [['3 to accept', FN]]);
 
     // One press takes a paper's values, but for the ones a person has to name: a model's yes or no among them.
     const out = acceptAllFromPaper(p, FN, row.id, LEAD, seat(p, LEAD));

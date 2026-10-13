@@ -309,7 +309,7 @@ const LAND_RECORDS: FieldSet = {
     { key: 'parcel', label: 'Parcel', kind: 'ref', target: 'parcel', section: 'rtc' },
     { key: 'rtc_year', label: 'RTC year', kind: 'text', section: 'rtc', from: 'RTC', hint: 'As printed: the revenue year.' },
     { key: 'rtc_fetched_on', label: 'RTC fetched on', kind: 'date', section: 'rtc', from: 'Bhoomi' },
-    refreshBy('refresh_by', 'Fetch again by', 'rtc_fetched_on', 'search_fresh_days', 7, { section: 'rtc' }),
+    refreshBy('refresh_by', 'Get a fresh copy by', 'rtc_fetched_on', 'search_fresh_days', 7, { section: 'rtc' }),
     land('rtc_extent', 'Extent per RTC', { section: 'rtc', from: 'RTC', fromTypes: ['RTC (record of rights)'], factKey: 'extent_title', proof: 'expected' }),
     { key: 'rtc_owner', label: 'Owner on the RTC', kind: 'ref', target: 'party', section: 'rtc', from: 'RTC' },
     { key: 'mutation', label: 'Mutation', kind: 'enum', control: 'segmented', optionSet: 'mutation_state', section: 'rtc', from: 'Mutation register' },
@@ -407,7 +407,7 @@ const OWNERSHIP: FieldSet = {
   ],
   rules: [
     { kind: 'compare', fields: ['shares_total'], against: 100, tolerance: 0, when: situation('multiple_owners'), say: 'The owners’ shares add up to {a}, not {b}.', severity: 'high' },
-    none('not_joining', '{a} owner(s) with a share join the deed as neither vendor nor confirming party.', 'high'),
+    none('not_joining', 'Owners with a share who join the deed as neither vendor nor confirming party: {a}.', 'high'),
     { kind: 'at_least', fields: ['heirs'], against: 1, say: 'An owner has died and no heir is recorded.', severity: 'high' },
     none('minors', '{a} owner(s) are minors: each sale is open to challenge after majority unless a court allowed it.', 'medium'),
     none('approvals_not_held', '{a} owner(s) sell without the approval of their members or their authority.', 'critical'),
@@ -584,8 +584,8 @@ const CHAIN: FieldSet = {
     countIf('sharers_not_joined', 'Partitions a sharer did not join', T.instruments, { column: 'all_sharers_joined', is: 'false' }, { section: 'partition', tier: 'situational' }),
   ],
   rules: [
-    none('unregistered', '{a} link(s) in the chain have no registered instrument.', 'high'),
-    none('without_conveyance', '{a} link(s) rest on a power of attorney or an agreement, with no conveyance after it.', 'critical'),
+    none('unregistered', 'Links in the chain with no registered instrument: {a}.', 'high'),
+    none('without_conveyance', 'Links that rest on a power of attorney or an agreement, with no conveyance after it: {a}.', 'critical'),
     { kind: 'at_least', fields: ['years_established', 'years_required'], say: 'The chain is established for {a} and {b} are required.', severity: 'high' },
     { kind: 'compare', fields: ['instruments', 'on_check'], at: { on_check: title('legal.title_chain', 'instrument_count') }, tolerance: 0, when: anyRecord(T.instruments), say: 'Here {a} instruments are recorded and the chain check lists {b}.', severity: 'low' },
     none('principal_not_living', '{a} deed(s) were signed by an attorney after the principal had died.', 'critical'),
@@ -732,9 +732,9 @@ const ENCUMBRANCE: FieldSet = {
   rules: [
     none('gap_days', 'The certificates leave {a} of the search period uncovered.', 'medium', anyRecord(T.certificates)),
     { kind: 'at_least', fields: ['years_covered', 'required'], at: { required: title('legal.title_chain', 'years_required') }, say: 'The search covers {a} and the chain is required for {b}.', severity: 'high' },
-    none('charges_open', '{a} charge(s) on the land are not released.', 'high'),
+    none('charges_open', 'Charges on the land not released: {a}.', 'high'),
     { kind: 'compare', fields: ['charges_open', 'on_check'], at: { on_check: title('legal.encumbrances', 'subsisting_charges') }, tolerance: 0, when: anyRecord(T.charges), say: 'Here {a} charges are open and the encumbrance check records {b}.', severity: 'low' },
-    { kind: 'at_least', fields: ['charges', 'liabilities_on_rtc'], say: 'The RTC of {b} parcel(s) carries a liability and {a} charge(s) are recorded.', severity: 'medium' },
+    { kind: 'at_least', fields: ['charges', 'liabilities_on_rtc'], say: 'Parcels whose RTC carries a liability: {b}. Charges recorded: {a}.', severity: 'medium' },
   ],
 };
 
@@ -899,7 +899,7 @@ const CHARACTER: FieldSet = {
     none('without_permission', '{a} grant(s) were transferred without the government’s permission.', 'critical'),
     none('transferred_in_bar', '{a} grant(s) were first transferred before the bar on transfer ended.', 'critical'),
     none('restoration_live', '{a} restoration proceeding(s) are pending or ordered: the land can go back to the grantee’s family.', 'critical'),
-    none('claims_open', '{a} occupancy claim(s) by a tenant are filed or granted.', 'critical'),
+    none('claims_open', 'Occupancy claims by a tenant, filed or granted: {a}.', 'critical'),
     none('acquisitions_live', '{a} acquisition(s) stand notified and not dropped.', 'critical'),
     none('unclear', '{a} restriction(s) cannot be settled from the papers on file.', 'medium'),
   ],
@@ -1085,7 +1085,7 @@ const OPINION: FieldSet = {
   rules: [
     none('defects_open', 'The verdict is clear and marketable while {a} defect(s) are open in the records, chain, search or restrictions.', 'critical', holds(opinion('verdict'), 'equals', 'clear_marketable')),
     none('requisitions_open', 'The verdict is clear and marketable while {a} requisition(s) are open.', 'high', holds(opinion('verdict'), 'equals', 'clear_marketable')),
-    none('land_under_order', '{a} order(s) in force restrain a sale of the land.', 'critical'),
+    none('land_under_order', 'Orders in force that restrain a sale of the land: {a}.', 'critical'),
   ],
 };
 
@@ -1358,9 +1358,9 @@ const DIARY: FieldSet = {
     computed('sale_restraints', 'Orders in force restraining a sale or its registration', { op: 'records', set: L.orders, reduce: 'sum', field: 'restrains_sale' }, { section: 'restraints', tier: 'situational' }),
   ],
   rules: [
-    none('construction_restraints', '{a} order(s) in force restrain construction.', 'critical'),
-    none('sale_restraints', '{a} order(s) in force restrain a sale or its registration.', 'critical'),
-    none('directions_open', '{a} order(s) are still to be complied with.', 'high'),
+    none('construction_restraints', 'Orders in force that restrain construction: {a}.', 'critical'),
+    none('sale_restraints', 'Orders in force that restrain a sale or its registration: {a}.', 'critical'),
+    none('directions_open', 'Orders still to be complied with: {a}.', 'high'),
   ],
 };
 
@@ -1501,7 +1501,7 @@ const SEARCH: FieldSet = {
     { key: 'insolvency_checked', label: 'Insolvency checked for company sellers', kind: 'boolean', control: 'tick', section: 'entities', tier: 'situational' },
   ],
   rules: [
-    none('unlinked', '{a} hit(s) marked as ours are linked to no matter.', 'high'),
+    none('unlinked', 'Hits marked as ours and linked to no matter: {a}.', 'high'),
     { kind: 'compare', fields: ['ours', 'on_check'], at: { on_check: title('legal.litigation', 'matters_found') }, tolerance: 0, when: anyRecord(L.hits), say: 'The search turned up {a} matters that are ours and the litigation check records {b}.', severity: 'low' },
   ],
 };

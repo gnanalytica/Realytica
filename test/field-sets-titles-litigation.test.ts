@@ -179,11 +179,11 @@ describe('Titles: a holding of two survey numbers and three owners, one dead and
     assert.equal(value(p, 'legal.title.records', 'extent_rtc'), 8903.08);
     assert.equal(value(p, 'legal.title.records', 'records_standing'), 'RTC extent differs from the title');
     assert.ok(said(p, TITLE).includes('The RTCs add up to 8,903.08 sqm and the title recites 9,105 sqm: 2.2% apart, outside 1.0%.'));
-    assert.ok(said(p, TITLE).includes('1 mutation(s) are pending or disputed.'));
+    assert.ok(said(p, TITLE).includes('1 mutation is pending or disputed.'));
 
     // A record fetched 41 days ago has run out; one fetched a week ago has not. The 30 days are practice, shown as not verified.
-    const old = page(p, TITLE).exceptions.filter((e) => e.label === 'Fetch again by').map((e) => `${e.tone}: ${e.text}`);
-    assert.deepEqual(old, ['critical: Ran out on 2026-10-01']);
+    const old = page(p, TITLE).exceptions.filter((e) => e.label === 'Get a fresh copy by').map((e) => `${e.tone}: ${e.text}`);
+    assert.deepEqual(old, ['critical: Ran out on 1 Oct 2026']);
     assert.deepEqual(view(p, 'legal.title.land_records', 'refresh_by', record).cites?.map((c) => [c.key, c.value, c.verified]), [['search_fresh_days', 30, false]]);
 
     // The rule passes once the RTC of the second parcel is read as the title has it.
@@ -216,7 +216,7 @@ describe('Titles: a holding of two survey numbers and three owners, one dead and
     assert.equal(value(p, 'legal.title.ownership', 'heirs'), 1);
     assert.equal(value(p, 'legal.title.ownership', 'shares_total'), 100);
     assert.equal(value(p, 'legal.title.ownership', 'ownership_standing'), 'An owner is not joining');
-    assert.ok(said(p, TITLE).includes('1 owner(s) with a share join the deed as neither vendor nor confirming party.'));
+    assert.ok(said(p, TITLE).includes('Owners with a share who join the deed as neither vendor nor confirming party: 1.'));
     write(p, 'legal.title.owners', { joins_as: 'confirming_party' }, heir);
     assert.equal(value(p, 'legal.title.ownership', 'ownership_standing'), 'Every owner accounted for');
 
@@ -241,7 +241,7 @@ describe('Titles: a holding of two survey numbers and three owners, one dead and
     write(p, 'legal.title.ownership', { owners_by_parcel: [{ parcel: first, owner: a }, { parcel: first, owner: b }, { parcel: second, owner: c }] });
     assert.deepEqual(leftovers(p, TITLE), []);
     // Shares that do not come to a hundred.
-    assert.ok(said(p, TITLE).includes('The owners’ shares add up to 90 %, not 100.'));
+    assert.ok(said(p, TITLE).includes('The owners’ shares add up to 90%, not 100.'));
     write(p, 'legal.title.owners', { share_pct: 20 }, c);
     assert.ok(!said(p, TITLE).some((text) => text.startsWith('The owners’ shares')));
   });
@@ -289,7 +289,7 @@ describe('Titles: a chain with an unregistered partition and a deed signed by an
     write(p, 'legal.title.instruments', { attorney: 'stk_adv', poa_registered: true, principal_alive_on_deed: false }, sale);
     assert.equal(value(p, 'legal.title.chain', 'principal_not_living'), 1);
     assert.equal(value(p, 'legal.title.chain', 'chain_standing'), 'An attorney signed after the principal died');
-    assert.ok(said(p, TITLE).includes('1 deed(s) were signed by an attorney after the principal had died.'));
+    assert.ok(said(p, TITLE).includes('1 deed was signed by an attorney after the principal had died.'));
 
     // A family partition of 2004 was never registered.
     const partition = add(p, 'legal.title.instruments', { name: 'Family partition of 2004', kind: 'partition_deed', executed_on: '2004-05-02', from_party: 'stk_seller', to_party: 'stk_seller', registered: false, partition_form: 'unregistered_deed', all_sharers_joined: false });
@@ -297,7 +297,7 @@ describe('Titles: a chain with an unregistered partition and a deed signed by an
     assert.equal(view(p, 'legal.title.instruments', 'doc_no', partition).missing, false, 'a paper that was never registered has no document number to give');
     assert.equal(value(p, 'legal.title.chain', 'unregistered'), 1);
     assert.equal(value(p, 'legal.title.chain', 'chain_standing'), 'A link is not registered');
-    for (const text of ['1 link(s) in the chain have no registered instrument.', '1 partition(s) rest on an unregistered deed.', '1 partition(s) were not joined by every sharer.']) assert.ok(said(p, TITLE).includes(text), text);
+    for (const text of ['Links in the chain with no registered instrument: 1.', '1 partition rests on an unregistered deed.', '1 partition was not joined by every sharer.']) assert.ok(said(p, TITLE).includes(text), text);
 
     // Each survey number is paired with the instruments that convey it.
     write(p, 'legal.title.chain', { chain_by_parcel: [{ parcel, instrument: root }, { parcel, instrument: sale }] });
@@ -326,7 +326,7 @@ describe('Titles: a chain with an unregistered partition and a deed signed by an
     const mortgage = add(p, 'legal.title.charges', { holder: 'stk_bank', kind: 'registered_mortgage', amount: '85 lakh', created_on: '2008-07-02', found_in: ['encumbrance certificate'], released: false });
     assert.equal(value(p, 'legal.title.encumbrance', 'charges_open'), 1);
     assert.equal(value(p, 'legal.title.encumbrance', 'encumbrance_standing'), 'A charge is not released');
-    assert.ok(said(p, TITLE).includes('1 charge(s) on the land are not released.'));
+    assert.ok(said(p, TITLE).includes('Charges on the land not released: 1.'));
     assert.equal(view(p, 'legal.title.charges', 'release_deed', mortgage).shown, 'hidden');
     write(p, 'legal.title.charges', { released: true, released_on: '2016-01-19' }, mortgage);
     assert.equal(view(p, 'legal.title.charges', 'release_deed', mortgage).missing, true, 'a release needs its deed');
@@ -348,11 +348,11 @@ describe('Titles: a chain with an unregistered partition and a deed signed by an
     assert.equal(value(p, 'legal.title.opinion', 'title_standing'), 'A defect is open');
 
     write(p, 'legal.title.opinion', { verdict: 'clear_marketable', opinion_for: 'lender', opinion_by: 'stk_adv', opinion_date: '2026-07-01' });
-    assert.ok(said(p, TITLE).includes('The verdict is clear and marketable while 2 defect(s) are open in the records, chain, search or restrictions.'));
+    assert.ok(said(p, TITLE).includes('The verdict is clear and marketable while 2 defects are open in the records, chain, search or restrictions.'));
     // Ninety days on, the opinion is stale: a house rule, shown as one nobody has verified.
     assert.equal(value(p, 'legal.title.opinion', 'refresh_by'), '2026-09-29');
     assert.equal(view(p, 'legal.title.opinion', 'refresh_by').cites?.[0]?.verified, false);
-    assert.ok(page(p, TITLE).exceptions.some((e) => e.label === 'Bring up to date by' && e.text === 'Ran out on 2026-09-29'));
+    assert.ok(page(p, TITLE).exceptions.some((e) => e.label === 'Bring up to date by' && e.text === 'Ran out on 29 Sep 2026'));
 
     write(p, 'legal.title.opinion', { verdict: 'clear_subject_to' });
     assert.ok(!said(p, TITLE).some((text) => text.startsWith('The verdict is clear and marketable')));
@@ -392,13 +392,13 @@ describe('Titles: land that was granted, sold inside the bar and without permiss
     assert.equal(view(p, 'legal.title.character', 'restricted_extent').text, '8,093.71 sqm');
     assert.equal(value(p, 'legal.title.character', 'clear_extent'), 0);
     assert.equal(value(p, 'legal.title.character', 'restriction_standing'), 'Granted land sold without permission');
-    for (const text of ['1 grant(s) were transferred without the government’s permission.', '1 grant(s) were first transferred before the bar on transfer ended.']) assert.ok(said(p, TITLE).includes(text), text);
+    for (const text of ['1 grant was transferred without the government’s permission.', '1 grant was first transferred before the bar on transfer ended.']) assert.ok(said(p, TITLE).includes(text), text);
     assert.equal(value(p, 'legal.title.opinion', 'defects_open'), 2);
 
     // Permission is produced, and the first transfer turns out to be the 1998 one.
     write(p, 'legal.title.restrictions', { permission: 'held', first_transfer_on: '1998-01-05' }, grant);
     assert.equal(value(p, 'legal.title.character', 'restriction_standing'), 'A restriction applies');
-    assert.ok(!said(p, TITLE).some((text) => text.includes('grant(s)')));
+    assert.ok(!said(p, TITLE).some((text) => /\bgrants? (was|were)\b/.test(text)));
     assert.equal(value(p, 'legal.title.opinion', 'defects_open'), 0);
   });
 });
@@ -449,7 +449,7 @@ describe('Litigation: a partition suit over one parcel and a buyer’s complaint
     assert.equal(view(p, 'legal.litigation.register', 'their_agreement_on').shown, 'hidden', 'nobody is suing on an earlier agreement');
     assert.equal(view(p, 'legal.litigation.register', 'their_agreement_on').missing, false);
     write(p, 'legal.litigation.register', { partition_matter: suit, share_claimed: 33.33, our_vendor_is: 'defendant', all_sharers_impleaded: true, preliminary_decree_on: '2026-08-14' });
-    const rule = 'A preliminary decree of 2026-08-14 declares shares and divides nothing: no final decree is recorded.';
+    const rule = 'A preliminary decree of 14 Aug 2026 declares shares and divides nothing: no final decree is recorded.';
     assert.ok(said(p, LITIGATION).includes(rule));
     write(p, 'legal.litigation.register', { final_decree_on: '2027-02-01' });
     assert.ok(!said(p, LITIGATION).includes(rule));
@@ -481,21 +481,21 @@ describe('Litigation: a partition suit over one parcel and a buyer’s complaint
     assert.equal(value(p, 'legal.litigation.diary', 'construction_restraints'), 1);
     assert.equal(value(p, 'legal.litigation.diary', 'sale_restraints'), 1);
     assert.equal(value(p, 'legal.litigation.diary', 'order_standing'), 'An order restrains construction');
-    assert.ok(said(p, LITIGATION).includes('1 order(s) in force restrain construction.'));
+    assert.ok(said(p, LITIGATION).includes('Orders in force that restrain construction: 1.'));
     // Title's opinion reads the restraint from here.
-    assert.ok(said(p, TITLE).includes('1 order(s) in force restrain a sale of the land.'));
+    assert.ok(said(p, TITLE).includes('Orders in force that restrain a sale of the land: 1.'));
     // Vacated: nothing binds the project.
     write(p, 'legal.litigation.orders', { in_force: false }, stay);
     assert.equal(value(p, 'legal.litigation.diary', 'construction_restraints'), 0);
-    assert.ok(!said(p, LITIGATION).includes('1 order(s) in force restrain construction.'));
-    assert.ok(!said(p, TITLE).includes('1 order(s) in force restrain a sale of the land.'));
+    assert.ok(!said(p, LITIGATION).includes('Orders in force that restrain construction: 1.'));
+    assert.ok(!said(p, TITLE).includes('Orders in force that restrain a sale of the land: 1.'));
   });
 
   it('keeps a hearing diary in date order, a search log with every hit placed, and notices by their reply date', () => {
     const { p, suit, complaint } = matters();
     write(p, 'legal.litigation.diary', { hearings: [{ held_on: '2026-09-20', matter: suit, purpose: 'issues', outcome: 'order passed', next_step: 'obtain certified copy' }, { held_on: '2026-08-02', matter: complaint, purpose: 'summons', outcome: 'adjourned', next_step: 'file written statement' }] });
     assert.equal(view(p, 'legal.litigation.diary', 'hearings').def.display, 'timeline');
-    assert.equal(view(p, 'legal.litigation.diary', 'hearings').text, '2 row(s)');
+    assert.equal(view(p, 'legal.litigation.diary', 'hearings').text, '2 rows');
 
     // A search is logged, so the search sheet is owed; a hit that is ours waits for its matter.
     assert.deepEqual(views(p, 'legal.litigation.search').filter((f) => f.missing).map((f) => f.def.key), []);
@@ -503,7 +503,7 @@ describe('Litigation: a partition suit over one parcel and a buyer’s complaint
     assert.deepEqual(views(p, 'legal.litigation.search').filter((f) => f.missing).map((f) => f.def.key), ['search_for', 'searched_on', 'searched_by']);
     write(p, 'legal.litigation.search', { search_for: 'acquisition', searched_on: '2026-08-20', searched_by: 'stk_adv' });
     assert.equal(value(p, 'legal.litigation.search', 'refresh_by'), '2026-09-19');
-    assert.ok(page(p, LITIGATION).exceptions.some((e) => e.label === 'Search again by' && e.text === 'Ran out on 2026-09-19'));
+    assert.ok(page(p, LITIGATION).exceptions.some((e) => e.label === 'Search again by' && e.text === 'Ran out on 19 Sep 2026'));
     const hit = add(p, 'legal.litigation.search_hits', { case_ref: 'O.S. 214/2024', registry: 'district_courts', relevant: 'ours' });
     assert.equal(value(p, 'legal.litigation.search', 'unlinked'), 1);
     assert.equal(value(p, 'legal.litigation.search', 'search_standing'), 'A hit is ours and has no matter');

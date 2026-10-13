@@ -248,7 +248,7 @@ describe('Design › Design compliance: the planning limits of a tower that turn
     const coverage = sheet(p, 'design.compliance.coverage');
     assert.equal(coverage.view('zone_class').source?.kind, 'field', 'the zone is entered once, on the FAR sheet');
     assert.equal(coverage.text('zone_class'), 'residential main');
-    assert.equal(coverage.text('coverage_achieved'), '60 %');
+    assert.equal(coverage.text('coverage_achieved'), '60%');
     assert.equal(coverage.value('coverage_allowed'), null);
     assert.equal(coverage.text('coverage_standing'), 'Limit not on file');
     assert.equal(coverage.view('coverage_standing').tone, 'neutral');
@@ -282,7 +282,7 @@ describe('Design › Electrical load: demand from the unit mix, capacity from pa
     assert.equal(short.text('sanctioned_load'), '200 kW');
     assert.equal(short.view('sanctioned_load').source?.kind, 'field', 'read from the technical due diligence, where it is entered');
     assert.equal(short.text('sanction_standing'), 'Demand over the sanctioned load');
-    assert.equal(short.text('transformer_loading'), '114.13 %');
+    assert.equal(short.text('transformer_loading'), '114.13%');
     assert.equal(short.text('transformer_standing'), 'Transformers smaller than the demand');
     assert.ok(short.said.includes('Transformers add to 250 kVA and maximum demand is 285.33 kVA.'));
     assert.ok(short.said.includes('200 kW is sanctioned and maximum demand is 256.8 kW.'));

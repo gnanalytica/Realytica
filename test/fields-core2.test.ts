@@ -381,7 +381,7 @@ describe('what a function opens on', () => {
     const page = readFunctionFields(p, FN, now, catalog);
     assert.deepEqual(page.needs.decide.map((line) => line.kind), ['disputed']);
     assert.deepEqual(page.needs.accept.map((line) => line.address?.field), ['tenure']);
-    assert.deepEqual(page.needs.due_soon.map((line) => line.text).sort(), ['Rent paid is ₹40,000 against a ground rent of ₹1 lakh.', 'Runs out on 2026-11-20'].sort());
+    assert.deepEqual(page.needs.due_soon.map((line) => line.text).sort(), ['Rent paid is ₹40,000 against a ground rent of ₹1 lakh.', 'Runs out on 20 Nov 2026'].sort());
     assert.ok(page.needs.missing.some((line) => line.address?.field === 'lessor'));
     assert.deepEqual(page.exceptions.map((line) => line.need), [...page.needs.decide, ...page.needs.accept, ...page.needs.failing, ...page.needs.due_soon, ...page.needs.missing].map((line) => line.need), 'one list, in the order of the five lines');
     assert.equal(page.counts.total, NEED_KINDS.reduce((n, kind) => n + page.needs[kind].length, 0));
@@ -410,7 +410,7 @@ describe('what a function opens on', () => {
     // Put off past the day it runs out, it is failing by then, and a failing line is never held back.
     snoozeNeed(p, FN, line.key, '2026-12-15', LEAD, seat(p, LEAD), catalog, now);
     const late = readFunctionFields(p, FN, new Date('2026-11-25T06:00:00Z'), catalog);
-    assert.deepEqual(late.needs.failing.map((f) => f.text), ['Ran out on 2026-11-20']);
+    assert.deepEqual(late.needs.failing.map((f) => f.text), ['Ran out on 20 Nov 2026']);
     assert.equal(late.snoozed.length, 0);
 
     snoozeNeed(p, FN, line.key, null, LEAD, seat(p, LEAD), catalog, now);

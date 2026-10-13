@@ -198,7 +198,7 @@ describe('Contracts: a joint development whose allocation does not match the agr
     assert.equal(unregistered.value('developer_share'), 60);
     assert.equal(unregistered.value('jda_standing'), 'Not registered');
     assert.equal(unregistered.view('jda_standing').tone, 'critical');
-    assert.deepEqual(unregistered.said, ['The agreement dated 2025-01-15 has no registration number recorded.']);
+    assert.deepEqual(unregistered.said, ['The agreement dated 15 Jan 2025 has no registration number recorded.']);
     write(p, JDA, { jda_doc_no: 'BNG-1-01234-2024-25' });
     assert.equal(sheet(p, JDA).value('jda_standing'), 'Registered');
     assert.deepEqual(sheet(p, JDA).said, []);
@@ -237,7 +237,7 @@ describe('Contracts: a joint development whose allocation does not match the agr
     assert.equal(short.value('developer_units'), 3);
     assert.equal(short.value('owner_area_share'), 25);
     assert.equal(short.value('owner_share_agreed'), 40);
-    assert.deepEqual(short.said, ['The units allotted give the owners 25 % of the carpet area and the agreement gives them 40%: 37.5% apart, outside 1.0%.']);
+    assert.deepEqual(short.said, ['The units allotted give the owners 25% of the carpet area and the agreement gives them 40%: 37.5% apart, outside 1.0%.']);
     assert.equal(page(p, 'legal.contracts').exceptions.filter((e) => e.kind === 'rule' && /units allotted/.test(e.text)).length, 1);
 
     write(p, 'shared.units', { allotted_to: 'owner', carpet_area: '166.67 sqm' }, last.id);
@@ -369,7 +369,7 @@ describe('RERA: a registration and its filing calendar', () => {
     const held = (key: string) => reading.fields.find((f) => f.def.key === key)!.held?.value;
     assert.equal(held('filings_made'), 2);
     assert.equal(held('filings_overdue'), 1);
-    assert.deepEqual(readFunctionFields(p, 'legal.rera', later).exceptions.filter((e) => e.kind === 'rule' && e.tone === 'critical').map((e) => `${e.sheet}: ${e.text}`), ['Filings · 2026-09-30: Overdue']);
+    assert.deepEqual(readFunctionFields(p, 'legal.rera', later).exceptions.filter((e) => e.kind === 'rule' && e.tone === 'critical').map((e) => `${e.sheet}: ${e.text}`), ['Filings · 30 Sep 2026: Overdue']);
     write(p, 'legal.rera.filings', { filed_on: '2026-10-19' }, q3.id);
     assert.equal(readSheet(p, 'legal.rera.compliance', undefined, undefined, fieldCatalog(), later)!.fields.find((f) => f.def.key === 'filings_overdue')!.held?.value, 0);
   });
@@ -397,7 +397,7 @@ describe('RERA: a registration and its filing calendar', () => {
     assert.equal(due.value('conveyance_standing'), 'Late');
     write(p, 'legal.handover.conveyance', { conveyed_on: '2026-08-11' });
     assert.equal(sheet(p, 'legal.handover.conveyance').value('conveyance_standing'), 'In time');
-    assert.deepEqual(sheet(p, 'legal.handover.conveyance').said, ['The common areas are recorded as conveyed on 2026-08-11, with no deed filed.']);
+    assert.deepEqual(sheet(p, 'legal.handover.conveyance').said, ['The common areas are recorded as conveyed on 11 Aug 2026, with no deed filed.']);
   });
 });
 
@@ -469,13 +469,13 @@ describe('Approvals: a plan sanction that is being revised', () => {
     assert.deepEqual(short.view('consent_share_needed').cites?.map((c) => [c.key, c.verified, c.source.clause]), [['rera_alteration_consent_share', false, 'section 14(2)(ii)']]);
     assert.equal(short.value('consent_standing'), 'Consents short');
     assert.equal(short.view('consent_standing').cites?.[0]?.verified, false, 'the standing says the share it read is unverified');
-    assert.deepEqual(short.said, ['45.24 % of allottees have consented in writing and 66.67 % are needed.']);
+    assert.deepEqual(short.said, ['45.24% of allottees have consented in writing and 66.67% are needed.']);
     assert.equal(short.view('sanctioned_on').shown, 'hidden', 'not asked until it is sanctioned');
     assert.ok(!short.missing.includes('sanctioned_on'));
     const plan = sheet(p, SANCTION);
     assert.equal(plan.value('revisions_count'), 1);
     assert.equal(plan.value('revisions_short_of_consent'), 1);
-    assert.ok(fields.exceptions.some((e) => e.kind === 'rule' && e.sheet === 'Plan revisions · Revision 2' && /45\.24 %/.test(e.text)));
+    assert.ok(fields.exceptions.some((e) => e.kind === 'rule' && e.sheet === 'Plan revisions · Revision 2' && /45\.24%/.test(e.text)));
 
     write(p, REVISIONS, { consents_held: 28 }, revision.id);
     const enough = sheet(p, REVISIONS, revision.id);
@@ -569,7 +569,7 @@ describe('Approvals: a plan sanction that is being revised', () => {
     assert.equal(register.value('run_out'), 1);
     assert.equal(register.text('fees_demanded'), '₹3 lakh');
     assert.equal(register.value('register_standing'), 'An approval has run out');
-    assert.ok(page(p, 'legal.approvals').exceptions.some((e) => e.text === '1 approval(s) are past their validity.'));
+    assert.ok(page(p, 'legal.approvals').exceptions.some((e) => e.text === 'Approvals past their validity: 1.'));
     assert.deepEqual(page(p, 'legal.approvals').shared.map((s) => [s.set.id, s.records.length]).filter(([id]) => id === 'shared.approvals'), [['shared.approvals', 2]]);
 
     write(p, 'shared.approvals', { valid_until: '2028-09-30' }, fire.id);
@@ -626,7 +626,7 @@ describe('Approvals: a plan sanction that is being revised', () => {
     const order = add(p, 'legal.approvals.stop_orders', { issued_by: 'stk_auth', order_date: '2026-10-01', scope: 'whole_site', reason: 'deviation', force: 'in_force', reply_due: '2026-10-08' });
     assert.equal(page(p, 'legal.approvals').situations.find((s) => s.at === 'stop_work_order')!.state, 'on');
     assert.equal(sheet(p, 'legal.approvals.register').value('register_standing'), 'Work is ordered to stop');
-    assert.deepEqual(sheet(p, 'legal.approvals.stop_orders', order.id).said, ['A reply was due by 2026-10-08 and none is recorded as filed.']);
+    assert.deepEqual(sheet(p, 'legal.approvals.stop_orders', order.id).said, ['A reply was due by 8 Oct 2026 and none is recorded as filed.']);
     write(p, 'legal.approvals.stop_orders', { force: 'lifted', lifted_on: '2026-10-11' }, order.id);
     assert.equal(page(p, 'legal.approvals').situations.find((s) => s.at === 'stop_work_order')!.state, 'off');
     assert.equal(sheet(p, 'legal.approvals.register').view('stop_orders_in_force').shown, 'hidden');
