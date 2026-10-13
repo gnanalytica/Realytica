@@ -186,7 +186,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
           // A field with buttons of its own beside its control is a group, not one labelled control.
           const Wrapper = view ? 'div' : 'label';
           return (
-            <Wrapper key={def.key} className={cn('block', (def.kind === 'table' || def.kind === 'longtext' || def.kind === 'evidence') && 'sm:col-span-2')}>
+            <Wrapper key={def.key} data-field={def.key} className={cn('block', (def.kind === 'table' || def.kind === 'longtext' || def.kind === 'evidence') && 'sm:col-span-2')}>
               <span className="flex items-baseline gap-1.5 text-[12px] text-ink-secondary">
                 {view && hasMore(def, view, Boolean(onDecide) && !disabled) ? (
                   <button type="button" aria-expanded={sourceOf === def.key} title="Where this came from" onClick={() => setSourceOf(sourceOf === def.key ? null : def.key)} className="text-left hover:text-ink hover:underline">

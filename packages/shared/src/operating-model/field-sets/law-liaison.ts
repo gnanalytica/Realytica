@@ -54,6 +54,8 @@ const at = (fn: string, set: string, field: string): FieldAddress => ({ fn, set,
 
 /* --- Fields other functions already keep, read here by address -------- */
 const EXTENT_TITLE = at('legal.title', 'land_site.parcel_identification', 'extent_title');
+/** The land Title finds clear of restriction: what an agreement, a sanction and a conversion are held to. Title's to work out; read here. */
+const TITLE_CLEAR = at('legal.title', 'legal.title.character', 'clear_extent');
 const ROAD_WIDTH = at('legal.title', 'land_site.access', 'road_width_ft');
 const SANCTION_CHECK = (field: string) => at(APPROVALS, 'regulatory.sanction', field);
 const LAND_USE_CHECK = (field: string) => at(APPROVALS, 'regulatory.land_use', field);
@@ -142,7 +144,7 @@ const LAND_SETS: FieldSet[] = [
           else: fld('land_bought'),
         },
       },
-      mirror('land_on_parcel_check', 'Extent per title, on the parcel check', 'area', EXTENT_TITLE, { unit: 'sqm', section: 'land' }),
+      mirror('land_on_parcel_check', 'Extent clear of restriction, per Title', 'area', TITLE_CLEAR, { unit: 'sqm', section: 'land' }),
       { key: 'consideration_total', label: 'Consideration agreed', kind: 'computed', dimension: 'money', currency: 'INR', section: 'land', formula: { op: 'records', set: PURCHASES, reduce: 'sum', field: 'consideration' } },
       {
         key: 'agreements_to_complete',
@@ -172,7 +174,7 @@ const LAND_SETS: FieldSet[] = [
         fields: ['land_secured', 'land_on_parcel_check'],
         tolerance: 0.01,
         when: { records: PURCHASES, is: 'any' },
-        say: 'The agreements bring in {a} and the parcel check records {b} per title: {divergence} apart, outside {tolerance}.',
+        say: 'The agreements bring in {a} and Title finds {b} clear of restriction: {divergence} apart, outside {tolerance}.',
         severity: 'high',
       },
       { kind: 'require_if', fields: ['consent_to_transfer', 'consent_paper'], whenIn: ['held'], say: 'The lessor’s consent to transfer is recorded as held, with no paper filed.', severity: 'medium' },
@@ -377,7 +379,7 @@ const JDA_SETS: FieldSet[] = [
       { key: 'developer_share', label: 'Developer’s share', kind: 'computed', unit: '%', section: 'terms', tier: 'situational', formula: minus(num(100), fld('owner_share')) },
       { key: 'share_basis', label: 'Share measured on', kind: 'enum', optionSet: 'share_basis', section: 'terms', tier: 'situational' },
       { key: 'land_extent', label: 'Land put into the agreement', kind: 'area', dimension: 'area', enterIn: ['acre', 'gunta', 'cent', 'sqm', 'sqft', 'hectare'], section: 'terms', tier: 'situational', from: 'Schedule to the agreement', fromTypes: JDA_PAPER },
-      mirror('land_on_parcel_check', 'Extent per title, on the parcel check', 'area', EXTENT_TITLE, { unit: 'sqm', section: 'terms', tier: 'situational' }),
+      mirror('land_on_parcel_check', 'Extent clear of restriction, per Title', 'area', TITLE_CLEAR, { unit: 'sqm', section: 'terms', tier: 'situational' }),
       { key: 'agreement', label: 'Agreement, as signed', kind: 'evidence', accepts: 'document', viewer: 'deed', section: 'terms', tier: 'situational', proof: 'expected' },
       {
         key: 'jda_standing',
@@ -400,7 +402,7 @@ const JDA_SETS: FieldSet[] = [
     ],
     rules: [
       { kind: 'require_if', fields: ['jda_date', 'jda_doc_no'], say: 'The agreement dated {a} has no registration number recorded.', severity: 'high' },
-      { kind: 'compare', fields: ['land_extent', 'land_on_parcel_check'], tolerance: 0.01, say: 'The agreement brings in {a} and the parcel check records {b} per title: {divergence} apart, outside {tolerance}.', severity: 'high' },
+      { kind: 'compare', fields: ['land_extent', 'land_on_parcel_check'], tolerance: 0.01, say: 'The agreement brings in {a} and Title finds {b} clear of restriction: {divergence} apart, outside {tolerance}.', severity: 'high' },
       { kind: 'compare', fields: ['far_assumed', 'sanctioned'], at: { sanctioned: SANCTION_CHECK('sanctioned_far') }, tolerance: 0, say: 'The agreement assumes an FAR of {a} and {b} is sanctioned. Both shares are worked on the first.', severity: 'high' },
     ],
   },
@@ -1040,6 +1042,8 @@ const REGISTER_SETS: FieldSet[] = [
         cases: [
           { when: { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: '{a} stop-work order(s) are in force.', severity: 'critical' }, label: 'Work is ordered to stop', tone: 'critical' },
           { when: { kind: 'at_most', fields: ['run_out'], against: 0, say: '{a} approval(s) are past their validity.', severity: 'high' }, label: 'An approval has run out', tone: 'critical' },
+          // A register nobody has started is not in order: it is said to be empty.
+          { when: { kind: 'at_least', fields: ['approvals_recorded'], against: 1, say: 'No approval is recorded.', severity: 'low' }, label: 'No approval recorded', tone: 'neutral' },
         ],
         otherwise: { label: 'In order', tone: 'good' },
       },
@@ -1175,7 +1179,7 @@ const PLAN_SETS: FieldSet[] = [
         },
       },
       { key: 'converted_extent', label: 'Extent converted', kind: 'computed', unit: 'sqm', section: 'conversion', tier: 'situational', formula: { op: 'sum', table: 'conversion_orders', column: 'extent' } },
-      mirror('land_on_parcel_check', 'Extent per title, on the parcel check', 'area', EXTENT_TITLE, { unit: 'sqm', section: 'conversion', tier: 'situational' }),
+      mirror('land_on_parcel_check', 'Extent clear of restriction, per Title', 'area', TITLE_CLEAR, { unit: 'sqm', section: 'conversion', tier: 'situational' }),
       { key: 'unconverted_extent', label: 'Extent not converted', kind: 'computed', unit: 'sqm', section: 'conversion', tier: 'situational', formula: overBy(minus(fld('land_on_parcel_check'), fld('converted_extent'))) },
       { key: 'records_show_conversion', label: 'Record of rights updated after conversion', kind: 'boolean', control: 'tick', section: 'conversion', tier: 'situational', required: false, from: 'RTC (record of rights)' },
       { key: 'use_by', label: 'Use to begin by', kind: 'date', section: 'conversion', tier: 'situational', required: false, expires: { leadDays: 180 }, from: 'A condition of the order' },
@@ -1210,7 +1214,7 @@ const PLAN_SETS: FieldSet[] = [
       mirror('sanctioned_area', 'Built-up area sanctioned', 'area', SANCTION_CHECK('sanctioned_area'), { unit: 'sqm', section: 'sanction' }),
       mirror('sanctioned_far', 'FAR sanctioned', 'number', SANCTION_CHECK('sanctioned_far'), { section: 'sanction' }),
       { key: 'plot_area_per_plan', label: 'Plot area in the plan', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft', 'acre', 'gunta'], section: 'sanction', from: 'Sanctioned plan', fromTypes: SANCTION_PAPER, factKey: 'sanctioned_extent', proof: 'expected' },
-      mirror('land_on_parcel_check', 'Extent per title, on the parcel check', 'area', EXTENT_TITLE, { unit: 'sqm', section: 'sanction' }),
+      mirror('land_on_parcel_check', 'Extent clear of restriction, per Title', 'area', TITLE_CLEAR, { unit: 'sqm', section: 'sanction' }),
       { key: 'tallest', label: 'Tallest building, as sanctioned', kind: 'computed', dimension: 'length', section: 'sanction', formula: { op: 'records', set: BUILDING, reduce: 'max', field: 'sanctioned_height' } },
       { key: 'units_sanctioned', label: 'Units sanctioned', kind: 'computed', precision: 0, section: 'sanction', formula: { op: 'records', set: BUILDING, reduce: 'sum', field: 'sanctioned_units' } },
       { key: 'sanctioned_plan', label: 'Sanctioned plan', kind: 'evidence', accepts: 'document', viewer: 'drawing', section: 'sanction', proof: 'expected' },
@@ -1221,7 +1225,7 @@ const PLAN_SETS: FieldSet[] = [
         section: 'sanction',
         cases: [
           { when: { kind: 'at_least', fields: ['sanction_days_left'], against: 0, say: 'The sanction has run out.', severity: 'critical' }, label: 'Run out', tone: 'critical' },
-          { when: { kind: 'compare', fields: ['plot_area_per_plan', 'land_on_parcel_check'], tolerance: 0.01, say: 'The plan is drawn on {a} and the parcel check records {b} per title: {divergence} apart, outside {tolerance}.', severity: 'high' }, label: 'Plot area differs from the title', tone: 'critical' },
+          { when: { kind: 'compare', fields: ['plot_area_per_plan', 'land_on_parcel_check'], tolerance: 0.01, say: 'The plan is drawn on {a} and Title finds {b} clear of restriction: {divergence} apart, outside {tolerance}.', severity: 'high' }, label: 'Plot area differs from the title', tone: 'critical' },
         ],
         otherwise: { label: 'In force', tone: 'good' },
       },
@@ -1248,7 +1252,7 @@ const PLAN_SETS: FieldSet[] = [
       },
     ],
     rules: [
-      { kind: 'compare', fields: ['plot_area_per_plan', 'land_on_parcel_check'], tolerance: 0.01, say: 'The plan is drawn on {a} and the parcel check records {b} per title: {divergence} apart, outside {tolerance}.', severity: 'high' },
+      { kind: 'compare', fields: ['plot_area_per_plan', 'land_on_parcel_check'], tolerance: 0.01, say: 'The plan is drawn on {a} and Title finds {b} clear of restriction: {divergence} apart, outside {tolerance}.', severity: 'high' },
       { kind: 'at_least', fields: ['sanction_days_left'], against: 0, say: 'The sanction has run out.', severity: 'critical' },
     ],
   },
@@ -1642,9 +1646,6 @@ const SITE_SETS: FieldSet[] = [
 /* What Law and Liaison read from the other departments                  */
 /* ==================================================================== */
 
-const TITLE_CLEAR = at('legal.title', 'legal.title.character', 'clear_extent');
-/** The land Title finds clear of restriction: what an agreement, a sanction and a conversion are held to. */
-const clearLand = (section: string, more: Partial<CheckFieldDef> = {}): CheckFieldDef => mirror('land_on_parcel_check', 'Extent clear of restriction, per Title', 'area', TITLE_CLEAR, { unit: 'sqm', section, ...more });
 const JDA_PAYMENTS = 'finance.tax.jda_payments';
 const paidAs = (kind: string): CheckFormula => ({ op: 'sum_if', over: { records: JDA_PAYMENTS }, column: 'amount', where: { column: 'kind', is: 'equals', value: kind } });
 const UNITS_ON_SALE: ShowWhen = { records: 'shared.units', is: 'any', where: { column: 'sale_released', is: 'true' } };
@@ -1683,7 +1684,6 @@ const RERA_REPORT: FieldReportTemplate = {
 const LAW_LINKS: SetLinks[] = [
   {
     set: LAND,
-    replace: [clearLand('land')],
     // Who has to sign, and what the advocate still asks before closing, are Title's: a purchase is read against them here.
     fields: [
       mirror('owners_not_joining', 'Owners with a share who join no deed, per Title', 'number', at('legal.title', 'legal.title.ownership', 'not_joining'), { section: 'obligations', tier: 'situational', showWhen: { field: at('legal.title', 'legal.title.ownership', 'not_joining'), is: 'gt', value: 0 } }),
@@ -1694,7 +1694,6 @@ const LAW_LINKS: SetLinks[] = [
   },
   {
     set: JDA,
-    replace: [clearLand('terms', { tier: 'situational' })],
     // What has been paid to the landowner is Tax's record, payment by payment. The agreement's figures are held to it here.
     fields: [
       { key: 'refundable_paid', label: 'Refundable deposit paid, per Tax’s payments', kind: 'computed', dimension: 'money', currency: 'INR', section: 'money', tier: 'situational', showWhen: { records: JDA_PAYMENTS, is: 'any' }, formula: paidAs('refundable_deposit') },
@@ -1777,10 +1776,8 @@ const LAW_LINKS: SetLinks[] = [
   },
   // A lift is designed once, by Services. Its permission and licence are kept here, linked to that lift.
   { set: LIFTS, fields: [{ key: 'designed_as', label: 'Lift, as designed', kind: 'ref', target: { set: 'design.lifts.schedule' }, required: false }] },
-  { set: SANCTION, replace: [clearLand('sanction')] },
   { set: REGISTER, reports: [APPROVALS_REPORT] },
   { set: COMPLIANCE, reports: [RERA_REPORT] },
-  { set: LAND_USE, replace: [clearLand('conversion', { tier: 'situational' })] },
 ];
 
 export const LAW_LIAISON_FIELD_SETS: FieldSet[] = withLinks([...LAND_SETS, ...JDA_SETS, ...CUSTOMER_SETS, ...RERA_SETS, ...REGISTER_SETS, ...PLAN_SETS, ...SITE_SETS], LAW_LINKS);

@@ -91,6 +91,8 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part }: Props
   const catalog = useFirmCatalog(project);
   const page = useMemo(() => readFunctionFields(project, fn, new Date(), catalog), [project, fn, catalog]);
   const [open, setOpen] = useState<Opened | null>(null);
+  // A function with several sheets opens each as one line: its title, how full it is and where it stands. A person opens the one they came for.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   const choices = useMemo(() => (target: RefTarget | undefined) => refChoices(project, target, catalog), [project, catalog]);
 
   const run = (work: () => Promise<{ project: DdProject }>, failed: string) => {
@@ -117,6 +119,8 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part }: Props
   // A situation that follows from what is recorded is drawn only while it holds: nobody can put it in play by hand.
   const inPlayOrAskable = page.situations.filter((view) => !view.situation.derive || view.state === 'on');
 
+  const sheetsInPlay = page.sheets.filter((sheet) => sheet.reading && inPlay(sheet.reading)).length;
+  const notYet = page.sheets.filter((sheet) => sheet.reading && !inPlay(sheet.reading));
   const holders: SheetReading[] = [...page.sheets.flatMap((sheet) => (sheet.reading ? [sheet.reading] : (sheet.records ?? []))), ...page.shared.flatMap((sheet) => sheet.records)];
   const opened = open ? holders.find((reading) => reading.set.id === open.set && reading.recordId === open.record) : undefined;
   const depth = opened && open?.depth ? opened.depth.find((held) => held.sheet.id === open.depth) : undefined;
@@ -158,18 +162,36 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part }: Props
 
           {page.sheets.map((sheet) =>
             sheet.reading ? (
-              <Sheet
-                key={sheet.set.id}
-                reading={sheet.reading}
-                mayDecide={seat.mayDecide}
-                props={sheetProps(sheet.reading)}
-                onSection={(section, reason) => run(() => api.setSectionNotApplicable(project.id, sheet.set.id, section, reason), 'That could not be marked')}
-                onOpenDepth={(id) => setOpen({ set: sheet.set.id, depth: id })}
-              />
+              // A sheet none of whose fields is in play yet is not drawn as an empty card: it is named in the line below.
+              inPlay(sheet.reading) ? (
+                <Sheet
+                  key={sheet.set.id}
+                  reading={sheet.reading}
+                  mayDecide={seat.mayDecide}
+                  props={sheetProps(sheet.reading)}
+                  folds={sheetsInPlay > 1}
+                  open={sheetsInPlay <= 1 || unfolded.has(sheet.set.id)}
+                  onToggle={() =>
+                    setUnfolded((held) => {
+                      const next = new Set(held);
+                      if (!next.delete(sheet.set.id)) next.add(sheet.set.id);
+                      return next;
+                    })
+                  }
+                  onSection={(section, reason) => run(() => api.setSectionNotApplicable(project.id, sheet.set.id, section, reason), 'That could not be marked')}
+                  onOpenDepth={(id) => setOpen({ set: sheet.set.id, depth: id })}
+                />
+              ) : null
             ) : (
               <Records key={sheet.set.id} set={sheet.set} records={sheet.records ?? []} mayEdit={seat.mayEdit} onOpen={(record) => setOpen({ set: sheet.set.id, record })} onAdd={() => addRecord(sheet.set.id)} />
             ),
           )}
+
+          {notYet.length ? (
+            <p className="px-1 text-[12px] leading-snug text-ink-muted">
+              {plural(notYet.length, 'sheet')} here {notYet.length === 1 ? 'opens' : 'open'} once what {notYet.length === 1 ? 'it is' : 'they are'} about is recorded: {notYet.map((sheet) => sheet.set.title).join(', ')}.
+            </p>
+          ) : null}
 
           {page.shared.map((shared) => (
             <Records key={shared.set.id} set={shared.set} records={shared.records} mayEdit={seat.mayEdit} quiet onOpen={(record) => setOpen({ set: shared.set.id, record })} onAdd={() => addRecord(shared.set.id)} />
@@ -468,13 +490,76 @@ function byKey(views: FieldView[]): { defs: CheckFieldDef[]; values: Record<stri
   return { defs: views.map((view) => view.def), values, views: Object.fromEntries(views.map((view) => [view.def.key, view])) };
 }
 
-function Sheet({ reading, mayDecide, props, onSection, onOpenDepth }: { reading: SheetReading; mayDecide: boolean; props: SheetProps; onSection: (section: string, reason: string | null) => void; onOpenDepth: (id: string) => void }) {
+/** Whether a sheet has anything to show yet: a field in play, or a hard case that applies. */
+function inPlay(reading: SheetReading): boolean {
+  return reading.fields.some((view) => view.shown !== 'hidden' && !view.def.sheet) || reading.depth.some((held) => held.shown);
+}
+
+/**
+ * One sheet of a function. Where the function keeps several, each opens as
+ * one line (its title, how full it is, what is still to fill and where its
+ * standings are) and unfolds when pressed, so a function with seven sheets
+ * is seven lines to choose from and not seven forms down the page.
+ */
+function Sheet({
+  reading,
+  mayDecide,
+  props,
+  folds,
+  open,
+  onToggle,
+  onSection,
+  onOpenDepth,
+}: {
+  reading: SheetReading;
+  mayDecide: boolean;
+  props: SheetProps;
+  folds: boolean;
+  open: boolean;
+  onToggle: () => void;
+  onSection: (section: string, reason: string | null) => void;
+  onOpenDepth: (id: string) => void;
+}) {
+  const subtitle = `${reading.filled} of ${reading.total} recorded`;
+  if (!folds) {
+    return (
+      <Card>
+        <CardHeader title={reading.set.title} subtitle={subtitle} />
+        <CardBody>
+          <SheetBody reading={reading} props={props} mayDecide={mayDecide} onSection={onSection} onOpenDepth={onOpenDepth} />
+        </CardBody>
+      </Card>
+    );
+  }
+  const missing = reading.fields.filter((view) => view.missing).length;
+  const waiting = reading.fields.filter((view) => view.shown !== 'hidden' && (view.state === 'proposed' || view.waiting.length > 0)).length;
+  // Where the sheet stands, as its own rules work it out: said on the line, so nobody opens a sheet to learn it is in order.
+  const standings = reading.fields.filter((view) => view.def.kind === 'status' && view.shown !== 'hidden' && view.held && view.held.value !== null && view.held.value !== '');
   return (
     <Card>
-      <CardHeader title={reading.set.title} subtitle={`${reading.filled} of ${reading.total} recorded`} />
-      <CardBody>
-        <SheetBody reading={reading} props={props} mayDecide={mayDecide} onSection={onSection} onOpenDepth={onOpenDepth} />
-      </CardBody>
+      <button type="button" aria-expanded={open} onClick={onToggle} className="flex w-full items-start justify-between gap-3 rounded-2xl px-4 py-3 text-left hover:bg-sunken/60 coarse:min-h-11">
+        <span className="min-w-0">
+          <span className="block truncate text-[14px] font-semibold tracking-tight text-ink">{reading.set.title}</span>
+          <span className="mt-0.5 block text-xs leading-snug text-ink-secondary">
+            {subtitle}
+            {missing ? ` · ${missing} still to fill` : ''}
+            {waiting ? ` · ${waiting} waiting on you` : ''}
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {standings.map((view) => (
+            <Badge key={view.def.key} tone={view.tone ?? 'neutral'}>
+              {String(view.held!.value)}
+            </Badge>
+          ))}
+          <ChevronRight size={16} className={cn('text-ink-muted transition-transform', open && 'rotate-90')} />
+        </span>
+      </button>
+      {open ? (
+        <CardBody className="border-t border-hairline">
+          <SheetBody reading={reading} props={props} mayDecide={mayDecide} onSection={onSection} onOpenDepth={onOpenDepth} />
+        </CardBody>
+      ) : null}
     </Card>
   );
 }

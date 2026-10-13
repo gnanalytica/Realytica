@@ -715,7 +715,11 @@ export const ARCHITECT_FIELD_SETS: FieldSet[] = [
         key: 'log_standing',
         label: 'Answers',
         kind: 'status',
-        cases: [{ when: { kind: 'at_most', fields: ['overdue'], against: 0, say: 'Requests past the day their answer was needed: {a}.', severity: 'high' }, label: 'Answers overdue', tone: 'critical' }],
+        cases: [
+          { when: { kind: 'at_most', fields: ['overdue'], against: 0, say: 'Requests past the day their answer was needed: {a}.', severity: 'high' }, label: 'Answers overdue', tone: 'critical' },
+          // Nothing raised is not a clean log: it is said as it is, and never as in order.
+          { when: { kind: 'at_least', fields: ['raised'], against: 1, say: 'No request for information is recorded.', severity: 'low' }, label: 'No request raised', tone: 'neutral' },
+        ],
         otherwise: { label: 'No answer overdue', tone: 'good' },
       },
     ],

@@ -85,6 +85,28 @@ describe('the catalog', () => {
     assert.deepEqual(Object.fromEntries(bySet), {}, 'fix these in the file that declares the set');
   });
 
+  it('calls nothing in order on a project nobody has touched, and asks little of it', () => {
+    const p = project();
+    const at = new Date('2026-10-13T06:00:00Z');
+    const catalog = fieldCatalog();
+    const resolution = resolveFields(p, at, catalog);
+    const good: string[] = [];
+    const said: string[] = [];
+    const wide: string[] = [];
+    for (const held of FIELD_SETS) {
+      if (held.records || held.extends) continue;
+      const reading = readSheet(p, held.id, undefined, resolution, catalog, at)!;
+      // A standing in a good tone over nothing recorded tells a reader the work is done.
+      for (const view of reading.fields) if (view.def.kind === 'status' && view.tone === 'good' && view.held?.value) good.push(`${held.id}/${view.def.key}: ${String(view.held.value)}`);
+      if (reading.insights.length) said.push(`${held.id}: ${reading.insights[0]!.text}`);
+      const shown = reading.fields.filter((view) => view.shown === 'shown' && !view.def.sheet).length;
+      if (shown > 12) wide.push(`${held.id} shows ${shown}`);
+    }
+    assert.deepEqual(good, [], 'fix these in the file that declares the set: open the standing with a case for nothing recorded');
+    assert.deepEqual(said, [], 'a rule speaks only of what somebody has filled');
+    assert.deepEqual(wide, [], 'no sheet opens on more than twelve fields');
+  });
+
   it('exposes every check’s fields through the same door, unchanged', () => {
     const catalog = fieldCatalog();
     const parcel = catalog.sets.get('land_site.parcel_identification')!;
