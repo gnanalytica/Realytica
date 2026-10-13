@@ -1458,6 +1458,7 @@ function FieldMarks({
       {view.assumes?.length && view.held && view.held.value !== null && view.held.value !== '' ? <p>On an assumed value: nobody entered {view.assumes.join(', ')}.</p> : null}
       {view.removedLink ? <p className="text-critical">Links to a record taken off its list. Link another, or clear it.</p> : null}
       {view.notInPlay ? <p>Filled in earlier, not needed now</p> : null}
+      {view.carried ? <p data-field-carried>Carried from {view.carried}</p> : null}
       {view.state === 'not_applicable' && may ? (
         <button type="button" className={cn(act, 'px-0 text-brand')} onClick={() => onDecide!(def, 'reopen')}>
           Ask again

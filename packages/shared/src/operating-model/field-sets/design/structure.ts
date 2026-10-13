@@ -438,10 +438,13 @@ export const STRUCTURE_FIELD_SETS: FieldSet[] = [
     id: 'design.structural_set.engineer_certificates',
     fn: FN.structuralSet,
     title: 'Engineer’s certificates',
-    v: 1,
+    v: 2,
     records: { of: 'certificate', titleField: 'dated', summaryFields: ['kind', 'building'] },
+    // One a quarter for each building, signed by the engineer. A certificate given at registration states no quarter, and is no period.
+    periodic: { every: 'quarter', by: 'quarter_ending', per: ['building'], carry: ['kind', 'engineer', 'quantities_by'], due: { rate: 'rera_quarterly_filing_days' }, issuer: 'consultant' },
     fields: [
       { key: 'dated', label: 'Certificate dated', kind: 'date' },
+      { key: 'quarter_ending', label: 'Quarter ending', kind: 'date', tier: 'situational', since: 2, showWhen: { field: { fn: FN.structuralSet, set: 'design.structural_set.engineer_certificates', field: 'kind' }, is: 'equals', value: 'for a quarter' } },
       { key: 'kind', label: 'Given', kind: 'enum', control: 'segmented', options: ['at registration', 'for a quarter'], hint: 'The state’s form for each is in its pack.' },
       { key: 'building', label: 'Building or wing', kind: 'ref', target: 'building' },
       { key: 'engineer', label: 'Certifying engineer', kind: 'ref', target: 'party' },

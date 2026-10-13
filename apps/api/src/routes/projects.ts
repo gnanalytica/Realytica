@@ -79,6 +79,10 @@ import {
   checkFieldsShown,
   fieldCatalogFor,
   snoozeNeed,
+  openPeriod,
+  issuePeriod,
+  revisePeriod,
+  setPeriodReason,
   findCheck,
   recordCheckFields,
   SHARED_FN,
@@ -307,6 +311,7 @@ import {
   situationBodySchema,
   sectionNaBodySchema,
   snoozeNeedBodySchema,
+  fieldPeriodBodySchema,
   insertReportBlockBodySchema,
   moveReportBlockBodySchema,
   retuneReportBlockBodySchema,
@@ -3438,7 +3443,7 @@ async function fieldSeat(req: Request, res: Response, fn: string | undefined): P
   }
   const me = principalOf(req);
   const person = { email: me.email, workspaceRole: me.role };
-  return { project, options: { mayDecide: decidesFor(req, project), mayEdit: (department) => roleCanEdit(departmentRole(project, person, department)) } };
+  return { project, options: { mayDecide: decidesFor(req, project), mayEdit: (department) => roleCanEdit(departmentRole(project, person, department)), roleIn: (department) => departmentRole(project, person, department) } };
 }
 
 function failField(res: Response, err: unknown): void {
@@ -3606,6 +3611,52 @@ projectsRouter.put('/:projectId/fields/snooze', async (req, res) => {
     snoozeNeed(seat.project, parsed.data.fn, parsed.data.key, parsed.data.until, actorOf(req), seat.options);
     await persistPaneWrite(req, seat.project, parsed.data.until ? `Put a line off until ${parsed.data.until}.` : 'Brought a line back.');
     res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/**
+ * A set kept by period: open a period from the last, issue one under a name, open a revision beside an issued one,
+ * or pick from the set's list why a figure's movement is not explained. Who may do each is asked of the department
+ * role: whoever edits opens a period and picks a reason; a lead or signer issues and revises.
+ */
+projectsRouter.post('/:projectId/fields/period', async (req, res) => {
+  const parsed = fieldPeriodBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  const seat = await fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    const { act, record, period, name, field, reason } = parsed.data;
+    let said: string;
+    let recordId = record;
+    if (act === 'open') {
+      const opened = openPeriod(seat.project, set.id, actorOf(req), seat.options, { ...(period ? { period } : {}) });
+      recordId = opened.records[0]?.id;
+      said = opened.made ? `Opened ${opened.period.label} on ${set.title}.` : `${opened.period.label} is already open on ${set.title}.`;
+    } else if (!record) {
+      res.status(400).json({ error: 'Say which period.' });
+      return;
+    } else if (act === 'issue') {
+      issuePeriod(seat.project, set.id, record, { actor: actorOf(req), ...(name?.trim() ? { name } : {}) }, seat.options);
+      said = `Issued a period of ${set.title}.`;
+    } else if (act === 'revise') {
+      recordId = revisePeriod(seat.project, set.id, record, actorOf(req), seat.options).id;
+      said = `Opened a revision of an issued period of ${set.title}.`;
+    } else {
+      if (!field) {
+        res.status(400).json({ error: 'Say which figure.' });
+        return;
+      }
+      setPeriodReason(seat.project, set.id, record, field, reason ?? null, actorOf(req), seat.options);
+      said = `Picked why a figure of ${set.title} moved.`;
+    }
+    await persistPaneWrite(req, seat.project, said);
+    res.json({ project: seat.project, ...(recordId ? { recordId } : {}) });
   } catch (err) {
     failField(res, err);
   }

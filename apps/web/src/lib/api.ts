@@ -1252,6 +1252,9 @@ export const api = {
   /** Put a line under Due soon off until a day, or with null bring it back. */
   snoozeNeed: (projectId: string, fn: string, key: string, until: string | null) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/snooze`, { method: 'PUT', body: JSON.stringify({ fn, key, until }) }),
+  /** One act on a set kept by period: open a period, issue it, open a revision of an issued one, or pick why a figure is unexplained. */
+  fieldPeriod: (projectId: string, body: { set: string; act: 'open' | 'issue' | 'revise' | 'reason'; record?: string; period?: string; name?: string; field?: string; reason?: string | null }) =>
+    request<{ project: DdProject; recordId?: string }>(`/projects/${projectId}/fields/period`, { method: 'POST', body: JSON.stringify(body) }),
   /** The firm's own fields: what it has added to the built-in sets, the sets it may add to, and whether this person may change them. */
   firmFields: () => request<FirmFieldsShown>('/firm-fields'),
   saveFirmFields: (pack: Pick<FirmFieldPack, 'optionSets' | 'add' | 'demote'>) => request<FirmFieldsShown>('/firm-fields', { method: 'PUT', body: JSON.stringify(pack) }),

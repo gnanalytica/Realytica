@@ -874,6 +874,8 @@ const RERA_SETS: FieldSet[] = [
     title: 'Filings',
     v: 1,
     records: { of: 'filing', titleField: 'period_end', summaryFields: ['kind', 'filing_due', 'standing'] },
+    // One quarterly update a quarter, and the annual statement beside the last of the year. The day each is due is its own field, from the rule rows.
+    periodic: { every: 'quarter', by: 'period_end', per: ['kind'], due: { rate: 'rera_quarterly_filing_days' }, issuer: 'lead' },
     optionSets: [list('rera_filing_kind', 'Filing', [opt('quarterly', 'Quarterly update'), opt('annual', 'Annual audited statement')])],
     fields: [
       { key: 'period_end', label: 'Period ending', kind: 'date' },

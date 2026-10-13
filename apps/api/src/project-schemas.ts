@@ -775,4 +775,14 @@ export const situationBodySchema = z.object({ fn: z.string().min(1).max(80), key
 
 /** A line under Due soon put off until a day, or with `null` brought back. */
 export const snoozeNeedBodySchema = z.object({ fn: z.string().min(1).max(80), key: z.string().min(1).max(400), until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() });
+/** One act on a set kept by period: open a period, issue it under a name, open a revision of an issued one, or pick why a figure's movement is unexplained. */
+export const fieldPeriodBodySchema = z.object({
+  set: z.string().min(1).max(120),
+  act: z.enum(['open', 'issue', 'revise', 'reason']),
+  record: z.string().min(1).max(80).optional(),
+  period: z.string().min(1).max(100).optional(),
+  name: z.string().max(120).optional(),
+  field: z.string().min(1).max(80).optional(),
+  reason: z.string().max(60).nullable().optional(),
+});
 export const sectionNaBodySchema = z.object({ set: z.string().min(1).max(120), section: z.string().max(80), reason: z.string().max(40).nullable(), note: z.string().max(120).optional() });

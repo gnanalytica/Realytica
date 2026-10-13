@@ -24,17 +24,19 @@
 import { APPROVAL_KINDS } from './approvals';
 import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, tableRows, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
 import { checkFieldsAsRead, checkOfferCards, checkOfferStanding, decideCheckWaiting, type CheckOffer } from './check-waiting';
-import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey } from './departments';
+import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey, type DepartmentRole } from './departments';
 import { surveyNumbersIn } from './document-intake';
 import { paperCarries, type DocumentFact, type FactProof } from './document-parse';
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, proposedFacts, settled, standingFacts } from './fact-review';
 import { projectFigure } from './field-figures';
 import { fieldHistorySaid, stand, type FieldHistorySaid } from './field-history';
+import { setPeriods, type SetPeriods } from './field-periods';
 import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { RULE_ROWS } from './field-sets';
 import { SHARED_FN } from './field-sets/shared-records';
+import { periodOfKey } from './period-keys';
 import { indiaToday } from './quarters';
 import { ruleCitation, ruleRow } from './rule-tables';
 import { parseMeasure, type Entered } from './units';
@@ -80,6 +82,8 @@ export type MayEdit = (department: DepartmentKey) => boolean;
 export interface FieldWriteOptions {
   mayDecide?: MayDecide;
   mayEdit?: MayEdit;
+  /** The caller's role in a department, where issuing a period asks for the signer and not only somebody who decides. */
+  roleIn?: (department: DepartmentKey) => DepartmentRole | undefined;
 }
 
 export class FieldRefused extends Error {
@@ -114,10 +118,29 @@ function sheetFor(project: DdProject, setId: string): StoredFieldSheet {
   return project.fieldSheets[setId]!;
 }
 
-/** The records of a set that repeats that are still on its list. */
+/**
+ * The records of a set that repeats that are still on its list. An issued
+ * period that a later revision has taken the place of is kept as it was sent
+ * and is no longer on the list: the revision is.
+ */
 export function fieldRecords(project: DdProject, setId: string): FieldRecord[] {
-  return (sheetOf(project, setId)?.records ?? []).filter((record) => !record.removed);
+  const kept = (sheetOf(project, setId)?.records ?? []).filter((record) => !record.removed);
+  if (!kept.some((record) => record.revises)) return kept;
+  const replaced = new Set(kept.filter((record) => record.revises && record.issued).map((record) => record.revises));
+  return kept.filter((record) => !replaced.has(record.id));
 }
+
+/** A revision still open beside the issued period it corrects: on the list to be worked on, and counted by nothing until it is issued. */
+const openRevision = (record: FieldRecord): boolean => Boolean(record.revises) && !record.issued;
+
+/** Takes a key off the list of what a record carried from the last period: somebody has written it since. */
+function notCarried(project: DdProject, where: { set: string; record?: string }, key: string): void {
+  const record = where.record ? sheetOf(project, where.set)?.records?.find((held) => held.id === where.record) : undefined;
+  if (record?.carried?.keys.includes(key)) record.carried = { ...record.carried, keys: record.carried.keys.filter((held) => held !== key) };
+}
+
+/** Why an issued period takes no write. */
+const ISSUED_SAID = 'This period is issued. A correction is a revision kept beside it.';
 
 /** Everything one holder stores, whatever its standing. */
 function stored(project: DdProject, catalog: FieldCatalog, setId: string, recordId?: string): Record<string, CheckFieldValue> {
@@ -149,6 +172,7 @@ function holderFor(project: DdProject, catalog: FieldCatalog, address: Pick<Fiel
   if (!address.record) return sheet.values;
   const record = sheet.records?.find((held) => held.id === address.record && !held.removed);
   if (!record) throw new FieldRefused('That record is not on this project.');
+  if (record.issued) throw new FieldRefused(ISSUED_SAID);
   return record.values;
 }
 
@@ -347,8 +371,9 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
 
   const records = (setId: string) => {
     if (!catalog.sets.get(setId)?.records) return undefined;
+    // A revision still open beside the period it corrects counts for nothing yet: the issued one is read until it is issued too.
     return fieldRecords(project, setId)
-      .filter(recordStands)
+      .filter((record) => recordStands(record) && !openRevision(record))
       .map((record) => holder(setId, record.id));
   };
 
@@ -574,6 +599,8 @@ export interface FieldView {
   removedLink?: boolean;
   /** What it held before, as its popover says it: one templated line, and the figures for a sparkline where there are three. */
   past?: FieldHistorySaid;
+  /** Filled from the last period when this one was opened, and not written since: the period it came from, in short ("September"). */
+  carried?: string;
 }
 
 /** The party a field's value is waited on from. */
@@ -771,6 +798,10 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
   // A record nobody has accepted or typed anything on holds only what was offered: it asks nothing and counts for nothing.
   const pending = Boolean(recordId) && !catalog.checks.has(setId) && !Object.values(held).some((value) => fieldStands(value) && !isBlank(value));
   const na = sheetOf(project, setId)?.na ?? {};
+  // What this record was opened with from the last period, said by the period it came from.
+  const carriedOn = recordId && set.periodic ? sheetOf(project, setId)?.records?.find((record) => record.id === recordId)?.carried : undefined;
+  const carriedKeys = new Set(carriedOn?.keys ?? []);
+  const carriedFrom = carriedOn ? (periodOfKey(carriedOn.from)?.short ?? 'the last one') : undefined;
   const sectionDefs = [...(set.sections ?? [])];
   if (set.fields.some((def) => !def.section && !def.sheet)) sectionDefs.unshift({ key: '', label: '' });
   // Whether a field is expected yet: its step of the project has come, or its day has.
@@ -850,6 +881,7 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       ...(def.sameAs ? { heldAt: { ...def.sameAs, fn: catalog.sets.get(def.sameAs.set)?.fn ?? def.sameAs.fn } } : {}),
       ...(shown !== 'hidden' && linkGone(def, own) ? { removedLink: true } : {}),
       ...(past ? { past } : {}),
+      ...(carriedFrom && carriedKeys.has(def.key) && !isBlank(own) ? { carried: carriedFrom } : {}),
     };
   });
 
@@ -928,7 +960,7 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
 /* A function's page: what needs a person first                          */
 /* ==================================================================== */
 
-export type FieldExceptionKind = 'proposed' | 'situation' | 'disputed' | 'missing' | 'unmatched' | 'rule';
+export type FieldExceptionKind = 'proposed' | 'situation' | 'disputed' | 'missing' | 'unmatched' | 'rule' | 'due';
 
 /**
  * The five lines a function opens on, in the order a person takes them.
@@ -942,6 +974,10 @@ export type FieldExceptionKind = 'proposed' | 'situation' | 'disputed' | 'missin
  *   and a person may put one off until a day they name.
  * - `missing`: a must-field the function's own people owe that holds
  *   nothing, and a thing with no counterpart.
+ *
+ * A set kept by period adds one line of its own, of kind `due`: the latest
+ * period that has ended and is not issued. It is counted under Due soon until
+ * the day it is due, and under Failing after it.
  */
 export type NeedKind = 'decide' | 'accept' | 'failing' | 'due_soon' | 'missing';
 
@@ -1014,7 +1050,7 @@ export interface SituationView {
 
 export interface FunctionFields {
   fn: string;
-  sheets: Array<{ set: FieldSet; reading?: SheetReading; records?: SheetReading[] }>;
+  sheets: Array<{ set: FieldSet; reading?: SheetReading; records?: SheetReading[]; /** On a set kept by period: what is open, the line that opens the past, and what is due. */ periods?: SetPeriods }>;
   /** The shared records its sheets link to, listed beside its own: parties, parcels, units. They are the project's, and ask nothing of this function. */
   shared: Array<{ set: FieldSet; records: SheetReading[] }>;
   situations: SituationView[];
@@ -1054,7 +1090,7 @@ function formulaRecordReads(node: unknown): Array<{ set: string; where?: RowWher
 }
 
 const SEVERITY_TONE: Record<string, Tone> = { critical: 'critical', high: 'critical', medium: 'warning', low: 'neutral' };
-const ORDER: FieldExceptionKind[] = ['situation', 'disputed', 'proposed', 'rule', 'missing', 'unmatched'];
+const ORDER: FieldExceptionKind[] = ['situation', 'disputed', 'proposed', 'rule', 'due', 'missing', 'unmatched'];
 
 function namesSituation(when: ShowWhen | undefined, key: string): boolean {
   if (!when) return false;
@@ -1067,11 +1103,12 @@ function namesSituation(when: ShowWhen | undefined, key: string): boolean {
 /** Everything a function's sheets hold, with what needs a person in front. */
 export function readFunctionFields(project: DdProject, fn: string, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project)): FunctionFields {
   const resolution = resolveFields(project, at, catalog);
-  const sheets = fieldSetsOf(fn, catalog).map((set) =>
-    set.records
-      ? { set, records: fieldRecords(project, set.id).flatMap((record) => readSheet(project, set.id, record.id, resolution, catalog, at) ?? []) }
-      : { set, reading: readSheet(project, set.id, undefined, resolution, catalog, at) },
-  );
+  const sheets: FunctionFields['sheets'] = fieldSetsOf(fn, catalog).map((set) => {
+    if (!set.records) return { set, reading: readSheet(project, set.id, undefined, resolution, catalog, at) };
+    const records = fieldRecords(project, set.id).flatMap((record) => readSheet(project, set.id, record.id, resolution, catalog, at) ?? []);
+    const periods = set.periodic ? setPeriods(project, set, at, catalog, (id) => records.find((read) => read.recordId === id)) : undefined;
+    return { set, records, ...(periods ? { periods } : {}) };
+  });
   const readings = sheets.flatMap((sheet) => (sheet.reading ? [sheet.reading] : (sheet.records ?? [])));
 
   const situations: SituationView[] = situationsOf(fn, catalog).map(({ at: key, situation }) => {
@@ -1228,6 +1265,12 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
     }
   }
   for (const line of beside) if (!all.some((other) => other.key === line.key)) all.push(line);
+  // A set kept by period asks for one thing: its latest period that has ended and is not issued.
+  for (const { set, periods } of sheets) {
+    const due = periods?.due;
+    if (!due) continue;
+    all.push({ kind: 'due', need: due.late ? 'failing' : 'due_soon', key: `${set.id}::::period::${due.period.key}`, sheet: set.title, ...(due.record ? { record: due.record } : {}), address: { fn: set.fn, set: set.id, field: '', ...(due.record ? { record: due.record } : {}) }, label: set.title, text: due.said, tone: due.late ? 'critical' : 'warning' });
+  }
   // A line under Due soon a person put off stays off the page until its day, or until it starts failing.
   const day = indiaToday(at);
   const snoozed: FieldException[] = [];
@@ -1238,7 +1281,7 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
     else exceptions.push(exception);
   }
   exceptions.sort((a, b) => NEED_KINDS.indexOf(a.need) - NEED_KINDS.indexOf(b.need) || ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
-  const counts = { proposed: 0, situation: 0, disputed: 0, missing: 0, unmatched: 0, rule: 0, total: 0 };
+  const counts = { proposed: 0, situation: 0, disputed: 0, missing: 0, unmatched: 0, rule: 0, due: 0, total: 0 };
   const needs: Record<NeedKind, FieldException[]> = { decide: [], accept: [], failing: [], due_soon: [], missing: [] };
   for (const exception of exceptions) {
     counts[exception.kind] += 1;
@@ -1571,7 +1614,11 @@ export function setFieldValues(
       .join('; ')
       .slice(0, AUDIT_LINE_MOST);
   const before = said((key) => standingField(holder[key]));
-  for (const [key, value] of Object.entries(next)) stand(holder, key, value, { at, by: actor });
+  for (const [key, value] of Object.entries(next)) {
+    // A value carried from the last period and written again is this period's own.
+    if (value !== holder[key]) notCarried(project, where, key);
+    stand(holder, key, value, { at, by: actor });
+  }
   project.updatedAt = at;
   project.historyFrom ??= at;
   recordAuditEvent(project, { actor, action: 'set_field_values', entityType: 'field_set', entityId: where.record ? `${where.set}::${where.record}` : where.set, oldValue: before, newValue: said((key) => next[key]), at });
@@ -1951,6 +1998,7 @@ export function decideField(
   const lists = (id: string) => optionSetById(id, catalog);
   const stood = standingField(held);
   const before = stood && !isBlank(stood) ? formatFieldValue(def, stood, lists).slice(0, AUDIT_LINE_MOST) : undefined;
+  notCarried(project, address, def.key);
   stand(holder, def.key, next, { at, by: actor });
   project.updatedAt = at;
   project.historyFrom ??= at;
@@ -2062,6 +2110,7 @@ export function removeFieldRecord(project: DdProject, setId: string, recordId: s
   const set = catalog.sets.get(setId);
   const record = sheetOf(project, setId)?.records?.find((held) => held.id === recordId && !held.removed);
   if (!set?.records || !record) throw new FieldRefused('That record is not on this project.');
+  if (record.issued) throw new FieldRefused(ISSUED_SAID);
   assertMayDecide(set.fn, `Taking a record off ${set.title}`, options);
   const at = now();
   record.removed = { by: actor, at };

@@ -849,6 +849,8 @@ export const ARCHITECT_FIELD_SETS: FieldSet[] = [
     title: 'Architect’s certificates',
     v: 1,
     records: { of: 'certificate', titleField: 'dated', summaryFields: ['kind', 'building', 'work_per_sanction'] },
+    // One a quarter for each building, signed by the architect. A certificate given at registration states no quarter, and is no period.
+    periodic: { every: 'quarter', by: 'quarter_ending', per: ['building'], carry: ['kind', 'architect'], due: { rate: 'rera_quarterly_filing_days' }, issuer: 'consultant' },
     optionSets: [
       {
         id: 'design_building_activity',

@@ -35,6 +35,8 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   { file: 'packages/shared/src/operating-model/check-fields.ts', has: 'const held = check.fields ?? {};', why: 'a check’s own reading: `held` is everything stored, for the screen, and `values` beside it is only what stands' },
   { file: 'packages/shared/src/operating-model/check-waiting.ts', has: 'const own = check.fields ?? {};', why: 'lays the values waiting on a check’s cards over what it stores, each marked proposed: a reading for the field system, which asks `fieldStands` of every one' },
 
+  { file: 'packages/shared/src/operating-model/field-periods.ts', why: 'the periods of a set: a record’s period and what tells it from another are read through `standingField`; what waits on it is counted, never read, before an issue is allowed; an issued record is copied whole into its revision; every figure compared comes through `resolveFields`' },
+
   // Working out from a check's values goes through `withComputed`, which drops what does not stand before any formula runs.
   { file: 'packages/shared/src/operating-model/operations.ts', has: 'withComputed(fields, check.fields ?? {})', why: 'the tolerance readings: `withComputed` reads only what stands' },
   { file: 'packages/shared/src/operating-model/valuation-run.ts', has: 'withComputed(def?.fields ?? [], check.fields ?? {})', why: 'the valuation’s inputs: `withComputed` reads only what stands' },

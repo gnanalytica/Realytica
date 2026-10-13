@@ -400,6 +400,52 @@ export function fieldOrder(catalog = fieldCatalog()): { order: FieldAddress[]; c
 /* What is wrong with a catalog                                          */
 /* ==================================================================== */
 
+const OWED_ROLES: readonly string[] = ['owner', 'advocate', 'authority', 'consultant', 'contractor', 'lender', 'buyer'];
+
+/** What a set's `periodic` declares that cannot work. */
+function periodicFaults(set: FieldSet, catalog: FieldCatalog, rated: ReadonlySet<string>): string[] {
+  const periodic = set.periodic;
+  if (!periodic) return [];
+  const faults: string[] = [];
+  const field = (key: string) => set.fields.find((def) => def.key === key);
+  if (catalog.checks.has(set.id) || set.extends) faults.push('a check, or a set that adds to a shared record, is not kept by period.');
+  const event = typeof periodic.every === 'object' ? periodic.every : undefined;
+  if (!event && !['week', 'month', 'quarter', 'year'].includes(periodic.every as string)) faults.push('periodic.every is a week, a month, a quarter, a year or an event.');
+  if (event) {
+    const events = catalog.sets.get(event.event);
+    if (!events?.records) faults.push(`periodic is kept by "${event.event}", which is not a set that repeats.`);
+    if (event.on && events && events.fields.find((def) => def.key === event.on)?.kind !== 'date') faults.push(`periodic reads the event's day from "${event.on}", which is not a date of ${event.event}.`);
+    if (!set.records) faults.push('only a set that repeats is kept by event.');
+  }
+  if (set.records) {
+    const by = periodic.by ? field(periodic.by) : undefined;
+    if (!by) faults.push('a set that repeats names the field its period is read from (periodic.by).');
+    else if (event ? !(by.kind === 'ref' && refSet(by.target) === event.event) : !(by.kind === 'date' || (periodic.every === 'year' && by.kind === 'text'))) faults.push(`periodic.by "${by.key}" does not name a period: a date, the year as written, or for an event the link to it.`);
+    for (const key of periodic.per ?? []) if (!field(key) || fieldIsWorkedOut(field(key)!)) faults.push(`periodic.per names "${key}", which is not a field somebody fills.`);
+  } else if (periodic.by || periodic.per?.length) faults.push('a sheet held once is its own open period: it names no periodic.by and no periodic.per.');
+  for (const key of periodic.carry ?? []) {
+    const def = field(key);
+    if (!def || fieldIsWorkedOut(def) || def.kind === 'longtext') faults.push(`periodic.carry names "${key}", which is not a field somebody fills.`);
+  }
+  for (const key of periodic.cumulative ?? []) if (!field(key)) faults.push(`periodic.cumulative names "${key}", which is not a field.`);
+  if ('rate' in periodic.due ? !rated.has(periodic.due.rate) : !(Number.isInteger(periodic.due.days) && periodic.due.days >= 0)) faults.push('periodic.due is a number of days, or a rule row that is on file.');
+  if (periodic.issuer !== 'lead' && periodic.issuer !== 'signer' && !OWED_ROLES.includes(periodic.issuer)) faults.push('periodic.issuer is a lead, a signer or a party’s role.');
+  const reasons = periodic.reasons ? catalog.optionSets.get(periodic.reasons) : undefined;
+  if (periodic.reasons && !reasons) faults.push(`periodic.reasons names "${periodic.reasons}", which is not an option set.`);
+  if (periodic.attribute?.length && !reasons) faults.push('a set that explains a figure by its rows declares the reasons a person picks for what is left (periodic.reasons).');
+  for (const attribute of periodic.attribute ?? []) {
+    if (!field(attribute.field)) faults.push(`periodic.attribute explains "${attribute.field}", which is not a field.`);
+    const rows = attribute.rows;
+    const columns = 'records' in rows ? ('table' in rows ? catalog.sets.get(rows.records)?.fields.find((def) => def.key === rows.table)?.columns : catalog.sets.get(rows.records)?.fields) : field(rows.table)?.columns;
+    if (!columns) faults.push(`periodic.attribute for "${attribute.field}" reads rows that do not exist.`);
+    else {
+      if (columns.find((def) => def.key === attribute.date)?.kind !== 'date') faults.push(`periodic.attribute for "${attribute.field}" dates its rows by "${attribute.date}", which is not a date of them.`);
+      if (!columns.some((def) => def.key === attribute.amount)) faults.push(`periodic.attribute for "${attribute.field}" sums "${attribute.amount}", which the rows do not have.`);
+    }
+  }
+  return faults;
+}
+
 /**
  * Everything a catalog declares that cannot work, each in a sentence naming
  * the set and the field. Empty for a catalog that can be used. A test holds
@@ -420,6 +466,7 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
     if (catalog.checks.has(set.id)) faults.push(`${at()}: a check already has this id.`);
     seen.add(set.id);
     if (set.fn !== SHARED_FN && !workstreamDefinition(set.fn)) faults.push(`${at()}: "${set.fn}" is not a function.`);
+    faults.push(...periodicFaults(set, catalog, rated).map((fault) => `${at()}: ${fault}`));
     if (set.extends) {
       const target = sheets.find((other) => other.id === set.extends);
       if (!target?.records) faults.push(`${at()}: extends "${set.extends}", which is not a set that repeats.`);

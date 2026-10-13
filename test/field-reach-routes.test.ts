@@ -30,6 +30,8 @@ import {
   fieldCatalog,
   generateReport,
   insertReportBlock,
+  issuePeriod,
+  revisePeriod,
   issueReport,
   projectView,
   recordCheckFields,
@@ -274,6 +276,13 @@ before(async () => {
   marked.push({ fn: 'finance.budget', set: 'finance.budget.contingency', forms: ['12345678'] });
   marked.push({ fn: 'finance.valuation', set: 'finance.valuation.conclusion', forms: ['987654321', '555444333'] });
   marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777123456'] });
+
+  // A month of cash issued, and a revision opened beside it: both are Finance's records, and go where Finance's sheets go.
+  const cashMonth = add('finance.funding.cash_months', { month: '2026-08-01', collections: 612_345_678, contractors: 1 });
+  issuePeriod(project, 'finance.funding.cash_months', cashMonth, { actor: OWNER, name: 'Zq7 Issuer Named' });
+  const revised = revisePeriod(project, 'finance.funding.cash_months', cashMonth, OWNER);
+  assert.deepEqual(setFieldValues(project, { set: 'finance.funding.cash_months', record: revised.id }, { collections: 612_999_876 }, OWNER).rejected, []);
+  marked.push({ fn: 'finance.funding', set: 'finance.funding.cash_months', forms: ['612345678', '612999876', 'Zq7 Issuer Named'] });
 
   // What this round added that carries data. An approved variation Finance has not taken: its amount is Procurement's, and
   // the procurement route tells it as waiting on Finance.

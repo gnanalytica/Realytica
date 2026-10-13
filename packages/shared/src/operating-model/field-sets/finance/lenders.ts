@@ -80,6 +80,10 @@ const costStated = statedBySeveral({
   section: 'cost',
   tone: 'warning',
 });
+// Stated once for each drawdown, by each person who certifies it: the statement names the drawdown it was made for.
+costStated.set.v = 2;
+costStated.set.fields.push({ key: 'drawdown', label: 'For the drawdown', kind: 'ref', target: { set: SET.drawdowns }, required: false, since: 2 });
+costStated.set.periodic = { every: { event: SET.drawdowns, on: 'requested_on' }, by: 'drawdown', per: ['source'], due: { days: 15 }, issuer: 'consultant' };
 
 const LETTER_KIND = at(LEN, SET.letters, 'kind');
 /** Routing and the reserve are asked about once an escrow account is named: a facility without one has neither. */
@@ -692,8 +696,10 @@ export const LENDER_SETS: FieldSet[] = [
     id: SET.engineerReports,
     fn: LEN,
     title: 'Lender’s engineer’s reports',
-    v: 1,
+    v: 2,
     records: { of: 'report', titleField: 'report_no', summaryFields: ['visited_on', 'physical_progress', 'report_standing'] },
+    // One for each drawdown: the report the lender's engineer makes before the money is released.
+    periodic: { every: { event: SET.drawdowns, on: 'requested_on' }, by: 'drawdown', carry: ['engineer'], due: { days: 15 }, issuer: 'lender' },
     optionSets: [
       options('lender_work_quality', 'Quality of work', [
         ['good', 'Good', 'good'],
@@ -708,6 +714,7 @@ export const LENDER_SETS: FieldSet[] = [
     ],
     fields: [
       text('report_no', 'Report number', { section: 'report', ...FROM_ENGINEER }),
+      link('drawdown', 'For the drawdown', { set: SET.drawdowns }, { section: 'report', required: false, since: 2 }),
       link('engineer', 'Engineer', 'party', { section: 'report' }),
       day('report_date', 'Dated', { section: 'report', ...FROM_ENGINEER }),
       day('visited_on', 'Site visited on', { section: 'report', ...FROM_ENGINEER }),

@@ -184,6 +184,7 @@ export const TAX_SETS: FieldSet[] = [
     title: 'GST by month',
     v: 1,
     records: { of: 'month', titleField: 'month', summaryFields: ['tax_payable', 'month_standing'] },
+    periodic: { every: 'month', by: 'month', due: { rate: 'gst_monthly_return_due_day' }, issuer: 'lead' },
     sections: [
       { key: 'out', label: 'Outward supplies and tax' },
       { key: 'in', label: 'Input tax' },
@@ -310,6 +311,7 @@ export const TAX_SETS: FieldSet[] = [
     title: 'Tax deducted by month',
     v: 1,
     records: { of: 'month', titleField: 'month', summaryFields: ['deducted', 'month_standing'] },
+    periodic: { every: 'month', by: 'month', due: { rate: 'tds_deposit_due_day' }, issuer: 'lead' },
     optionSets: [
       options('tds_month_kind', 'Month', [
         ['ordinary', 'Ordinary'],
@@ -344,6 +346,7 @@ export const TAX_SETS: FieldSet[] = [
     title: 'Quarterly statements of tax deducted',
     v: 1,
     records: { of: 'statement', titleField: 'quarter_end', summaryFields: ['filed_on'] },
+    periodic: { every: 'quarter', by: 'quarter_end', due: { rate: 'tds_statement_due_days' }, issuer: 'lead' },
     fields: [
       day('quarter_end', 'Quarter ending'),
       text('statement_name', 'Statement, as the acknowledgement names it', { required: false }),
@@ -575,6 +578,8 @@ export const TAX_SETS: FieldSet[] = [
     title: 'Property tax by year',
     v: 1,
     records: { of: 'year', titleField: 'year', summaryFields: ['paid', 'year_standing'] },
+    // The year as the receipt writes it names the period; a property's demand is where the next year starts. Due within the year it is for.
+    periodic: { every: 'year', by: 'year', per: ['property'], carry: ['demand'], due: { days: 0 }, issuer: 'lead' },
     fields: [
       text('year', 'Assessment year', { from: 'Property tax receipt', fromTypes: [PAPER.taxReceipt], factKey: 'tax_year' }),
       link('property', 'Property', { set: SET.properties }),

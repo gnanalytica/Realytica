@@ -59,6 +59,7 @@ import { api } from '../../lib/api';
 import { useFirmCatalog } from '../../lib/firmFields';
 import { useMe } from '../../lib/useMe';
 import { CheckFields } from '../CheckFields';
+import { PeriodHead, PeriodRecords } from './Periods';
 import { StackPlan, drawsAsStackPlan } from './StackPlan';
 import { NEEDS_SHOWN, needAction, needAssumes, needChips, needLines, needRuleRows, needRuleUnchecked, needSource, needUnverified, needWhere, sheetItem, sheetItemOf, type NeedAction, type NeedTarget } from './needs';
 import { AiMark, Badge, Button, Card, CardBody, CardHeader, Modal, cn, useToast } from '../ui/kit';
@@ -134,14 +135,34 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
 
   const lists = useMemo(() => (id: string) => optionSetById(id, catalog), [catalog]);
 
-  const sheetProps = (reading: SheetReading) => ({
+  /** The period a record is, where its set is kept by period. */
+  const instanceOf = (set: string, record: string | undefined) => {
+    const periods = record ? page.sheets.find((sheet) => sheet.set.id === set)?.periods : undefined;
+    return periods ? [...periods.open, ...periods.past].find((instance) => instance.record === record) : undefined;
+  };
+  const actOnPeriod = (set: string, body: Omit<Parameters<typeof api.fieldPeriod>[1], 'set'>) =>
+    void api
+      .fieldPeriod(project.id, { set, ...body })
+      .then((out) => {
+        onChanged(out.project);
+        // A period just opened, or a revision of one, is the next thing to work on.
+        if ((body.act === 'open' || body.act === 'revise') && out.recordId) setOpen({ set, record: out.recordId });
+      })
+      .catch((error: unknown) => toast(error instanceof Error ? error.message : 'That could not be done', 'critical'));
+
+  const sheetProps = (reading: SheetReading) => {
+    // An issued period is read only: every control is off, and nothing on it is decided.
+    const issued = instanceOf(reading.set.id, reading.recordId)?.status === 'issued';
+    return sheetPropsOf(reading, issued);
+  };
+  const sheetPropsOf = (reading: SheetReading, issued: boolean) => ({
     evidence: project.evidence,
     lists,
-    disabled: !seat.mayEdit,
+    disabled: !seat.mayEdit || issued,
     choices,
     onOpenPaper,
     onCommit: (values: Record<string, CheckFieldWrite>) => run(() => api.setFieldValues(project.id, { set: reading.set.id, record: reading.recordId, values }), 'That value could not be saved'),
-    onDecide: seat.mayEdit
+    onDecide: seat.mayEdit && !issued
       ? (def: CheckFieldDef, decision: FieldValueDecision, input?: { value?: unknown; pick?: number; reason?: string }) =>
           run(() => api.decideField(project.id, { address: { fn, set: reading.set.id, field: def.key, ...(reading.recordId ? { record: reading.recordId } : {}) }, decision, ...input }), 'That could not be decided')
       : undefined,
@@ -255,6 +276,21 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
                   onOpenDepth={(id) => setOpen({ set: sheet.set.id, depth: id })}
                 />
               ) : null
+            ) : sheet.periods ? (
+              // A set kept by period opens on its open period, with one line for the past.
+              <PeriodRecords
+                key={sheet.set.id}
+                project={project}
+                set={sheet.set}
+                records={sheet.records ?? []}
+                periods={sheet.periods}
+                mayEdit={seat.mayEdit}
+                open={unfolded.has(sheet.set.id)}
+                onToggle={() => toggle(sheet.set.id)}
+                onOpen={(record) => setOpen({ set: sheet.set.id, record })}
+                onAdd={() => addRecord(sheet.set.id)}
+                onAct={(body) => actOnPeriod(sheet.set.id, body)}
+              />
             ) : (
               <Records key={sheet.set.id} set={sheet.set} records={sheet.records ?? []} mayEdit={seat.mayEdit} open={unfolded.has(sheet.set.id)} onToggle={() => toggle(sheet.set.id)} onOpen={(record) => setOpen({ set: sheet.set.id, record })} onAdd={() => addRecord(sheet.set.id)} />
             ),
@@ -297,7 +333,7 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
         title={depth ? `${opened!.set.records ? `${opened!.title} · ` : ''}${depth.sheet.title}` : (opened?.title ?? '')}
         width="md"
         footer={
-          opened && open?.record && !depth && seat.mayDecide ? (
+          opened && open?.record && !depth && seat.mayDecide && instanceOf(opened.set.id, opened.recordId)?.status !== 'issued' ? (
             <Button
               variant="ghost"
               onClick={() => {
@@ -316,6 +352,9 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
           </div>
         ) : opened && open?.record ? (
           <div data-holder={`${opened.set.id}::${opened.recordId ?? ''}`}>
+            {instanceOf(opened.set.id, opened.recordId) ? (
+              <PeriodHead project={project} set={opened.set} instance={instanceOf(opened.set.id, opened.recordId)!} catalog={catalog} mayEdit={seat.mayEdit} mayDecide={seat.mayDecide} onAct={(body) => actOnPeriod(opened.set.id, body)} />
+            ) : null}
             <SheetBody reading={opened} props={sheetProps(opened)} onOpenDepth={(id) => setOpen({ set: open.set, record: open.record, depth: id })} />
             {/* One record, every department's facts: this page draws its own, and says who else keeps something on it. */}
             {opened.elsewhere?.length ? (
