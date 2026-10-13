@@ -10,7 +10,11 @@
  * PUT    /team/:email                     a person's role in each department
  * DELETE /team/:email
  * POST   /workstreams/:key/checks         put a workstream's checks on the project record
- * POST   /checklist/import                load a checklist: pasted text, a CSV/TSV or an .xlsx
+ * POST   /checklist/import                load a list: pasted text, a CSV/TSV or an .xlsx. A tracked list updates its own
+ *                                         lines; a tender form is read into Tender terms. `preview` says what it would do
+ * POST   /checklist/assign                name who owes several lines, and the day they are wanted by
+ * GET    /tender-terms/:recordId/form     the tender form for one tender, filled from its sheet, as a workbook
+ * POST   /tender-forms/:formId/offers/:offerId  take or set aside a row a client marked not applicable
  * POST   /checklist                       add one line
  * PATCH  /checklist/:itemId               rename, move, mark in hand, confirm or refuse a match
  * DELETE /checklist/:itemId
@@ -152,11 +156,26 @@ import {
 import {
   addChecklistItem,
   addChecklistItems,
+  assignChecklistItems,
+  assumeChecklistItem,
   CHECKLIST_LIMITS,
+  csvCells,
+  decideTenderFormOffer,
+  departmentOfFunction,
   dismissChecklistMatch,
+  listLoadSaid,
+  loadTenderForm,
+  loadTrackedList,
+  markChecklistPartial,
+  packageDesks,
   parseChecklist,
   parseChecklistSheets,
+  parseTenderFormSheets,
+  parseTrackedSheets,
   patchChecklistItem,
+  placeDrafts,
+  tenderFormExport,
+  tenderFormSaid,
   raiseChecklistRequests,
   receiveChecklistItem,
   removeChecklistItem,
@@ -174,6 +193,7 @@ import { QUESTIONNAIRE_FILE_SAID, QuestionnaireTooLarge, WorkbookPartsTooLarge, 
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 import { withSentFileName } from '../uploads';
 import { tableTextOf } from '../documents/table-file';
+import { tenderFormXlsx } from '../documents/tender-form-file';
 
 type Params = { projectId: string };
 
@@ -2029,13 +2049,30 @@ const checklistLineSchema = z.object({
   note: z.string().trim().max(CHECKLIST_LIMITS.note).optional(),
 });
 
-/** The lines of a list as it was sent: a workbook's sheets, a CSV or TSV file's rows, or text. */
-async function readChecklist(file: Express.Multer.File | undefined, pasted: string) {
-  if (!file) return parseChecklist(pasted);
+/** A list as it was sent: a workbook's sheets, or the rows of a CSV or TSV file or of a paste, with the text they came from. */
+interface ListSent {
+  /** The file's own name, as a value read from it cites it. */
+  file: string;
+  name: string;
+  sheets: Array<{ name: string; rows: string[][] }>;
+  text?: string;
+  csv?: boolean;
+}
+
+/** Text as rows of cells: tabs where there are any, as a paste from a spreadsheet has, else commas. */
+function textRows(text: string): string[][] {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  const tabbed = lines.some((line) => line.includes('\t'));
+  return lines.map((line) => (tabbed ? line.split('\t') : csvCells(line)));
+}
+
+async function listSent(file: Express.Multer.File | undefined, pasted: string): Promise<ListSent> {
+  if (!file) return { file: 'Pasted list', name: 'Pasted list', sheets: [{ name: 'Pasted list', rows: textRows(pasted) }], text: pasted };
   const name = (file.originalname || '').toLowerCase();
+  const said = (file.originalname || 'List').replace(/\.[a-z0-9]{1,5}$/i, '');
   if (name.endsWith('.xlsx')) {
     try {
-      return parseChecklistSheets(await workbookSheets(file.buffer));
+      return { file: file.originalname || said, name: said, sheets: await workbookSheets(file.buffer, { keepEmpty: true }) };
     } catch (err) {
       if (err instanceof WorkbookPartsTooLarge) throw new Error(err.message);
       if (err instanceof QuestionnaireTooLarge) throw new Error('That workbook is too large to open: its sheets hold more than 4 MB.');
@@ -2043,7 +2080,28 @@ async function readChecklist(file: Express.Multer.File | undefined, pasted: stri
     }
   }
   if (!/\.(?:csv|tsv|txt|md)$/.test(name)) throw new Error('A list is read from an .xlsx, .csv, .tsv or .txt file, or from pasted text.');
-  return parseChecklist(file.buffer.toString('utf8'), { csv: name.endsWith('.csv') });
+  const text = file.buffer.toString('utf8');
+  return { file: file.originalname || said, name: said, sheets: [{ name: said, rows: textRows(text) }], text, csv: name.endsWith('.csv') };
+}
+
+/** The functions a firm names for a list's packages as it loads it: a package's name to a function's key. */
+function desksGiven(sent: unknown): Record<string, string> {
+  let given: unknown = sent;
+  if (typeof sent === 'string' && sent.trim()) {
+    try {
+      given = JSON.parse(sent);
+    } catch {
+      throw new Error('Send the packages and their functions as JSON.');
+    }
+  }
+  if (!given || typeof given !== 'object' || Array.isArray(given)) return {};
+  const out: Record<string, string> = {};
+  for (const [pack, fn] of Object.entries(given as Record<string, unknown>).slice(0, 40)) {
+    if (typeof fn !== 'string' || !fn) continue;
+    if (!workstreamDefinition(fn)) throw new Error(`"${fn.slice(0, 60)}" is not a function.`);
+    out[pack.slice(0, CHECKLIST_LIMITS.label)] = fn;
+  }
+  return out;
 }
 
 projectWorkspaceRouter.post<Params>('/checklist/import', checklistUpload.single('file'), async (req, res) => {
@@ -2055,16 +2113,58 @@ projectWorkspaceRouter.post<Params>('/checklist/import', checklistUpload.single(
     return;
   }
   if (!mayChangeChecklist(req, res, project, asked.data)) return;
+  const preview = req.body?.preview === true || req.body?.preview === '1' || req.body?.preview === 'true';
+  const actor = actorOf(principalOf(req));
   try {
-    const drafts = await readChecklist(req.file as Express.Multer.File | undefined, typeof req.body?.text === 'string' ? req.body.text.slice(0, 400_000) : '');
+    const sent = await listSent(req.file as Express.Multer.File | undefined, typeof req.body?.text === 'string' ? req.body.text.slice(0, 400_000) : '');
+    // A form of answers: read into the Tender terms sheet, each answer offered for a person to accept.
+    const form = parseTenderFormSheets(sent.sheets);
+    if (form) {
+      if (asked.data !== 'procurement' && !mayChangeChecklist(req, res, project, 'procurement')) return;
+      const report = loadTenderForm(project, form, { file: sent.file, record: typeof req.body?.record === 'string' ? req.body.record : undefined, actor, dryRun: preview });
+      const said = tenderFormSaid(report);
+      if (preview) {
+        res.json({ kind: 'tender_form', report, said });
+        return;
+      }
+      noteProjectEdit(project, `Loaded the tender form ${sent.name}: ${said}.`, { actor });
+      touch(project);
+      await store.save();
+      res.status(201).json({ project, kind: 'tender_form', added: report.owed.added.length, skipped: 0, report, said });
+      return;
+    }
+    // A tracked list: its lines go to the desks their packages belong to, and a later copy updates them.
+    const tracked = parseTrackedSheets(sent.sheets);
+    if (tracked) {
+      const desks = packageDesks(tracked.packages, desksGiven(req.body?.desks));
+      const placed = placeDrafts(tracked.drafts, desks);
+      for (const department of new Set(placed.map((draft) => draft.department ?? asked.data))) {
+        if (department !== asked.data && !mayChangeChecklist(req, res, project, department)) return;
+      }
+      const report = loadTrackedList(project, asked.data, placed, actor, { dryRun: preview });
+      const said = listLoadSaid(report);
+      if (preview) {
+        res.json({ kind: 'tracked', list: tracked.list, lines: tracked.drafts.length, desks, report, said });
+        return;
+      }
+      touch(project);
+      await store.save();
+      res.status(201).json({ project, kind: 'tracked', added: report.added.length, skipped: report.unchanged, desks, report, said });
+      return;
+    }
+    const drafts = sent.text !== undefined ? parseChecklist(sent.text, { csv: sent.csv }) : parseChecklistSheets(sent.sheets);
+    if (preview) {
+      res.json({ kind: 'plain', lines: drafts.length });
+      return;
+    }
     if (!drafts.length) {
       res.status(400).json({ error: 'No lines were found. Attach a file, or paste the list one paper to a line.' });
       return;
     }
-    const { added, skipped } = addChecklistItems(project, asked.data, drafts, actorOf(principalOf(req)));
+    const { added, skipped } = addChecklistItems(project, asked.data, drafts, actor);
     touch(project);
     await store.save();
-    res.status(201).json({ project, added: added.length, skipped });
+    res.status(201).json({ project, kind: 'plain', added: added.length, skipped });
   } catch (err) {
     failed(res, err, 'Could not read that list');
   }
@@ -2096,6 +2196,25 @@ const checklistPatchSchema = z.object({
   package: checklistLabel.nullable().optional(),
   owedBy: checklistLabel.nullable().optional(),
   note: z.string().trim().max(CHECKLIST_LIMITS.note).nullable().optional(),
+  /** The day it is wanted by, the round it was asked in, and a few words on what came back. */
+  targetDate: z.string().trim().max(24).nullable().optional(),
+  round: checklistLabel.nullable().optional(),
+  remark: z.string().trim().max(CHECKLIST_LIMITS.remark).nullable().optional(),
+  /** Partly in hand, with what is still wanted; `false` takes it back. */
+  partial: z.union([z.literal(false), z.object({ wanted: z.string().trim().max(CHECKLIST_LIMITS.remark).nullable().optional() })]).optional(),
+  /** It will not come: who assumes, and the fields it stands in for with the value each is assumed at. `false` takes it back. */
+  assumed: z
+    .union([
+      z.literal(false),
+      z.object({
+        assumer: checklistLabel.min(1),
+        fields: z
+          .array(z.object({ address: z.object({ fn: z.string().max(80), set: z.string().max(120), field: z.string().max(80), record: z.string().max(80).optional() }), value: z.union([z.string().max(200), z.number(), z.boolean()]) }))
+          .max(CHECKLIST_LIMITS.assumedFields)
+          .optional(),
+      }),
+    ])
+    .optional(),
   /** In hand by a person's word, with the document where one is named; `false` takes it back. */
   received: z.boolean().optional(),
   evidenceId: z.string().min(1).max(80).optional(),
@@ -2112,10 +2231,21 @@ projectWorkspaceRouter.patch<Params & { itemId: string }>('/checklist/:itemId', 
     res.status(400).json({ error: 'Send what changes on the line.' });
     return;
   }
-  const { received, evidenceId, dismiss, ...patch } = parsed.data;
+  const { received, evidenceId, dismiss, partial, assumed, ...patch } = parsed.data;
   const actor = actorOf(principalOf(req));
+  // A value assumed for a field stands in that field's function: whoever sets it has to be able to type there too.
+  for (const field of assumed ? (assumed.fields ?? []) : []) {
+    const department = departmentOfFunction(field.address.fn);
+    if (!department) {
+      res.status(400).json({ error: 'That is not a field of a sheet.' });
+      return;
+    }
+    if (!allowed(req, res, project, department, 'edit')) return;
+  }
   try {
     if (Object.keys(patch).length) patchChecklistItem(project, req.params.itemId, patch, actor);
+    if (partial !== undefined) markChecklistPartial(project, req.params.itemId, partial === false ? null : partial, actor);
+    if (assumed !== undefined) assumeChecklistItem(project, req.params.itemId, assumed === false ? null : assumed, actor);
     if (dismiss) dismissChecklistMatch(project, req.params.itemId, dismiss, actor);
     if (received === false) reopenChecklistItem(project, req.params.itemId, actor);
     else if (received || evidenceId) receiveChecklistItem(project, req.params.itemId, { evidenceId }, actor);
@@ -2138,6 +2268,76 @@ projectWorkspaceRouter.delete<Params & { itemId: string }>('/checklist/:itemId',
     res.json({ project });
   } catch (err) {
     failed(res, err, 'Could not remove that line');
+  }
+});
+
+const checklistAssignSchema = z.object({
+  itemIds: z.array(z.string().min(1).max(80)).min(1).max(CHECKLIST_LIMITS.items),
+  owedBy: checklistLabel.nullable().optional(),
+  targetDate: z.string().trim().max(24).nullable().optional(),
+});
+
+/** Who owes several lines, and the day they are wanted by, set in one act. */
+projectWorkspaceRouter.post<Params>('/checklist/assign', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = checklistAssignSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the lines, and who owes them or the day they are wanted by.' });
+    return;
+  }
+  const departments = new Set((project.checklist ?? []).filter((item) => parsed.data.itemIds.includes(item.id)).map((item) => item.department));
+  if (!departments.size) {
+    res.status(404).json({ error: 'Those lines are not on the list.' });
+    return;
+  }
+  for (const department of departments) if (!mayChangeChecklist(req, res, project, department)) return;
+  try {
+    const items = assignChecklistItems(project, parsed.data.itemIds, { owedBy: parsed.data.owedBy, targetDate: parsed.data.targetDate }, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, changed: items.length });
+  } catch (err) {
+    failed(res, err, 'Could not set that on those lines');
+  }
+});
+
+/** The tender form for one tender, filled from what stands on its sheet: a workbook to send to the client. */
+projectWorkspaceRouter.get<Params & { recordId: string }>('/tender-terms/:recordId/form', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!staffOnly(req, res)) return;
+  if (!roleIn(req, project, 'procurement')) {
+    res.status(403).json({ error: 'That needs a place in Procurement.' });
+    return;
+  }
+  try {
+    const bytes = await tenderFormXlsx(tenderFormExport(project, req.params.recordId));
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${`${project.reference}-tender-form`.replace(/[^A-Za-z0-9._ -]+/g, ' ').trim()}.xlsx"`);
+    res.send(bytes);
+  } catch (err) {
+    failed(res, err, 'Could not write that form');
+  }
+});
+
+/** A row a client marked not applicable: taken, which marks its fields not applicable, or set aside. A lead or signer of Procurement decides. */
+projectWorkspaceRouter.post<Params & { formId: string; offerId: string }>('/tender-forms/:formId/offers/:offerId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!staffOnly(req, res) || !allowed(req, res, project, 'procurement', 'decide')) return;
+  const decision = req.body?.decision;
+  if (decision !== 'take' && decision !== 'set_aside') {
+    res.status(400).json({ error: 'Say which: take it, or set it aside.' });
+    return;
+  }
+  try {
+    decideTenderFormOffer(project, req.params.formId, req.params.offerId, decision, actorOf(principalOf(req)), { mayDecide: decidesFor(req, project) });
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not decide that');
   }
 });
 

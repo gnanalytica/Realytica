@@ -43,6 +43,7 @@
 import { SCOPE_LABEL } from './catalogs';
 import { stageAndStep, type DepartmentKey } from './departments';
 import { CAPTURE_PURPOSE_LABEL } from './capture';
+import { checklistSummary } from './checklist';
 import { RISK_LABEL, observationStatement, observations, projectPhotos } from './observation-table';
 import { ANSWER_SOURCE_LABEL, questionStatus, questionnairesOf } from './questionnaire';
 import { remedialCostSummary } from './remedial';
@@ -86,6 +87,7 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'observations',
   'questionnaire',
   'requirement_sheet',
+  'information_status',
   'risk_summary',
   'site_photographs',
   'status_changed',
@@ -118,6 +120,7 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   observations: 'Observations and mitigations',
   questionnaire: 'Building information',
   requirement_sheet: 'Documents reviewed and outstanding',
+  information_status: 'Information status',
   risk_summary: 'At a glance',
   site_photographs: 'Site photographs',
   status_changed: 'Status: what changed',
@@ -145,6 +148,7 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   observations: 'The engineer’s table: what was seen, area by area, its risk, the mitigation and the code it is judged against, with the photographs.',
   questionnaire: 'The questions put to the building and their answers, each with where it came from. A suggestion nobody confirmed is not printed as an answer.',
   requirement_sheet: 'Every document the checks expect, by discipline: in hand, asked for, or not received.',
+  information_status: 'The list of information asked for, counted by package: received, partial, to be assumed and pending, with the percent received. Worked out from the list’s own lines.',
   risk_summary: 'How many observations fall in each risk category, counted from the table below it.',
   site_photographs: 'The photographs chosen for the report that no observation already shows, each with its caption, where and when it was taken, and the description a person accepted or wrote.',
   status_changed: 'What happened in the period: papers filed and read, values accepted, decisions, actions done and overdue, approvals that moved, findings raised. Each line with the record behind it.',
@@ -366,6 +370,22 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
           rows: rows.map(({ group, item }) => ({ cells: [group, item.title, status(item)], recordId: item.evidenceId })),
         },
         note: `${sheet.received} of ${sheet.total} received. ${REQUIREMENT_STATUS_LABEL.requested}: ${sheet.requested}. The opinion in this report rests on the documents received, and is limited by those that were not.`,
+      };
+    }
+
+    case 'information_status': {
+      // The whole list unless the block names a desk: a consultant's list runs across departments.
+      const summary = checklistSummary(project, source.department ? { department: source.department } : {});
+      if (!summary.total.total) return { lines: [], recordIds: [], note: 'No list of information required is loaded.' };
+      const cells = (row: (typeof summary.rows)[number]) => [row.package, String(row.total), String(row.received), String(row.partial), String(row.assumed), String(row.pending), `${row.percent}%`];
+      const said = (row: (typeof summary.rows)[number]) =>
+        `${row.package}: ${row.received} of ${row.total} received (${row.percent}%)${row.partial ? `, ${row.partial} partial` : ''}${row.assumed ? `, ${row.assumed} to be assumed` : ''}${row.pending ? `, ${row.pending} pending` : ''}`;
+      const rows = [...summary.rows, summary.total];
+      return {
+        lines: rows.map(said),
+        recordIds: rows.map(() => ''),
+        table: { columns: ['Package', 'Total', 'Received', 'Partial', 'To be assumed', 'Pending', 'Received %'], rows: rows.map((row) => ({ cells: cells(row) })) },
+        note: summary.total.assumed ? `${summary.total.assumed} ${summary.total.assumed === 1 ? 'paper' : 'papers'} will not come: what rests on ${summary.total.assumed === 1 ? 'it' : 'them'} is worked out on an assumed value and says so.` : undefined,
       };
     }
 

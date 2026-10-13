@@ -15,6 +15,10 @@ import type {
   CertifiedReport,
   ChecklistDraft,
   ChecklistPatch,
+  FieldAddress,
+  ListLoadReport,
+  PackageDesk,
+  TenderFormReport,
   BillCertification,
   BillLine,
   CostBill,
@@ -73,6 +77,38 @@ export interface PairedDevice {
   createdAt: string;
   lastSeenAt?: string;
   push: boolean;
+}
+
+/** A list as it is sent to be loaded, or to be looked at first. */
+export type ListSend = ({ file: File } | { text: string }) & { department: DepartmentKey; desks?: Record<string, string>; record?: string };
+
+/** What a list is, and what loading it would do. */
+export interface ListPreview {
+  kind: 'plain' | 'tracked' | 'tender_form';
+  lines?: number;
+  list?: string;
+  desks?: PackageDesk[];
+  report?: ListLoadReport | TenderFormReport;
+  said?: string;
+}
+
+export interface ListLoaded {
+  project: DdProject;
+  kind: 'plain' | 'tracked' | 'tender_form';
+  added: number;
+  skipped: number;
+  said?: string;
+}
+
+function listBody(input: ListSend, preview: boolean): RequestInit {
+  if (!('file' in input)) return json({ ...input, ...(preview ? { preview: true } : {}) });
+  const form = new FormData();
+  form.append('file', input.file);
+  form.append('department', input.department);
+  if (input.desks) form.append('desks', JSON.stringify(input.desks));
+  if (input.record) form.append('record', input.record);
+  if (preview) form.append('preview', '1');
+  return { method: 'POST', body: form };
 }
 
 export const workspaceApi = {
@@ -426,20 +462,57 @@ export const workspaceApi = {
 
   sitePhotoUrl: (projectId: string, entryId: string, index: number) => `/api/projects/${projectId}/site-log/${entryId}/photos/${index}`,
 
-  /** Load a checklist onto a department's desk: an .xlsx, .csv, .tsv or .txt file, or the list pasted as text. */
-  importChecklist: (projectId: string, input: ({ file: File } | { text: string }) & { department: DepartmentKey }) => {
-    type Loaded = { project: DdProject; added: number; skipped: number };
-    if (!('file' in input)) return request<Loaded>(`/projects/${projectId}/checklist/import`, json(input));
-    const form = new FormData();
-    form.append('file', input.file);
-    form.append('department', input.department);
-    return request<Loaded>(`/projects/${projectId}/checklist/import`, { method: 'POST', body: form });
+  /**
+   * Load a list onto a department's desk: an .xlsx, .csv, .tsv or .txt file, or the list pasted as text. A tracked list
+   * goes to the desks its packages belong to (`desks` answers differently, a package's name to a function's key) and
+   * updates the lines an earlier copy put there; a tender form is read into the Tender terms record named by `record`.
+   */
+  importChecklist: (projectId: string, input: ListSend) => request<ListLoaded>(`/projects/${projectId}/checklist/import`, listBody(input, false)),
+
+  /** What loading that list would do, with nothing changed: the kind of list it is, where its packages would go, and what would move. */
+  previewChecklist: (projectId: string, input: ListSend) => request<ListPreview>(`/projects/${projectId}/checklist/import`, listBody(input, true)),
+
+  /** Who owes several lines of a list, and the day they are wanted by, set in one act. */
+  assignChecklist: (projectId: string, body: { itemIds: string[]; owedBy?: string | null; targetDate?: string | null }) =>
+    request<{ project: DdProject; changed: number }>(`/projects/${projectId}/checklist/assign`, json(body)),
+
+  /** Take a row a client marked not applicable on a tender form, or set it aside. */
+  decideTenderFormOffer: (projectId: string, formId: string, offerId: string, decision: 'take' | 'set_aside') =>
+    request<{ project: DdProject }>(`/projects/${projectId}/tender-forms/${formId}/offers/${offerId}`, json({ decision })),
+
+  /** Saves the tender form for one tender, filled from what stands on its sheet, as a workbook to send to the client. */
+  saveTenderForm: async (projectId: string, recordId: string, name: string): Promise<void> => {
+    const res = await fetchWithAuth(`/api/projects/${projectId}/tender-terms/${recordId}/form`);
+    if (!res.ok) {
+      const said = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(said?.error ?? `The form could not be written: ${res.status}`);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   },
 
   addChecklistItem: (projectId: string, body: ChecklistDraft & { department: DepartmentKey }) => request<{ project: DdProject; itemId: string }>(`/projects/${projectId}/checklist`, json(body)),
 
   /** Change a line; `received` marks it in hand or takes that back, `evidenceId` names the document, `dismiss` refuses an offered one. */
-  patchChecklistItem: (projectId: string, itemId: string, body: ChecklistPatch & { received?: boolean; evidenceId?: string; dismiss?: string }) =>
+  patchChecklistItem: (
+    projectId: string,
+    itemId: string,
+    body: ChecklistPatch & {
+      received?: boolean;
+      evidenceId?: string;
+      dismiss?: string;
+      /** Partly in hand, with what is still wanted; `false` takes it back. */
+      partial?: false | { wanted?: string | null };
+      /** It will not come: who assumes, and the fields it stands in for. `false` takes it back. */
+      assumed?: false | { assumer: string; fields?: Array<{ address: FieldAddress; value: string | number | boolean }> };
+    },
+  ) =>
     request<{ project: DdProject }>(`/projects/${projectId}/checklist/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   removeChecklistItem: (projectId: string, itemId: string) => request<{ project: DdProject }>(`/projects/${projectId}/checklist/${itemId}`, { method: 'DELETE' }),

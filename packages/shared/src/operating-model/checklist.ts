@@ -18,7 +18,7 @@ import type { DepartmentKey } from './departments';
 import { matchFilesToEvidence, type MatchRow } from './file-match';
 import { addRequest } from './project-requests';
 import type { RequirementStatus } from './requirement-sheet';
-import type { DdProject, EvidenceRecord, ProjectRequest } from './types';
+import type { DdProject, EvidenceRecord, FieldAddress, ProjectRequest } from './types';
 
 /* ==================================================================== */
 /* The record                                                            */
@@ -37,13 +37,52 @@ export interface ChecklistItem {
   owedBy?: string;
   note?: string;
   /** Set when a person marked it in hand, with the document where they named one. */
-  received?: { at: string; by: string; evidenceId?: string };
+  received?: { at: string; by: string; evidenceId?: string; fromList?: true };
   /** Documents a person said are not this paper: never offered for it again. */
   dismissed?: string[];
+  /** The list it is a line of, where it came from a tracked list: what a later copy of that list is matched against. */
+  list?: string;
+  /** Its number as the list writes it: "2.1.4". */
+  ref?: string;
+  /** An older number the list keeps beside it: "B.1.10". */
+  oldRef?: string;
+  /** The sections it sits under, outermost first, each with its own number. */
+  headings?: ChecklistHeading[];
+  /** Its place in the list as written, so a line added by a later copy sits where the list puts it. */
+  order?: number;
+  /** The function it belongs to, where the list's package names one. */
+  fn?: string;
+  /** The round it was asked in, as the list names it: "E mail 02". A line with one has been asked for. */
+  round?: string;
+  /** What the list says was to hand when it was asked for: "Not available", "Partially available". */
+  availability?: string;
+  /** A few words on what came back, read from the list or written by a person. */
+  remark?: { text: string; from: 'list' | 'person'; by: string; at: string };
+  /** The day it is wanted by. */
+  targetDate?: string;
+  /** Some of it is in hand and the rest is still owed. `wanted` says what is still wanted. */
+  partial?: { at: string; by: string; wanted?: string };
+  /** It will not come: `assumer` proceeds on an assumption, standing in for the fields named. */
+  assumed?: { at: string; by: string; assumer: string; fields?: ChecklistAssumedField[] };
   createdAt: string;
   createdBy: string;
   updatedAt: string;
 }
+
+/** A section a line sits under: its number where the list gives one, and its name. */
+export interface ChecklistHeading {
+  ref?: string;
+  title: string;
+}
+
+/** A field a line to be assumed stands in for, and the value it is assumed at. */
+export interface ChecklistAssumedField {
+  address: FieldAddress;
+  value: string | number | boolean;
+}
+
+/** How a tracked list says a line stands, in its own status column. */
+export type ChecklistListStatus = 'received' | 'partial' | 'assumed' | 'pending';
 
 /** One line as a list wrote it, before it is on a project. */
 export interface ChecklistDraft {
@@ -52,6 +91,21 @@ export interface ChecklistDraft {
   package?: string;
   owedBy?: string;
   note?: string;
+  list?: string;
+  ref?: string;
+  oldRef?: string;
+  headings?: ChecklistHeading[];
+  order?: number;
+  fn?: string;
+  round?: string;
+  availability?: string;
+  /** What came back, in the list's own few words. */
+  remark?: string;
+  targetDate?: string;
+  /** How the list says it stands, where the list has a status column. */
+  status?: ChecklistListStatus;
+  /** Who is to assume, where the status says somebody will. */
+  assumer?: string;
 }
 
 export interface ChecklistPatch {
@@ -60,9 +114,15 @@ export interface ChecklistPatch {
   package?: string | null;
   owedBy?: string | null;
   note?: string | null;
+  /** The day it is wanted by, as `YYYY-MM-DD`. */
+  targetDate?: string | null;
+  /** The round it was asked in. */
+  round?: string | null;
+  /** A few words on what came back, in the person's own. */
+  remark?: string | null;
 }
 
-export const CHECKLIST_LIMITS = { items: 1000, title: 300, label: 120, note: 600 } as const;
+export const CHECKLIST_LIMITS = { items: 1000, title: 300, label: 120, note: 600, remark: 200, ref: 24, headings: 4, assumedFields: 6 } as const;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -75,6 +135,45 @@ function newId(prefix: string): string {
 function clean(text: string | null | undefined, max: number): string | undefined {
   const out = (text ?? '').replace(/\s+/g, ' ').trim().slice(0, max).trim();
   return out || undefined;
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * A day as a list writes it, as `YYYY-MM-DD`: "2026-11-14", "14/11/2026",
+ * "14-11-26", "14 Nov 2026", "Nov 14, 2026". The day comes before the month,
+ * as it is written in India. Nothing where it is no day the calendar has.
+ */
+export function listDay(text: string | null | undefined): string | undefined {
+  const raw = (text ?? '').trim();
+  if (!raw) return undefined;
+  const made = (y: number, m: number, d: number): string | undefined => {
+    const year = y < 100 ? 2000 + y : y;
+    const day = new Date(Date.UTC(year, m - 1, d));
+    return year >= 1990 && year <= 2200 && day.getUTCFullYear() === year && day.getUTCMonth() === m - 1 && day.getUTCDate() === d ? day.toISOString().slice(0, 10) : undefined;
+  };
+  let hit = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/.exec(raw);
+  if (hit) return made(Number(hit[1]), Number(hit[2]), Number(hit[3]));
+  hit = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/.exec(raw);
+  if (hit) return made(Number(hit[3]), Number(hit[2]), Number(hit[1]));
+  hit = /^(\d{1,2})(?:st|nd|rd|th)?[\s./-]+([A-Za-z]{3,9})\.?,?[\s./-]+(\d{2}|\d{4})$/.exec(raw);
+  if (hit && MONTHS.includes(hit[2]!.slice(0, 3).toLowerCase())) return made(Number(hit[3]), MONTHS.indexOf(hit[2]!.slice(0, 3).toLowerCase()) + 1, Number(hit[1]));
+  hit = /^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/.exec(raw);
+  if (hit && MONTHS.includes(hit[1]!.slice(0, 3).toLowerCase())) return made(Number(hit[3]), MONTHS.indexOf(hit[1]!.slice(0, 3).toLowerCase()) + 1, Number(hit[2]));
+  // A date cell of a workbook, as it is printed: "Sat Nov 14 2026 05:30:00 GMT+0530".
+  hit = /^[A-Za-z]{3},? ([A-Za-z]{3}) (\d{1,2}) (\d{4}) \d{2}:\d{2}/.exec(raw);
+  if (hit && MONTHS.includes(hit[1]!.toLowerCase())) return made(Number(hit[3]), MONTHS.indexOf(hit[1]!.toLowerCase()) + 1, Number(hit[2]));
+  return undefined;
+}
+
+/** The sections above a line as they are kept: each bounded, four deep at most. */
+function cleanHeadings(headings: readonly ChecklistHeading[] | undefined): ChecklistHeading[] | undefined {
+  const out = (headings ?? [])
+    .map((h) => ({ ref: clean(h.ref, CHECKLIST_LIMITS.ref), title: clean(h.title, CHECKLIST_LIMITS.label) }))
+    .filter((h): h is { ref: string | undefined; title: string } => Boolean(h.title))
+    .slice(-CHECKLIST_LIMITS.headings)
+    .map((h) => ({ ...(h.ref ? { ref: h.ref } : {}), title: h.title }));
+  return out.length ? out : undefined;
 }
 
 /**
@@ -95,8 +194,9 @@ function foldFile(name: string | undefined): string {
 }
 
 /** What makes two lines the same line: the paper, at the same stage, in the same package. */
-function lineKey(line: Pick<ChecklistDraft, 'title' | 'stage' | 'package'>): string {
-  return `${fold(line.title)}|${fold(line.stage)}|${fold(line.package)}`;
+function lineKey(line: Pick<ChecklistDraft, 'title' | 'stage' | 'package' | 'list' | 'ref'>): string {
+  // A line of a tracked list is told apart by its number as well: two sections may ask for a paper of the same name.
+  return `${fold(line.title)}|${fold(line.stage)}|${fold(line.package)}${line.list && line.ref ? `|${fold(line.list)}|${line.ref.toLowerCase()}` : ''}`;
 }
 
 function itemsOf(project: DdProject): ChecklistItem[] {
@@ -339,7 +439,7 @@ export function parseChecklistRows(table: readonly (readonly string[])[]): Check
 }
 
 /** One line of a CSV as its cells: a quoted cell keeps its commas. */
-function csvCells(line: string): string[] {
+export function csvCells(line: string): string[] {
   const cells: string[] = [];
   let cell = '';
   let quoted = false;
@@ -393,6 +493,38 @@ export function parseChecklistSheets(sheets: ReadonlyArray<{ name: string; rows:
 /* Changing it                                                           */
 /* ==================================================================== */
 
+/** What a tracked list says of a line beyond its name: where it sits, when it was asked for and what came back. Absent members are left out, so a plain line is stored as it always was. */
+function listed(draft: ChecklistDraft): Partial<Pick<ChecklistItem, 'list' | 'ref' | 'oldRef' | 'headings' | 'order' | 'fn' | 'round' | 'availability' | 'targetDate'>> {
+  const out: Partial<Pick<ChecklistItem, 'list' | 'ref' | 'oldRef' | 'headings' | 'order' | 'fn' | 'round' | 'availability' | 'targetDate'>> = {};
+  const [list, ref, oldRef, fn, round, availability] = [clean(draft.list, CHECKLIST_LIMITS.label), clean(draft.ref, CHECKLIST_LIMITS.ref), clean(draft.oldRef, CHECKLIST_LIMITS.ref), clean(draft.fn, 80), clean(draft.round, CHECKLIST_LIMITS.label), clean(draft.availability, CHECKLIST_LIMITS.label)];
+  const headings = cleanHeadings(draft.headings);
+  const targetDate = listDay(draft.targetDate);
+  if (list) out.list = list;
+  if (ref) out.ref = ref;
+  if (oldRef) out.oldRef = oldRef;
+  if (headings) out.headings = headings;
+  if (typeof draft.order === 'number' && Number.isFinite(draft.order)) out.order = draft.order;
+  if (fn) out.fn = fn;
+  if (round) out.round = round;
+  if (availability) out.availability = availability;
+  if (targetDate) out.targetDate = targetDate;
+  return out;
+}
+
+/** How a list's own status column makes a new line stand, with the remark it carries. */
+function standsAs(draft: ChecklistDraft, at: string, actor: string): Partial<Pick<ChecklistItem, 'received' | 'partial' | 'assumed' | 'remark'>> {
+  const remark = clean(draft.remark, CHECKLIST_LIMITS.remark);
+  return {
+    ...(remark ? { remark: { text: remark, from: 'list' as const, by: actor, at } } : {}),
+    ...(draft.status === 'received' ? { received: { at, by: actor, fromList: true as const } } : {}),
+    ...(draft.status === 'partial' ? { partial: { at, by: actor } } : {}),
+    ...(draft.status === 'assumed' ? { assumed: { at, by: actor, assumer: clean(draft.assumer, CHECKLIST_LIMITS.label) ?? LIST_ASSUMER } } : {}),
+  };
+}
+
+/** Who assumes, where a list says a line is to be assumed and names nobody. */
+export const LIST_ASSUMER = 'The consultant';
+
 /**
  * Put lines on the project. A line already there (the same paper, stage and
  * package) is left as it is, so the same list loaded twice is one list.
@@ -406,7 +538,7 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
   for (const draft of drafts) {
     const title = clean(draft.title, CHECKLIST_LIMITS.title);
     if (!title) continue;
-    const line = { title, stage: clean(draft.stage, CHECKLIST_LIMITS.label), package: clean(draft.package, CHECKLIST_LIMITS.label) };
+    const line = { title, stage: clean(draft.stage, CHECKLIST_LIMITS.label), package: clean(draft.package, CHECKLIST_LIMITS.label), ...listed(draft) };
     const key = lineKey(line);
     if (held.has(key)) {
       skipped += 1;
@@ -419,6 +551,7 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
       ...line,
       owedBy: clean(draft.owedBy, CHECKLIST_LIMITS.label),
       note: clean(draft.note, CHECKLIST_LIMITS.note),
+      ...standsAs(draft, at, actor),
       createdAt: at,
       createdBy: actor,
       updatedAt: at,
@@ -452,6 +585,16 @@ export function patchChecklistItem(project: DdProject, itemId: string, patch: Ch
   if (patch.package !== undefined) next.package = clean(patch.package, CHECKLIST_LIMITS.label);
   if (patch.owedBy !== undefined) next.owedBy = clean(patch.owedBy, CHECKLIST_LIMITS.label);
   if (patch.note !== undefined) next.note = clean(patch.note, CHECKLIST_LIMITS.note);
+  if (patch.round !== undefined) next.round = clean(patch.round, CHECKLIST_LIMITS.label);
+  if (patch.targetDate !== undefined) {
+    const day = patch.targetDate === null || !patch.targetDate.trim() ? undefined : listDay(patch.targetDate);
+    if (patch.targetDate?.trim() && !day) throw new Error('Give the day it is wanted by as a date.');
+    next.targetDate = day;
+  }
+  if (patch.remark !== undefined) {
+    const text = clean(patch.remark, CHECKLIST_LIMITS.remark);
+    next.remark = text ? (text === item.remark?.text ? item.remark : { text, from: 'person', by: actor, at: nowIso() }) : undefined;
+  }
   const key = lineKey(next);
   if ((project.checklist ?? []).some((i) => i.id !== item.id && i.department === item.department && lineKey(i) === key)) {
     throw new Error('That is already on the list.');
@@ -477,6 +620,9 @@ export function receiveChecklistItem(project: DdProject, itemId: string, input: 
   if (input.evidenceId && !row) throw new Error(`Evidence ${input.evidenceId} not found`);
   const at = nowIso();
   item.received = { at, by: actor, ...(row ? { evidenceId: row.id } : {}) };
+  // In hand is all of it: a line no longer stands as partly in hand or as one that will not come.
+  delete item.partial;
+  delete item.assumed;
   if (row && item.dismissed) item.dismissed = item.dismissed.filter((id) => id !== row.id);
   item.updatedAt = at;
   audit(project, actor, 'checklist_received', item.id, row ? `${item.title} · ${row.title}` : item.title);
@@ -503,6 +649,265 @@ export function dismissChecklistMatch(project: DdProject, itemId: string, eviden
   return item;
 }
 
+/**
+ * A person says some of it is in hand and the rest is still owed, with a
+ * short line on what is still wanted. `null` takes that back.
+ */
+export function markChecklistPartial(project: DdProject, itemId: string, input: { wanted?: string | null } | null, actor: string): ChecklistItem {
+  const item = findItem(project, itemId);
+  const at = nowIso();
+  if (!input) delete item.partial;
+  else {
+    const wanted = clean(input.wanted, CHECKLIST_LIMITS.remark);
+    item.partial = { at, by: actor, ...(wanted ? { wanted } : {}) };
+    delete item.received;
+    delete item.assumed;
+  }
+  item.updatedAt = at;
+  audit(project, actor, input ? 'checklist_partial' : 'checklist_partial_cleared', item.id, item.title);
+  return item;
+}
+
+/**
+ * A person says it will not come, and names who proceeds on an assumption.
+ * `fields` are the fields the line stands in for, each with the value it is
+ * assumed at: checked against its field by the caller (`assumeChecklistItem`
+ * in `list-assumptions.ts`). `null` takes it back.
+ */
+export function markChecklistAssumed(project: DdProject, itemId: string, input: { assumer: string; fields?: readonly ChecklistAssumedField[] } | null, actor: string): ChecklistItem {
+  const item = findItem(project, itemId);
+  const at = nowIso();
+  if (!input) delete item.assumed;
+  else {
+    const assumer = clean(input.assumer, CHECKLIST_LIMITS.label);
+    if (!assumer) throw new Error('Name who is to assume.');
+    if ((input.fields ?? []).length > CHECKLIST_LIMITS.assumedFields) throw new Error(`A line stands in for ${CHECKLIST_LIMITS.assumedFields} fields at most.`);
+    const fields = (input.fields ?? []).map((f) => ({ address: { fn: f.address.fn, set: f.address.set, field: f.address.field, ...(f.address.record ? { record: f.address.record } : {}) }, value: f.value }));
+    item.assumed = { at, by: actor, assumer, ...(fields.length ? { fields } : {}) };
+    delete item.received;
+    delete item.partial;
+  }
+  item.updatedAt = at;
+  audit(project, actor, input ? 'checklist_assumed' : 'checklist_assumed_cleared', item.id, input ? `${item.title} · ${item.assumed!.assumer}` : item.title);
+  return item;
+}
+
+/**
+ * Name who owes several lines, and the day they are wanted by, in one act.
+ * Only what is given is set: a party alone leaves each line's day as it was.
+ */
+export function assignChecklistItems(project: DdProject, itemIds: readonly string[], input: { owedBy?: string | null; targetDate?: string | null }, actor: string): ChecklistItem[] {
+  const owedBy = input.owedBy === undefined ? undefined : (clean(input.owedBy, CHECKLIST_LIMITS.label) ?? null);
+  const targetDate = input.targetDate === undefined ? undefined : input.targetDate === null || !input.targetDate.trim() ? null : listDay(input.targetDate);
+  if (input.targetDate?.trim() && !targetDate) throw new Error('Give the day they are wanted by as a date.');
+  if (owedBy === undefined && targetDate === undefined) throw new Error('Name who owes them, or the day they are wanted by.');
+  const items = [...new Set(itemIds)].map((id) => findItem(project, id));
+  if (!items.length) throw new Error('Pick the lines.');
+  const at = nowIso();
+  for (const item of items) {
+    if (owedBy !== undefined) item.owedBy = owedBy ?? undefined;
+    if (targetDate !== undefined) item.targetDate = targetDate ?? undefined;
+    item.updatedAt = at;
+  }
+  audit(project, actor, 'checklist_assigned', items[0]!.id, [`${items.length} ${items.length === 1 ? 'line' : 'lines'}`, owedBy ?? '', targetDate ?? ''].filter(Boolean).join(' · '));
+  return items;
+}
+
+/* ==================================================================== */
+/* A tracked list, loaded again                                          */
+/* ==================================================================== */
+
+/** What loading a tracked list did, or would do: each line named by its number and its paper. */
+export interface ListLoadReport {
+  list: string;
+  added: string[];
+  becameReceived: string[];
+  becamePartial: string[];
+  becameAssumed: string[];
+  /** In hand on the last copy, pending on this one. */
+  reopened: string[];
+  /** On the project from an earlier copy and not on this one. Kept, and said. */
+  gone: string[];
+  /** Lines matched whose words or place changed, standing as they did. */
+  updated: number;
+  unchanged: number;
+}
+
+const named = (line: Pick<ChecklistDraft, 'ref' | 'title'>): string => (line.ref ? `${line.ref} ${line.title}` : line.title);
+
+function listStatusOf(item: ChecklistItem): ChecklistListStatus {
+  return item.received ? 'received' : item.assumed ? 'assumed' : item.partial ? 'partial' : 'pending';
+}
+
+/**
+ * Load a tracked list: one with numbers and a status column, which is sent
+ * again each time it moves.
+ *
+ * A line already on the project from an earlier copy of the same list is
+ * UPDATED, never added twice. It is matched by its number, and by its paper's
+ * name where the number moved. The list's status column makes a line stand:
+ * received is in hand, partial is partly in hand, "to assume" is to be
+ * assumed, and pending puts back a line the last copy called received. What a
+ * person did here is not undone by the list: a line they marked in hand
+ * stays in hand, and a party or a day they set is kept where the list gives
+ * none.
+ *
+ * A line of an earlier copy that this copy leaves out is kept and said
+ * (`gone`). `department` is the desk for a draft whose package names none.
+ * With `dryRun` nothing is changed and the report says what would be.
+ */
+export function loadTrackedList(
+  project: DdProject,
+  department: DepartmentKey,
+  drafts: ReadonlyArray<ChecklistDraft & { department?: DepartmentKey }>,
+  actor: string,
+  opts: { dryRun?: boolean; openOnly?: boolean } = {},
+): ListLoadReport {
+  const list = clean(drafts.find((d) => d.list)?.list, CHECKLIST_LIMITS.label) ?? 'List';
+  const report: ListLoadReport = { list, added: [], becameReceived: [], becamePartial: [], becameAssumed: [], reopened: [], gone: [], updated: 0, unchanged: 0 };
+  const held = (project.checklist ?? []).filter((i) => fold(i.list) === fold(list));
+  const matched = new Set<string>();
+  const at = nowIso();
+  const fresh: Array<ChecklistDraft & { department?: DepartmentKey }> = [];
+  const refOf = (line: { ref?: string }) => clean(line.ref, CHECKLIST_LIMITS.ref)?.toLowerCase();
+  // Which line of the last copy each line of this one is. First the lines whose number and name are both as they were; then
+  // the ones whose number moved, by their name where one line has it; then the ones reworded under the number they had.
+  const pairs = new Map<number, ChecklistItem>();
+  const pair = (n: number, item: ChecklistItem | undefined) => {
+    if (!item) return;
+    pairs.set(n, item);
+    matched.add(item.id);
+  };
+  const open = () => held.filter((i) => !matched.has(i.id));
+  drafts.forEach((draft, n) => pair(n, open().find((i) => i.ref && refOf(i) === refOf(draft) && fold(i.title) === fold(draft.title))));
+  drafts.forEach((draft, n) => {
+    if (pairs.has(n)) return;
+    const same = open().filter((i) => fold(i.title) === fold(draft.title));
+    if (same.length === 1) pair(n, same[0]);
+  });
+  drafts.forEach((draft, n) => {
+    if (!pairs.has(n) && refOf(draft)) pair(n, open().find((i) => refOf(i) === refOf(draft)));
+  });
+
+  for (const [n, draft] of drafts.entries()) {
+    const title = clean(draft.title, CHECKLIST_LIMITS.title);
+    if (!title) continue;
+    const item = pairs.get(n);
+    // A form's rows already answered are not papers owed: only a line still open is added from one.
+    if (!item && opts.openOnly && draft.status === 'received') continue;
+    if (!item) {
+      fresh.push({ ...draft, list });
+      report.added.push(named({ ref: draft.ref, title }));
+      continue;
+    }
+    const was = listStatusOf(item);
+    const now: ChecklistListStatus = draft.status ?? 'pending';
+    const next: ChecklistItem = { ...item, title, ...listed({ ...draft, list }) };
+    const pack = clean(draft.package, CHECKLIST_LIMITS.label);
+    if (pack) next.package = pack;
+    const owedBy = clean(draft.owedBy, CHECKLIST_LIMITS.label);
+    if (owedBy) next.owedBy = owedBy;
+    const note = clean(draft.note, CHECKLIST_LIMITS.note);
+    if (note) next.note = note;
+    const remark = clean(draft.remark, CHECKLIST_LIMITS.remark);
+    // The list's own remark follows the list. A person's is theirs, and is kept until the list says something else.
+    if (remark && remark !== item.remark?.text) next.remark = { text: remark, from: 'list', by: actor, at };
+    else if (!remark && item.remark?.from === 'list') delete next.remark;
+    // A line a person settled here is not moved by the list.
+    const byHand = Boolean(item.received && !item.received.fromList);
+    const moves = !byHand && now !== was;
+    if (moves) {
+      delete next.received;
+      delete next.partial;
+      delete next.assumed;
+      if (now === 'received') next.received = { at, by: actor, fromList: true };
+      if (now === 'partial') next.partial = { at, by: actor };
+      if (now === 'assumed') next.assumed = { at, by: actor, assumer: clean(draft.assumer, CHECKLIST_LIMITS.label) ?? LIST_ASSUMER };
+      const line = named({ ref: next.ref, title });
+      if (now === 'received') report.becameReceived.push(line);
+      else if (now === 'partial') report.becamePartial.push(line);
+      else if (now === 'assumed') report.becameAssumed.push(line);
+      else report.reopened.push(line);
+    } else if (!byHand && now === 'assumed' && item.assumed) {
+      const assumer = clean(draft.assumer, CHECKLIST_LIMITS.label);
+      if (assumer && assumer !== item.assumed.assumer) next.assumed = { ...item.assumed, assumer };
+    }
+    if (draft.department && draft.department !== item.department) next.department = draft.department;
+    const { updatedAt: _was, ...before } = item;
+    const { updatedAt: _now, ...after } = next;
+    if (JSON.stringify(before) === JSON.stringify(after)) {
+      report.unchanged += 1;
+      continue;
+    }
+    if (!moves) report.updated += 1;
+    if (!opts.dryRun) {
+      for (const key of Object.keys(item) as Array<keyof ChecklistItem>) if (!(key in next)) delete item[key];
+      Object.assign(item, next, { updatedAt: at });
+    }
+  }
+  report.gone = held.filter((i) => !matched.has(i.id)).map((i) => named(i));
+  if ((project.checklist ?? []).length + fresh.length > CHECKLIST_LIMITS.items) throw new Error(`The list holds ${CHECKLIST_LIMITS.items} lines at most.`);
+  if (opts.dryRun) return report;
+  const items = itemsOf(project);
+  for (const draft of fresh) {
+    items.push({
+      id: newId('chk'),
+      department: draft.department ?? department,
+      title: clean(draft.title, CHECKLIST_LIMITS.title)!,
+      stage: clean(draft.stage, CHECKLIST_LIMITS.label),
+      package: clean(draft.package, CHECKLIST_LIMITS.label),
+      ...listed(draft),
+      owedBy: clean(draft.owedBy, CHECKLIST_LIMITS.label),
+      note: clean(draft.note, CHECKLIST_LIMITS.note),
+      ...standsAs(draft, at, actor),
+      createdAt: at,
+      createdBy: actor,
+      updatedAt: at,
+    });
+  }
+  const moved = report.becameReceived.length + report.becamePartial.length + report.becameAssumed.length + report.reopened.length;
+  if (fresh.length || moved || report.updated) {
+    audit(project, actor, 'checklist_list_loaded', items.find((i) => fold(i.list) === fold(list))?.id ?? list, [list, fresh.length ? `${fresh.length} added` : '', moved ? `${moved} moved` : '', report.updated ? `${report.updated} updated` : ''].filter(Boolean).join(' · '));
+  }
+  return report;
+}
+
+/** A load's report in one line, for the notice that follows it. */
+export function listLoadSaid(report: ListLoadReport): string {
+  const part = (n: number, said: string) => (n ? `${n} ${said}` : '');
+  const out = [
+    part(report.added.length, 'added'),
+    part(report.becameReceived.length, 'now received'),
+    part(report.becamePartial.length, 'now partial'),
+    part(report.becameAssumed.length, 'now to be assumed'),
+    part(report.reopened.length, 'pending again'),
+    part(report.updated, 'updated'),
+    part(report.gone.length, 'no longer on the list'),
+  ].filter(Boolean);
+  return out.length ? out.join(' · ') : `Nothing changed: ${report.unchanged} ${report.unchanged === 1 ? 'line' : 'lines'} as they were`;
+}
+
+/** The list's name, as a citation says it. `papers-owed.ts` gives the screens the same words. */
+const PAPERS_OWED_NAME = 'Papers owed';
+
+/**
+ * The values that stand in for fields because a paper will not come: every
+ * field a line "to be assumed" names, by its address, with the value and the
+ * line that is the reason. Read by the field resolver, which shows such a
+ * value as assumed until a real one is typed or accepted.
+ */
+export function listAssumptions(project: Pick<DdProject, 'checklist'>): Map<string, { value: string | number | boolean; cite: string }> {
+  const out = new Map<string, { value: string | number | boolean; cite: string }>();
+  for (const item of project.checklist ?? []) {
+    if (!item.assumed?.fields?.length || item.received) continue;
+    for (const field of item.assumed.fields) {
+      const key = `${field.address.set}::${field.address.record ?? ''}::${field.address.field}`;
+      if (!out.has(key)) out.set(key, { value: field.value, cite: `${PAPERS_OWED_NAME}: ${named(item)}, ${item.assumed.assumer} to assume`.slice(0, 240) });
+    }
+  }
+  return out;
+}
+
 /* ==================================================================== */
 /* The sheet                                                             */
 /* ==================================================================== */
@@ -523,6 +928,11 @@ export interface ChecklistLine {
   dueAt?: string;
   overdue?: boolean;
   requestId?: string;
+  /**
+   * Partly in hand, with the rest still owed: its `status` goes on saying whether the rest was asked for. Or to be
+   * assumed: it will not come, nobody is chased for it, and it is counted neither as owed nor as in hand.
+   */
+  mark?: 'partial' | 'assumed';
 }
 
 export interface ChecklistPackageGroup {
@@ -550,6 +960,9 @@ export interface ChecklistSheet {
   overdue: number;
   /** Lines with a document offered and waiting on a person. */
   toConfirm: number;
+  /** Lines partly in hand, and lines that will not come and are to be assumed. */
+  partial: number;
+  assumed: number;
   /** Whole percent in hand; 0 on an empty sheet. */
   percent: number;
   /** What is missing and not yet asked for, by who owes it. The lines no party is named for come last, under no name. */
@@ -617,6 +1030,23 @@ function fileOf(row: EvidenceRecord | undefined): Pick<ChecklistLine, 'evidenceI
 }
 
 /**
+ * Lines in the order their list writes them. A line of a tracked list sits at
+ * its own place in that list, wherever a later copy added it; every other
+ * line, and each list among the others, stays where it was put.
+ */
+function inListOrder(items: readonly ChecklistItem[]): ChecklistItem[] {
+  const first = new Map<string, number>();
+  items.forEach((item, n) => {
+    if (item.list && item.order !== undefined && !first.has(fold(item.list))) first.set(fold(item.list), n);
+  });
+  const place = (item: ChecklistItem, n: number): [number, number] => (item.list && item.order !== undefined ? [first.get(fold(item.list))!, item.order] : [n, -1]);
+  return items
+    .map((item, n) => ({ item, at: place(item, n), n }))
+    .sort((a, b) => a.at[0] - b.at[0] || a.at[1] - b.at[1] || a.n - b.n)
+    .map((held) => held.item);
+}
+
+/**
  * The checklist as it is worked: by stage, then by package, each with how
  * many are in hand, and who owes what is missing.
  *
@@ -624,7 +1054,7 @@ function fileOf(row: EvidenceRecord | undefined): Pick<ChecklistLine, 'evidenceI
  */
 export function checklistSheet(project: DdProject, opts: { department?: DepartmentKey; now?: string } = {}): ChecklistSheet {
   const today = (opts.now ?? nowIso()).slice(0, 10);
-  const items = (project.checklist ?? []).filter((i) => !opts.department || i.department === opts.department);
+  const items = inListOrder((project.checklist ?? []).filter((i) => !opts.department || i.department === opts.department));
   const linked = new Set(items.map((i) => i.received?.evidenceId).filter(Boolean));
   const { sure, offered } = matchDocuments(
     items.filter((i) => !i.received),
@@ -645,9 +1075,17 @@ export function checklistSheet(project: DdProject, opts: { department?: Departme
     if (named) return { item, status: 'received', receivedAt: named.attachments[0]?.uploadedAt ?? named.updatedAt, ...fileOf(named) };
     const offer = offered.get(item.id);
     const suggestion = offer ? { evidenceId: offer.row.id, title: offer.row.title, score: offer.score } : undefined;
+    // It will not come: nobody is chased for it, and no day is waited for.
+    if (item.assumed) return { item, status: 'pending', mark: 'assumed', suggestion };
+    const mark = item.partial ? { mark: 'partial' as const } : {};
     const request = asked.get(item.id);
-    if (!request) return { item, status: 'pending', suggestion };
-    return { item, status: 'requested', suggestion, askedOf: request.recipient, dueAt: request.dueAt, overdue: request.dueAt ? request.dueAt.slice(0, 10) < today : undefined, requestId: request.id };
+    // The day it is wanted by: the request's where one is out, else the line's own. Past it, the line is overdue.
+    const dueAt = request?.dueAt ?? item.targetDate;
+    const due = dueAt ? { dueAt, overdue: dueAt.slice(0, 10) < today } : {};
+    if (request) return { item, status: 'requested', suggestion, askedOf: request.recipient, dueAt: request.dueAt, overdue: undefined, ...due, requestId: request.id, ...mark };
+    // A line a list says was asked for in a round has been asked for, though no request went from here.
+    if (item.round) return { item, status: 'requested', suggestion, ...due, ...mark };
+    return { item, status: 'pending', suggestion, ...(due.overdue ? due : item.targetDate ? { dueAt: item.targetDate } : {}), ...mark };
   });
 
   // In the order the list was written: a stage where it first appears, its packages likewise.
@@ -665,7 +1103,7 @@ export function checklistSheet(project: DdProject, opts: { department?: Departme
 
   const owing = new Map<string, { owedBy?: string; lines: ChecklistLine[] }>();
   for (const line of lines) {
-    if (line.status !== 'pending') continue;
+    if (line.status !== 'pending' || line.mark === 'assumed') continue;
     const key = fold(line.item.owedBy);
     const group = owing.get(key) ?? { owedBy: line.item.owedBy, lines: [] };
     owing.set(key, group);
@@ -682,9 +1120,11 @@ export function checklistSheet(project: DdProject, opts: { department?: Departme
     total: lines.length,
     received,
     requested: lines.filter((l) => l.status === 'requested').length,
-    pending: lines.filter((l) => l.status === 'pending').length,
+    pending: lines.filter((l) => l.status === 'pending' && l.mark !== 'assumed').length,
     overdue: lines.filter((l) => l.overdue).length,
     toConfirm: lines.filter((l) => l.suggestion).length,
+    partial: lines.filter((l) => l.mark === 'partial').length,
+    assumed: lines.filter((l) => l.mark === 'assumed').length,
     percent: lines.length ? Math.round((received / lines.length) * 100) : 0,
     owing: [...owing.values()].sort((a, b) => Number(!a.owedBy) - Number(!b.owedBy) || b.lines.length - a.lines.length),
   };
@@ -707,7 +1147,7 @@ export interface ChecklistOwed {
 /** What is still owed on the checklist, across every desk's list or on one desk's. */
 export function checklistOwed(project: DdProject, opts: { department?: DepartmentKey; now?: string } = {}): ChecklistOwed {
   const sheet = checklistSheet(project, opts);
-  const missing = sheet.stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines)).filter((line) => line.status !== 'received');
+  const missing = sheet.stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines)).filter((line) => line.status !== 'received' && line.mark !== 'assumed');
   const parties = new Map<string, { owedBy?: string; lines: ChecklistLine[] }>();
   const desks = new Map<DepartmentKey, number>();
   for (const line of missing) {
@@ -788,7 +1228,8 @@ export function reconcileChecklistRequests(project: DdProject, now = nowIso()): 
   const closed: ProjectRequest[] = [];
   for (const request of waiting) {
     const mine = request.checklistItemIds!.map((id) => lines.get(id)).filter((l): l is ChecklistLine => Boolean(l));
-    if (!mine.length || mine.some((l) => l.status !== 'received')) continue;
+    // A line that will not come is settled as far as a request goes: nothing more is waited for.
+    if (!mine.length || mine.some((l) => l.status !== 'received' && l.mark !== 'assumed') || mine.every((l) => l.mark === 'assumed')) continue;
     const documents = [...new Set(mine.map((l) => l.evidenceId).filter(Boolean))];
     request.status = 'answered';
     if (documents.length === 1) request.answeredByEvidenceId = documents[0];
@@ -797,4 +1238,76 @@ export function reconcileChecklistRequests(project: DdProject, now = nowIso()): 
     closed.push(request);
   }
   return closed;
+}
+
+/* ==================================================================== */
+/* The summary a consultant keeps by hand                                */
+/* ==================================================================== */
+
+/** One package of a list, counted by how its lines stand. */
+export interface ChecklistSummaryRow {
+  key: string;
+  package: string;
+  /** The desks that hold its lines. */
+  departments: DepartmentKey[];
+  total: number;
+  received: number;
+  partial: number;
+  assumed: number;
+  /** Neither in hand, partly in hand nor to be assumed: asked for or not. */
+  pending: number;
+  /** Whole percent received; 0 where the package holds nothing. */
+  percent: number;
+}
+
+export interface ChecklistSummary {
+  rows: ChecklistSummaryRow[];
+  total: ChecklistSummaryRow;
+  /** The rounds the lines were asked in, in the order they first appear, each with how many lines it asked for. */
+  rounds: Array<{ round: string; total: number }>;
+  /** Whether any line came from a tracked list: one with numbers, rounds or a status column. */
+  tracked: boolean;
+}
+
+/** Whether a line carries what only a tracked list gives it. */
+export function checklistLineTracked(item: ChecklistItem): boolean {
+  return Boolean(item.ref || item.round || item.partial || item.assumed || item.availability || item.targetDate);
+}
+
+/**
+ * What a consultant counts by hand at the foot of the list: for each
+ * package and in total, how many lines there are, how many are received,
+ * partly in hand, to be assumed and pending, and the percent received.
+ *
+ * Worked out afresh from the lines each time, so it cannot disagree with
+ * them. `round` narrows it to the lines asked for in one round.
+ */
+export function checklistSummary(project: DdProject, opts: { department?: DepartmentKey; round?: string; now?: string } = {}): ChecklistSummary {
+  const all = checklistSheet(project, { department: opts.department, now: opts.now }).stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines));
+  const lines = opts.round ? all.filter((line) => fold(line.item.round) === fold(opts.round)) : all;
+  const blank = (key: string, pack: string): ChecklistSummaryRow => ({ key, package: pack, departments: [], total: 0, received: 0, partial: 0, assumed: 0, pending: 0, percent: 0 });
+  const rows = new Map<string, ChecklistSummaryRow>();
+  const total = blank('total', 'Total');
+  for (const line of lines) {
+    const pack = line.item.package ?? CHECKLIST_NO_PACKAGE;
+    const row = rows.get(fold(pack)) ?? blank(fold(pack), pack);
+    rows.set(fold(pack), row);
+    for (const held of [row, total]) {
+      held.total += 1;
+      if (line.status === 'received') held.received += 1;
+      else if (line.mark === 'assumed') held.assumed += 1;
+      else if (line.mark === 'partial') held.partial += 1;
+      else held.pending += 1;
+      if (!held.departments.includes(line.item.department)) held.departments.push(line.item.department);
+    }
+  }
+  for (const held of [...rows.values(), total]) held.percent = held.total ? Math.round((held.received / held.total) * 100) : 0;
+  const rounds = new Map<string, { round: string; total: number }>();
+  for (const line of all) {
+    if (!line.item.round) continue;
+    const held = rounds.get(fold(line.item.round)) ?? { round: line.item.round, total: 0 };
+    rounds.set(fold(line.item.round), held);
+    held.total += 1;
+  }
+  return { rows: [...rows.values()], total, rounds: [...rounds.values()], tracked: all.some((line) => checklistLineTracked(line.item)) };
 }

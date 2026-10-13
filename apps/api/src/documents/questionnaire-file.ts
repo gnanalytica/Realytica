@@ -159,8 +159,11 @@ export async function readQuestionnaireFile(file: { originalname: string; buffer
  * Every sheet of a workbook as rows of cells, under the sheet's name. Each
  * cell as it is shown (`cell.text`). The same limit holds whatever the
  * workbook is opened for.
+ *
+ * A row left blank is left out, unless `keepEmpty` asks for it: then row `n`
+ * of the sheet is entry `n - 1`, so a reader can cite the row a value is on.
  */
-export async function workbookSheets(buffer: Buffer): Promise<Array<{ name: string; rows: string[][] }>> {
+export async function workbookSheets(buffer: Buffer, opts: { keepEmpty?: boolean } = {}): Promise<Array<{ name: string; rows: string[][] }>> {
   workbookMayBeOpened(buffer);
   const { default: ExcelJS } = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
@@ -173,6 +176,7 @@ export async function workbookSheets(buffer: Buffer): Promise<Array<{ name: stri
       row.eachCell({ includeEmpty: true }, (cell, column) => {
         cells[column - 1] = String(cell.text ?? '');
       });
+      while (opts.keepEmpty && rows.length < row.number - 1) rows.push([]);
       rows.push(Array.from(cells, (cell) => cell ?? ''));
     });
     return { name: sheet.name, rows };

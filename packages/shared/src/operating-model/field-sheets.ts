@@ -24,6 +24,7 @@
 import { APPROVAL_KINDS } from './approvals';
 import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, tableRows, fieldIsDerived, fieldNumber, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
 import { checkFieldsAsRead, checkOfferCards, checkOfferStanding, decideCheckWaiting, type CheckOffer } from './check-waiting';
+import { listAssumptions } from './checklist';
 import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey, type DepartmentRole } from './departments';
 import { surveyNumbersIn } from './document-intake';
 import { paperCarries, type DocumentFact, type FactProof } from './document-parse';
@@ -338,6 +339,7 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
     return before?.record ? fieldNumber(read({ fn: set.fn, set: set.id, field: key, record: before.record })) : null;
   };
 
+  let assumedByLists: ReturnType<typeof listAssumptions> | undefined;
   const field = (set: FieldSet, recordId: string | undefined, def: CheckFieldDef): CheckFieldValue | undefined => {
     const key = `${set.id}::${recordId ?? ''}::${def.key}`;
     if (memo.has(key)) return memo.get(key);
@@ -395,6 +397,10 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       // offered changes nothing while it waits, so it does not switch the usual value off. A field marked not applicable has
       // none, and neither has one in dispute: its two values are a question nobody has settled.
       const state = fieldState(held);
+      // A paper that will not come, where a line of Papers owed says who assumes and at what: that value stands in first,
+      // with the line as its reason, and gives way as a usual value does.
+      const stoodIn = isBlank(value) && state !== 'not_applicable' && state !== 'disputed' ? (assumedByLists ??= listAssumptions(project)).get(`${set.id}::${recordId ?? ''}::${def.key}`) : undefined;
+      if (stoodIn) value = { value: stoodIn.value, at: '', by: 'default', state: 'assumed', origin: { kind: 'default', from: 'firm', cite: stoodIn.cite } };
       if (isBlank(value) && state !== 'not_applicable' && state !== 'disputed' && def.defaults?.length) {
         const usual = def.defaults.find((rule) => showing(rule.when, { fn: set.fn, set: set.id, record: recordId }));
         if (usual) value = { value: usual.value, at: '', by: 'default', state: 'assumed', origin: { kind: 'default', from: usual.from, ...(usual.cite ? { cite: usual.cite } : {}) } };
