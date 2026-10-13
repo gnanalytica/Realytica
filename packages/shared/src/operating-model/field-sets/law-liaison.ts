@@ -14,7 +14,7 @@
  * the screen says so beside the standing that read it.
  */
 
-import type { CheckFieldDef, CheckFormula, FieldAddress, FieldReportTemplate, FieldSet, OptionDef, OptionSet, ShowWhen, Tone } from '../types';
+import type { CheckFieldDef, CheckFormula, FieldAddress, FieldReportTemplate, FieldSet, OptionDef, OptionSet, RowWhere, ShowWhen, Tone } from '../types';
 import { withLinks, type SetLinks } from './builders';
 
 const CONTRACTS = 'legal.contracts';
@@ -77,8 +77,18 @@ const yearsAsMonths = (table: string): CheckFormula => ({ op: 'multiply', left: 
 /** Never below nothing, and nothing where the amount is not known yet: days late, counted only once they are. */
 const notBelowZero = (formula: CheckFormula): CheckFormula => ({ op: 'max', of: [num(0), formula] });
 const figure = (key: string): CheckFormula => ({ op: 'figure', key });
-/** What the last sanctioned revision states, read through the figures door, and `otherwise` where no sanctioned revision states it. */
-const revisedOr = (what: 'built_up' | 'units' | 'height', otherwise: CheckFormula): CheckFormula => ({ op: 'if', when: { left: figure(`sanction.revisions_stating_${what}`), is: 'gt', right: num(0) }, then: figure(`sanction.revised_${what}`), else: otherwise });
+/** A plan revision a person has recorded as sanctioned, and that states a figure. */
+const sanctionedStating = (field: string): RowWhere => ({ all: [{ column: 'standing', is: 'equals', value: 'sanctioned' }, { column: field, is: 'set' }] });
+const REVISED = { built_up: 'built_up_area_after', units: 'units_after', height: 'height_after' } as const;
+/** One field of the revision sanctioned last, among those meeting a condition. One with no day of sanction recorded is dated by its application. */
+const lastRevision = (field: string, where: RowWhere): CheckFormula => ({ op: 'records', set: REVISIONS, reduce: 'latest', by: 'sanctioned_on', orBy: 'applied_on', field, where });
+/** What the last sanctioned revision states, and `otherwise` where no sanctioned revision states it. */
+const revisedOr = (what: keyof typeof REVISED, otherwise: CheckFormula): CheckFormula => ({
+  op: 'if',
+  when: { left: { op: 'count_if', over: { records: REVISIONS }, where: sanctionedStating(REVISED[what]) }, is: 'gt', right: num(0) },
+  then: lastRevision(REVISED[what], sanctionedStating(REVISED[what])),
+  else: otherwise,
+});
 /** How far over, or nothing where it is not over. No answer while the amount itself is not known. */
 const overBy = (formula: CheckFormula): CheckFormula => ({ op: 'if', when: { left: formula, is: 'gt', right: num(0) }, then: formula, else: num(0) });
 
@@ -1238,7 +1248,7 @@ const PLAN_SETS: FieldSet[] = [
       { key: 'revisions_count', label: 'Revisions recorded', kind: 'computed', precision: 0, section: 'revision', tier: 'situational', formula: { op: 'records', set: REVISIONS, reduce: 'count' } },
       { key: 'revisions_short_of_consent', label: 'Revisions short of buyers’ consent', kind: 'computed', precision: 0, section: 'revision', tier: 'situational', formula: { op: 'count_if', over: { records: REVISIONS }, where: { column: 'consent_standing', is: 'equals', value: 'Consents short' } } },
       // The sanction as it now stands: what the last sanctioned revision states, and the sanction as first granted where no revision states it. The Architect's area statement, Sales' unit count and RERA's declared figures are held to these.
-      { key: 'revised_on', label: 'Last revision sanctioned on', kind: 'computed', yields: 'date', section: 'revision', tier: 'situational', formula: figure('sanction.revised_day') },
+      { key: 'revised_on', label: 'Last revision sanctioned on', kind: 'computed', yields: 'date', section: 'revision', tier: 'situational', formula: lastRevision('sanctioned_on', { column: 'standing', is: 'equals', value: 'sanctioned' }) },
       { key: 'built_up_in_force', label: 'Built-up area sanctioned, as last revised', kind: 'computed', dimension: 'area', unit: 'sqm', section: 'revision', tier: 'situational', formula: revisedOr('built_up', fld('sanctioned_area')) },
       { key: 'units_in_force', label: 'Units sanctioned, as last revised', kind: 'computed', precision: 0, section: 'revision', tier: 'situational', formula: revisedOr('units', fld('units_sanctioned')) },
       { key: 'height_in_force', label: 'Tallest building sanctioned, as last revised', kind: 'computed', dimension: 'length', section: 'revision', tier: 'situational', formula: revisedOr('height', fld('tallest')) },
@@ -1350,6 +1360,17 @@ const PLAN_SETS: FieldSet[] = [
       { key: 'sanctioned_on', label: 'Sanctioned on', kind: 'date', section: 'revision', tier: 'situational', showWhen: when(REVISIONS, APPROVALS, 'standing', 'equals', 'sanctioned'), from: 'Modified sanction', fromTypes: ['Revised plan sanction'], factKey: 'revised_sanction_date' },
       { key: 'sanction', label: 'Modified sanction', kind: 'ref', target: 'approval', section: 'revision', required: false },
       { key: 'allottees_at_application', label: 'Allottees on the day of the application', kind: 'number', min: 0, section: 'consents', hint: 'A family counted once.', from: 'Sales register on that day' },
+      // What Sales' unit register held on that day: units allotted by then. A family that holds two is one allottee, so the count typed above is never more than this.
+      {
+        key: 'units_allotted_at_application',
+        label: 'Units allotted by the day of the application, per Sales',
+        kind: 'computed',
+        precision: 0,
+        section: 'consents',
+        tier: 'situational',
+        showWhen: { records: 'shared.units', is: 'any', where: { column: 'sale_allotted_on', is: 'set' } },
+        formula: { op: 'count_if', over: { records: 'shared.units' }, where: { column: 'sale_allotted_on', is: 'set' }, asAt: { from: 'sale_allotted_on', on: { op: 'date', key: 'applied_on' } } },
+      },
       { key: 'consents_held', label: 'Written consents held', kind: 'number', min: 0, section: 'consents', from: 'Consent letters' },
       {
         key: 'consent_share_held',
@@ -1373,6 +1394,7 @@ const PLAN_SETS: FieldSet[] = [
     ],
     rules: [
       { kind: 'at_least', fields: ['consent_share_held', 'consent_share_needed'], say: '{a} of allottees have consented in writing and {b} are needed.', severity: 'critical' },
+      { kind: 'at_most', fields: ['allottees_at_application', 'units_allotted_at_application'], say: 'The application counts {a} allottees, and Sales had allotted {b} units by that day.', severity: 'medium' },
       { kind: 'at_most', fields: ['height_after', 'airport'], at: { airport: at(APPROVALS, HEIGHT, 'height_allowed_by_airport') }, say: 'Height after the revision is {a}; the height clearance allows {b} above the ground.', severity: 'critical' },
       { kind: 'at_most', fields: ['height_after', 'fire'], at: { fire: at(APPROVALS, HEIGHT, 'fire_height_cleared') }, say: 'Height after the revision is {a}; the fire clearance covers {b}.', severity: 'critical' },
       { kind: 'at_most', fields: ['built_up_area_after', 'cleared'], at: { cleared: at(APPROVALS, ENVIRONMENT, 'ec_built_up_area') }, say: 'Built-up area after the revision is {a}; the environment clearance covers {b}.', severity: 'critical' },

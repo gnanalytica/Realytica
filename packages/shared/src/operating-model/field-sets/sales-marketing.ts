@@ -1739,7 +1739,7 @@ const LINKS: SetLinks[] = [
       { key: 'sale_restraints', label: 'Orders in force restraining a sale', kind: 'number', sameAs: { fn: 'legal.litigation', set: 'legal.litigation.diary', field: 'sale_restraints' }, required: false, section: 'stock', tier: 'situational', showWhen: { situation: 'litigation_pending' } },
       // Which units those orders hold: counted from the units themselves, each of which says so on its own record.
       { key: 'units_restrained', label: 'Units an order in force restrains the sale of', kind: 'computed', precision: 0, section: 'stock', tier: 'situational', showWhen: { records: ORDER_COVER, is: 'any' }, formula: { op: 'count_if', over: { records: UNITS }, where: { column: 'sale_orders_in_force', is: 'gt', value: 0 } } },
-      { key: 'land_restraints', label: 'Orders in force restraining a sale over a parcel of the land', kind: 'computed', precision: 0, section: 'stock', tier: 'situational', showWhen: { records: ORDER_COVER, is: 'any' }, formula: { op: 'records', set: ORDER_COVER, reduce: 'sum', field: 'land_sale_restraint' } },
+      { key: 'land_restraints', label: 'Orders in force restraining a sale over a parcel of the land', kind: 'computed', precision: 0, section: 'stock', tier: 'situational', showWhen: { records: ORDER_COVER, is: 'any' }, formula: { op: 'sum_if', over: { records: ORDER_COVER }, column: 'restrains_sale', where: { column: 'parcel', is: 'set' } } },
     ],
     rules: [
       { kind: 'at_most', fields: ['units_total', 'units_sanctioned'], at: { units_sanctioned: { fn: 'legal.approvals', set: 'legal.approvals.sanction', field: 'units_in_force' } }, when: { situation: 'revised_sanction' }, say: 'The register holds {a} units and the sanction, as last revised, allows {b}.', severity: 'high' },

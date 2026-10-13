@@ -19,7 +19,8 @@ import { PROJECT_FIGURES } from './field-figures';
 import { FIELD_SETS, RULE_ROWS, RULE_SHAPES } from './field-sets';
 import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { ruleRowFaults } from './rule-tables';
-import type { CheckFieldDef, CheckFormula, DepthSheet, FieldAddress, FieldSet, FormulaCondition, FormulaRows, LifecycleStage, MatchList, MatchSide, OptionSet, RefTarget, RuleRow, ShowWhen, Situation } from './types';
+import { whereColumns, whereJoins } from './check-fields';
+import type { CheckFieldDef, CheckFormula, DepthSheet, FieldAddress, FieldSet, FormulaCondition, FormulaRows, LifecycleStage, MatchList, MatchSide, OptionSet, RefTarget, RowWhere, RowWindow, RuleRow, ShowWhen, Situation } from './types';
 
 export interface FieldCatalog {
   /** Every set by id: checks and sheets. */
@@ -245,9 +246,15 @@ export function fieldAddressOf(set: Pick<FieldSet, 'id' | 'fn'>, field: string, 
 function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
   const own = (field: string): FieldAddress => ({ fn: set.fn, set: set.id, field });
   const rows = (over: FormulaRows, ...columns: string[]): FieldAddress[] =>
-    'table' in over ? columns.map((column) => ({ ...own(over.table), column })) : columns.map((field) => ({ fn: set.fn, set: over.records, field }));
+    !('records' in over)
+      ? columns.map((column) => ({ ...own(over.table), column }))
+      : 'table' in over
+        ? columns.map((column) => ({ fn: set.fn, set: over.records, field: over.table, column }))
+        : columns.map((field) => ({ fn: set.fn, set: over.records, field }));
   // A join on one of the record's own fields reads that field.
-  const joined = (where: { is: string; value?: unknown }): FieldAddress[] => (where.is === 'own' && typeof where.value === 'string' ? [own(where.value)] : []);
+  const joined = (where: RowWhere | undefined): FieldAddress[] => whereJoins(where).map(own);
+  const window = (over: FormulaRows, between: RowWindow | undefined): FieldAddress[] =>
+    between ? [...rows(over, between.column), ...(between.from ? formulaReads(between.from, set) : []), ...(between.to ? formulaReads(between.to, set) : [])] : [];
   const condition = (when: FormulaCondition): FieldAddress[] => {
     if ('all' in when) return when.all.flatMap(condition);
     if ('any' in when) return when.any.flatMap(condition);
@@ -264,7 +271,14 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
     case 'figure':
       return formula.of ? [own(formula.of)] : [];
     case 'records':
+      if (formula.reduce === 'latest') return [formula.field, formula.by, ...(formula.orBy ? [formula.orBy] : []), ...whereColumns(formula.where)].map((field) => ({ fn: set.fn, set: formula.set, field })).concat(joined(formula.where));
       return [{ fn: set.fn, set: formula.set, field: formula.field ?? '' }];
+    case 'span_days':
+      return [
+        ...rows(formula.over, formula.from, formula.to, ...whereColumns(formula.where)),
+        ...joined(formula.where),
+        ...(formula.within ? [...formulaReads(formula.within.from, set), ...formulaReads(formula.within.to, set)] : []),
+      ];
     case 'sum':
       return [{ ...own(formula.table), column: formula.column }];
     case 'count':
@@ -277,9 +291,14 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
     case 'if':
       return [...condition(formula.when), ...formulaReads(formula.then, set), ...formulaReads(formula.else, set)];
     case 'sum_if':
-      return [...rows(formula.over, formula.column, formula.where.column), ...joined(formula.where)];
+      return [...rows(formula.over, formula.column, ...whereColumns(formula.where)), ...joined(formula.where), ...window(formula.over, formula.between)];
     case 'count_if':
-      return [...rows(formula.over, formula.where.column), ...joined(formula.where)];
+      return [
+        ...rows(formula.over, ...whereColumns(formula.where), ...(formula.distinct ? [formula.distinct] : []), ...(formula.asAt ? [formula.asAt.from, ...(formula.asAt.until ? [formula.asAt.until] : [])] : [])),
+        ...joined(formula.where),
+        ...window(formula.over, formula.between),
+        ...(formula.asAt ? formulaReads(formula.asAt.on, set) : []),
+      ];
     case 'rate':
       return [...(formula.on ? [own(formula.on)] : []), ...Object.values(formula.where ?? {}).flatMap((from) => ('field' in from ? [own(from.field)] : []))];
     case 'irr':
@@ -440,8 +459,11 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
         for (const side of matchSides(def)) {
           if (!def.columns?.some((column) => column.key === side.column)) faults.push(`${at(def.key)}: match names column "${side.column}", which it does not have.`);
           const of = side.of;
-          if ('records' in of && !catalog.sets.get(of.records)?.fields.some((field) => field.key === of.field)) faults.push(`${at(def.key)}: match reads ${of.records}/${of.field}, which does not exist.`);
-          if ('table' in of && !fieldDefAt({ ...of.table, column: of.column }, catalog)) faults.push(`${at(def.key)}: match reads ${of.table.set}/${of.table.field}/${of.column}, which does not exist.`);
+          if ('records' in of && 'table' in of) {
+            if (!catalog.sets.get(of.records)?.fields.find((field) => field.key === of.table)?.columns?.some((column) => column.key === of.column)) faults.push(`${at(def.key)}: match reads ${of.records}/${of.table}/${of.column}, which does not exist.`);
+          } else if ('records' in of) {
+            if (!catalog.sets.get(of.records)?.fields.some((field) => field.key === of.field)) faults.push(`${at(def.key)}: match reads ${of.records}/${of.field}, which does not exist.`);
+          } else if ('table' in of && !fieldDefAt({ ...of.table, column: of.column }, catalog)) faults.push(`${at(def.key)}: match reads ${of.table.set}/${of.table.field}/${of.column}, which does not exist.`);
         }
       }
       if (def.display === 'chart' && (!def.chart || ![def.chart.x, def.chart.y].every((key) => def.columns?.some((column) => column.key === key)))) faults.push(`${at(def.key)}: a chart table names its x and y columns.`);
@@ -486,7 +508,7 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
       } else if ('records' in when) {
         const of = catalog.sets.get(when.records);
         if (!of?.records) faults.push(`${where}: showWhen counts "${when.records}", which is not a set that repeats.`);
-        else if (when.where && !of.fields.some((field) => field.key === when.where!.column)) faults.push(`${where}: showWhen reads ${when.records}/${when.where.column}, which does not exist.`);
+        else for (const column of whereColumns(when.where)) if (!of.fields.some((field) => field.key === column)) faults.push(`${where}: showWhen reads ${when.records}/${column}, which does not exist.`);
       } else for (const part of 'all' in when ? when.all : when.any) shows(part, where);
     };
     for (const section of set.sections ?? []) shows(section.showWhen, at(`section ${section.key}`));

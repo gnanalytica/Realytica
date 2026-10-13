@@ -729,8 +729,8 @@ const ENCUMBRANCE: FieldSet = {
     computed(
       'gap_days',
       'Days of the period no certificate covers',
-      // Worked out by the figures door: certificates that overlap are merged and only days inside the period count, so it is never below nought (a sum of each certificate's days counted an overlap twice).
-      { op: 'figure', key: 'title.ec_uncovered_days' },
+      // Certificates that overlap are counted once and only days inside the period count, so it is never below nought (a sum of each certificate's days counted an overlap twice).
+      { op: 'span_days', over: { records: T.certificates }, from: 'from', to: 'to', within: { from: { op: 'date', key: 'ec_from' }, to: { op: 'date', key: 'ec_to' } }, reduce: 'uncovered' },
       { unit: 'days', section: 'search', ...once(T.certificates) },
     ),
     {
@@ -1563,7 +1563,6 @@ const COVER: FieldSet = {
     { key: 'unit', label: 'Unit covered', kind: 'ref', target: 'unit', required: false },
     computed('restrains_sale', 'Restraining a sale now', viaOrder('restrains_sale'), { tier: 'expert', required: false }),
     computed('restrains_construction', 'Restraining construction now', viaOrder('restrains_construction'), { tier: 'expert', required: false }),
-    computed('land_sale_restraint', 'Restraining a sale over a parcel now', { op: 'if', when: { field: 'parcel', is: 'set' }, then: viaOrder('restrains_sale'), else: { op: 'const', value: 0 } }, { tier: 'expert', required: false }),
     computed('names_nothing', 'Names neither a parcel nor a unit', { op: 'if', when: { any: [{ field: 'parcel', is: 'set' }, { field: 'unit', is: 'set' }] }, then: { op: 'const', value: 0 }, else: { op: 'const', value: 1 } }, { tier: 'expert', required: false }),
   ],
   rules: [none('names_nothing', 'It names neither a parcel nor a unit that the order covers.', 'medium', holds(cover('order'), 'set'))],

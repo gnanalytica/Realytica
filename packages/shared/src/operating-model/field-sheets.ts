@@ -22,7 +22,7 @@
  */
 
 import { APPROVAL_KINDS } from './approvals';
-import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
+import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, tableRows, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
 import { checkFieldsAsRead, checkOfferCards, checkOfferStanding, decideCheckWaiting, type CheckOffer } from './check-waiting';
 import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey } from './departments';
 import { surveyNumbersIn } from './document-intake';
@@ -428,6 +428,23 @@ export interface MatchReading {
 
 function matchList(project: DdProject, catalog: FieldCatalog, resolution: FieldResolution, list: MatchList): MatchItem[] {
   if ('target' in list) return refChoices(project, list.target, catalog);
+  if ('records' in list && 'table' in list) {
+    // A column of a table kept inside each record: every name once, as it is written.
+    const seen = new Set<string>();
+    // Where the column is a link, each is called by the name of what it links to.
+    const column = catalog.sets.get(list.records)?.fields.find((field) => field.key === list.table)?.columns?.find((held) => held.key === list.column);
+    const named = column?.kind === 'ref' ? refChoices(project, column.target, catalog) : [];
+    return fieldRecords(project, list.records)
+      .filter(recordStands)
+      .flatMap((record) => tableRows(resolution.holder(list.records, record.id)[list.table]) ?? [])
+      .flatMap((row) => {
+        const cell = row[list.column];
+        const id = cell === null || cell === undefined ? '' : String(cell).trim();
+        if (!id || seen.has(id)) return [];
+        seen.add(id);
+        return [{ id, label: named.find((choice) => choice.id === id)?.label ?? id }];
+      });
+  }
   if ('records' in list) {
     const def = catalog.sets.get(list.records)?.fields.find((field) => field.key === list.field);
     return fieldRecords(project, list.records).filter(recordStands).flatMap((record) => {

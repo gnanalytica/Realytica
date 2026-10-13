@@ -31,7 +31,7 @@
  * data, and a new check costs a declaration rather than a component.
  */
 
-import type { CheckFieldDef, CheckFieldValue, CheckFormula, CheckInsight, CheckInsightRule, CheckInstance, CheckTableRow, Dimension, FieldAddress, FieldState, FindingSeverity, FormulaCondition, FormulaRows, OptionDef, OptionSet, RowCondition, Tone } from './types';
+import type { CheckFieldDef, CheckFieldValue, CheckFormula, CheckInsight, CheckInsightRule, CheckInstance, CheckTableRow, Dimension, FieldAddress, FieldState, FindingSeverity, FormulaCondition, FormulaRows, OptionDef, OptionSet, RowCondition, RowWhere, RowWindow, Tone } from './types';
 import { indiaToday } from './quarters';
 import { formatMeasure, formatMoney, formatMoneyInFull, parseMeasure, unitNamed, type Entered, type UnitContext } from './units';
 import { agreeSaid, countSaid, daySaid, looksLikeDay, percentSaid } from './said';
@@ -386,7 +386,9 @@ function cellValue(cell: unknown): unknown {
   return cell && typeof cell === 'object' && !Array.isArray(cell) && 'value' in cell ? (cell as CheckFieldValue).value : cell;
 }
 
-export function rowMeets(row: Record<string, unknown>, where: RowCondition): boolean {
+export function rowMeets(row: Record<string, unknown>, where: RowWhere): boolean {
+  if ('all' in where) return where.all.every((part) => rowMeets(row, part));
+  if ('any' in where) return where.any.some((part) => rowMeets(row, part));
   const raw = cellValue(row[where.column]);
   const blank = raw === null || raw === undefined || raw === '';
   switch (where.is) {
@@ -416,7 +418,16 @@ export function rowMeets(row: Record<string, unknown>, where: RowCondition): boo
  * or what the record's own field named in `value` holds. Null where that is
  * not known, and then no row is the record's own.
  */
-export function ownRows(where: RowCondition, values: Record<string, CheckFieldValue>, record: string | undefined): RowCondition | null {
+export function ownRows(where: RowWhere, values: Record<string, CheckFieldValue>, record: string | undefined): RowWhere | null {
+  // Every part of an `all` has to be askable; of an `any`, the parts that are.
+  if ('all' in where) {
+    const parts = where.all.map((part) => ownRows(part, values, record));
+    return parts.some((part) => part === null) ? null : { all: parts as RowWhere[] };
+  }
+  if ('any' in where) {
+    const parts = where.any.map((part) => ownRows(part, values, record)).filter((part): part is RowWhere => part !== null);
+    return parts.length ? { any: parts } : null;
+  }
   if (where.is !== 'own') return where;
   const own = typeof where.value === 'string' ? values[where.value]?.value : record;
   return own === null || own === undefined || own === '' || typeof own === 'object' ? null : { column: where.column, is: 'equals', value: own };
@@ -430,8 +441,75 @@ function through(at: FieldAddress, via: string | undefined, values: Record<strin
 }
 
 function formulaRows(over: FormulaRows, values: Record<string, CheckFieldValue>, outside: FormulaOutside | undefined): Array<Record<string, unknown>> | null {
-  if ('table' in over) return tableRows(values[over.table]);
-  return outside?.records(over.records) ?? null;
+  if (!('records' in over)) return tableRows(values[over.table]);
+  const records = outside?.records(over.records) ?? null;
+  if (records === null || !('table' in over)) return records;
+  // The rows of a table kept inside each record, as one list.
+  return records.flatMap((record) => tableRows(record[over.table]) ?? []);
+}
+
+/** The columns a row condition reads, wherever in it they sit. */
+export function whereColumns(where: RowWhere | undefined): string[] {
+  if (!where) return [];
+  if ('all' in where) return where.all.flatMap(whereColumns);
+  if ('any' in where) return where.any.flatMap(whereColumns);
+  return [where.column];
+}
+
+/** The record's own fields a row condition joins on. */
+export function whereJoins(where: RowWhere | undefined): string[] {
+  if (!where) return [];
+  if ('all' in where) return where.all.flatMap(whereJoins);
+  if ('any' in where) return where.any.flatMap(whereJoins);
+  return where.is === 'own' && typeof where.value === 'string' ? [where.value] : [];
+}
+
+/**
+ * The rows of a list that meet a condition and fall inside a window of days.
+ * Null where the list or an end of the window is not known: the figure is
+ * then an unanswered question, not a nought.
+ */
+function rowsMet(
+  over: FormulaRows,
+  where: RowWhere | undefined,
+  between: RowWindow | undefined,
+  values: Record<string, CheckFieldValue>,
+  outside: FormulaOutside | undefined,
+): Array<Record<string, unknown>> | null {
+  const rows = formulaRows(over, values, outside);
+  if (rows === null) return null;
+  const asked = where ? ownRows(where, values, outside?.record) : undefined;
+  let met = asked === null ? [] : asked ? rows.filter((row) => rowMeets(row, asked)) : rows;
+  if (between) {
+    const from = between.from ? evaluateFormula(between.from, values, outside) : undefined;
+    const to = between.to ? evaluateFormula(between.to, values, outside) : undefined;
+    if (from === null || to === null) return null;
+    met = met.filter((row) => {
+      const day = dayNumber(cellValue(row[between.column]));
+      return day !== null && (from === undefined || day >= from) && (to === undefined || day <= to);
+    });
+  }
+  return met;
+}
+
+/**
+ * The days dated spans cover, with spans that overlap counted once. Each span
+ * runs from its first day to its last, both counted. Cut to `within` where
+ * one is given.
+ */
+export function daysCovered(spans: ReadonlyArray<{ from: number; to: number }>, within?: { from: number; to: number }): number {
+  const cut = spans
+    .map((span) => (within ? { from: Math.max(span.from, within.from), to: Math.min(span.to, within.to) } : span))
+    .filter((span) => span.to >= span.from)
+    .sort((a, b) => a.from - b.from);
+  let covered = 0;
+  let reached = Number.NEGATIVE_INFINITY;
+  for (const span of cut) {
+    const from = Math.max(span.from, reached + 1);
+    if (span.to >= from) covered += span.to - from + 1;
+    reached = Math.max(reached, span.to);
+  }
+  return covered;
 }
 
 /** Whether a formula's condition holds, or null where what it reads is not known yet. */
@@ -519,6 +597,17 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
     case 'records': {
       const rows = outside?.records(formula.set);
       if (!rows) return null;
+      if (formula.reduce === 'latest') {
+        const asked = formula.where ? ownRows(formula.where, values, outside?.record) : undefined;
+        const dated = (asked === null ? [] : asked ? rows.filter((row) => rowMeets(row, asked)) : rows)
+          .map((row) => ({ row, day: dayNumber(cellValue(row[formula.by])) ?? (formula.orBy ? dayNumber(cellValue(row[formula.orBy])) : null) }))
+          .filter((held): held is { row: Record<string, CheckFieldValue>; day: number } => held.day !== null);
+        if (!dated.length) return null;
+        // The last by its day; of two on one day, the one listed later.
+        const last = dated.reduce((best, held) => (held.day >= best.day ? held : best));
+        const cell = last.row[formula.field];
+        return fieldNumber(cell) ?? dayNumber(cellValue(cell));
+      }
       if (formula.reduce === 'count') return rows.length;
       const amounts = rows.map((row) => fieldNumber(row[formula.field ?? ''])).filter((n): n is number => n !== null);
       if (formula.reduce === 'sum') return amounts.reduce((total, n) => total + n, 0);
@@ -544,12 +633,42 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
     }
     case 'sum_if':
     case 'count_if': {
-      const rows = formulaRows(formula.over, values, outside);
-      if (rows === null) return null;
-      const where = ownRows(formula.where, values, outside?.record);
-      const met = where ? rows.filter((row) => rowMeets(row, where)) : [];
-      if (formula.op === 'count_if') return met.length;
-      return met.reduce((total, row) => total + (cellNumber(row[formula.column]) ?? 0), 0);
+      let met = rowsMet(formula.over, formula.where, formula.between, values, outside);
+      if (met === null) return null;
+      if (formula.op === 'sum_if') return met.reduce((total, row) => total + (cellNumber(row[formula.column]) ?? 0), 0);
+      if (formula.asAt) {
+        const { from, until } = formula.asAt;
+        const on = evaluateFormula(formula.asAt.on, values, outside);
+        if (on === null) return null;
+        met = met.filter((row) => {
+          const began = dayNumber(cellValue(row[from]));
+          const ended = until ? dayNumber(cellValue(row[until])) : null;
+          return began !== null && began <= on && (ended === null || ended > on);
+        });
+      }
+      if (!formula.distinct) return met.length;
+      const column = formula.distinct;
+      return new Set(met.map((row) => cellValue(row[column])).filter((cell) => cell !== null && cell !== undefined && cell !== '').map(String)).size;
+    }
+    case 'span_days': {
+      const met = rowsMet(formula.over, formula.where, undefined, values, outside);
+      if (met === null) return null;
+      const spans = met.flatMap((row) => {
+        const from = dayNumber(cellValue(row[formula.from]));
+        const to = dayNumber(cellValue(row[formula.to]));
+        return from === null || to === null ? [] : [{ from, to }];
+      });
+      let within: { from: number; to: number } | undefined;
+      if (formula.within) {
+        const from = evaluateFormula(formula.within.from, values, outside);
+        const to = evaluateFormula(formula.within.to, values, outside);
+        if (from === null || to === null) return null;
+        within = { from, to };
+      }
+      const covered = daysCovered(spans, within);
+      if (formula.reduce === 'covered') return covered;
+      // What a period leaves uncovered needs the period.
+      return within ? Math.max(0, within.to - within.from + 1 - covered) : null;
     }
     case 'rate': {
       const on = formula.on ? values[formula.on]?.value : undefined;
@@ -688,10 +807,8 @@ export function formulaOverNothing(formula: CheckFormula, values: Record<string,
       return rows !== null && !rows.some((row) => cellNumber(row[formula.column]) !== null);
     }
     case 'sum_if': {
-      const rows = formulaRows(formula.over, values, outside);
-      if (rows === null) return false;
-      const where = ownRows(formula.where, values, outside?.record);
-      return !(where ? rows.filter((row) => rowMeets(row, where)) : []).some((row) => cellNumber(row[formula.column]) !== null);
+      const met = rowsMet(formula.over, formula.where, formula.between, values, outside);
+      return met !== null && !met.some((row) => cellNumber(row[formula.column]) !== null);
     }
     case 'add':
     case 'subtract':

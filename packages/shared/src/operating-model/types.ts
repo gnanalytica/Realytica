@@ -376,7 +376,12 @@ export interface OptionSet {
 export type RefTarget = 'party' | 'parcel' | 'building' | 'unit' | 'drawing' | 'approval' | 'matter' | 'contract' | 'account' | 'package' | 'document' | 'milestone' | { set: string };
 
 /** Where one side of a `match` table takes its list from: a field of every record of a set, a column of another table, or a register. */
-export type MatchList = { records: string; field: string } | { table: FieldAddress; column: string } | { target: RefTarget };
+export type MatchList =
+  | { records: string; field: string }
+  /** A column of a table kept inside each record of a set: the vendors named on every purchase. */
+  | { records: string; table: string; column: string }
+  | { table: FieldAddress; column: string }
+  | { target: RefTarget };
 
 /** One side of a `match` table: the column that holds its item, what the list is called, and where the list comes from. */
 export interface MatchSide {
@@ -463,8 +468,26 @@ export interface RowCondition {
   value?: unknown;
 }
 
-/** The rows a formula runs over: a table field of its own set, or the records of a set that repeats. */
-export type FormulaRows = { table: string } | { records: string };
+/** One condition on a row, or several at once: all of them, or any of them. */
+export type RowWhere = RowCondition | { all: RowWhere[] } | { any: RowWhere[] };
+
+/**
+ * A window on a row's date column: the row counts where its day falls on or
+ * between two days, each worked out by a formula (a date field of the record
+ * the figure is for, as a rule). An end left out is open.
+ */
+export interface RowWindow {
+  column: string;
+  from?: CheckFormula;
+  to?: CheckFormula;
+}
+
+/**
+ * The rows a formula runs over: a table field of its own set, the records of
+ * a set that repeats, or the rows of a table kept inside each record of such
+ * a set (the receipts on every demand), read as one list.
+ */
+export type FormulaRows = { table: string } | { records: string } | { records: string; table: string };
 
 /** How much of a sheet a field is: always shown, shown when its condition holds, or folded until asked for. */
 export type FieldTier = 'core' | 'situational' | 'expert';
@@ -533,7 +556,7 @@ export type ShowWhen =
   | { situation: string }
   | { field: FieldAddress; is: 'set' | 'true' | 'false' | 'equals' | 'in' | 'gt' | 'lt'; value?: unknown }
   /** Over the records of a set that repeats: any, none, or at least `n`, of those meeting `where`. */
-  | { records: string; is: 'any' | 'none' | 'at_least'; n?: number; where?: RowCondition }
+  | { records: string; is: 'any' | 'none' | 'at_least'; n?: number; where?: RowWhere }
   | { all: ShowWhen[] }
   | { any: ShowWhen[] };
 
@@ -714,12 +737,31 @@ export type CheckFormula =
   | { op: 'figure'; key: string; of?: string }
   /** Over the records of a set that repeats: how many there are, or one numeric field of theirs summed. */
   | { op: 'records'; set: string; reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct'; field?: string }
+  /**
+   * One field of the latest record of a set: the record whose `by` date is the
+   * last, among those meeting `where`. The sanction as last revised, the
+   * newest statement. A record that states no `by` day is dated by `orBy`
+   * where one is named. A date field is read as its day number.
+   */
+  | { op: 'records'; set: string; reduce: 'latest'; by: string; orBy?: string; field: string; where?: RowWhere }
   /** The least or the most of several amounts. One that is not known is left out. */
   | { op: 'min' | 'max'; of: CheckFormula[] }
   | { op: 'if'; when: FormulaCondition; then: CheckFormula; else: CheckFormula }
   /** One column summed, or the rows counted, over the rows that meet a condition. */
-  | { op: 'sum_if'; over: FormulaRows; column: string; where: RowCondition }
-  | { op: 'count_if'; over: FormulaRows; where: RowCondition }
+  | { op: 'sum_if'; over: FormulaRows; column: string; where: RowWhere; between?: RowWindow }
+  /**
+   * `asAt` counts the rows that stood on a past day: begun on or before it
+   * (`from`) and not yet ended (`until`, where the row has one). `distinct`
+   * counts each value of a column once: a family that holds three units is
+   * one allottee.
+   */
+  | { op: 'count_if'; over: FormulaRows; where: RowWhere; between?: RowWindow; asAt?: { from: string; until?: string; on: CheckFormula }; distinct?: string }
+  /**
+   * Days covered by dated spans, each from its `from` day to its `to` day,
+   * with spans that overlap counted once. `within` cuts the count to a period;
+   * `uncovered` is the days of that period no span covers, never below zero.
+   */
+  | { op: 'span_days'; over: FormulaRows; from: string; to: string; where?: RowWhere; within?: { from: CheckFormula; to: CheckFormula }; reduce: 'covered' | 'uncovered' }
   /**
    * A figure a regulation sets, read from the rule table: the row for the
    * project's place in force on a day, under conditions taken from fields.

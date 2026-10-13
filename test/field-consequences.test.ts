@@ -39,7 +39,7 @@ import {
   scheduleWatch,
   setFieldValues,
   startCostReport,
-  uncoveredDays,
+  evaluateFormula,
   updateCostReportRow,
   variationOffersWaiting,
   workstreamChecks,
@@ -272,11 +272,17 @@ describe('an approved variation is offered to Finance, and moves the Cost Report
 
 describe('the days no encumbrance certificate covers', () => {
   it('merges certificates that overlap, counts only days inside the period, and is never below nought', () => {
-    assert.equal(uncoveredDays({ from: 0, to: 99 }, []), 100);
-    assert.equal(uncoveredDays({ from: 0, to: 99 }, [{ from: 0, to: 49 }, { from: 50, to: 99 }]), 0, 'two that meet leave no gap');
-    assert.equal(uncoveredDays({ from: 0, to: 99 }, [{ from: 0, to: 60 }, { from: 40, to: 99 }, { from: 0, to: 99 }]), 0, 'three that overlap are not added together');
-    assert.equal(uncoveredDays({ from: 0, to: 99 }, [{ from: -500, to: 20 }, { from: 31, to: 5000 }]), 10, 'what a certificate covers outside the period counts for nothing');
-    assert.equal(uncoveredDays({ from: 0, to: 99 }, [{ from: 200, to: 300 }, { from: 30, to: 10 }]), 100);
+    const uncovered = (spans: Array<{ from: number; to: number }>) => {
+      const day = (n: number) => new Date(Date.UTC(2000, 0, 1) + n * 86_400_000).toISOString().slice(0, 10);
+      const rows = spans.map((span) => ({ from: day(span.from), to: day(span.to) }));
+      const values = { spans: { value: rows, at: '', by: '' }, start: { value: day(0), at: '', by: '' }, end: { value: day(99), at: '', by: '' } };
+      return evaluateFormula({ op: 'span_days', over: { table: 'spans' }, from: 'from', to: 'to', within: { from: { op: 'date', key: 'start' }, to: { op: 'date', key: 'end' } }, reduce: 'uncovered' }, values);
+    };
+    assert.equal(uncovered([]), 100);
+    assert.equal(uncovered([{ from: 0, to: 49 }, { from: 50, to: 99 }]), 0, 'two that meet leave no gap');
+    assert.equal(uncovered([{ from: 0, to: 60 }, { from: 40, to: 99 }, { from: 0, to: 99 }]), 0, 'three that overlap are not added together');
+    assert.equal(uncovered([{ from: -500, to: 20 }, { from: 31, to: 5000 }]), 10, 'what a certificate covers outside the period counts for nothing');
+    assert.equal(uncovered([{ from: 200, to: 300 }, { from: 30, to: 10 }]), 100);
   });
 
   it('reads the period off the encumbrance check and the certificates that stand', () => {

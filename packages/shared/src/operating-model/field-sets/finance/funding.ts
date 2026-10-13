@@ -393,6 +393,19 @@ export const FUNDING_SETS: FieldSet[] = [
       mirror('quarter_end', 'Quarter ending', 'date', at(FIN, SET.reraCost, 'quarter_end'), { section: 'quarter' }),
       money('realised', 'Realised from allottees in the quarter', { section: 'quarter', from: 'Sales register and the books' }),
       money('deposited', 'Deposited in the designated account in the quarter', { section: 'quarter', from: 'Designated account statement', fromTypes: [PAPER.bankStatement] }),
+      // What Collections recorded as received in the same three months, receipt by receipt off every demand. Read beside the figure from the books, and never in its place.
+      rupees(
+        'receipts_in_quarter',
+        'Receipts Collections recorded in the quarter',
+        {
+          op: 'sum_if',
+          over: { records: 'commercial.buyers.demands', table: 'settled_by' },
+          column: 'amount',
+          where: { column: 'amount', is: 'set' },
+          between: { column: 'received_on', from: { op: 'add_months', date: { op: 'add_days', date: { op: 'date', key: 'quarter_end' }, days: n(1) }, months: n(-3) }, to: { op: 'date', key: 'quarter_end' } },
+        },
+        { section: 'quarter', tier: 'situational', showWhen: { records: 'commercial.buyers.demands', is: 'any' } },
+      ),
       share('deposit_share', 'Share deposited', asPct(f('deposited'), f('realised')), { section: 'quarter' }),
       money('receivable_sold', 'Receivable from units sold', { section: 'ahead', from: 'Accountant’s certificate, statement of units sold', fromTypes: [PAPER.reraAccountant] }),
       area('unsold_carpet', 'Carpet area unsold', { section: 'ahead', from: 'Accountant’s certificate, statement of units unsold', fromTypes: [PAPER.reraAccountant] }),
@@ -418,6 +431,7 @@ export const FUNDING_SETS: FieldSet[] = [
     rules: [
       rule('at_least', ['deposit_share', 'required_share'], '{a} of what was realised was deposited; {b} is required.', 'critical'),
       rule('at_most', ['designated_accounts'], 'Accounts kept as the RERA designated account: {a}. A registration has one.', 'high', { against: 1 }),
+      rule('compare', ['realised', 'receipts_in_quarter'], 'The books show {a} realised in the quarter and Collections’ receipts in it come to {b}: {divergence} apart.', 'medium', { tolerance: 0.01 }),
     ],
   },
   {
