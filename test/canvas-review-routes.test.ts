@@ -255,6 +255,8 @@ describe('undo', () => {
     const p = await seeded(false);
     const asked = await chat(p.id, 'what is the budget?');
     assert.equal((asked.assistantTurn as ProjectChatTurn).changed, undefined, 'a question changed nothing to take back');
+    // A question raises no card. Asked what is next, the chat offers the next step on one.
+    await chat(p.id, 'What’s next?');
 
     const done = await chat(p.id, 'approve all');
     const reply = done.assistantTurn as ProjectChatTurn;

@@ -1,4 +1,5 @@
 import { CHAT_STANDING_LABEL, type ChatAnswerCard, type ChatAnswerRow, type ChatStanding } from '@realytica/shared';
+import { Link } from 'react-router-dom';
 import { cn } from '../ui/kit';
 
 /**
@@ -7,7 +8,8 @@ import { cn } from '../ui/kit';
  * A model picked the rows; every word here is the record's or a template's.
  * Each row is a label, the value as the record holds it, where the value
  * stands, and its source, which opens the paper at its page. Below them is
- * what to look at where the record does not answer.
+ * what to look at where the record does not answer. A row a rule made from
+ * a screen's own figures names the page that holds them, and opens it.
  */
 
 const STANDING_TONE: Record<ChatStanding, string> = {
@@ -43,6 +45,10 @@ function Row({ row, onOpenEvidence }: { row: ChatAnswerRow; onOpenEvidence?: (id
           ) : (
             <span className="text-ink-muted">{where}</span>
           )
+        ) : row.open ? (
+          <Link to={row.open.path} className="text-brand hover:underline">
+            {row.open.label}
+          </Link>
         ) : null}
       </p>
       {/* A figure worked out from the rule table says which rows it read, and which of them nobody has verified. */}
@@ -85,6 +91,10 @@ export function AnswerCard({ card, text, onOpenEvidence }: { card: ChatAnswerCar
                   <button type="button" className="text-left text-brand hover:underline" onClick={() => onOpenEvidence(item.evidenceId!)}>
                     {item.label}
                   </button>
+                ) : item.open ? (
+                  <Link to={item.open.path} className="text-brand hover:underline">
+                    {item.label}
+                  </Link>
                 ) : (
                   item.label
                 )}

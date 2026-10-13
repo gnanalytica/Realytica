@@ -55,6 +55,7 @@ import { checklistOwed } from './checklist';
 import { allChecks, workstreamChecks } from './engagements';
 import { CHECK_DEFINITIONS } from './libraries';
 import { fileIsBare, projectNextStep } from './next-step';
+import { RUNNING_PROMPTS, projectIsRunning } from './chat-questions';
 import { projectFrameLabels } from './project-graph';
 import { questionnaireDepartment } from './questionnaire';
 import { QUICK_VERDICT_LABEL, quickAssessment } from './quick-assessments';
@@ -1189,6 +1190,8 @@ function standingPrompts(project: DdProject): string[] {
   const unread = project.evidence.filter((e) => (e.attachments ?? []).length && !(e.facts ?? []).length && !e.modelReadAt && e.status !== 'rejected' && e.status !== 'superseded').length;
   const material = project.findings.filter((f) => (f.severity === 'critical' || f.severity === 'high') && !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status)).length;
   const drafts = (project.aiDrafts ?? []).filter((d) => d.status === 'draft' || d.status === 'accepted' || d.status === 'in_review').length;
+  // A project being built is asked what a person running it asks: the next step of a file at the land is not its opening.
+  if (projectIsRunning(project)) return [...(unread ? ['Read the filed documents'] : []), ...RUNNING_PROMPTS].slice(0, 4);
   if (filed === 0) {
     // A file with nothing on it: the next step itself is the first thing to offer.
     if (fileIsBare(project)) rows.push(projectNextStep(project).title);

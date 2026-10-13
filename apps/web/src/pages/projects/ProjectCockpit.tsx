@@ -10,6 +10,7 @@ import {
   chatLinkLabels,
   chatSessions,
   chatPlaceLabel,
+  chatOpening,
   chatPrompts,
   cockpitPath,
   isProjectCockpitPane,
@@ -986,6 +987,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const spec = LAYOUTS[layout];
   const fillRight = pane === 'graph';
   const next = useMemo(() => projectNextStep(project), [project]);
+  // What the chat opens with follows the stage: a project being built opens on what Overview opens on, not on the land's first step.
+  const opening = useMemo(() => chatOpening(project, new Date(), { outside: me?.role === 'collaborator' }), [project, me?.role]);
   // The records an answer can name, and the frame they sit in: a stage, a
   // department or a function the copilot quoted by its graph id reads as its
   // name, and one the frame no longer has is left out of the sentence.
@@ -1084,8 +1087,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       voice={voice}
       onCheckVoice={checkVoice}
       onOpenCommands={() => setCommandOpen(true)}
-      emptyTitle={next.title}
-      emptyHint={next.why}
+      emptyTitle={opening?.title ?? next.title}
+      emptyHint={opening?.hint ?? next.why}
       /*
         The pane is already in the request and was nowhere on the screen.
         Every question carries `viewContext: pane`, so the copilot has always

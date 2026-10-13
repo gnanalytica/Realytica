@@ -1176,7 +1176,7 @@ export function CopilotPanel({
               <AiMark size="md" />
               <div className="min-w-0">
                 <p className="text-[13px] font-medium text-ink">{emptyTitle ?? 'Ask about this case'}</p>
-                <p className="text-xs leading-relaxed text-ink-secondary">
+                <p className="whitespace-pre-line text-xs leading-relaxed text-ink-secondary">
                   {emptyHint ?? 'Answers come from its own evidence, with the source attached.'}
                 </p>
               </div>
