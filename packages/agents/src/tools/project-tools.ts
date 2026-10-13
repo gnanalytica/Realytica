@@ -8,6 +8,7 @@
  */
 
 import { PROPOSAL_CONCERNS, PROPOSAL_NEXT, structuredProposal } from '@realytica/shared';
+import { findQuoteInPages } from '../agents/page-check';
 import { paperCellValue } from '../agents/review-answers';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
@@ -167,6 +168,40 @@ let paperSearch: PaperSearch | null = null;
 
 export function setPaperSearch(next: PaperSearch | null): void {
   paperSearch = next;
+}
+
+/** The words of each page of one paper on a project as this server read them, page 1 first, or null where none are kept. */
+export type PaperPages = (project: Pick<DdProject, 'id' | 'evidence'>, evidenceId: string) => Promise<string[] | null>;
+
+/**
+ * How a paper's own pages are read, to hold a model's quote to the page it
+ * names. Installed by the app, as the search is. Where none is installed, or
+ * a paper's pages are not kept, a quote cannot be found and is unverified.
+ */
+let paperPages: PaperPages | null = null;
+
+export function setPaperPages(next: PaperPages | null): void {
+  paperPages = next;
+}
+
+/** The most values one call may offer, and the most answers one call may suggest. */
+const OFFERS_MOST = 80;
+
+/**
+ * Where a model's quotes are on the papers it names: the page of each paper
+ * that holds the words (`findQuoteInPages`, the page check a review answer
+ * is held to), or nothing where no page this server read does.
+ */
+async function quotePlacer(project: DdProject, cited: readonly unknown[]): Promise<(evidenceId: string, page: number, quote: string) => number | undefined> {
+  const pages = new Map<string, string[] | null>();
+  for (const id of cited) {
+    if (typeof id !== 'string' || pages.has(id) || !project.evidence.some((row) => row.id === id)) continue;
+    pages.set(id, paperPages ? await paperPages(project, id).catch(() => null) : null);
+  }
+  return (evidenceId, page, quote) => {
+    const texts = pages.get(evidenceId);
+    return texts ? findQuoteInPages(quote, texts, page) : undefined;
+  };
 }
 
 export interface ProjectAgentCollectors {
@@ -619,7 +654,20 @@ export function createProjectTools(
             properties: {
               address: { type: 'object', additionalProperties: false, required: ['set', 'field'], properties: { fn: { type: 'string' }, set: { type: 'string' }, field: { type: 'string' }, record: { type: 'string' } } },
               value: {},
-              origin: { type: 'object' },
+              origin: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['kind'],
+                properties: {
+                  kind: { type: 'string', enum: ['paper', 'external'] },
+                  evidenceId: { type: 'string' },
+                  page: { type: 'number' },
+                  quote: { type: 'string', description: 'The paper\'s own words that state the value, copied exactly, under 220 characters.' },
+                  source: { type: 'string', description: 'The name of the public source, under 120 characters.' },
+                  asOf: { type: 'string', description: 'The date it was read, YYYY-MM-DD.' },
+                  url: { type: 'string', description: 'Its https address.' },
+                },
+              },
             },
           },
         },
@@ -627,10 +675,13 @@ export function createProjectTools(
     } as const,
     run: async ({ values }) => {
       const catalog = fieldCatalogFor(project);
-      const offered = (Array.isArray(values) ? values : []) as Array<{ address: FieldAddress; value: unknown; origin: FieldOrigin }>;
+      const offered = ((Array.isArray(values) ? values : []) as Array<{ address: FieldAddress; value: unknown; origin: FieldOrigin }>).filter((row) => row && typeof row === 'object' && row.address && typeof row.address === 'object').slice(0, OFFERS_MOST);
       const withFn = offered.map((row) => ({ ...row, address: { ...row.address, fn: row.address?.fn ?? catalog.sets.get(row.address?.set)?.fn ?? '' } }));
+      // What is kept as each value's source is built by the server from the named members of `origin`, never stored as sent: who read it
+      // is this model, and whether its words are on the page is found by looking, on the pages this server read itself.
+      const placed = await quotePlacer(project, offered.map((row) => (row.origin as { evidenceId?: unknown } | undefined)?.evidenceId));
       // One door for a sheet's field and a check's. A check's value waits on a card of the check's, which this turn collects, and reads on the field as proposed.
-      const outcomes = proposeFieldValues(project, withFn, 'model', catalog, { pending: bag.proposals, raise: (card) => bag.proposals.push(card) });
+      const outcomes = proposeFieldValues(project, withFn, 'model', catalog, { pending: bag.proposals, raise: (card) => bag.proposals.push(card), placed });
       const waiting = outcomes.filter((o) => o.outcome === 'waiting').length;
       bag.toolCalls.push({ name: 'propose_field_values', summary: `${waiting} offered, ${outcomes.filter((o) => o.outcome === 'refused').length} refused` });
       return JSON.stringify({ outcomes, note: 'Offered values wait for a person. Do not speak of one as recorded.' });
@@ -1049,8 +1100,11 @@ export function createProjectTools(
     } as const,
     run: async ({ questionnaireId, answers }) => {
       const known = new Set(project.evidence.map((e) => e.id));
+      const asked = (answers ?? []).slice(0, OFFERS_MOST);
+      // Words given as a paper's are held to its pages before they are laid beside a question as the paper's.
+      const placed = await quotePlacer(project, asked.map((x) => x.evidenceId));
       // An answer is a field's value as the record holds it, or a paper's own words. Nothing a model composed is laid beside a question.
-      const usable = (answers ?? []).flatMap((x) => {
+      const usable = asked.flatMap((x) => {
         const set = x.field ? fieldSet(String(x.field.set)) : undefined;
         const view = set ? readSheet(project, set.id, typeof x.field?.record === 'string' ? x.field.record : undefined)?.fields.find((held) => held.def.key === x.field?.field) : undefined;
         if (view && view.state !== 'empty' && view.state !== 'proposed' && view.state !== 'disputed') {
@@ -1058,7 +1112,10 @@ export function createProjectTools(
           return evidenceId && known.has(evidenceId) ? [{ questionId: x.questionId, answer: view.text, source: x.source, evidenceId, page: view.source?.page ?? x.page, quote: view.source?.quote ?? x.quote }] : [];
         }
         const quote = typeof x.quote === 'string' ? x.quote.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
-        return quote && known.has(String(x.evidenceId)) ? [{ questionId: x.questionId, answer: paperCellValue(typeof x.value === 'string' ? x.value : undefined, quote), source: x.source, evidenceId: String(x.evidenceId), page: x.page, quote }] : [];
+        if (!quote || !known.has(String(x.evidenceId))) return [];
+        // The page that holds the words, whichever page was named. Words no page of the paper holds are not the paper's, and are not suggested.
+        const page = placed(String(x.evidenceId), typeof x.page === 'number' ? x.page : 0, quote);
+        return page ? [{ questionId: x.questionId, answer: paperCellValue(typeof x.value === 'string' ? x.value : undefined, quote), source: x.source, evidenceId: String(x.evidenceId), page, quote }] : [];
       });
       const dropped = (answers ?? []).length - usable.length;
       try {

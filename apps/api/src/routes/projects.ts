@@ -83,6 +83,7 @@ import {
   recordCheckFields,
   SHARED_FN,
   FieldRefused,
+  checkHolding,
   acceptAllFromPaper,
   addFieldRecord,
   decideField,
@@ -3418,8 +3419,15 @@ projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
  * cut by; outside it the sheet is not there to be written to. Who may change
  * a value is the department role: a lead, contributor or signer edits, and
  * only a lead or signer makes a value count.
+ *
+ * Every one of these routes writes, and each saves the whole project. So the
+ * project is read afresh from storage first, past the throttle a plain read
+ * is allowed: two people deciding different fields within that window would
+ * otherwise each save a copy that had not heard of the other's decision.
+ * This narrows that window to the length of one request; it does not close it.
  */
-function fieldSeat(req: Request, res: Response, fn: string | undefined): { project: DdProject; options: FieldWriteOptions } | undefined {
+async function fieldSeat(req: Request, res: Response, fn: string | undefined): Promise<{ project: DdProject; options: FieldWriteOptions } | undefined> {
+  await store.syncProject(req.params.projectId!, { force: true }).catch(() => undefined);
   const project = findProject(req.params.projectId!);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
@@ -3449,7 +3457,7 @@ projectsRouter.put('/:projectId/fields/values', async (req, res) => {
     return;
   }
   const set = fieldSet(parsed.data.set);
-  const seat = fieldSeat(req, res, set?.fn);
+  const seat = await fieldSeat(req, res, set?.fn);
   if (!seat || !set) return;
   try {
     const outcome = setFieldValues(seat.project, { set: set.id, record: parsed.data.record }, parsed.data.values, actorOf(req), seat.options);
@@ -3471,12 +3479,19 @@ projectsRouter.post('/:projectId/fields/decide', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const set = fieldSet(parsed.data.address.set);
-  const seat = fieldSeat(req, res, set?.fn);
+  // A mirror holds nothing of its own. A decision sent to one is a decision on the field it reads, and is made there:
+  // in that field's function, by that function's lead or signer, within that function's reach.
+  const named = fieldSet(parsed.data.address.set);
+  const mirrored = named?.fields.find((field) => field.key === parsed.data.address.field)?.sameAs;
+  const set = mirrored ? fieldSet(mirrored.set) : named;
+  const seat = await fieldSeat(req, res, set?.fn);
   if (!seat || !set) return;
   try {
-    const { address, decision, ...input } = parsed.data;
-    decideField(seat.project, { ...address, fn: set.fn }, decision, actorOf(req), input, seat.options);
+    const { decision, ...input } = parsed.data;
+    const address = mirrored ? { set: mirrored.set, field: mirrored.field, ...(mirrored.record ? { record: mirrored.record } : {}) } : parsed.data.address;
+    // A check's field is decided on its check. A collaborator whose grant leaves that check out does not decide it, whichever assessment holds it.
+    if (fieldCatalogFor(seat.project).checks.has(set.id)) assertMayWrite(req, seat.project, [checkHolding(seat.project, set.id)?.id]);
+    decideField(seat.project, { ...address, fn: set.fn }, decision, actorOf(req), { value: input.value, pick: input.pick, reason: input.reason, note: input.note }, seat.options);
     const label = fieldSet(set.id, fieldCatalogFor(seat.project))?.fields.find((field) => field.key === address.field)?.label ?? address.field;
     await persistPaneWrite(req, seat.project, `${FIELD_DECISION_SAID[decision]} “${label}” on ${set.title}.`);
     res.json({ project: seat.project });
@@ -3501,7 +3516,7 @@ projectsRouter.post('/:projectId/fields/accept-paper', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const seat = fieldSeat(req, res, parsed.data.fn);
+  const seat = await fieldSeat(req, res, parsed.data.fn);
   if (!seat) return;
   try {
     const out = acceptAllFromPaper(seat.project, parsed.data.fn, parsed.data.evidenceId, actorOf(req), seat.options);
@@ -3521,7 +3536,7 @@ projectsRouter.post('/:projectId/fields/records', async (req, res) => {
   }
   const set = fieldSet(parsed.data.set);
   // A shared record is the project's own: staff add one from whichever function they are on.
-  const seat = fieldSeat(req, res, set?.fn);
+  const seat = await fieldSeat(req, res, set?.fn);
   if (!seat || !set) return;
   try {
     if (parsed.data.remove) {
@@ -3549,7 +3564,7 @@ projectsRouter.put('/:projectId/fields/situation', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const seat = fieldSeat(req, res, parsed.data.fn);
+  const seat = await fieldSeat(req, res, parsed.data.fn);
   if (!seat) return;
   try {
     setSituation(seat.project, parsed.data.fn, parsed.data.key, parsed.data.on, actorOf(req), seat.options);
@@ -3568,7 +3583,7 @@ projectsRouter.put('/:projectId/fields/section', async (req, res) => {
     return;
   }
   const set = fieldSet(parsed.data.set);
-  const seat = fieldSeat(req, res, set?.fn);
+  const seat = await fieldSeat(req, res, set?.fn);
   if (!seat || !set) return;
   try {
     setSectionNotApplicable(seat.project, set.id, parsed.data.section, parsed.data.reason as NaReason | null, actorOf(req), { ...seat.options, note: parsed.data.note });
@@ -3586,7 +3601,7 @@ projectsRouter.put('/:projectId/fields/snooze', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const seat = fieldSeat(req, res, parsed.data.fn);
+  const seat = await fieldSeat(req, res, parsed.data.fn);
   if (!seat) return;
   try {
     snoozeNeed(seat.project, parsed.data.fn, parsed.data.key, parsed.data.until, actorOf(req), seat.options);
