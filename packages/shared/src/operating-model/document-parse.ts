@@ -77,6 +77,8 @@ export type ReadDocumentType =
   | 'empanelment_letter'
   | 'stage_completion_certificate'
   | 'cancellation_letter'
+  | 'cost_report'
+  | 'technical_report'
   | 'other';
 
 /** One thing a document states, with where it states it. */
@@ -750,6 +752,47 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     body: [/\bcancel\s+(?:my|our|the)\s+(?:booking|allotment)\b/i, /\brefund\b/i, /\bforfeit/i],
     file: [/cancellation/i],
   },
+  /*
+   * A cost consultant's monthly cost report: a table of packages with the
+   * budget, what was awarded, what is certified and the anticipated final
+   * cost of each. Finance's Budget holds it. The rules read no value off it
+   * as a fact: its rows are offered to the Cost Report (`cost-import.ts`).
+   * Its name counts for more than most, because its tables are often
+   * pictures and its cover a logo: the name may be all the words there are.
+   */
+  cost_report: {
+    label: 'Cost report',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['cost report', 'monthly cost report', 'cost statement'],
+    scopes: ['cost_quantity', 'financial_appraisal'],
+    title: [/\b(?:monthly\s+)?cost\s+report\b/i, /\bcost\s+(?:monitoring|status)\s+report\b/i, /\bfinancial\s+(?:status|statement)\s+report\b/i, /\bcost\s+summary\b/i],
+    body: [/\banticipated\s+(?:final\s+)?cost\b/i, /\b(?:amount\s+)?certified\b/i, /\bawarded\b/i, /\bcontingency\b/i, /\bvariations?\b/i, /\bcost\s+consultants?\b|\bquantity\s+surveyors?\b/i, /\bbudget\b/i],
+    file: [/cost[\s_-]*report/i, /cost[\s_-]*statement/i, /\bMCR\b/],
+    fileWeight: 4,
+  },
+  /*
+   * A technical due diligence, condition or structural audit report: what an
+   * engineer saw of a building, each observation with how serious it is and
+   * what to do about it. Engineering's Technical function holds it, and its
+   * observations are offered there as rows (`report-observations.ts`).
+   */
+  technical_report: {
+    label: 'Technical due diligence report',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['technical due diligence', 'condition survey', 'condition assessment', 'structural audit', 'technical audit'],
+    scopes: ['technical', 'quality'],
+    title: [
+      /\btechnical\s+due\s+diligence\b/i,
+      /\b(?:building\s+|property\s+)?condition\s+(?:survey|assessment)(?:\s+report)?\b/i,
+      /\bstructural\s+(?:audit|assessment|condition)\s+report\b/i,
+      /\btechnical\s+(?:audit|assessment|inspection)\s+report\b/i,
+      /\bTDD\s+report\b/,
+    ],
+    body: [/\bobservations?\b/i, /\brisk\s+(?:category|rating|level)\b/i, /\bmitigations?\b|\brecommend(?:ation|ed\s+action)s?\b/i, /\bsite\s+(?:visit|inspection)\b|\bvisual\s+inspection\b/i, /\bdefects?\b|\bdeficienc(?:y|ies)\b/i],
+    file: [/due[\s_-]*diligence/i, /\bTDD\b/, /condition[\s_-]*(?:survey|assessment|report)/i, /technical[\s_-]*(?:audit|report)/i, /structural[\s_-]*audit/i],
+  },
 };
 
 const OTHER: Omit<TypeProfile, 'title' | 'body' | 'file'> = {
@@ -990,6 +1033,14 @@ function classify(pages: string[], fileName: string): { type: ReadDocumentType; 
   // A deed signed by an attorney names the power at its head too: the power itself also speaks as one.
   over('power_of_attorney', 'sale_deed', 2);
   over('unit_sale_agreement', 'sale_agreement', 2);
+  // A report lists the papers it looked at: a due diligence report names every approval and deed, and a cost report every contract.
+  // One that says at its head what it is, and speaks as one, is that, whichever of the papers it lists it has the most words of.
+  for (const report of ['cost_report', 'technical_report'] as const) {
+    const mine = scores.find(([t]) => t === report)!;
+    const own = PROFILES[report].body.filter((re) => re.test(full)).length;
+    const most = Math.max(...scores.filter(([t]) => t !== report).map(([, score]) => score));
+    if (named(report) && own >= 2 && mine[1] <= most) mine[1] = most + 1;
+  }
 
   scores.sort((a, b) => b[1] - a[1]);
   const [best, bestScore] = scores[0]!;
@@ -1307,6 +1358,9 @@ function nocCommon(pages: string[], facts: DocumentFact[], flags: DocumentFlag[]
 }
 
 const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
+  // Neither states a fact of the land. A cost report's rows go to the Cost Report and a report's observations to Technical, each offered on its own.
+  cost_report() {},
+  technical_report() {},
   sale_deed(pages, facts, flags) {
     commonParcel(pages, facts, 'extent_title', 'Extent per title');
     const registered =

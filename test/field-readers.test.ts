@@ -40,6 +40,8 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   { file: 'packages/shared/src/operating-model/sheet-periods.ts', why: 'a sheet’s periods: an issue copies what the sheet stores and freezes a reading made by `readSheet`; what waits is counted, never read; the sheet is then cleared through `stand`; every figure compared or drawn comes through `resolveFields` or from what was frozen' },
   { file: 'packages/shared/src/operating-model/as-at.ts', why: 'turns the stored sheets and checks back to a past day, each value through `fieldAsAt`, which hands on only what stood: the reading it makes is then read by the field system like any project' },
 
+  { file: 'packages/shared/src/operating-model/report-observations.ts', why: 'offering a report’s observations: it asks only whether the same words were offered before, waiting, standing or set aside, so that a paper read again offers nothing twice. It acts on no value and says none' },
+
   // Working out from a check's values goes through `withComputed`, which drops what does not stand before any formula runs.
   { file: 'packages/shared/src/operating-model/operations.ts', has: 'withComputed(fields, check.fields ?? {})', why: 'the tolerance readings: `withComputed` reads only what stands' },
   { file: 'packages/shared/src/operating-model/valuation-run.ts', has: 'withComputed(def?.fields ?? [], check.fields ?? {})', why: 'the valuation’s inputs: `withComputed` reads only what stands' },

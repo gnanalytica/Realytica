@@ -120,3 +120,26 @@ describe('matching a dropped folder to the register', () => {
     assert.deepEqual(matchFilesToEvidence([], ['anything.pdf']), [{ fileName: 'anything.pdf', score: 0 }]);
   });
 });
+
+describe('a word any paper carries', () => {
+  it('matches no file to a row: “client” in a row and in a file’s name is no likeness', () => {
+    const rows = [row('Client brief'), row('Valuation report'), row('Structural drawings')];
+    assert.equal(matchFilesToEvidence(rows, ['Client information checklist.xlsx'])[0]!.evidenceId, undefined);
+    assert.equal(matchFilesToEvidence(rows, ['Soil report.pdf'])[0]!.evidenceId, undefined);
+    assert.equal(matchFilesToEvidence(rows, ['Architectural drawings.pdf'])[0]!.evidenceId, undefined);
+  });
+
+  it('still matches a file on the word that tells its paper apart', () => {
+    const rows = [row('Client brief'), row('Valuation report'), row('Structural drawings')];
+    assert.equal(matchFilesToEvidence(rows, ['Client brief v2.pdf'])[0]!.title, 'Client brief');
+    assert.equal(matchFilesToEvidence(rows, ['valuation-report-2026.pdf'])[0]!.title, 'Valuation report');
+    assert.equal(matchFilesToEvidence(rows, ['Brief.pdf'])[0]!.title, 'Client brief');
+  });
+
+  it('matches a row named only in such words where the file carries all of them', () => {
+    const rows = [row('Drawing list'), row('Soil investigation report')];
+    assert.equal(matchFilesToEvidence(rows, ['drawing list rev 4.pdf'])[0]!.title, 'Drawing list');
+    assert.equal(matchFilesToEvidence(rows, ['drawing A-101.pdf'])[0]!.evidenceId, undefined);
+  });
+});
+

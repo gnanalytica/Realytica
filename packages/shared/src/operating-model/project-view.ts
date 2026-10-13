@@ -273,7 +273,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     siteVisits,
     sheets,
     conversation,
-    ...(commercial ? {} : { budget: undefined, cost: undefined, costReports: undefined }),
+    ...(commercial ? {} : { budget: undefined, cost: undefined, costReports: undefined, costPapers: undefined }),
     ...(tenders ? {} : { procurement: undefined }),
     // The fee is a commercial term between the firm and its client.
     ...(commercial ? {} : { engagements: (project.engagements ?? []).map(({ fee: _fee, ...e }) => e) }),
