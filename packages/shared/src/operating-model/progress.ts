@@ -10,7 +10,9 @@
 
 import type { DdProject } from './types';
 import type { GeoPoint } from '../types';
+import { costRegister } from './cost';
 import { recordAuditEvent } from './operations';
+import { standingNumber, standingRecords, standingText } from './standing-records';
 
 export interface Milestone {
   id: string;
@@ -159,12 +161,82 @@ export function logSiteEntry(project: DdProject, input: SiteLogInput, author: st
   return { entry, duplicate: false };
 }
 
+/* ==================================================================== */
+/* Extensions of time                                                     */
+/* ==================================================================== */
+
+/** Procurement's time claims and the contracts they are made under: the two sets an extension is read from. */
+export const TIME_CLAIMS_SET = 'procurement.orders.time_claims';
+export const CONTRACTS_SET = 'shared.contracts';
+
+export interface MilestoneExtensions {
+  /** Days each open milestone's planned finish moves by, by milestone id. Only milestones that move. */
+  days: Map<string, number>;
+  /** Days granted on contracts whose packages serve no milestone: granted, and moving nothing on the schedule. */
+  unplaced: number;
+  /** The most days granted on any one contract. */
+  most: number;
+}
+
+function addDays(day: string, days: number): string {
+  return new Date(Date.parse(`${day.slice(0, 10)}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * What the extensions of time that stand do to the schedule.
+ *
+ * A time claim's days granted count once a person has typed or accepted
+ * them: a figure a paper or a model offered moves nothing. The days granted
+ * on a contract are the sum of its claims'. A contract covers the milestones
+ * its work packages are measured against, and every open milestone planned
+ * to finish after the earliest of those, because work that follows waits on
+ * it. A milestone several contracts cover moves by the most any one of them
+ * was granted, so two extensions for the same weeks are not added together.
+ * A milestone that is complete does not move.
+ */
+export function milestoneExtensions(project: Pick<DdProject, 'milestones'> & Partial<Pick<DdProject, 'fieldSheets' | 'cost'>>): MilestoneExtensions {
+  const out: MilestoneExtensions = { days: new Map(), unplaced: 0, most: 0 };
+  const granted = new Map<string, number>();
+  for (const claim of standingRecords(project, TIME_CLAIMS_SET)) {
+    const contract = standingText(claim, 'contract');
+    const days = standingNumber(claim, 'days_granted');
+    if (contract && days !== undefined && days > 0) granted.set(contract, (granted.get(contract) ?? 0) + days);
+  }
+  if (!granted.size) return out;
+  const register = costRegister(project);
+  const milestones = project.milestones ?? [];
+  const contracts = standingRecords(project, CONTRACTS_SET);
+  for (const [contractId, days] of granted) {
+    out.most = Math.max(out.most, days);
+    const packageId = standingText(contracts.find((held) => held.id === contractId), 'package');
+    const packages = packageId ? (register.contracts.find((contract) => contract.workPackageIds.includes(packageId))?.workPackageIds ?? [packageId]) : [];
+    const served = new Set(register.workPackages.filter((pack) => packages.includes(pack.id) && pack.milestoneId).map((pack) => pack.milestoneId!));
+    const first = milestones.filter((m) => served.has(m.id) && m.plannedFinish).map((m) => m.plannedFinish!.slice(0, 10)).sort()[0];
+    if (first === undefined) {
+      out.unplaced += days;
+      continue;
+    }
+    for (const milestone of milestones) {
+      if (milestone.percent >= 100 || !milestone.plannedFinish) continue;
+      if (served.has(milestone.id) || milestone.plannedFinish.slice(0, 10) > first) out.days.set(milestone.id, Math.max(out.days.get(milestone.id) ?? 0, days));
+    }
+  }
+  return out;
+}
+
+/** The day a milestone is planned to finish once the extensions granted are counted. Its own planned finish where none covers it. */
+export function plannedFinishAfterExtensions(milestone: Pick<Milestone, 'id' | 'plannedFinish'>, extensions: MilestoneExtensions): string | undefined {
+  const planned = milestone.plannedFinish?.slice(0, 10);
+  const days = extensions.days.get(milestone.id);
+  return planned && days ? addDays(planned, days) : planned;
+}
+
 export interface ProgressSummary {
   /** Weighted share of milestones complete, 0..100. Null with no milestones. */
   percent: number | null;
   milestones: number;
   complete: number;
-  /** Milestones past their planned finish and not complete. */
+  /** Milestones past their planned finish, as extensions of time granted have moved it, and not complete. */
   late: Array<{ name: string; plannedFinish: string; percent: number }>;
   lastEntry?: { date: string; author: string; manpower: number };
   /** Total workers on the latest day logged. */
@@ -178,11 +250,13 @@ export function progressSummary(project: DdProject, now = new Date()): ProgressS
   const today = now.toISOString().slice(0, 10);
   const log = [...(project.siteLog ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   const last = log[0];
+  const extensions = milestoneExtensions(project);
+  const finish = (m: Milestone) => plannedFinishAfterExtensions(m, extensions);
   return {
     percent,
     milestones: milestones.length,
     complete: milestones.filter((m) => m.percent >= 100).length,
-    late: milestones.filter((m) => m.plannedFinish && m.plannedFinish < today && m.percent < 100).map((m) => ({ name: m.name, plannedFinish: m.plannedFinish!, percent: m.percent })),
+    late: milestones.filter((m) => m.percent < 100 && (finish(m) ?? today) < today).map((m) => ({ name: m.name, plannedFinish: finish(m)!, percent: m.percent })),
     ...(last ? { lastEntry: { date: last.date, author: last.author, manpower: last.manpower.reduce((n, x) => n + x.count, 0) } } : {}),
     openIssues: log.reduce((n, e) => n + e.issues.length, 0),
   };

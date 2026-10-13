@@ -80,6 +80,12 @@ export interface PapersOwed {
   /** What is not in hand, by who owes it. Whoever has a reply waiting comes first, nobody named last. */
   parties: PaperParty[];
   inHand: PaperLine[];
+  /**
+   * Documents the checks would expect that this project has not asked
+   * anybody for. They are a list to pick from, not papers owed: nobody was
+   * asked, nobody is named, and none is counted below.
+   */
+  expected: PaperLine[];
   total: number;
   owed: number;
   notAsked: number;
@@ -101,6 +107,14 @@ function replied(request: ProjectRequest | undefined): string | undefined {
 
 /**
  * Every paper the project waits for, as one list.
+ *
+ * It starts from what this project has done and holds: what it asked
+ * somebody for, the lines of a list it loaded, the papers it has in hand,
+ * and the fields of its sheets that another party owes and that are due at
+ * the step the project has reached (`owedBy`, `dueFrom`). A document a check
+ * would expect that nobody has asked for is not owed by anybody yet: a new
+ * project is not a hundred papers behind. Those are returned beside the
+ * list as `expected`, to ask for, and counted nowhere.
  *
  * `department` narrows it to one desk, which is how a screen shows it: the
  * documents its checks expect and the list loaded there. A request tied to
@@ -210,8 +224,11 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
     }
   }
 
+  const unasked = (line: PaperLine): boolean => line.from === 'checks' && line.standing === 'not_asked';
+  const expected = lines.filter(unasked);
+  const counted = lines.filter((line) => !unasked(line));
   const parties = new Map<string, PaperParty>();
-  for (const line of lines) {
+  for (const line of counted) {
     if (line.standing === 'in_hand') continue;
     const key = fold(line.party);
     const held = parties.get(key) ?? { key, party: line.party, lines: [], notAsked: 0, asked: 0, answered: 0, overdue: 0 };
@@ -227,8 +244,9 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
   const owed = owing.reduce((n, party) => n + party.lines.length, 0);
   return {
     parties: owing,
-    inHand: lines.filter((line) => line.standing === 'in_hand'),
-    total: lines.length,
+    inHand: counted.filter((line) => line.standing === 'in_hand'),
+    expected,
+    total: counted.length,
     owed,
     notAsked: owing.reduce((n, party) => n + party.notAsked, 0),
     asked: owing.reduce((n, party) => n + party.asked, 0),

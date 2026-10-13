@@ -64,6 +64,9 @@ const CHECK = (set: string, field: string) => at(PROGRESS, set, field);
 /* Progress: the programme, delays, the site log, the month              */
 /* ==================================================================== */
 
+/** An extension of time granted has moved planned completion. */
+const EXTENDED = { field: at(PROGRESS, SET.programme, 'extension_days'), is: 'gt', value: 0 } as const;
+
 const PROGRESS_SETS: FieldSet[] = [
   {
     id: SET.programme,
@@ -123,12 +126,20 @@ const PROGRESS_SETS: FieldSet[] = [
         kind: 'status',
         section: 'completion',
         cases: [
-          { when: { kind: 'before', fields: ['projected_completion', 'contractual_completion'], say: 'At the current rate the work finishes on {a}, after the contractual completion of {b}.', severity: 'high' }, label: 'Projected past the contract date', tone: 'critical' },
+          { when: { kind: 'before', fields: ['projected_completion', 'contractual_after_extensions'], say: 'At the current rate the work finishes on {a}, after the contractual completion of {b}.', severity: 'high' }, label: 'Projected past the contract date', tone: 'critical' },
           { when: { kind: 'at_most', fields: ['projected_days_late'], against: 0, say: 'At the current rate the work finishes {a} after its planned completion.', severity: 'medium' }, label: 'Slipping', tone: 'warning' },
           { when: { kind: 'at_most', fields: ['milestones_late'], against: 0, say: '{a} milestones are past their planned finish.', severity: 'medium' }, label: 'Milestones late', tone: 'warning' },
+          // Said before "on programme": the dates it is held to are the ones the extensions granted have moved.
+          { when: { kind: 'at_most', fields: ['extension_days'], against: 0, say: 'Extensions of time granted move planned completion by {a}.', severity: 'low' }, label: 'On the extended programme', tone: 'info' },
         ],
         otherwise: { label: 'On programme', tone: 'good' },
       },
+      // What the extensions of time Procurement has granted do to the dates above. Read from the time claims through the schedule, never typed here.
+      computed('extension_days', 'Days the extensions granted move planned completion', figure('schedule.extension_days'), { section: 'completion', tier: 'situational', showWhen: EXTENDED, unit: 'days', precision: 0, from: 'Time claims' }),
+      computedDay('completion_before_extensions', 'Planned completion before the extensions', figure('schedule.completion_before_extensions'), { section: 'completion', tier: 'situational', showWhen: EXTENDED, from: 'Schedule' }),
+      computedDay('contractual_after_extensions', 'Contractual completion after the extensions', when({ left: figure('schedule.extension_most'), is: 'gt', right: n(0) }, { op: 'add_days', date: day('contractual_completion'), days: figure('schedule.extension_most') }, day('contractual_completion')), { section: 'completion', tier: 'situational', showWhen: EXTENDED }),
+      computed('extension_unplaced', 'Days granted on a contract whose package serves no milestone', figure('schedule.extension_unplaced'), { section: 'completion', tier: 'situational', showWhen: { field: at(PROGRESS, SET.programme, 'extension_unplaced'), is: 'gt', value: 0 }, unit: 'days', precision: 0, from: 'Time claims' }),
+      computedDay('completion_now', 'Completion as the programme now stands', { op: 'max', of: [day('forecast_completion'), figure('schedule.planned_completion')] }, { section: 'completion', tier: 'expert', hint: 'The later of the forecast and planned completion after the extensions granted. Lenders, RERA and the landowner’s delivery date are held to this.' }),
       computed('delay_events', 'Delay events', countOf(SET.delayEvents), { section: 'delays', tier: 'situational', precision: 0 }),
       computed('delay_days', 'Days of delay recorded', sumOf(SET.delayEvents, 'days'), { section: 'delays', tier: 'situational', unit: 'days', precision: 0 }),
       computed('notices_missing', 'Critical-path events with no notice', countWhere(SET.delayEvents, { column: 'notice', is: 'equals', value: 'Notice not given' }), { section: 'delays', tier: 'situational', precision: 0 }),
@@ -153,6 +164,7 @@ const PROGRESS_SETS: FieldSet[] = [
     rules: [
       { kind: 'compare', fields: ['actual_percent', 'planned_percent'], tolerance: 0.05, say: 'Progress by the milestones is {a} against {b} planned: {divergence} apart.', severity: 'medium' },
       { kind: 'require', when: { situation: 'completion_slipping' }, fields: ['recovery_programme'], say: 'The work is projected to finish late and no recovery programme is on file.', severity: 'high' },
+      { kind: 'at_most', fields: ['extension_unplaced'], against: 0, say: '{a} of extension are granted on a contract whose package is measured against no milestone, so the schedule has not moved for them.', severity: 'medium' },
       {
         kind: 'compare',
         when: { situation: 'delay_event_open' },

@@ -10,6 +10,8 @@
  * POST   /changes/:changeId/confirm confirm a change, with its fields and the actions as the person leaves them
  * POST   /changes/:changeId/dismiss dismiss it as not relevant
  * POST   /rule-rows/:offerId/verify  mark a rule row a confirmed change offered as verified, by name (a firm admin)
+ * GET    /rule-rows                  every rule row the firm's projects read, by department, with its citation, what reads it and whether it is verified
+ * POST   /rule-rows/check            mark one of them checked against its instrument: the clause and the day read, by name (a firm admin)
  *
  * For the firm's own people. Somebody working from a grant is refused every
  * route: the list is the firm's, and a change names projects they may not
@@ -57,6 +59,9 @@ import {
   type DdProject,
   type LawReviewer,
   type LawWatchState,
+  RULE_CLAUSE_MOST,
+  checkRuleRow,
+  ruleRowsListed,
 } from '@realytica/shared';
 import { lawWatchModelSetUp } from '@realytica/agents';
 import { installLawRuleRows } from '../firm-fields';
@@ -161,7 +166,7 @@ function shown(req: Request, state: LawWatchState) {
 
 function refuse(res: Response, err: unknown): void {
   const message = err instanceof Error ? err.message : 'Request failed';
-  res.status(/^No (source|change|project|offered rule row) by that id/.test(message) ? 404 : /already\.$/.test(message) ? 409 : / needs a firm admin /.test(message) ? 403 : 400).json({ error: message });
+  res.status(/^No (source|change|project|offered rule row|rule row) by that id/.test(message) ? 404 : /already\.$/.test(message) ? 409 : / needs a firm admin /.test(message) ? 403 : 400).json({ error: message });
 }
 
 lawWatchRouter.get('/', async (req, res) => {
@@ -318,4 +323,47 @@ lawWatchRouter.post('/rule-rows/:offerId/verify', needs('admin'), async (req, re
   // Verified, it is the firm's row from now: every formula on its projects reads it.
   installLawRuleRows(me.tenantId, state.offeredRows);
   res.json(shown(req, state));
+});
+
+/* The rule table as a list to check. A built-in row is never marked verified: a row a firm admin has read in its instrument becomes that firm's own. */
+
+function ruleRowsShown(req: Request, state: LawWatchState) {
+  const groups = ruleRowsListed(firmRuleRows(state.offeredRows) ?? RULE_ROWS);
+  const rows = new Set(groups.flatMap((group) => group.rows));
+  return { groups, total: rows.size, verified: [...rows].filter((row) => row.verified).length, mayCheck: can(reviewer(req).role, 'admin') };
+}
+
+lawWatchRouter.get('/rule-rows', async (req, res) => {
+  res.json(ruleRowsShown(req, await loadLawWatch(principalOf(req).tenantId)));
+});
+
+const band = z.union([z.string().max(160), z.object({ min: z.number().finite().optional(), max: z.number().finite().optional() })]);
+const ruleRowCheck = z.object({
+  row: z.object({ key, jurisdiction: z.object({ state: key.optional(), city: key.optional(), authority: key.optional() }), when: z.record(z.string(), band).optional(), from: day }),
+  clause: z.string().trim().min(1).max(RULE_CLAUSE_MOST),
+  readOn: day,
+  page: z.number().int().min(1).max(100_000).optional(),
+  url: z.string().trim().url().max(500).optional(),
+});
+
+lawWatchRouter.post('/rule-rows/check', needs('admin'), async (req, res) => {
+  const parsed = ruleRowCheck.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Name the row, the clause the figure was read in, and the day it was read.' });
+    return;
+  }
+  const me = principalOf(req);
+  const state = await loadLawWatch(me.tenantId);
+  state.offeredRows ??= [];
+  try {
+    const { row, clause, readOn, page, url } = parsed.data;
+    // Checked by name, against the firm's table as it stands: a row the firm verified already is not checked twice.
+    checkRuleRow(state.offeredRows, row as Parameters<typeof checkRuleRow>[1], { clause, readOn, ...(page !== undefined ? { page } : {}), ...(url ? { url } : {}) }, me.name?.trim() ? `${me.name.trim()} (${me.email})` : me.email, new Date().toISOString(), firmRuleRows(state.offeredRows) ?? RULE_ROWS);
+  } catch (err) {
+    refuse(res, err);
+    return;
+  }
+  await saveLawWatch(me.tenantId, state);
+  installLawRuleRows(me.tenantId, state.offeredRows);
+  res.json(ruleRowsShown(req, state));
 });

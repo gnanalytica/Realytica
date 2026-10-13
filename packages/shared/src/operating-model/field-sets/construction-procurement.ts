@@ -88,7 +88,7 @@ const LINKS: SetLinks[] = [
       mirror('design_change_days', 'Days added by approved design changes, per the Architect', 'number', at('design.changes', 'design.changes.summary', 'approved_days'), { unit: 'days', section: 'completion', showWhen: { records: 'design.changes.register', is: 'any', where: { column: 'time_effect', is: 'gt', value: 0 } } }),
     ],
     rules: [
-      { kind: 'before', fields: ['forecast_completion', 'rera_completion'], say: 'Completion is forecast for {a}, after the {b} declared to RERA.', severity: 'critical' },
+      { kind: 'before', fields: ['completion_now', 'rera_completion'], say: 'Completion is forecast for {a}, after the {b} declared to RERA.', severity: 'critical' },
       { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: '{a} stop-work order(s) are in force.', severity: 'critical' },
       { kind: 'at_most', fields: ['court_restraints'], against: 0, say: '{a} court order(s) in force restrain construction.', severity: 'critical' },
     ],

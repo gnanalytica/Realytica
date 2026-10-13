@@ -59,6 +59,9 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   { file: 'packages/shared/src/operating-model/field-figures.ts', has: 'record.values[CASH_FLOW_MONTH]', why: 'the month of one of those records, asked `fieldStands` on the next line' },
   { file: 'packages/shared/src/operating-model/field-figures.ts', has: 'amount(record.values[CASH_FLOW_IN])', why: 'the money in and out of one month, through `amount`, which reads nothing that does not stand' },
 
+  // The door for modules outside the field system (the schedule, the tender tracker, the figures): records still on their list, each cut to what stands before it is handed on.
+  { file: 'packages/shared/src/operating-model/standing-records.ts', has: 'project.fieldSheets?.[setId]?.records', why: 'the one place those modules read a set’s records: every record is passed through `standingValues` on this line, and one taken off its list is left out' },
+
   // Asking whether anything is kept at all, not what it says.
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(sheet.values).length > 0', why: 'whether a project keeps any sheet value at all, so a status report knows to carry a field section: no value is read, and the section itself is resolved through `readSheet`' },
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(check.fields ?? {}).length > 0', why: 'the same question of a project’s checks: a count of keys, never a value' },

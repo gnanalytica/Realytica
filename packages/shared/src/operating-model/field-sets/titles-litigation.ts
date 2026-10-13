@@ -58,6 +58,7 @@ const L = {
   register: 'legal.litigation.register',
   diary: 'legal.litigation.diary',
   orders: 'legal.litigation.orders',
+  cover: 'legal.litigation.order_cover',
   search: 'legal.litigation.search',
   searches: 'legal.litigation.registry_searches',
   hits: 'legal.litigation.search_hits',
@@ -259,6 +260,7 @@ const LAND_RECORDS_SHEET: FieldSet = {
     mirror('extent_khata', 'Extent per khata', 'area', title('land_site.parcel_identification', 'extent_khata'), { unit: 'sqm', section: 'extents' }),
     computed('extent_rtc', 'Extent per RTC, all parcels', { op: 'records', set: T.landRecords, reduce: 'sum', field: 'rtc_extent' }, { section: 'extents', dimension: 'area', precision: 2, ...once(PARCELS) }),
     computed('extent_net', 'Net extent after kharab', { op: 'records', set: PARCELS, reduce: 'sum', field: 'net_extent' }, { section: 'extents', dimension: 'area', precision: 2, ...once(PARCELS) }),
+    countIf('extent_net_parcels', 'Parcels the net extent rests on', PARCELS, { column: 'net_extent', is: 'set' }, { section: 'extents', ...once(PARCELS) }),
     count('parcels', 'Parcels', PARCELS, { section: 'state' }),
     count('land_records', 'Parcels with a land record', T.landRecords, { section: 'state', ...once(PARCELS) }),
     countIf('mutations_open', 'Mutations pending or disputed', T.landRecords, { column: 'mutation', is: 'in', value: ['pending', 'disputed'] }, { section: 'state', ...once(T.landRecords) }),
@@ -279,6 +281,8 @@ const LAND_RECORDS_SHEET: FieldSet = {
   rules: [
     { kind: 'compare', fields: ['extent_rtc', 'extent_title'], tolerance: 0.01, when: anyRecord(T.landRecords), say: 'The RTCs add up to {a} and the title recites {b}: {divergence} apart, outside {tolerance}.', severity: 'high' },
     none('mutations_open', '{a} mutation(s) are pending or disputed.', 'medium'),
+    // A parcel with no extent or no kharab recorded adds nothing to the net extent: the figure says how many parcels it is a figure of.
+    { kind: 'at_least', fields: ['extent_net_parcels', 'parcels'], when: anyRecord(PARCELS), say: 'Net extent after kharab rests on {a} of {b} parcels: the others have no extent or no kharab recorded.', severity: 'medium' },
   ],
 };
 
@@ -394,13 +398,15 @@ const OWNERSHIP: FieldSet = {
         { when: { kind: 'at_least', fields: ['shares_total'], against: 0.01, say: 'No share is recorded.', severity: 'low' }, label: 'Shares not recorded', tone: 'neutral' },
         { when: { kind: 'compare', fields: ['shares_total'], against: 100, tolerance: 0, say: 'Shares do not add up.', severity: 'high' }, label: 'Shares do not add up', tone: 'critical' },
         failing('not_joining', 'An owner is not joining'),
+        failing('owners_without_heirs', 'An owner has died with no heir recorded'),
         failing('approvals_not_held', 'An approval to sell is not held'),
       ],
       otherwise: { label: 'Every owner accounted for', tone: 'good' },
     },
     countIf('not_joining', 'Owners not joining the deed', T.owners, { column: 'joins_as', is: 'equals', value: 'not_joining' }, { section: 'joining', tier: 'situational' }),
     countIf('confirming', 'Confirming parties', T.owners, { column: 'joins_as', is: 'equals', value: 'confirming_party' }, { section: 'joining', tier: 'situational' }),
-    countIf('heirs', 'Heirs recorded', T.owners, { column: 'heir_of', is: 'set' }, { section: 'succession', tier: 'situational' }),
+    computed('heirs', 'Heirs recorded', { op: 'records', set: T.owners, reduce: 'sum', field: 'heirs_recorded' }, { section: 'succession', tier: 'situational' }),
+    countIf('owners_without_heirs', 'Owners who died with no heir recorded', T.owners, { column: 'heirs_wanting', is: 'gt', value: 0 }, { section: 'succession', tier: 'situational' }),
     { key: 'family_tree', label: 'Attested family tree', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'succession', tier: 'situational', from: 'Revenue office' },
     countIf('minors', 'Minors among the owners', T.owners, { column: 'capacity', is: 'equals', value: MINOR }, { section: 'minors', tier: 'situational' }),
     countIf('approvals_not_held', 'Approvals to sell not held', T.owners, { column: 'members_approval', is: 'equals', value: 'not_held' }, { section: 'entities', tier: 'situational' }),
@@ -408,7 +414,8 @@ const OWNERSHIP: FieldSet = {
   rules: [
     { kind: 'compare', fields: ['shares_total'], against: 100, tolerance: 0, when: situation('multiple_owners'), say: 'The owners’ shares add up to {a}, not {b}.', severity: 'high' },
     none('not_joining', '{a} owner(s) with a share join the deed as neither vendor nor confirming party.', 'high'),
-    { kind: 'at_least', fields: ['heirs'], against: 1, say: 'An owner has died and no heir is recorded.', severity: 'high' },
+    // Said once, on the Succession sheet of the owner it is about, where the line opens that sheet. Kept here at low so the standing above is not a second line under Needs you.
+    { ...none('owners_without_heirs', 'An owner has died with no heir recorded', 'high'), severity: 'low' },
     none('minors', '{a} owner(s) are minors: each sale is open to challenge after majority unless a court allowed it.', 'medium'),
     none('approvals_not_held', '{a} owner(s) sell without the approval of their members or their authority.', 'critical'),
   ],
@@ -446,14 +453,14 @@ const OWNER_FACTS: FieldSet = {
     ]),
   ],
   sections: [
-    { key: 'succession', label: 'Succession', showWhen: holds(owner('living'), 'false') },
     { key: 'minority', label: 'Minor', showWhen: holds(owner('capacity'), 'equals', MINOR) },
     { key: 'entity', label: 'Authority to sell', showWhen: holds(owner('capacity'), 'in', ENTITIES) },
   ],
   fields: [
     { key: 'joins_as', label: 'Joins the deed as', kind: 'enum', control: 'segmented', optionSet: 'joins_as', tier: 'situational', showWhen: { all: [situation('multiple_owners'), holds(owner('living'), 'true')] } },
-    { key: 'heir_of', label: 'Heir of', kind: 'text', suggest: 'party', required: false, hint: 'For an heir: the name of the owner who died.' },
-    { key: 'relation', label: 'Relation', kind: 'enum', options: ['spouse', 'son', 'daughter', 'mother', 'father', 'another heir'], tier: 'situational', showWhen: holds(owner('heir_of'), 'set') },
+    // An heir is a row on the Succession sheet of the owner who died, not another owner. What was saved under these two keys is kept and no longer asked.
+    { key: 'heir_of', label: 'Heir of', kind: 'text', suggest: 'party', required: false, retired: true },
+    { key: 'relation', label: 'Relation', kind: 'enum', options: ['spouse', 'son', 'daughter', 'mother', 'father', 'another heir'], required: false, retired: true },
     {
       key: 'living',
       label: 'Living',
@@ -465,19 +472,8 @@ const OWNER_FACTS: FieldSet = {
       // Taken to be living, and a company or a trust to be in being, until somebody says otherwise: only the dead are asked about.
       defaults: [{ value: true, from: 'catalog', cite: 'An owner is taken to be living until a paper says otherwise' }],
     },
-    { key: 'date_of_death', label: 'Date of death', kind: 'date', section: 'succession', tier: 'situational', from: 'Death certificate', proof: 'expected' },
-    { key: 'succession_by', label: 'Succession by', kind: 'enum', optionSet: 'succession_by', section: 'succession', tier: 'situational' },
-    { key: 'property_character', label: 'The property was', kind: 'enum', control: 'segmented', optionSet: 'property_character', section: 'succession', tier: 'situational' },
-    {
-      key: 'daughters_listed',
-      label: 'Daughters among the heirs',
-      kind: 'enum',
-      control: 'segmented',
-      options: ['listed', 'left out', 'no daughters'],
-      section: 'succession',
-      tier: 'situational',
-      requiredWhen: holds(owner('property_character'), 'equals', 'ancestral'),
-    },
+    // The death, how the share passed and the heirs it passed to are on the owner's Succession sheet, declared with the owner record
+    // (example-land-holding.ts) under the keys they always had.
     // The minor's own facts (date of birth, the guardian, the court's leave and its order) are on the owner's Guardianship sheet, declared
     // with the owner record; what follows here is only what is worked out from them.
     {
@@ -693,7 +689,8 @@ const ENCUMBRANCE: FieldSet = {
     computed(
       'gap_days',
       'Days of the period no certificate covers',
-      { op: 'subtract', left: { op: 'add', left: { op: 'subtract', left: { op: 'date', key: 'ec_to' }, right: { op: 'date', key: 'ec_from' } }, right: { op: 'const', value: 1 } }, right: { op: 'records', set: T.certificates, reduce: 'sum', field: 'covered_days' } },
+      // Worked out by the figures door: certificates that overlap are merged and only days inside the period count, so it is never below nought (a sum of each certificate's days counted an overlap twice).
+      { op: 'figure', key: 'title.ec_uncovered_days' },
       { unit: 'days', section: 'search', ...once(T.certificates) },
     ),
     {
@@ -1404,7 +1401,6 @@ const ORDERS: FieldSet = {
   sections: [
     { key: 'order', label: 'Order' },
     { key: 'payment', label: 'Payment ordered', showWhen: holds(order('effect'), 'equals', 'directs_payment') },
-    { key: 'final', label: 'Final order', showWhen: holds(order('kind'), 'equals', 'final') },
     { key: 'effect', label: 'Counted as', tier: 'expert' },
   ],
   fields: [
@@ -1422,33 +1418,85 @@ const ORDERS: FieldSet = {
     { key: 'comply_by', label: 'To be complied with by', kind: 'date', section: 'payment', tier: 'situational', from: 'Order' },
     { key: 'compliance', label: 'Compliance', kind: 'enum', control: 'segmented', optionSet: 'order_compliance', section: 'payment', tier: 'situational' },
     computed('days_past_comply', 'Days past the day to comply', { op: 'subtract', left: { op: 'today' }, right: { op: 'date', key: 'comply_by' } }, { unit: 'days', section: 'payment', tier: 'situational', showWhen: holds(order('compliance'), 'equals', 'to_comply') }),
-    { key: 'disposal', label: 'Disposal', kind: 'enum', optionSet: 'disposal', section: 'final', tier: 'situational' },
-    {
-      key: 'appeal_by',
-      label: 'Appeal or challenge to be filed by',
-      kind: 'computed',
-      yields: 'date',
-      section: 'final',
-      tier: 'situational',
-      expires: { leadDays: 15 },
-      formula: {
-        op: 'if',
-        when: { field: 'passed_by', is: 'equals', value: 'arbitral_tribunal' },
-        then: { op: 'add_months', date: { op: 'date', key: 'order_date' }, months: { op: 'rate', table: 'award_challenge_months' } },
-        else: { op: 'add_days', date: { op: 'date', key: 'order_date' }, days: { op: 'rate', table: 'appeal_days', where: { forum: { field: 'passed_by' } } } },
-      },
-    },
-    { key: 'we_appeal', label: 'We are appealing', kind: 'boolean', control: 'switch', section: 'final', tier: 'situational', required: false },
-    money(
-      'pre_deposit',
-      'Deposit before the appeal is heard',
-      { op: 'divide', left: { op: 'multiply', left: { op: 'field', key: 'amount_ordered' }, right: { op: 'rate', table: 'rera_appeal_deposit_share', where: { ordered_as: { field: 'ordered_as' } } } }, right: { op: 'const', value: 100 } },
-      { section: 'final', tier: 'situational', showWhen: { all: [holds(order('we_appeal'), 'true'), holds(order('passed_by'), 'in', RERA_FORUMS)] } },
-    ),
     restraint('restrains_construction', 'Restraining construction now', ['restrains_construction', 'status_quo']),
     restraint('restrains_sale', 'Restraining a sale now', SALE_RESTRAINTS),
+    // What it binds: the parcel named above, and each parcel and unit on the list of what orders cover.
+    computed(
+      'things_covered',
+      'Parcels and units recorded as covered',
+      { op: 'add', left: { op: 'count_if', over: { records: L.cover }, where: { column: 'order', is: 'own' } }, right: { op: 'if', when: { field: 'covers', is: 'set' }, then: { op: 'const', value: 1 }, else: { op: 'const', value: 0 } } },
+      { section: 'effect', tier: 'expert', required: false },
+    ),
+    computed(
+      'binds_unknown',
+      'Restrains, with nothing recorded as covered',
+      { op: 'if', when: { all: [{ any: [{ left: { op: 'field', key: 'restrains_sale' }, is: 'gt', right: { op: 'const', value: 0 } }, { left: { op: 'field', key: 'restrains_construction' }, is: 'gt', right: { op: 'const', value: 0 } }] }, { left: { op: 'field', key: 'things_covered' }, is: 'eq', right: { op: 'const', value: 0 } }] }, then: { op: 'const', value: 1 }, else: { op: 'const', value: 0 } },
+      { section: 'effect', tier: 'expert', required: false },
+    ),
   ],
-  rules: [none('days_past_comply', 'The order was to be complied with {a} ago.', 'critical')],
+  rules: [
+    none('days_past_comply', 'The order was to be complied with {a} ago.', 'critical'),
+    none('binds_unknown', 'This order is in force and restrains, and no parcel or unit is recorded as covered by it.', 'medium'),
+  ],
+  // A final order: how the matter was disposed of, the day an appeal has to be filed by, and what has to be deposited first. Opened from that order alone.
+  sheets: [
+    {
+      id: 'final_order',
+      title: 'Final order and appeal',
+      showWhen: holds(order('kind'), 'equals', 'final'),
+      fields: [
+        { key: 'disposal', label: 'Disposal', kind: 'enum', optionSet: 'disposal' },
+        {
+          key: 'appeal_by',
+          label: 'Appeal or challenge to be filed by',
+          kind: 'computed',
+          yields: 'date',
+          expires: { leadDays: 15 },
+          formula: {
+            op: 'if',
+            when: { field: 'passed_by', is: 'equals', value: 'arbitral_tribunal' },
+            then: { op: 'add_months', date: { op: 'date', key: 'order_date' }, months: { op: 'rate', table: 'award_challenge_months' } },
+            else: { op: 'add_days', date: { op: 'date', key: 'order_date' }, days: { op: 'rate', table: 'appeal_days', where: { forum: { field: 'passed_by' } } } },
+          },
+        },
+        { key: 'we_appeal', label: 'We are appealing', kind: 'boolean', control: 'switch', required: false },
+        money(
+          'pre_deposit',
+          'Deposit before the appeal is heard',
+          { op: 'divide', left: { op: 'multiply', left: { op: 'field', key: 'amount_ordered' }, right: { op: 'rate', table: 'rera_appeal_deposit_share', where: { ordered_as: { field: 'ordered_as' } } } }, right: { op: 'const', value: 100 } },
+          { showWhen: { all: [holds(order('we_appeal'), 'true'), holds(order('passed_by'), 'in', RERA_FORUMS)] } },
+        ),
+      ],
+      rules: [],
+    },
+  ],
+};
+
+/**
+ * What an order covers: one record for each parcel or unit it binds, so an
+ * order over six units is six lines under that order and each unit can be
+ * asked which orders bind it. Sales reads these to say which units a
+ * restraint holds (sales-marketing.ts).
+ */
+const cover = (field: string): FieldAddress => litigation(L.cover, field);
+const viaOrder = (field: string): CheckFormula => ({ op: 'field', key: field, at: order(field), via: 'order' });
+
+const COVER: FieldSet = {
+  id: L.cover,
+  fn: LITIGATION,
+  title: 'What each order covers',
+  v: 1,
+  records: { of: 'parcel or unit covered', titleField: 'order', summaryFields: ['parcel', 'unit'] },
+  fields: [
+    { key: 'order', label: 'Order', kind: 'ref', target: { set: L.orders } },
+    { key: 'parcel', label: 'Parcel covered', kind: 'ref', target: 'parcel', required: false },
+    { key: 'unit', label: 'Unit covered', kind: 'ref', target: 'unit', required: false },
+    computed('restrains_sale', 'Restraining a sale now', viaOrder('restrains_sale'), { tier: 'expert', required: false }),
+    computed('restrains_construction', 'Restraining construction now', viaOrder('restrains_construction'), { tier: 'expert', required: false }),
+    computed('land_sale_restraint', 'Restraining a sale over a parcel now', { op: 'if', when: { field: 'parcel', is: 'set' }, then: viaOrder('restrains_sale'), else: { op: 'const', value: 0 } }, { tier: 'expert', required: false }),
+    computed('names_nothing', 'Names neither a parcel nor a unit', { op: 'if', when: { any: [{ field: 'parcel', is: 'set' }, { field: 'unit', is: 'set' }] }, then: { op: 'const', value: 0 }, else: { op: 'const', value: 1 } }, { tier: 'expert', required: false }),
+  ],
+  rules: [none('names_nothing', 'It names neither a parcel nor a unit that the order covers.', 'medium', holds(cover('order'), 'set'))],
 };
 
 /* --- G3. Court and registry searches -------------------------------- */
@@ -1669,6 +1717,7 @@ export const TITLES_LITIGATION_FIELD_SETS: FieldSet[] = withLinks(
   REGISTER,
   DIARY,
   ORDERS,
+  COVER,
   SEARCH,
   SEARCHES,
   HITS,

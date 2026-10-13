@@ -446,7 +446,8 @@ export function ruleRowsWithOffers(offers: readonly LawRuleRowOffer[], rows: rea
     const old = lawRuleRowAt(offer.supersedes, rows);
     if (old && (old.to === undefined || old.to >= offer.row.from)) ended.set(old, dayBefore(offer.row.from));
   }
-  return [...rows.map((row) => (ended.has(row) ? { ...row, to: ended.get(row)! } : row)), ...offers.map((offer) => offer.row)];
+  // A row that begins the day the row it supersedes began takes its place: the old one is left out, never kept as a row that ends before it begins.
+  return [...rows.flatMap((row) => (!ended.has(row) ? [row] : ended.get(row)! < row.from ? [] : [{ ...row, to: ended.get(row)! }])), ...offers.map((offer) => offer.row)];
 }
 
 /**

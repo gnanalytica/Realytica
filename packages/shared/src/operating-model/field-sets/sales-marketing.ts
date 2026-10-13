@@ -1650,6 +1650,9 @@ const MARKETING_REPORT: FieldReportTemplate = {
   ],
 };
 
+/** Litigation's record of what each order covers: one line for each parcel or unit. */
+const ORDER_COVER = 'legal.litigation.order_cover';
+
 const LINKS: SetLinks[] = [
   // Nothing is advertised, launched or sold before the project is registered: the day is Legal's, and each date here is held to it.
   { set: LAUNCH, reports: [MARKETING_REPORT], rules: [{ kind: 'before', fields: ['registered_on', 'launch_date'], at: { registered_on: RERA('registered_on') }, say: 'The launch is set for {b}, before the RERA registration of {a}.', severity: 'critical' }] },
@@ -1678,13 +1681,35 @@ const LINKS: SetLinks[] = [
     rules: [{ kind: 'at_most', fields: ['sale_of_owners_unit'], against: 0, when: { situation: 'joint_development' }, say: 'This unit is allotted to the land owners under the joint development and is released for sale.', severity: 'high' }],
   },
   {
+    set: UNIT_SALE,
+    // Which units a court's order binds is Litigation's record of what each order covers. A unit reads the orders in force that name it.
+    fields: [
+      {
+        key: 'sale_orders_in_force',
+        label: 'Orders in force restraining the sale of this unit',
+        kind: 'computed',
+        precision: 0,
+        section: 'sale',
+        tier: 'situational',
+        showWhen: { records: ORDER_COVER, is: 'any', where: { column: 'unit', is: 'own' } },
+        formula: { op: 'sum_if', over: { records: ORDER_COVER }, column: 'restrains_sale', where: { column: 'unit', is: 'own' } },
+      },
+    ],
+    rules: [{ kind: 'at_most', fields: ['sale_orders_in_force'], against: 0, say: '{a} order(s) in force restrain the sale of this unit.', severity: 'critical' }],
+  },
+  {
     set: STOCK,
     reports: [SALES_REPORT],
     // An order in force that restrains a sale is Litigation's record; the unit count is held to the Architect's unit mix.
     fields: [
       { key: 'sale_restraints', label: 'Orders in force restraining a sale', kind: 'number', sameAs: { fn: 'legal.litigation', set: 'legal.litigation.diary', field: 'sale_restraints' }, required: false, section: 'stock', tier: 'situational', showWhen: { situation: 'litigation_pending' } },
+      // Which units those orders hold: counted from the units themselves, each of which says so on its own record.
+      { key: 'units_restrained', label: 'Units an order in force restrains the sale of', kind: 'computed', precision: 0, section: 'stock', tier: 'situational', showWhen: { records: ORDER_COVER, is: 'any' }, formula: { op: 'count_if', over: { records: UNITS }, where: { column: 'sale_orders_in_force', is: 'gt', value: 0 } } },
+      { key: 'land_restraints', label: 'Orders in force restraining a sale over a parcel of the land', kind: 'computed', precision: 0, section: 'stock', tier: 'situational', showWhen: { records: ORDER_COVER, is: 'any' }, formula: { op: 'records', set: ORDER_COVER, reduce: 'sum', field: 'land_sale_restraint' } },
     ],
     rules: [
+      { kind: 'at_most', fields: ['units_restrained'], against: 0, say: '{a} unit(s) are covered by an order in force that restrains a sale: each says so on its own record.', severity: 'critical' },
+      { kind: 'at_most', fields: ['land_restraints'], against: 0, say: '{a} order(s) in force restrain a sale over a parcel of the land, and so every unit on it.', severity: 'critical' },
       { kind: 'at_most', fields: ['sale_restraints'], against: 0, say: '{a} order(s) in force restrain a sale or its registration.', severity: 'critical' },
       { kind: 'compare', fields: ['units_total', 'units_designed'], at: { units_designed: { fn: 'design.brief', set: 'design.brief.sheet', field: 'units_total' } }, when: { records: 'design.brief.unit_types', is: 'any' }, tolerance: 0.001, say: 'The register holds {a} units and the Architect’s unit mix comes to {b}.', severity: 'medium' },
     ],

@@ -62,7 +62,8 @@ const LAND_USE_CHECK = (field: string) => at(APPROVALS, 'regulatory.land_use', f
 const OCCUPANCY_CHECK = (field: string) => at(APPROVALS, 'regulatory.occupancy', field);
 const CLEARANCE_CHECK = (field: string) => at(APPROVALS, 'esg.clearance', field);
 const SERVICES_CHECK = (field: string) => at('construction.quality', 'technical.mep_capacity', field);
-const FORECAST_COMPLETION = at('construction.progress', 'schedule_progress.forecast_completion', 'forecast_completion');
+/** Completion as the programme now stands: the later of the forecast and planned completion after the extensions of time granted. */
+const FORECAST_COMPLETION = at('construction.progress', 'construction.progress.programme', 'completion_now');
 
 /* --- Small words for formulas ----------------------------------------- */
 const fld = (key: string, from?: FieldAddress): CheckFormula => ({ op: 'field', key, ...(from ? { at: from } : {}) });
