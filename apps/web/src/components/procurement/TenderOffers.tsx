@@ -14,10 +14,7 @@ import { departmentRole, moneySaid, roleCanDecide, tenderOffersWaiting, type DdP
 import { procurementApi } from '../../lib/procurement-api';
 import { useMe } from '../../lib/useMe';
 import { Button, Card, CardBody, CardHeader, Input, useToast } from '../ui/kit';
-
-function daySaid(day?: string): string {
-  return day ? new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '';
-}
+import { daySaid } from '@realytica/shared';
 
 export function TenderOffers({ project, onChanged }: { project: DdProject; onChanged: (p: DdProject) => void }) {
   const toast = useToast();

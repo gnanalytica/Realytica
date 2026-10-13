@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ComplianceVerdict, ValueCheck } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, Why, type Tone } from '../ui/kit';
 
-const VERDICT_WORD: Record<ComplianceVerdict, string> = { blocker: 'Blocker', attention: 'Look at', unknown: 'Not known', clear: 'Clear' };
+const VERDICT_WORD: Record<ComplianceVerdict, string> = { blocker: 'Failing', attention: 'Look at', unknown: 'Not known', clear: 'Clear' };
 const VERDICT_TONE: Record<ComplianceVerdict, Tone> = { blocker: 'critical', attention: 'warning', unknown: 'neutral', clear: 'good' };
 
 /**

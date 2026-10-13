@@ -16,9 +16,10 @@ import { money } from '../../lib/format';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, Textarea, cn, useToast } from '../ui/kit';
 import { MARKED_ROW } from '../workspace/marked';
 import { VERDICT_TONE } from './QuickAssessmentCard';
+import { daySaid } from '@realytica/shared';
 
 function day(iso?: string): string {
-  return iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  return iso ? daySaid(iso) : '';
 }
 
 function figureText(project: DdProject, figure?: { value: number; unit: 'INR' | '%' }): string | null {
@@ -278,7 +279,7 @@ function FileCertifiedModal({ project, workstream, onClose, onFiled }: { project
               <option value="">No conclusion stated</option>
               <option value="clear">Clear</option>
               <option value="conditions">Clear with conditions</option>
-              <option value="blockers">Blockers</option>
+              <option value="blockers">Failing</option>
             </Select>
           </Field>
           <Field label="Certified figure" hint={hint('figure') ?? 'A value in rupees, or progress as a percentage'}>

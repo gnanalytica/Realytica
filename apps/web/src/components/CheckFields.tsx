@@ -25,6 +25,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { Check, X } from 'lucide-react';
 import {
   EVIDENCE_STATUS_LABEL,
+  countSaid,
+  daySaid,
   NA_REASONS,
   NA_REASON_LABEL,
   fieldChart,
@@ -53,10 +55,13 @@ import {
   type OptionSet,
 } from '@realytica/shared';
 import { AiMark, Badge, cn } from './ui/kit';
+import { person } from '../lib/format';
 import { ChartSvg, DirectedBar, GridLine, Legend, compactAxisNumber, niceTicks, padDomain, scaleLinear, useMeasure } from './charts/primitives';
 
 /** Statuses that mean the document is not actually on the file yet. */
 const GAP_STATUS = new Set(['expected', 'requested', 'missing']);
+/** How many received papers a picker offers at once: the latest, or the ones a typed name narrows to. */
+const PAPERS_OFFERED = 8;
 
 interface Props {
   defs: CheckFieldDef[];
@@ -372,8 +377,8 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
               {def.kind === 'evidence' && def.viewer ? <Viewer def={def} value={values[def.key]} evidence={evidence ?? []} onOpen={onOpenPaper} /> : null}
               {def.kind === 'longtext' && !blank && view ? (
                 <span className="mt-0.5 block text-[11px] text-ink-muted">
-                  Written by {values[def.key]!.by}
-                  {values[def.key]!.at ? `, ${values[def.key]!.at.slice(0, 10)}` : ''}
+                  Written by {person(values[def.key]!.by)}
+                  {values[def.key]!.at ? `, ${daySaid(values[def.key]!.at)}` : ''}
                 </span>
               ) : null}
               {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} /> : null}
@@ -494,7 +499,7 @@ function Switch({ value, disabled, onChange }: { value: boolean | null; disabled
 /** Radio or segmented — one of a short list, all visible at once. */
 function Segmented({ options, value, disabled, onChange }: { options: OptionDef[]; value: string; disabled?: boolean; onChange: (next: string) => void }) {
   return (
-    <div className="mt-1 inline-flex flex-wrap overflow-hidden rounded-lg border border-hairline">
+    <div className="mt-1 flex max-w-full flex-wrap gap-1">
       {options.map(({ key: option, label }) => (
         <button
           key={option}
@@ -503,8 +508,8 @@ function Segmented({ options, value, disabled, onChange }: { options: OptionDef[
           aria-pressed={value === option}
           onClick={() => onChange(value === option ? '' : option)}
           className={cn(
-            'border-r border-hairline px-2.5 py-1 text-[12px] last:border-r-0 disabled:opacity-50',
-            value === option ? 'bg-brand text-white' : 'text-ink-secondary hover:bg-sunken',
+            'min-w-0 max-w-full break-words rounded-lg border px-2.5 py-1 text-left text-[12px] disabled:opacity-50',
+            value === option ? 'border-brand bg-brand text-white' : 'border-hairline text-ink-secondary hover:bg-sunken',
           )}
         >
           {label}
@@ -564,14 +569,20 @@ function EvidenceField({
 }) {
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [find, setFind] = useState('');
+  const [looking, setLooking] = useState(false);
   const selected = useMemo(() => (Array.isArray(value?.value) ? (value!.value as string[]) : []), [value]);
 
   const wantsImage = def.accepts === 'image';
   const looksRight = (row: EvidenceRecord) =>
     !wantsImage || row.kind === 'photograph' || (row.attachments ?? []).some((a) => a.mimeType.startsWith('image/'));
 
-  const candidates = evidence.filter((row) => !selected.includes(row.id) && (showAll || looksRight(row)));
-  const hidden = evidence.filter((row) => !selected.includes(row.id) && !looksRight(row)).length;
+  // Only a paper that is on the file can be cited from here: a row still expected or asked for is a gap, and a list of
+  // every gap is a wall to scroll. The latest received comes first, and typing narrows by title.
+  const received = evidence.filter((row) => !selected.includes(row.id) && !GAP_STATUS.has(row.status)).sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+  const wanted = find.trim().toLowerCase();
+  const candidates = received.filter((row) => (showAll || looksRight(row)) && (!wanted || row.title.toLowerCase().includes(wanted)));
+  const hidden = received.filter((row) => !looksRight(row)).length;
 
   return (
     <div className="mt-0.5 space-y-1.5">
@@ -611,23 +622,46 @@ function EvidenceField({
 
       {!disabled ? (
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value=""
-            disabled={busy}
-            className="h-7 min-w-0 max-w-full rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11"
-            onChange={(e) => {
-              if (!e.target.value) return;
-              onChange([...selected, e.target.value]);
-              e.target.value = '';
-            }}
-          >
-            <option value="">Cite a document…</option>
-            {candidates.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.title} — {EVIDENCE_STATUS_LABEL[row.status]}
-              </option>
-            ))}
-          </select>
+          {received.length ? (
+            <div className="relative min-w-0 max-w-full">
+              <input
+                type="search"
+                value={find}
+                disabled={busy}
+                aria-label={`Find a paper for ${def.label}`}
+                placeholder={`Find a paper (${received.length} received)`}
+                onChange={(e) => setFind(e.target.value)}
+                onFocus={() => setLooking(true)}
+                onBlur={() => window.setTimeout(() => setLooking(false), 150)}
+                className="h-7 w-64 min-w-0 max-w-full rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11"
+              />
+              {looking || wanted ? (
+                <ul className="absolute left-0 top-full z-10 mt-1 max-h-56 w-72 max-w-[80vw] overflow-y-auto rounded-lg bg-surface py-1 shadow-pop ring-1 ring-[var(--ring)]">
+                  {candidates.slice(0, PAPERS_OFFERED).map((row) => (
+                    <li key={row.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left text-[12px] text-ink hover:bg-sunken coarse:min-h-11"
+                        // Pressed before the box loses focus, so the list is still there to press.
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          onChange([...selected, row.id]);
+                          setFind('');
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{row.title}</span>
+                        <span className="shrink-0 text-[11px] text-ink-muted">{daySaid(row.updatedAt)}</span>
+                      </button>
+                    </li>
+                  ))}
+                  {!candidates.length ? <li className="px-2.5 py-1.5 text-[12px] text-ink-muted">No received paper by that name.</li> : null}
+                  {candidates.length > PAPERS_OFFERED ? <li className="px-2.5 py-1.5 text-[11px] text-ink-muted">{candidates.length - PAPERS_OFFERED} more. Type to narrow.</li> : null}
+                </ul>
+              ) : null}
+            </div>
+          ) : (
+            <span className="text-[12px] text-ink-muted">No paper received yet.</span>
+          )}
 
           {onAttach ? (
             <label className={cn('cursor-pointer text-[12px] font-medium text-brand', busy && 'opacity-50')}>
@@ -654,7 +688,7 @@ function EvidenceField({
 
           {hidden > 0 ? (
             <button type="button" className="text-[11px] text-ink-muted underline" onClick={() => setShowAll((v) => !v)}>
-              {showAll ? `hide ${hidden} that are not photographs` : `show ${hidden} other row(s)`}
+              {showAll ? `hide ${countSaid(hidden, 'paper')} that ${hidden === 1 ? 'is not a photograph' : 'are not photographs'}` : `show ${countSaid(hidden, 'other paper')}`}
             </button>
           ) : null}
         </div>
@@ -786,7 +820,7 @@ const DOT: Record<string, string> = { good: 'bg-good', warning: 'bg-warning', cr
 /** One of a few, each a tile to press: for the choice a sheet turns on, where every option should be seen at once. */
 function Tiles({ options, value, disabled, label, onChange }: { options: OptionDef[]; value: string; disabled?: boolean; label: string; onChange: (next: string) => void }) {
   return (
-    <div role="group" aria-label={label} className="mt-1 grid grid-cols-2 gap-1.5 [@container(min-width:30rem)]:grid-cols-4">
+    <div role="group" aria-label={label} className="mt-1 grid grid-cols-2 gap-1.5 [@container(min-width:40rem)]:grid-cols-4">
       {options.map((option) => (
         <button
           key={option.key}
@@ -795,12 +829,12 @@ function Tiles({ options, value, disabled, label, onChange }: { options: OptionD
           aria-pressed={value === option.key}
           onClick={() => onChange(value === option.key ? '' : option.key)}
           className={cn(
-            'flex min-h-11 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[13px] transition-colors disabled:opacity-50',
+            'flex min-h-11 min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[13px] leading-snug transition-colors disabled:opacity-50',
             value === option.key ? 'border-brand bg-brand-soft text-ink' : 'border-hairline text-ink-secondary hover:border-axis',
           )}
         >
           {option.tone ? <span aria-hidden className={cn('size-2 shrink-0 rounded-full', DOT[option.tone])} /> : null}
-          <span className="min-w-0">{option.label}</span>
+          <span className="min-w-0 hyphens-auto [overflow-wrap:anywhere]">{option.label}</span>
         </button>
       ))}
     </div>
@@ -1077,7 +1111,7 @@ function MatchField({ def, reading, rows, disabled, onChange }: { def: CheckFiel
       {reading.sides.map((side) =>
         side.leftover.length ? (
           <p key={side.column} className="text-[12px] text-[var(--status-warning-text)]">
-            {side.label} with no match: {side.leftover.map((item) => item.label).join(', ')}
+            {side.label} not paired yet: {side.leftover.map((item) => item.label).join(', ')}
           </p>
         ) : null,
       )}
@@ -1138,10 +1172,10 @@ function hasMore(def: CheckFieldDef, view: FieldView, may: boolean): boolean {
 function sourceSaid(source: FieldSource | undefined): string {
   if (!source) return '';
   if (source.kind === 'paper') return `${source.label}${source.page ? `, p. ${source.page}` : ''}`;
-  if (source.kind === 'external') return `${source.label}${source.asOf ? `, read ${source.asOf.slice(0, 10)}` : ''}`;
+  if (source.kind === 'external') return `${source.label}${source.asOf ? `, read ${daySaid(source.asOf)}` : ''}`;
   if (source.kind === 'field') return `from ${source.label}`;
   if (source.kind === 'default') return `usual value${source.label ? `, ${source.label}` : ''}`;
-  return source.label ? `typed by ${source.label}` : '';
+  return source.label ? `typed by ${person(source.label)}` : '';
 }
 
 /**
@@ -1207,7 +1241,9 @@ function FieldMarks({
       ) : null}
       {view.state === 'disputed' ? (
         <div className="rounded-lg border border-critical/30 bg-critical/5 px-2 py-1.5">
-          <p className="text-[12px] text-critical">Disputed. Neither is used until one is kept.</p>
+          <p className="text-[12px] text-critical">
+            In dispute: {[view.text, ...view.waiting.map((other) => other.text)].filter(Boolean).join(' against ')}. Neither counts until one is kept.
+          </p>
           {may ? (
             <p className="mt-0.5 flex flex-wrap gap-1">
               <button type="button" className={cn(act, 'text-ink')} onClick={() => onDecide!(def, 'keep')}>
@@ -1219,9 +1255,7 @@ function FieldMarks({
                 </button>
               ))}
             </p>
-          ) : (
-            <p>{view.waiting.map((other) => other.text).join(' / ')}</p>
-          )}
+          ) : null}
         </div>
       ) : (
         view.waiting.map((other) => (
@@ -1232,10 +1266,10 @@ function FieldMarks({
             {may ? (
               <p className="mt-0.5 flex gap-1">
                 <button type="button" className={cn(act, 'text-ink')} onClick={() => onDecide!(def, 'accept', { pick: other.index })}>
-                  Take this
+                  Accept
                 </button>
                 <button type="button" className={cn(act, 'text-ink-muted')} onClick={() => onDecide!(def, 'keep')}>
-                  Keep what is held
+                  Not this
                 </button>
               </p>
             ) : null}
@@ -1243,16 +1277,16 @@ function FieldMarks({
         ))
       )}
       {view.state === 'assumed' ? <p>Assumed: {sourceSaid(view.source)}</p> : null}
-      {view.cites?.some((cite) => !cite.verified) ? (
+      {view.cites?.some((cite) => !cite.verified) && view.held && view.held.value !== null && view.held.value !== '' ? (
         <p className="text-[var(--status-warning-text)]">
-          Read from a rule nobody has verified:{' '}
+          Rule not checked:{' '}
           {view.cites
             .filter((cite) => !cite.verified)
             .map((cite) => ruleSourceSaid(cite.source))
             .join('; ')}
         </p>
       ) : null}
-      {view.notInPlay ? <p>Recorded, not asked for now</p> : null}
+      {view.notInPlay ? <p>Filled in earlier, not needed now</p> : null}
       {view.state === 'not_applicable' && may ? (
         <button type="button" className={cn(act, 'px-0 text-brand')} onClick={() => onDecide!(def, 'reopen')}>
           Ask again
@@ -1265,8 +1299,8 @@ function FieldMarks({
           {view.source?.quote ? <p>“{view.source.quote}”</p> : null}
           {view.held?.acceptedBy ? (
             <p>
-              Accepted by {view.held.acceptedBy}
-              {view.held.acceptedAt ? `, ${view.held.acceptedAt.slice(0, 10)}` : ''}
+              Accepted by {person(view.held.acceptedBy)}
+              {view.held.acceptedAt ? `, ${daySaid(view.held.acceptedAt)}` : ''}
             </p>
           ) : null}
           {(view.cites ?? []).map((cite) => (

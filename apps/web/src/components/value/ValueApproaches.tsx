@@ -15,6 +15,7 @@ import {
 import { Button, Card, CardBody, CardHeader, Select, Tooltip, cn } from '../ui/kit';
 import { money } from '../../lib/format';
 import { useTyped } from '../reading/FactRow';
+import { daySaid } from '@realytica/shared';
 
 /** Where on a paper to open the reading desk. */
 export type ValueSourceFocus = { key?: string; page?: number };
@@ -110,7 +111,7 @@ export function ValueApproaches({
                 .filter((sale) => !sale.recent)
                 .map(
                   (sale) =>
-                    `This parcel sold on ${new Date(sale.registeredOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} for ${money(sale.price, 'INR')} — ₹${Math.round(sale.ratePerSqm).toLocaleString('en-IN')}/sqm, ${sale.ageYears.toFixed(1)} years ago (${sale.document}). Too old to stand as the rate without a time adjustment, so it is not offered as one.`,
+                    `This parcel sold on ${daySaid(sale.registeredOn)} for ${money(sale.price, 'INR')} — ₹${Math.round(sale.ratePerSqm).toLocaleString('en-IN')}/sqm, ${sale.ageYears.toFixed(1)} years ago (${sale.document}). Too old to stand as the rate without a time adjustment, so it is not offered as one.`,
                 )
             : [];
         return (

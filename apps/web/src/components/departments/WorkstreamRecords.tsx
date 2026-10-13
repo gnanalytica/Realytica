@@ -18,6 +18,7 @@ import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, cn, useToast, type Tone } from '../ui/kit';
 import { MARKED_ROW, useMarkedRow } from '../workspace/marked';
 import { WaitDot } from '../workspace/WorkspaceBar';
+import { daySaid } from '@realytica/shared';
 
 export const RESULT_TONE: Record<CheckResult, Tone> = {
   pending: 'neutral',
@@ -204,7 +205,7 @@ export function WorkstreamDocuments({
   const list = useMarkedRow<HTMLUListElement>(landed == null ? undefined : docs.find((e) => lit.has(e.id))?.id, landed ?? undefined);
   return (
     <Card>
-      <CardHeader icon={<FileText size={15} />} title="Documents" subtitle={docs.length ? `${docs.length} in the vault ${docs.length === 1 ? 'belongs' : 'belong'} to this work` : 'None in the vault belong to this work yet'} />
+      <CardHeader icon={<FileText size={15} />} title="Papers" subtitle={docs.length ? `${docs.length} on file ${docs.length === 1 ? 'belongs' : 'belong'} to this function` : 'No paper on file belongs to this function yet'} />
       <CardBody>
         {docs.length ? (
           <ul ref={list} className="divide-y divide-hairline">
@@ -213,7 +214,7 @@ export function WorkstreamDocuments({
                 <button type="button" onClick={() => onOpenDocument(e.id)} className="flex w-full items-baseline gap-3 px-1 py-2 text-left hover:bg-sunken/60">
                   <span className="min-w-0 flex-1 truncate text-[13px] text-ink" title={e.title}>{e.title}</span>
                   {e.documentType ? <span className="shrink-0 text-micro text-ink-secondary">{e.documentType}</span> : null}
-                  <span className="shrink-0 font-mono text-micro text-ink-muted">{new Date(e.attachments[0]!.uploadedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                  <span className="shrink-0 font-mono text-micro text-ink-muted">{daySaid(e.attachments[0]!.uploadedAt)}</span>
                 </button>
               </li>
             ))}

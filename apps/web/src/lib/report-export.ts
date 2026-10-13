@@ -4,7 +4,6 @@ import {
   isFrozenFieldBlock,
   readReportBlock,
   reportIsFrozen,
-  reportSummaryLine,
   type DdProject,
   type GeneratedReport,
   type ReportFootnote,
@@ -12,6 +11,8 @@ import {
 } from '@realytica/shared';
 import { evidenceFileUrl, fetchWithAuth } from './api';
 import { photosOfTable } from '../components/report/ReportTableView';
+import { daySaid } from '@realytica/shared';
+import { reportSummary } from './report-summary';
 
 /**
  * The report as a Word document, in a plain firm template.
@@ -47,12 +48,8 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
 
   const frozen = reportIsFrozen(report.status);
   const issued = report.status === 'issued';
-  const summary = frozen ? report.body.summary : reportSummaryLine(project);
-  const dated = new Date(issued && report.signedAt ? report.signedAt : Date.now()).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  const summary = reportSummary(project, report);
+  const dated = daySaid(issued && report.signedAt ? report.signedAt : new Date());
 
   /** A section's table, as a Word table with a shaded header row. */
   const tableOf = (table: ReportTable) =>
@@ -110,7 +107,7 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
   /** Where each value of a section came from, numbered as the values mark them. */
   const footnotesOf = (notes: ReportFootnote[] | undefined) =>
     (notes ?? []).map((note) => new Paragraph({ spacing: { before: 40 }, children: [new TextRun({ text: `[${note.n}] ${note.text}`, size: 16, color: '555555' })] }));
-  const day = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const day = (iso: string) => daySaid(iso);
 
   const children: Array<InstanceType<typeof Paragraph> | InstanceType<typeof Table>> = [
     new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: report.title })] }),

@@ -54,7 +54,7 @@ export default function Requests() {
           {/* What waits for a person here comes first: a reply to confirm, then mail nobody could place. */}
           {groups.toConfirm.length ? (
             <Card>
-              <CardHeader title="To confirm" subtitle={`${groups.toConfirm.length} answered, waiting for you`} />
+              <CardHeader title="To confirm" subtitle={`${groups.toConfirm.length} answered, to confirm`} />
               <CardBody>
                 <RequestList rows={groups.toConfirm} onChanged={refresh} showProject />
               </CardBody>

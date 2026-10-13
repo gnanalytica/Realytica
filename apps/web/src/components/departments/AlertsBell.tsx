@@ -6,6 +6,7 @@ import { useMe } from '../../lib/useMe';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { AnimatePresence, EASE_ENTER, Stagger, StaggerItem, motion } from '../../lib/motion';
 import { Modal, cn, toneChip, useToast } from '../ui/kit';
+import { daySaid } from '@realytica/shared';
 
 const TONE: Record<ProjectAlert['severity'], 'critical' | 'warning' | 'info'> = {
   critical: 'critical',
@@ -20,7 +21,7 @@ const ICON: Record<ProjectAlert['severity'], typeof Info> = {
 };
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return daySaid(iso);
 }
 
 /**

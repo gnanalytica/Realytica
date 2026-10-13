@@ -10,6 +10,7 @@ import {
 import { Button, Card, CardBody, Select, Tooltip, cn } from '../ui/kit';
 import { money, pct } from '../../lib/format';
 import { useCountUp } from './useValueFill';
+import { daySaid } from '@realytica/shared';
 
 const PREMISE_LABEL: Record<ValuationPremise, string> = {
   as_is: 'As-is market value',
@@ -280,7 +281,7 @@ function StatusChip({ status, run }: { status: ValueStatus; run?: ValuationRun }
   if (status === 'recorded' && run) {
     return (
       <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-mini font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
-        Recorded {new Date(run.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · {VALUATION_SIGN_OFF_LABEL[run.signOff]}
+        Recorded {daySaid(run.createdAt)} · {VALUATION_SIGN_OFF_LABEL[run.signOff]}
       </span>
     );
   }

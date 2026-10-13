@@ -37,7 +37,7 @@ export interface FieldSet {
 }
 ```
 
-**A function's page.** A function with at least one field set opens on **Needs you** (see below), above every other part of its page, and has a Sheet part holding the sheets themselves. A function still marked `coming_soon` in `departments.ts` becomes a page of its sheets and its documents as soon as a set names it in `fn`; its tab stops being muted. There is nothing to switch on.
+**A function's page.** A function with at least one field set opens on **Needs you** (see below) and the list of its sheets, and on nothing else. Its certified reports, checks, papers and connections are parts reached from the rail, one at a time, never stacked below. No quick assessment is drawn over a function that keeps sheets. A function still marked `coming_soon` in `departments.ts` becomes a page of its sheets and its documents as soon as a set names it in `fn`; its tab stops being muted. There is nothing to switch on.
 
 ## Kinds
 
@@ -135,6 +135,7 @@ Give a measure a `dimension`: `area`, `length`, `volume`, `mass`, `money`, `time
 
 - **Area:** `sqm`, `sqft`, `sqyd`, `acre`, `gunta`, `cent`, `hectare`, and `ground`. A ground has a size only where the state's pack gives it one (`field-sets/state-packs.ts`); elsewhere the person is asked for another unit.
 - **Length:** `m`, `ft`, `in`, `mm`, `cm`, `km`, `yd`. **Volume:** `cum`, `cft`, `litre`. **Mass:** `kg`, `tonne`, `quintal`, `g`.
+- **One way to write each.** A day is `13 Oct 2026`, a share has at most two decimals with its sign against it, and a count agrees with its noun: `daySaid`, `percentSaid`, `countSaid` and `agreeSaid` in `said.ts`, which `formatFieldValue` and every page go through. No raw ISO date, no "INR" suffix and no "(s)" is printed.
 - **Money:** typed as `4,20,00,000`, `4.2 Cr` or `45 lakh`; printed in lakh and crore by one formatter (`rupeesSaid`, `formatMoney`). Another currency is kept in its own, never converted.
 - `enterIn` narrows what may be typed. A bare number is in the base unit.
 
@@ -234,7 +235,7 @@ type ShowWhen =
 | `situational` | When its `showWhen` holds, its own or its section's | While it holds |
 | `expert` | Folded under "More"; shown once it holds a value | Never |
 
-A field hidden by its condition that still holds a value is kept, under "Recorded, not asked for now". A field that is worked out, a standing or a mirror is nobody's entry: out of play, it is not listed there. An expert field that is worked out stays folded however much it holds: it is the working behind a standing.
+A field hidden by its condition that still holds a value is kept, under "Filled in earlier, not needed now". A field that is worked out, a standing or a mirror is nobody's entry: out of play, it is not listed there. An expert field that is worked out stays folded however much it holds: it is the working behind a standing.
 
 **One declaration.** A project-scoped situation is declared once, by the department that owns it, and named by every other set that waits on it; a second declaration that differs by a character fails the catalog test. The ones several departments answer to: `joint_development` and `leasehold_land` (Law, proposed from the agreement or the lease), `lender_funded` (Lenders, derived from a facility recorded), `designated_account_kept` (Finance), `rera_registered`, `revised_sanction`, `stop_work_order` and `agricultural_needs_conversion` (Law and Liaison, derived), `tdr_or_premium_far`, `high_rise` and `mixed_use` (the Architect), `litigation_pending` (Litigation). `agricultural_land` (Title) says the land is or was agricultural; `agricultural_needs_conversion` says it is not yet converted. The four valuation approaches are declared with the valuation checks (`check-conditions.ts`). A function's page shows a derived situation as a chip only while it holds.
 
@@ -280,7 +281,7 @@ When one row needs a dozen more fields, they do not join the row. They are a **d
 
 ## Needs you
 
-A function does not open on its form. It opens on five lines, in this order, each drawn only when it holds something, with its count and at most five of its lines until "Show all".
+A function does not open on its form. It opens on at most five lines in all, the most pressing first across the five groups below. Each group that holds something is a chip with its count that narrows the card to it, and one "Show all" lifts the cap. Every line has one action: Accept (with Not this) where the value can be accepted on this page, otherwise Open, which goes to the sheet, the record or the check that holds it and brings the field into view. A value offered for a field that is worked out or mirrored is never accepted here: its line opens the holder.
 
 | Line | Holds | Why it is in this place |
 |---|---|---|
@@ -292,11 +293,11 @@ A function does not open on its form. It opens on five lines, in this order, eac
 
 Not on the card: expert fields; fields before their `dueFrom`; what another party owes (one quiet line, "Waiting on others"); usual values standing in (one quiet line); a rule at low, which is said on the sheet it is about.
 
-A lead or signer may **put a line under Due soon off** until a day they name, at most ninety days ahead. It comes back on that day, or at once if it starts failing. Nothing else can be put off. `readFunctionFields(project, fn)` returns the five lines as `needs`, what is put off as `snoozed`, and what others owe as `waitingOn`.
+A lead or signer may **postpone a line under Due soon** until a day they name, at most ninety days ahead. It comes back on that day, or at once if it starts failing. Nothing else can be put off. `readFunctionFields(project, fn)` returns the five lines as `needs`, what is put off as `snoozed`, and what others owe as `waitingOn`.
 
 On a phone the card is the first screen of the function. On a laptop it is the first card on the function's page.
 
-**Below it, a sheet is one line.** A function that keeps more than one sheet draws each as a line (its title, how full it is, what is still to fill, and where its standings are) that unfolds when pressed. A sheet none of whose fields is in play yet is not drawn as an empty card: the page names such sheets in one sentence. So keep a sheet's standing honest on an untouched project (see Rules): it is what a person reads without opening anything.
+**Below it, a sheet is one line.** Every sheet is drawn as a line (its title, how full it is, what is still to fill, and where its standings are) that unfolds when pressed. A set that repeats is one line with its count, and so is a shared record: it is never printed in full on a page that only reads it. A sheet none of whose fields is in play yet is not drawn as an empty card: the page names such sheets in one sentence. So keep a sheet's standing honest on an untouched project (see Rules): it is what a person reads without opening anything.
 
 ## Rules
 
@@ -404,7 +405,7 @@ What differs by state and is not a rate (form numbers, the size of a ground) is 
 
 Every check's fields are in the catalog under the check definition's id, and are read, offered and decided through the same functions as a sheet's.
 
-- **When they are asked.** `check-conditions.ts` gives a check the condition all its fields wait on, and declares the situations those conditions name for the function the check sits in. The four valuation input checks open by approach this way: `comparable_approach`, `cost_approach`, `income_approach`, `residual_approach`, each in play once a person says so or once one of its inputs is recorded (`impliedBy`). The check's screen does not draw a field that is not asked, folds an expert one, and keeps one that holds a value while not asked under "Recorded, not asked for now" (`checkFieldsShown`). Add a condition to a check there; never in the check's schema.
+- **When they are asked.** `check-conditions.ts` gives a check the condition all its fields wait on, and declares the situations those conditions name for the function the check sits in. The four valuation input checks open by approach this way: `comparable_approach`, `cost_approach`, `income_approach`, `residual_approach`, each in play once a person says so or once one of its inputs is recorded (`impliedBy`). The check's screen does not draw a field that is not asked, folds an expert one, and keeps one that holds a value while not asked under "Filled in earlier, not needed now" (`checkFieldsShown`). Add a condition to a check there; never in the check's schema.
 - **How a value waits.** Once. A value offered for a check's field, by a paper's reading or by a model naming the field, is kept on a card of that check's values and read on the field as `proposed`, with its page and words (`check-waiting.ts`). Accepting or setting aside the field settles the card; settling the card settles the field. A value the field already holds, one already waiting for it, and one a person set aside there are not offered again by either door.
 
 ## Papers: how a value is offered

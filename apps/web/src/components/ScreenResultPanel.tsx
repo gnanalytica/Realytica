@@ -55,7 +55,7 @@ const COMPLIANCE_TONE: Record<ComplianceVerdict, Tone> = {
 const COMPLIANCE_WORD: Record<ComplianceVerdict, string> = {
   clear: 'Clear',
   attention: 'Attention',
-  blocker: 'Blocker',
+  blocker: 'Failing',
   unknown: 'Not established',
 };
 
@@ -250,7 +250,7 @@ export function ScreenResultPanel({
   return (
     <div className="space-y-4">
       {show('blockers') && blockers.length > 0 ? (
-        <Callout tone="critical" title={`${blockers.length} blocker${blockers.length > 1 ? 's' : ''} on this site`}>
+        <Callout tone="critical" title={`${blockers.length} failing on this site`}>
           {blockers.map((c) => c.label).join(' · ')}
         </Callout>
       ) : null}

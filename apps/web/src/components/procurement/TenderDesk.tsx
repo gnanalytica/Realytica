@@ -42,14 +42,11 @@ import { procurementApi } from '../../lib/procurement-api';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, Textarea, cn, useToast } from '../ui/kit';
 import { TenderOffers } from './TenderOffers';
+import { daySaid } from '@realytica/shared';
 
 type Run = (fallback: string, work: () => Promise<{ project: DdProject }>) => Promise<boolean>;
 
 const today = (): string => indiaToday(new Date());
-
-function daySaid(day?: string): string {
-  return day ? new Date(`${day}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '';
-}
 
 /** An amount as typed: digits, with commas or spaces between. Empty is none, and anything else is not an amount. */
 function amountOf(raw: string): number | null | undefined {

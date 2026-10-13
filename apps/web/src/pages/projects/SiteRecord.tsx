@@ -37,6 +37,7 @@ import { Badge, Button, Card, CardBody, EmptyState, Field, InfoTip, Input, Modal
 import { MARKED_ROW } from '../../components/workspace/marked';
 import type { ProjectOutlet } from './ProjectLayout';
 import { SheetPlacer } from '../../components/SheetPlacer';
+import { countSaid } from '@realytica/shared';
 
 const LIMITATION_KINDS = Object.keys(VISIT_LIMITATION_LABEL) as VisitLimitationKind[];
 
@@ -149,8 +150,8 @@ export default function SiteRecord() {
                           {visit.weather ? ` · ${visit.weather}` : ''}
                         </p>
                         <p className="mt-0.5 text-[11px] text-ink-muted">
-                          {CAPTURE_PURPOSE_LABEL[visit.purpose]} · {row?.photos ?? 0} photo(s)
-                          {row?.geotagged ? `, ${row.geotagged} geotagged` : ''} · {visit.assetIds.length} asset(s)
+                          {CAPTURE_PURPOSE_LABEL[visit.purpose]} · {countSaid(row?.photos ?? 0, 'photo')}
+                          {row?.geotagged ? `, ${row.geotagged} geotagged` : ''} · {countSaid(visit.assetIds.length, 'asset')}
                         </p>
                       </div>
                       <Badge tone={visit.status === 'aborted' ? 'critical' : visit.status === 'planned' ? 'neutral' : 'good'}>

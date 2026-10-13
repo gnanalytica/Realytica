@@ -515,7 +515,7 @@ function CheckRow({
         {waiting > 0 ? (
           <span
             className="rounded-full bg-provenance/15 px-1.5 font-mono text-micro text-provenance-ink"
-            title={`${waiting} waiting for you on this check`}
+            title={`${waiting} to accept on this check`}
           >
             {waiting}
           </span>

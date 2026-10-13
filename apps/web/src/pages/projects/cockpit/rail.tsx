@@ -510,7 +510,7 @@ export function CockpitPaneStrip({
             go: () => onGo(t.pane),
             extra: (
               <>
-                {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
+                {toDecide > 0 ? <WaitingCount n={toDecide} label="to accept" /> : null}
                 {count != null ? <Count n={count} /> : null}
               </>
             ),

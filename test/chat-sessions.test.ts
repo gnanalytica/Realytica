@@ -329,8 +329,9 @@ describe('the list of chats', () => {
 
   it('says a chat’s day, with the year once it is another one', () => {
     // "Sep" or "Sept": the month's short name is the runtime's own.
-    assert.match(chatDay('2026-09-05T09:00:00.000Z', new Date('2026-10-05T00:00:00.000Z')), /^5 Sept?$/);
-    assert.match(chatDay('2025-09-05T09:00:00.000Z', new Date('2026-10-05T00:00:00.000Z')), /2025/);
+    // A day is written one way wherever it is read, the year with it.
+    assert.equal(chatDay('2026-09-05T09:00:00.000Z'), '5 Sep 2026');
+    assert.equal(chatDay('2025-09-05T09:00:00.000Z'), '5 Sep 2025');
     assert.equal(chatDay('not a date'), '');
   });
 });

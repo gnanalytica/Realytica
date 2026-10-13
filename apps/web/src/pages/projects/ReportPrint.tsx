@@ -10,11 +10,12 @@ import {
   readReportBlock,
   titleGraphFromProject,
   reportIsFrozen,
-  reportSummaryLine,
   type DdProject,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
+import { daySaid } from '@realytica/shared';
+import { reportSummary } from '../../lib/report-summary';
 
 /**
  * The report as a printable document, for "Save as PDF".
@@ -26,7 +27,7 @@ import { useAsync } from '../../lib/useAsync';
  * each value came from; a person's note prints with their name and the day.
  */
 
-const printedDay = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+const printedDay = (iso: string) => daySaid(iso);
 
 function TitleChainPrintBlock({
   project,
@@ -82,12 +83,8 @@ export default function ReportPrint() {
 
   const frozen = reportIsFrozen(report.status);
   const issued = report.status === 'issued';
-  const summary = frozen ? report.body.summary : reportSummaryLine(project);
-  const dated = new Date(issued && report.signedAt ? report.signedAt : Date.now()).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  const summary = reportSummary(project, report);
+  const dated = daySaid(issued && report.signedAt ? report.signedAt : new Date());
 
   return (
     <div className="min-h-screen bg-white text-[#111]">

@@ -50,7 +50,6 @@ import {
   readReportBlock,
   reportIsFrozen,
   reportNoteCap,
-  reportSummaryLine,
   titleGraphFromProject,
   type DdProject,
   type GeneratedReport,
@@ -61,7 +60,10 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { exportReportDocx } from '../../lib/report-export';
-import { Badge, Button, Callout, Field, InfoTip, Input, Modal, Select, SubmitButton, cn, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Field, INTERACTIVE, InfoTip, Input, Modal, Select, SubmitButton, cn, useToast } from '../../components/ui/kit';
+import { daySaid } from '@realytica/shared';
+import { reportSummary } from '../../lib/report-summary';
+import { countSaid } from '@realytica/shared';
 
 interface Props {
   project: DdProject;
@@ -86,7 +88,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
   // The summary is recomputed on every render rather than read off the stored
   // report: it is the document's own reading of itself, and a stale one at the
   // top would undermine every live block below it.
-  const summary = frozen ? report.body.summary : reportSummaryLine(project);
+  const summary = reportSummary(project, report);
 
   useEffect(() => {
     if (!frozen) {
@@ -121,7 +123,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-hairline pb-3">
         <div className="min-w-0">
           <h2 className="text-[16px] font-semibold tracking-tight text-ink">{report.title}</h2>
-          <p className="mt-1 max-w-[70ch] text-[13px] text-ink-secondary">{summary}</p>
+          {summary ? <p className="mt-1 max-w-[70ch] text-[13px] text-ink-secondary">{summary}</p> : null}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
           <Badge tone={frozen ? 'neutral' : 'good'}>{frozen ? report.status : 'live'}</Badge>
@@ -136,13 +138,16 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
           >
             Word
           </Button>
-          <Button
-            variant="ghost"
-            icon={<Printer size={13} />}
-            onClick={() => window.open(`/projects/${project.id}/reports/${report.id}/print`, '_blank', 'noopener')}
+          {/* A link, not a script that opens a window: a press always opens the print page, where a pop-up blocker would have eaten the window. */}
+          <a
+            href={`/projects/${project.id}/reports/${report.id}/print`}
+            target="_blank"
+            rel="noopener"
+            className={cn('inline-flex h-9 select-none items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11', INTERACTIVE)}
           >
-            PDF
-          </Button>
+            <Printer size={13} aria-hidden />
+            Print or save as PDF
+          </a>
           {!frozen ? (
             <Button variant="primary" icon={<Lock size={13} />} disabled={busy !== null} onClick={() => setIssuing(true)}>
               Issue
@@ -162,17 +167,17 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
         <p className="text-[12px] text-ink-secondary">
           Signed by <span className="font-medium text-ink">{report.signedBy}</span>
           {report.signedRole ? `, ${report.signedRole}` : ''}
-          {report.signedAt ? ` on ${new Date(report.signedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}.
+          {report.signedAt ? ` on ${daySaid(report.signedAt)}` : ''}.
         </p>
       ) : null}
 
       {frozen ? (
-        <Callout tone="neutral" title={`Issued ${new Date(report.signedAt ?? report.generatedAt).toLocaleDateString()}`}>
+        <Callout tone="neutral" title={`Issued ${daySaid(report.signedAt ?? report.generatedAt)}`}>
           This is the report as issued. It will not change.
           {drift === null ? null : drift.length === 0 ? (
             <> Nothing in the registers has moved since.</>
           ) : (
-            <> {drift.length} section(s) would read differently now:</>
+            <> {countSaid(drift.length, 'section')} would read differently now:</>
           )}
         </Callout>
       ) : null}
@@ -315,7 +320,7 @@ function SectionState({
 }) {
   const current: ReportSectionState = block.state ?? 'drafted';
   const who = block.stateBy && block.state && block.state !== 'drafted'
-    ? `${REPORT_SECTION_STATE_LABEL[current]} by ${block.stateBy}${block.stateAt ? ` on ${new Date(block.stateAt).toLocaleDateString()}` : ''}`
+    ? `${REPORT_SECTION_STATE_LABEL[current]} by ${block.stateBy}${block.stateAt ? ` on ${daySaid(block.stateAt)}` : ''}`
     : undefined;
   if (frozen) {
     return (
@@ -402,7 +407,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
         ) : block.detachedAt ? (
           <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">
             {held ? 'frozen' : 'detached'} from {block.detachedFrom ? REPORT_SOURCE_LABEL[block.detachedFrom].toLowerCase() : 'the registers'} on{' '}
-            {new Date(block.detachedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}, no longer updates
+            {daySaid(block.detachedAt)}, no longer updates
           </span>
         ) : (
           <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">a note</span>
@@ -731,7 +736,7 @@ function ProseField({
       />
       {(by && value.trim()) || (cap && focused) ? (
         <p className="mt-1 flex flex-wrap justify-between gap-x-3 px-1 text-[11px] text-ink-muted">
-          <span>{by && value.trim() ? `Written by ${by}${at ? ` on ${new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}` : ''}</span>
+          <span>{by && value.trim() ? `Written by ${by}${at ? ` on ${daySaid(at)}` : ''}` : ''}</span>
           {cap && focused ? (
             <span className="font-mono tabular-nums">
               {draft.length.toLocaleString('en-IN')} of {cap.toLocaleString('en-IN')}
