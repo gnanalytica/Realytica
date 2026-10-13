@@ -17,7 +17,13 @@
  *
  * A station's standing (shot this period, due, overdue, never shot) is read
  * afresh each time from the days its shots were taken, by the day it is in
- * India. All period arithmetic is in `photoPeriod`, and nowhere else.
+ * India. A week, a month and a quarter are the calendar's own
+ * (`period-keys.ts`): the same periods a cash month and a RERA quarter are
+ * kept by, numbered as the project numbers its quarters.
+ *
+ * Read with a past moment, everything here is as it stood then: a shot
+ * taken after that day is not counted, so a station's standing, the round
+ * and a milestone's checklist can all be read as at a past period.
  *
  * Pure, apart from the three functions that set a place.
  */
@@ -26,7 +32,9 @@ import type { GeoPoint } from '../types';
 import type { PhotoPlace, PhotoPlacing } from './capture';
 import { PHOTO_ELEMENTS, PHOTO_ELEMENT_LABEL, photoWrittenByModelBefore, type PhotoElement } from './photo-picks';
 import type { Milestone, SiteLogEntry, SiteLogPhoto } from './progress';
-import { QUARTER_YEAR_DEFAULT, indiaToday, quarterKey, quarterOf, quarterSaid, type QuarterYear } from './quarters';
+import type { PeriodDue } from './field-periods';
+import { periodOfDay, periodShift, periodsNumbered, type PeriodSpan } from './period-keys';
+import { QUARTER_YEAR_DEFAULT, indiaToday, type QuarterYear } from './quarters';
 import { daySaid } from './said';
 import { standingRecords, standingText, type StandingRecord } from './standing-records';
 import type { DdProject, EvidenceAttachment, EvidenceRecord } from './types';
@@ -57,53 +65,8 @@ export const STATION_MATCH_M = 30;
 export const PLACE_FLOOR_MOST = 40;
 
 /* ==================================================================== */
-/* The period: the one place a week, a month or a quarter is worked out  */
+/* The day of a shot                                                     */
 /* ==================================================================== */
-
-/** A period of days: `from` and `to` are its first and last day, both inside it. */
-export interface PhotoPeriod {
-  /** `2026-W42`, `2026-10`, `FY2026-Q3`. */
-  key: string;
-  from: string;
-  to: string;
-  /** As a person reads it: "Week of 12 Oct 2026", "October 2026", "Q3 FY 2026-27". */
-  said: string;
-}
-
-const DAY_MS = 86_400_000;
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const isoDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
-
-/**
- * The week, month or quarter a day falls in, or the one so many before or
- * after it (`shift`).
- *
- * A week is Monday to Sunday, numbered as ISO 8601 numbers it. A month is
- * the calendar month. A quarter is one of `quarters.ts`, numbered in the
- * financial year unless the calendar year is asked for.
- *
- * This is the only place this file, the report section and the screen work
- * out a period: everything else asks here. A general notion of a period can
- * replace this one function and nothing else.
- */
-export function photoPeriod(day: string, every: StationEvery, shift = 0, year: QuarterYear = QUARTER_YEAR_DEFAULT): PhotoPeriod {
-  const [y, m, d] = day.slice(0, 10).split('-').map(Number) as [number, number, number];
-  if (every === 'week') {
-    const at = Date.UTC(y, m - 1, d);
-    const monday = at - ((new Date(at).getUTCDay() + 6) % 7) * DAY_MS + shift * 7 * DAY_MS;
-    // A week belongs to the year its Thursday is in.
-    const thursday = new Date(monday + 3 * DAY_MS);
-    const week = Math.floor((thursday.getTime() - Date.UTC(thursday.getUTCFullYear(), 0, 1)) / (7 * DAY_MS)) + 1;
-    return { key: `${thursday.getUTCFullYear()}-W${String(week).padStart(2, '0')}`, from: isoDay(monday), to: isoDay(monday + 6 * DAY_MS), said: `Week of ${daySaid(isoDay(monday))}` };
-  }
-  if (every === 'quarter') {
-    const quarter = quarterOf(y, Math.floor((m - 1) / 3) * 3 + shift * 3);
-    return { key: quarterKey(quarter, year)!, from: quarter.from.slice(0, 10), to: isoDay(Date.parse(quarter.to) - DAY_MS), said: quarterSaid(quarter, year)! };
-  }
-  const first = new Date(Date.UTC(y, m - 1 + shift, 1));
-  const [year4, month] = [first.getUTCFullYear(), first.getUTCMonth()];
-  return { key: `${year4}-${String(month + 1).padStart(2, '0')}`, from: isoDay(first.getTime()), to: isoDay(Date.UTC(year4, month + 1, 0)), said: `${MONTH_NAMES[month]} ${year4}` };
-}
 
 /**
  * The day a photograph was taken, as the day it was in India. A moment that
@@ -306,12 +269,14 @@ export interface StandingRead {
  * at midnight in India, so a monthly station shot on the 31st is due again
  * on the 1st.
  */
-export function stationStanding(shotDays: readonly string[], every: StationEvery, today: string, year: QuarterYear = QUARTER_YEAR_DEFAULT): StandingRead {
-  const lastDay = [...shotDays].sort().at(-1);
+export function stationStanding(shotDays: readonly string[], every: StationEvery, today: string, numbered: QuarterYear = QUARTER_YEAR_DEFAULT): StandingRead {
+  // A shot dated after the day asked of had not been taken then.
+  const lastDay = shotDays.filter((day) => day <= today).sort().at(-1);
   if (!lastDay) return { standing: 'never' };
-  if (lastDay >= photoPeriod(today, every, 0, year).from) return { standing: 'shot', lastDay, behind: 0 };
+  const current = periodOfDay(every, today, numbered)!;
+  if (lastDay >= current.from) return { standing: 'shot', lastDay, behind: 0 };
   let behind = 1;
-  while (behind <= PERIODS_BACK && lastDay < photoPeriod(today, every, -behind, year).from) behind += 1;
+  while (behind <= PERIODS_BACK && lastDay < periodShift(current, -behind).from) behind += 1;
   return { standing: behind === 1 ? 'due' : 'overdue', lastDay, behind };
 }
 
@@ -322,7 +287,7 @@ export interface StationRow {
   lastDay?: string;
   behind?: number;
   /** The period today falls in, by the station's own interval. */
-  period: PhotoPeriod;
+  period: PeriodSpan;
   shots: StationShot[];
   /** The latest shot before this period: what the next one is framed against. */
   guide?: StationShot;
@@ -340,26 +305,68 @@ const BEHIND_ORDER: Record<StationStanding, number> = { overdue: 0, never: 1, du
 
 type RoundOf = StationsOf & Pick<DdProject, 'evidence' | 'siteLog'> & Partial<Pick<DdProject, 'reportDay'>>;
 
-const quarterYear = (project: Partial<Pick<DdProject, 'reportDay'>>): QuarterYear => project.reportDay?.setting?.quarters ?? QUARTER_YEAR_DEFAULT;
+/** The shots taken by the end of a day: what a reading as at that day counts. */
+const shotsBy = (project: Pick<DdProject, 'evidence' | 'siteLog'>, today: string): StationShot[] => projectShots(project).filter((shot) => shot.day <= today);
 
-/** Every station with its standing today, and what is not placed. */
+/**
+ * Every station with its standing on a day, and what is not placed. `now` is
+ * the moment it is read at: a past one reads the round as it stood then.
+ */
 export function stationRound(project: RoundOf, now: Date = new Date()): StationRound {
   const today = indiaToday(now);
-  const year = quarterYear(project);
+  const numbered = periodsNumbered(project);
   const stations = photoStations(project);
-  const all = projectShots(project);
+  const all = shotsBy(project, today);
   const rows = stations.map((station): StationRow => {
     const shots = stationShots(station, all);
-    const period = photoPeriod(today, station.every, 0, year);
+    const period = periodOfDay(station.every, today, numbered)!;
     const guide = shots.find((shot) => shot.day < period.from);
-    return { station, ...stationStanding(shots.map((shot) => shot.day), station.every, today, year), period, shots, ...(guide ? { guide } : {}) };
+    return { station, ...stationStanding(shots.map((shot) => shot.day), station.every, today, numbered), period, shots, ...(guide ? { guide } : {}) };
   });
   const due = rows.filter((row) => row.standing !== 'shot').sort((a, b) => BEHIND_ORDER[a.standing] - BEHIND_ORDER[b.standing] || (b.behind ?? 0) - (a.behind ?? 0) || a.station.label.localeCompare(b.station.label));
   // A photograph waits for a place only where there is a station to give it, and only while it is recent: this month's or last month's.
-  const since = photoPeriod(today, 'month', -1).from;
+  const since = periodShift(periodOfDay('month', today)!, -1).from;
   const onStation = new Set(rows.flatMap((row) => row.shots.map((shot) => shot.key)));
   const placeNotSet = stations.length ? all.filter((shot) => shot.day >= since && !onStation.has(shot.key) && !shot.stationId && !placeHolds(shot.place)) : [];
   return { rows, due, placeNotSet };
+}
+
+/** A station's interval by how soon it comes round: the round is said by the soonest among the stations it waits on. */
+const EVERY_ORDER: Record<StationEvery, number> = { week: 0, month: 1, quarter: 2 };
+
+/**
+ * What the photograph round asks for, as any set kept by period asks: one
+ * line, however many stations it waits on. The period is the one today falls
+ * in by the shortest interval among the stations not yet photographed, and
+ * its last day is the day the round is due. It is late once a station has
+ * gone a whole period without a shot. Nothing where every station is shot,
+ * or none is kept.
+ */
+export function stationRoundDue(project: RoundOf, now: Date = new Date()): PeriodDue | undefined {
+  const round = stationRound(project, now);
+  if (!round.due.length) return undefined;
+  const soonest = [...round.due].sort((a, b) => EVERY_ORDER[a.station.every] - EVERY_ORDER[b.station.every])[0]!;
+  const period = soonest.period;
+  const total = round.rows.length;
+  const shot = total - round.due.length;
+  const behind = round.due.filter((row) => row.standing === 'overdue').length;
+  return {
+    fn: SITE_FN,
+    set: STATION_ROUND_SET,
+    title: 'Photograph round',
+    period,
+    state: 'open',
+    filled: shot,
+    total,
+    due: period.to,
+    late: behind > 0,
+    // One interval among them: said by its period, as any set kept by period is. Several: by how many, and the day the first is due.
+    said: `${
+      new Set(round.due.map((row) => row.station.every)).size === 1
+        ? `${period.short}: ${shot} of ${total} ${total === 1 ? 'station' : 'stations'} photographed, due ${daySaid(period.to)}`
+        : `${round.due.length} of ${total} stations to photograph, the first by ${daySaid(period.to)}`
+    }${behind ? `; ${behind} a whole period behind` : ''}`,
+  };
 }
 
 const placeHolds = (place: PhotoPlace | undefined): boolean => Boolean(place && (place.building || place.floor || place.unit || place.milestone || place.element));
@@ -536,16 +543,19 @@ export function placeSaid(project: PlaceOf, place: PhotoPlace | undefined, stati
 /* ==================================================================== */
 
 export interface SeriesGroup {
-  period: PhotoPeriod;
+  period: PeriodSpan;
   /** Newest first. */
   shots: StationShot[];
 }
 
 /** Shots grouped by the period each was taken in, the newest period first. */
-export function photoSeries(shots: readonly StationShot[], every: StationEvery, year: QuarterYear = QUARTER_YEAR_DEFAULT): SeriesGroup[] {
+export function photoSeries(shots: readonly StationShot[], every: StationEvery, numbered: QuarterYear = QUARTER_YEAR_DEFAULT, asAt?: string): SeriesGroup[] {
   const groups = new Map<string, SeriesGroup>();
   for (const shot of [...shots].sort((a, b) => b.takenAt.localeCompare(a.takenAt))) {
-    const period = photoPeriod(shot.day, every, 0, year);
+    // Read as at a past day, a shot taken since is not in the series.
+    if (asAt && shot.day > asAt) continue;
+    const period = periodOfDay(every, shot.day, numbered);
+    if (!period) continue;
     const group = groups.get(period.key) ?? { period, shots: [] };
     group.shots.push(shot);
     groups.set(period.key, group);
@@ -571,14 +581,31 @@ export function seriesPair(groups: readonly SeriesGroup[], picked: { left?: stri
 /* Photographs a milestone needs                                         */
 /* ==================================================================== */
 
+/**
+ * Why a milestone may be marked complete with a required photograph not
+ * taken: a short list a lead or signer of Construction picks from. No
+ * sentence is kept.
+ */
+export const MILESTONE_PHOTO_WAIVERS = ['no_access', 'covered', 'station_gone', 'unsafe', 'shot_elsewhere'] as const;
+export type MilestonePhotoWaiver = (typeof MILESTONE_PHOTO_WAIVERS)[number];
+export const MILESTONE_PHOTO_WAIVER_LABEL: Record<MilestonePhotoWaiver, string> = {
+  no_access: 'No access to the place',
+  covered: 'The work was covered before it could be shot',
+  station_gone: 'The station is no longer in use',
+  unsafe: 'Not safe to shoot from the station',
+  shot_elsewhere: 'Photographed under another record',
+};
+
 export interface MilestonePhotoCheck {
   milestoneId: string;
   name: string;
   percent: number;
   /** Reported at a hundred per cent. */
   complete: boolean;
+  /** Complete with photographs missing, and a lead or signer picked why: the reason as it reads. It is then short of nothing. */
+  waived?: string;
   /** The period a shot is needed in: the one the milestone was completed in, else the one today is in. By station, since each has its own interval. */
-  stations: Array<{ id: string; label: string; have: boolean; period: PhotoPeriod; day?: string }>;
+  stations: Array<{ id: string; label: string; have: boolean; period: PeriodSpan; day?: string }>;
   /** How many of those stations have no shot. */
   short: number;
 }
@@ -591,8 +618,8 @@ export interface MilestonePhotoCheck {
  */
 export function milestonePhotoChecklist(project: RoundOf & Pick<DdProject, 'milestones'>, now: Date = new Date()): MilestonePhotoCheck[] {
   const today = indiaToday(now);
-  const year = quarterYear(project);
-  const all = projectShots(project);
+  const numbered = periodsNumbered(project);
+  const all = shotsBy(project, today);
   const stations = photoStations(project).filter((station) => station.needed && station.milestone);
   return (project.milestones ?? []).flatMap((milestone: Milestone) => {
     const own = stations.filter((station) => station.milestone === milestone.id);
@@ -600,12 +627,51 @@ export function milestonePhotoChecklist(project: RoundOf & Pick<DdProject, 'mile
     const complete = milestone.percent >= 100;
     const on = complete ? (milestone.completedOn ?? today) : today;
     const rows = own.map((station) => {
-      const period = photoPeriod(on, station.every, 0, year);
+      const period = periodOfDay(station.every, on, numbered)!;
       const shot = stationShots(station, all).find((held) => held.day >= period.from);
       return { id: station.id, label: station.label, have: Boolean(shot), period, ...(shot ? { day: shot.day } : {}) };
     });
-    return [{ milestoneId: milestone.id, name: milestone.name, percent: milestone.percent, complete, stations: rows, short: rows.filter((row) => !row.have).length }];
+    const short = rows.filter((row) => !row.have).length;
+    const reason = complete && short ? milestone.photoWaiver?.reason : undefined;
+    const waived = reason ? (MILESTONE_PHOTO_WAIVER_LABEL[reason as MilestonePhotoWaiver] ?? reason) : undefined;
+    return [{ milestoneId: milestone.id, name: milestone.name, percent: milestone.percent, complete, ...(waived ? { waived } : {}), stations: rows, short }];
   });
+}
+
+/**
+ * The stations a milestone still needs a photograph from before it can be
+ * marked complete on a day: those that name it and are marked as needed,
+ * with no shot in the period that day falls in, by each station's own
+ * interval.
+ */
+export function milestonePhotosWanting(project: RoundOf & Pick<DdProject, 'milestones'>, milestoneId: string, now: Date = new Date()): Array<{ id: string; label: string; period: PeriodSpan }> {
+  const today = indiaToday(now);
+  const numbered = periodsNumbered(project);
+  const all = shotsBy(project, today);
+  return photoStations(project)
+    .filter((station) => station.needed && station.milestone === milestoneId)
+    .flatMap((station) => {
+      const period = periodOfDay(station.every, today, numbered)!;
+      return stationShots(station, all).some((shot) => shot.day >= period.from) ? [] : [{ id: station.id, label: station.label, period }];
+    });
+}
+
+/** Why a milestone is not marked complete, with the stations named. */
+export function milestonePhotosRefusal(name: string, wanting: ReadonlyArray<{ label: string }>): string {
+  const n = wanting.length;
+  return `${name} is not marked complete: ${n === 1 ? 'its required photograph is' : `${n} of its required photographs are`} not taken this period (${wanting.map((station) => station.label).join(', ')}). Take ${n === 1 ? 'it' : 'them'}, or a lead or signer of Construction picks why not.`;
+}
+
+/**
+ * How a milestone's completion stands against the photographs it needs, as
+ * its own line says it. Nothing for a milestone that is open, or needs none.
+ * One completed before photographs were required of it, or reported complete
+ * from site without them, reads "complete, photographs wanting".
+ */
+export function milestonePhotoStanding(check: MilestonePhotoCheck | undefined): string | undefined {
+  if (!check?.complete) return undefined;
+  if (!check.short) return 'complete, photographs taken';
+  return check.waived ? `complete, photographs waived: ${check.waived}` : 'complete, photographs wanting';
 }
 
 /** One milestone's line of the checklist, in words code wrote. */
@@ -614,13 +680,14 @@ export function milestonePhotoSaid(check: MilestonePhotoCheck): string {
   const missing = check.stations.filter((row) => !row.have).map((row) => row.label);
   const noun = total === 1 ? 'photograph' : 'photographs';
   if (!check.short) return `${check.name}: ${total === 1 ? 'its required photograph is' : `all ${total} required photographs are`} taken.`;
+  if (check.waived) return `${check.name} is complete with ${check.short} of its ${total} required ${noun} not taken (${missing.join(', ')}). Waived: ${check.waived}.`;
   if (check.complete) return `${check.name} is reported complete and ${check.short} of its ${total} required ${noun} ${check.short === 1 ? 'is' : 'are'} not taken: ${missing.join(', ')}.`;
   return `${check.name}: ${total - check.short} of ${total} required ${noun} taken this period. Still to take: ${missing.join(', ')}.`;
 }
 
 /** Milestones reported complete with a required photograph missing. */
 export function milestonesShortOfPhotos(checks: readonly MilestonePhotoCheck[]): MilestonePhotoCheck[] {
-  return checks.filter((check) => check.complete && check.short > 0);
+  return checks.filter((check) => check.complete && check.short > 0 && !check.waived);
 }
 
 /* ==================================================================== */
@@ -652,7 +719,7 @@ export function stationsDue(project: RoundOf & Pick<DdProject, 'milestones'>, no
       place: placeSaid(project, stationPlace(row.station)),
       every: row.station.every,
       standing: row.standing,
-      period: { key: row.period.key, said: row.period.said, to: row.period.to },
+      period: { key: row.period.key, said: row.period.label, to: row.period.to },
       ...(row.lastDay ? { lastDay: row.lastDay } : {}),
       ...(point ? { point } : {}),
       ...(row.guide ? { guide: { takenAt: row.guide.takenAt, ...(row.guide.evidenceId ? { evidenceId: row.guide.evidenceId, fileId: row.guide.fileId } : {}), ...(row.guide.siteLog ? { siteLog: row.guide.siteLog } : {}) } } : {}),

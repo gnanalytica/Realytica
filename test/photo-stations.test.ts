@@ -37,8 +37,10 @@ import {
   milestonesShortOfPhotos,
   ownerPack,
   ownerPackPeriod,
+  periodOfDay,
+  periodShift,
+  periodsNumbered,
   photoObservationOfPicks,
-  photoPeriod,
   photoSeries,
   photoStations,
   placeEntryShots,
@@ -66,6 +68,7 @@ import {
   templateBlocks,
   createProject,
   type DdProject,
+  type PeriodSpan,
   type ProjectGrant,
   type SiteLogEntry,
   type StationShot,
@@ -125,18 +128,32 @@ function site(): Site {
 }
 
 describe('a period', () => {
-  it('is a calendar month, a quarter of the financial year, or a week from Monday, and each is asked for by a shift', () => {
-    assert.deepEqual(photoPeriod('2026-10-13', 'month'), { key: '2026-10', from: '2026-10-01', to: '2026-10-31', said: 'October 2026' });
-    assert.deepEqual(photoPeriod('2026-10-13', 'month', -1), { key: '2026-09', from: '2026-09-01', to: '2026-09-30', said: 'September 2026' });
-    assert.deepEqual(photoPeriod('2026-01-31', 'month', -2), { key: '2025-11', from: '2025-11-01', to: '2025-11-30', said: 'November 2025' });
-    assert.deepEqual(photoPeriod('2026-10-13', 'quarter'), { key: 'FY2026-Q3', from: '2026-10-01', to: '2026-12-31', said: 'Q3 FY 2026-27' });
-    assert.deepEqual(photoPeriod('2026-10-13', 'quarter', -1, 'calendar'), { key: '2026-Q3', from: '2026-07-01', to: '2026-09-30', said: 'Q3 2026' });
+  it('is the calendar’s own: the month, quarter and week a station is shot by are the ones a cash month and a RERA quarter are kept by', () => {
+    const span = (key: string, from: string, to: string, label: string) => ({ key, from, to, label });
+    const cut = ({ key, from, to, label }: PeriodSpan) => ({ key, from, to, label });
+    assert.deepEqual(cut(periodOfDay('month', '2026-10-13')!), span('2026-10', '2026-10-01', '2026-10-31', 'October 2026'));
+    assert.deepEqual(cut(periodShift(periodOfDay('month', '2026-10-13')!, -1)), span('2026-09', '2026-09-01', '2026-09-30', 'September 2026'));
+    assert.deepEqual(cut(periodShift(periodOfDay('month', '2026-01-31')!, -2)), span('2025-11', '2025-11-01', '2025-11-30', 'November 2025'));
+    assert.deepEqual(cut(periodOfDay('quarter', '2026-10-13')!), span('FY2026-Q3', '2026-10-01', '2026-12-31', 'Q3 FY 2026-27'));
+    assert.deepEqual(cut(periodShift(periodOfDay('quarter', '2026-10-13', 'calendar')!, -1)), span('2026-Q3', '2026-07-01', '2026-09-30', 'Q3 2026'));
     // 13 October 2026 is a Tuesday: its week runs Monday the 12th to Sunday the 18th.
-    assert.deepEqual(photoPeriod('2026-10-13', 'week'), { key: '2026-W42', from: '2026-10-12', to: '2026-10-18', said: 'Week of 12 Oct 2026' });
-    assert.deepEqual(photoPeriod('2026-10-18', 'week').key, '2026-W42');
-    assert.deepEqual(photoPeriod('2026-10-19', 'week').key, '2026-W43');
+    assert.deepEqual(cut(periodOfDay('week', '2026-10-13')!), span('2026-W42', '2026-10-12', '2026-10-18', 'Week of 12 Oct 2026'));
+    assert.deepEqual(periodOfDay('week', '2026-10-18')!.key, '2026-W42');
+    assert.deepEqual(periodOfDay('week', '2026-10-19')!.key, '2026-W43');
     // A week belongs to the year its Thursday is in: 1 January 2027 is a Friday, in the last week of 2026.
-    assert.deepEqual([photoPeriod('2027-01-01', 'week').key, photoPeriod('2027-01-04', 'week').key], ['2026-W53', '2027-W01']);
+    assert.deepEqual([periodOfDay('week', '2027-01-01')!.key, periodOfDay('week', '2027-01-04')!.key], ['2026-W53', '2027-W01']);
+  });
+
+  it('numbers a station’s quarter as the project numbers its quarters, and a period the station is in is the one a set kept by period is in', () => {
+    const held = site();
+    const quarterly = add(held.project, STATIONS_SET, { label: 'Tower crane', every: 'quarter' });
+    const row = (project: DdProject) => stationRound(project, NOW).rows.find((one) => one.station.id === quarterly)!;
+    assert.equal(row(held.project).period.key, 'FY2026-Q3');
+    assert.equal(row(held.project).period.key, periodOfDay('quarter', '2026-10-13', periodsNumbered(held.project))!.key);
+    // The project says the calendar year: the same quarter is numbered in it, for the station as for a RERA quarter.
+    held.project.reportDay = { setting: { quarters: 'calendar' } } as unknown as DdProject['reportDay'];
+    assert.equal(row(held.project).period.key, '2026-Q4');
+    assert.equal(row(held.project).period.label, 'Q4 2026');
   });
 
   it('takes a photograph’s day as the day it was in India', () => {
@@ -315,7 +332,7 @@ describe('what is due', () => {
     shoot(held.project, '2026-10-02', { stationId: held.north });
     shoot(held.project, '2026-09-28', { stationId: held.stair });
     const page = readFunctionFields(held.project, 'construction.site', NOW);
-    assert.deepEqual(page.needs.due_soon.map((line) => [line.sheet, line.text]), [['Photograph round', 'Stations with no photograph this period: 2.']], 'one line, however many stations');
+    assert.deepEqual(page.needs.due_soon.map((line) => [line.kind, line.sheet, line.text]), [['due', 'Photograph round', '2 of 3 stations to photograph, the first by 18 Oct 2026']], 'one line, however many stations, of the kind any period that is due is');
     assert.deepEqual([page.needs.failing.length, page.needs.missing.length, page.needs.accept.length, page.needs.decide.length], [0, 0, 0, 0]);
     assert.equal(page.needs.due_soon[0]!.key.startsWith(`${STATION_ROUND_SET}::`), true, 'and Open goes to the round');
     const round = stationRound(held.project, NOW);
@@ -373,9 +390,9 @@ describe('the series', () => {
 
   it('groups a station’s shots by period, the newest period first and the newest shot first within it', () => {
     const groups = photoSeries([shot('2026-08-04'), shot('2026-10-02'), shot('2026-09-15'), shot('2026-10-11')], 'month');
-    assert.deepEqual(groups.map((group) => [group.period.said, group.shots.map((held) => held.day)]), [['October 2026', ['2026-10-11', '2026-10-02']], ['September 2026', ['2026-09-15']], ['August 2026', ['2026-08-04']]]);
+    assert.deepEqual(groups.map((group) => [group.period.label, group.shots.map((held) => held.day)]), [['October 2026', ['2026-10-11', '2026-10-02']], ['September 2026', ['2026-09-15']], ['August 2026', ['2026-08-04']]]);
     assert.deepEqual(photoSeries([shot('2026-10-11'), shot('2026-10-12'), shot('2026-10-05')], 'week').map((group) => [group.period.key, group.shots.length]), [['2026-W42', 1], ['2026-W41', 2]]);
-    assert.deepEqual(photoSeries([shot('2026-10-11'), shot('2026-06-30')], 'quarter').map((group) => group.period.said), ['Q3 FY 2026-27', 'Q1 FY 2026-27']);
+    assert.deepEqual(photoSeries([shot('2026-10-11'), shot('2026-06-30')], 'quarter').map((group) => group.period.label), ['Q3 FY 2026-27', 'Q1 FY 2026-27']);
   });
 
   it('puts this period beside the last, or any two picked, the earlier on the left', () => {
@@ -399,7 +416,7 @@ describe('the series', () => {
     held.project.fieldSheets![STATIONS_SET]!.records!.find((record) => record.id === held.north)!.values.shots = { value: [filed.evidenceId], by: OWNER, at: NOW.toISOString() };
     const station = photoStations(held.project).find((one) => one.id === held.north)!;
     const groups = photoSeries(stationShots(station, projectShots(held.project)), station.every);
-    assert.deepEqual(groups.map((group) => group.period.said), ['October 2026', 'September 2026', 'August 2026']);
+    assert.deepEqual(groups.map((group) => group.period.label), ['October 2026', 'September 2026', 'August 2026']);
     assert.deepEqual([groups[0]!.shots[0]!.evidenceId, Boolean(groups[1]!.shots[0]!.siteLog)], [filed.evidenceId, true]);
     // A snag's photographs, say: two register rows two months apart are two periods.
     const before = filePhoto(held.project, 'Snag before', '2026-08-03T04:00:00Z');

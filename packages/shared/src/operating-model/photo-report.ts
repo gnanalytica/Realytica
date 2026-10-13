@@ -14,8 +14,10 @@
  */
 
 import type { PhotoPlace } from './capture';
-import { photoPeriod, photoStations, placeSaid, projectShots, stationPlace, stationShots, type PhotoPeriod, type PhotoStation, type StationShot } from './photo-stations';
-import { QUARTER_YEAR_DEFAULT, indiaToday, isQuarter } from './quarters';
+import { periodOfDay, periodShift, periodsNumbered, type PeriodSpan } from './period-keys';
+import { photoStations, placeSaid, projectShots, stationPlace, stationShots, type PhotoStation, type StationShot } from './photo-stations';
+import { indiaToday, isQuarter } from './quarters';
+import { personSaid } from './team';
 import { countSaid, daySaid } from './said';
 import type { DdProject, GeneratedReport, ReportBoundSource, ReportPhotosAsk, ReportTable, ResolvedReportBlock } from './types';
 
@@ -26,8 +28,8 @@ export const STATION_PHOTO_COLUMNS = ['Station', 'Place', 'Period', 'Taken', 'By
 /** What a row says in its Taken column where the station holds no shot of the period. */
 export const NOT_PHOTOGRAPHED = 'Not photographed';
 
-/** A person as a report names them: the name, without the address the record keeps beside it. */
-export const shotBySaid = (by: string | undefined): string => (by ?? '').replace(/\s*\([^)]*@[^)]*\)\s*$/, '').trim();
+/** Who took a photograph, as a report names them: the name the project's team gives them, never an address (`personSaid`). */
+export const shotBySaid = (by: string | undefined, project?: Pick<DdProject, 'team'>): string => personSaid(project, by);
 
 const placeMeets = (of: PhotoPlace, asked: PhotoPlace): boolean => (Object.keys(asked) as Array<keyof PhotoPlace>).every((key) => asked[key] === undefined || of[key] === asked[key]);
 
@@ -37,14 +39,18 @@ export function stationsAsked(stations: readonly PhotoStation[], ask: Pick<Repor
   return ask.place ? stations.filter((station) => placeMeets(stationPlace(station), ask.place!)) : [...stations];
 }
 
-/** The period a section is of, and the one before it. */
-export function reportPhotoPeriods(project: Pick<DdProject, 'reportDay'>, source: Pick<ReportBoundSource, 'to' | 'photos'>, at: Date): { period: PhotoPeriod; last: PhotoPeriod } {
+/**
+ * The period a section is of, and the one before it: the calendar's own week,
+ * month or quarter (`period-keys.ts`), numbered as the project numbers them.
+ * A section read as at a day (`asAt`) is of the period that day is in.
+ */
+export function reportPhotoPeriods(project: Pick<DdProject, 'reportDay'>, source: Pick<ReportBoundSource, 'to' | 'photos' | 'asAt'>, at: Date): { period: PeriodSpan; last: PeriodSpan } {
   const every = source.photos?.every ?? 'month';
-  const year = project.reportDay?.setting?.quarters ?? QUARTER_YEAR_DEFAULT;
   // A report's `to` is the moment its period ends, which is the first moment of the next, and a report's periods are cut in UTC: the day asked of is the one before, as UTC has it.
   const ends = source.to ? Date.parse(source.to) : Number.NaN;
-  const day = Number.isNaN(ends) ? indiaToday(at) : new Date(ends - 1).toISOString().slice(0, 10);
-  return { period: photoPeriod(day, every, 0, year), last: photoPeriod(day, every, -1, year) };
+  const day = source.asAt ?? (Number.isNaN(ends) ? indiaToday(at) : new Date(ends - 1).toISOString().slice(0, 10));
+  const period = periodOfDay(every, day, periodsNumbered(project))!;
+  return { period, last: periodShift(period, -1) };
 }
 
 /** A section of photographs by place and period, resolved from the two stores. */
@@ -59,7 +65,7 @@ export function resolveStationPhotos(project: DdProject, source: ReportBoundSour
   const { period, last } = reportPhotoPeriods(project, source, at);
   const periods = ask.show === 'period_and_last' ? [last, period] : [period];
   const shots = projectShots(project);
-  const within = (station: PhotoStation, of: PhotoPeriod): StationShot | undefined => stationShots(station, shots).find((shot) => shot.day >= of.from && shot.day <= of.to);
+  const within = (station: PhotoStation, of: PeriodSpan): StationShot | undefined => stationShots(station, shots).find((shot) => shot.day >= of.from && shot.day <= of.to);
   const rows: ReportTable['rows'] = [];
   const lines: string[] = [];
   let taken = 0;
@@ -68,14 +74,14 @@ export function resolveStationPhotos(project: DdProject, source: ReportBoundSour
     for (const of of periods) {
       const shot = within(station, of);
       if (shot && of === period) taken += 1;
-      const by = shotBySaid(shot?.by);
+      const by = personSaid(project, shot?.by);
       rows.push({
-        cells: [station.label, where, of.said, shot ? daySaid(shot.day) : NOT_PHOTOGRAPHED, by],
+        cells: [station.label, where, of.label, shot ? daySaid(shot.day) : NOT_PHOTOGRAPHED, by],
         recordId: station.id,
         ...(shot?.evidenceId ? { evidenceIds: [shot.evidenceId] } : {}),
         ...(shot?.siteLog ? { sitePhoto: shot.siteLog } : {}),
       });
-      lines.push(shot ? `${station.label}, ${of.said}: taken ${daySaid(shot.day)}${by ? ` by ${by}` : ''}.` : `${station.label}, ${of.said}: not photographed.`);
+      lines.push(shot ? `${station.label}, ${of.label}: taken ${daySaid(shot.day)}${by ? ` by ${by}` : ''}.` : `${station.label}, ${of.label}: not photographed.`);
     }
   }
   const left = asked.length - printed.length;
@@ -83,7 +89,7 @@ export function resolveStationPhotos(project: DdProject, source: ReportBoundSour
     lines,
     recordIds: printed.map((station) => station.id),
     table: { columns: [...STATION_PHOTO_COLUMNS], rows },
-    note: `${taken} of ${countSaid(printed.length, 'station')} photographed in ${period.said}.${left > 0 ? ` ${countSaid(left, 'more station')} not printed.` : ''}`,
+    note: `${taken} of ${countSaid(printed.length, 'station')} photographed in ${period.label}.${left > 0 ? ` ${countSaid(left, 'more station')} not printed.` : ''}`,
   };
 }
 

@@ -346,7 +346,8 @@ export const TAX_SETS: FieldSet[] = [
     title: 'Quarterly statements of tax deducted',
     v: 1,
     records: { of: 'statement', titleField: 'quarter_end', summaryFields: ['filed_on'] },
-    periodic: { every: 'quarter', by: 'quarter_end', due: { rate: 'tds_statement_due_days' }, issuer: 'lead' },
+    // What the statement is called holds from quarter to quarter; when it was filed and under what number is each quarter's own.
+    periodic: { every: 'quarter', by: 'quarter_end', carry: ['statement_name'], due: { rate: 'tds_statement_due_days' }, issuer: 'lead' },
     fields: [
       day('quarter_end', 'Quarter ending'),
       text('statement_name', 'Statement, as the acknowledgement names it', { required: false }),

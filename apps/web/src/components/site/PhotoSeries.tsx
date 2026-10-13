@@ -21,6 +21,7 @@ import {
   PHOTO_ELEMENTS,
   PHOTO_ELEMENT_LABEL,
   PLACE_FLOOR_MOST,
+  asAtMoment,
   STATIONS_SET,
   STATION_ROUND_SET,
   STATION_STANDING_LABEL,
@@ -33,7 +34,6 @@ import {
   projectShots,
   refChoices,
   seriesPair,
-  shotBySaid,
   shotsOfEvidence,
   stationPlace,
   stationRound,
@@ -48,6 +48,7 @@ import {
   type StationStanding,
 } from '@realytica/shared';
 import { evidenceFileUrl } from '../../lib/api';
+import { personNamed } from '../../lib/format';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { workspaceApi } from '../../lib/workspace-api';
 import { Badge, Button, cn, useToast } from '../ui/kit';
@@ -75,11 +76,14 @@ export function ShotImage({ project, shot, className, print = false }: { project
   );
 }
 
-/** Under a photograph: the day it was taken and who took it. */
-function shotSaid(shot: StationShot): string {
-  const by = shotBySaid(shot.by);
+/** Under a photograph: the day it was taken and who took it, as the project's team names them. */
+function shotSaid(project: DdProject, shot: StationShot): string {
+  const by = personNamed(project, shot.by);
   return by ? `${daySaid(shot.day)} · ${by}` : daySaid(shot.day);
 }
+
+/** The moment a project in hand is read at: the end of the day it is read as at, else now. */
+const readAt = (project: DdProject): Date => (project.asAt ? asAtMoment(project.asAt) : new Date());
 
 function Side({ project, group, groups, label, onPick }: { project: DdProject; group: SeriesGroup; groups: readonly SeriesGroup[]; label: string; onPick: (key: string) => void }) {
   // A period shot more than once shows its newest shot, and steps to the others: the two sides stay level.
@@ -95,22 +99,22 @@ function Side({ project, group, groups, label, onPick }: { project: DdProject; g
           <select aria-label={label} value={group.period.key} onChange={(event) => onPick(event.target.value)} className="h-8 min-w-0 rounded-md border border-hairline bg-surface px-2 text-[13px] font-semibold text-ink coarse:h-11">
             {groups.map((held) => (
               <option key={held.period.key} value={held.period.key}>
-                {held.period.said}
+                {held.period.label}
               </option>
             ))}
           </select>
         ) : (
-          <h4 className="text-[13px] font-semibold text-ink">{group.period.said}</h4>
+          <h4 className="text-[13px] font-semibold text-ink">{group.period.label}</h4>
         )}
         {group.shots.length > 1 ? (
           <span className="flex shrink-0 items-center text-[12px] text-ink-muted">
-            <button type="button" aria-label={`A later shot of ${group.period.said}`} disabled={at === 0} onClick={() => to(at - 1)} className={stepCls}>
+            <button type="button" aria-label={`A later shot of ${group.period.label}`} disabled={at === 0} onClick={() => to(at - 1)} className={stepCls}>
               <ChevronLeft size={14} aria-hidden />
             </button>
             <span className="font-mono tabular-nums">
               {at + 1} of {group.shots.length}
             </span>
-            <button type="button" aria-label={`An earlier shot of ${group.period.said}`} disabled={at === group.shots.length - 1} onClick={() => to(at + 1)} className={stepCls}>
+            <button type="button" aria-label={`An earlier shot of ${group.period.label}`} disabled={at === group.shots.length - 1} onClick={() => to(at + 1)} className={stepCls}>
               <ChevronRight size={14} aria-hidden />
             </button>
           </span>
@@ -118,7 +122,7 @@ function Side({ project, group, groups, label, onPick }: { project: DdProject; g
       </div>
       <figure>
         <ShotImage project={project} shot={shot} className="aspect-[4/3] w-full" />
-        <figcaption className="mt-1 text-[12px] text-ink-secondary">{shotSaid(shot)}</figcaption>
+        <figcaption className="mt-1 text-[12px] text-ink-secondary">{shotSaid(project, shot)}</figcaption>
       </figure>
     </section>
   );
@@ -129,7 +133,8 @@ function Side({ project, group, groups, label, onPick }: { project: DdProject; g
  * first, and two of them side by side.
  */
 export function PhotoSeries({ project, shots, every }: { project: DdProject; shots: readonly StationShot[]; every: StationEvery }) {
-  const groups = useMemo(() => photoSeries(shots, every, quartersOf(project)), [shots, every, project]);
+  // Read as at a past day, the series ends with the period that day is in.
+  const groups = useMemo(() => photoSeries(shots, every, quartersOf(project), project.asAt), [shots, every, project]);
   const [picked, setPicked] = useState<{ left?: string; right?: string }>({});
   const pair = seriesPair(groups, picked);
   if (!pair.right) return <p className="text-[12px] text-ink-muted">No photograph yet.</p>;
@@ -144,7 +149,7 @@ export function PhotoSeries({ project, shots, every }: { project: DdProject; sho
             <li key={group.period.key} className="shrink-0">
               <button type="button" aria-pressed={shown.has(group.period.key)} onClick={() => press(group)} className={cn('block w-24 rounded-lg p-1 text-left hover:bg-sunken coarse:min-h-11', shown.has(group.period.key) && 'bg-sunken ring-1 ring-inset ring-[var(--ring)]')}>
                 <ShotImage project={project} shot={group.shots[0]!} className="aspect-[4/3] w-full" />
-                <span className="mt-1 block truncate text-[11px] text-ink-secondary">{group.period.said}</span>
+                <span className="mt-1 block truncate text-[11px] text-ink-secondary">{group.period.label}</span>
               </button>
             </li>
           ))}
@@ -282,7 +287,7 @@ export function FieldPhotos({ def, ids, fallback }: { def: CheckFieldDef; ids: r
               <li key={shot.key} className="flex gap-2">
                 <ShotImage project={project} shot={shot} className="size-12 shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[12px] text-ink-muted">{shotSaid(shot)}</p>
+                  <p className="text-[12px] text-ink-muted">{shotSaid(project, shot)}</p>
                   <ShotPlace project={project} shot={shot} mayEdit={held.mayEdit} onChanged={held.onChanged} />
                 </div>
               </li>
@@ -307,8 +312,8 @@ export function FieldPhotos({ def, ids, fallback }: { def: CheckFieldDef; ids: r
 function RoundInside() {
   const held = useContext(PhotoProject);
   const project = held?.project;
-  const round = useMemo(() => (project ? stationRound(project) : undefined), [project]);
-  const checks = useMemo(() => (project ? milestonePhotoChecklist(project) : []), [project]);
+  const round = useMemo(() => (project ? stationRound(project, readAt(project)) : undefined), [project]);
+  const checks = useMemo(() => (project ? milestonePhotoChecklist(project, readAt(project)) : []), [project]);
   if (!held || !project || !round?.rows.length) return null;
   return (
     <div className="space-y-4" data-photo-round>
@@ -322,7 +327,7 @@ function RoundInside() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium text-ink">{row.station.label}</span>
                   <span className="block truncate text-[12px] text-ink-muted">
-                    {[placeSaid(project, stationPlace(row.station)), row.period.said, row.lastDay ? `last shot ${daySaid(row.lastDay)}` : ''].filter(Boolean).join(' · ')}
+                    {[placeSaid(project, stationPlace(row.station)), row.period.label, row.lastDay ? `last shot ${daySaid(row.lastDay)}` : ''].filter(Boolean).join(' · ')}
                   </span>
                 </span>
                 <Badge tone={STANDING_TONE[row.standing]}>{STATION_STANDING_LABEL[row.standing]}</Badge>
@@ -342,7 +347,7 @@ function RoundInside() {
           <ul className="space-y-2">
             {checks.map((check) => (
               <li key={check.milestoneId} className="rounded-lg border border-hairline px-3 py-2">
-                <p className={cn('text-[13px]', check.complete && check.short ? 'font-medium text-critical' : 'text-ink')}>{milestonePhotoSaid(check)}</p>
+                <p className={cn('text-[13px]', check.complete && check.short && !check.waived ? 'font-medium text-critical' : 'text-ink')}>{milestonePhotoSaid(check)}</p>
                 <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
                   {check.stations.map((row) => (
                     <li key={row.id} className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
@@ -365,7 +370,7 @@ function RoundInside() {
               <li key={shot.key} className="flex gap-2 rounded-lg border border-hairline p-2">
                 <ShotImage project={project} shot={shot} className="size-16 shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[12px] text-ink-muted">{shotSaid(shot)}</p>
+                  <p className="text-[12px] text-ink-muted">{shotSaid(project, shot)}</p>
                   <ShotPlace project={project} shot={shot} mayEdit={held.mayEdit} onChanged={held.onChanged} />
                 </div>
               </li>

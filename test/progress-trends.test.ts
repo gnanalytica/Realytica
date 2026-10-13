@@ -277,7 +277,12 @@ describe('a field drawn over time', () => {
   it('is a line over the periods a sheet has issued, then the sheet as it reads now', () => {
     const p = project();
     const facility = addFieldRecord(p, 'finance.lenders.facilities', { name: 'Loan', sanctioned_amount: 600_000_000 }, LEAD).record!;
-    addFieldRecord(p, 'finance.lenders.drawdowns', { tranche: 'T0', facility: facility.id, disbursed_on: '2026-07-02', disbursed_amount: 380_000_000 }, LEAD);
+    const drawdown = addFieldRecord(p, 'finance.lenders.drawdowns', { tranche: 'T0', facility: facility.id, disbursed_on: '2026-07-02', disbursed_amount: 380_000_000 }, LEAD).record!;
+    // Both were on the record in July: a month issued later reads the project as it stood at the month's end.
+    for (const record of [facility, drawdown]) {
+      record.createdAt = '2026-07-02T06:00:00.000Z';
+      for (const value of Object.values(record.values)) value.at = record.createdAt;
+    }
     const POSITION = 'finance.lenders.position';
     setFieldValues(p, { set: POSITION }, { outstanding_per_statement: 380_000_000, outstanding_per_books: 380_000_000 }, LEAD);
     assert.equal(fieldTrend(p, { set: POSITION, field: 'outstanding_per_statement' }, at('2026-08-20T06:00:00Z')), undefined, 'one figure is not a trend');

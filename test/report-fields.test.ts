@@ -120,7 +120,7 @@ describe('a block of named fields', () => {
     assert.match(extent.value, /^1 acre 22 guntas \(6,272\.63 sqm\) \[\d\]$/, 'the unit as the deed wrote it');
     assert.equal(extent.standing, 'accepted');
     const note = (value: string) => resolved.footnotes!.find((held) => value.includes(`[${held.n}]`))!.text;
-    assert.match(note(extent.value), /^Sale deed 2019, p\. 3; accepted by lead@firm\.example on \d+ \w+ \d{4}$/, 'the paper and its page, and who accepted it');
+    assert.match(note(extent.value), /^Sale deed 2019, p\. 3; accepted by lead on \d+ \w+ \d{4}$/, 'the paper and its page, and who accepted it');
 
     const tenure = cell(resolved, 'Tenure');
     assert.match(tenure.value, /^Freehold \[\d\]$/);
@@ -129,7 +129,7 @@ describe('a block of named fields', () => {
     assert.equal(cell(resolved, 'Owners').standing, 'worked out');
     assert.match(cell(resolved, 'Owners').value, /^2/);
     assert.equal(cell(resolved, 'Possession verified on site').standing, 'entered');
-    assert.match(note(cell(resolved, 'Possession verified on site').value), /^Entered by lead@firm\.example on /);
+    assert.match(note(cell(resolved, 'Possession verified on site').value), /^Entered by lead on /);
     assert.deepEqual(cell(resolved, 'Seller'), { value: '—', standing: 'not recorded' });
 
     // The same content as lines, for whatever cannot draw a table; and one line for each row.
@@ -221,7 +221,7 @@ describe('a table of fields', () => {
     assert.deepEqual(resolved.table!.columns, ['Date', 'Event', 'To']);
     assert.deepEqual(resolved.table!.rows.map((row) => row.cells), [['11 Mar 2004', 'Sale', 'M. Rao'], ['20 Jun 2019', 'Sale', 'A. Rao']]);
     assert.match(resolved.note!, /^2 rows, entered \[1\]\.$/);
-    assert.match(resolved.footnotes![0]!.text, /^Entered by lead@firm\.example on /);
+    assert.match(resolved.footnotes![0]!.text, /^Entered by lead on /);
     assert.equal(resolveFieldBlock(project(), { kind: 'field_table', address: at('chain') }).note, 'Chain of title: no row is recorded yet.');
   });
 
@@ -476,7 +476,7 @@ describe('the status report and the owner pack', () => {
       ['Current forecast at completion', '₹44.5 Cr', 'entered'],
       ['Spent to date', '—', 'not recorded'],
     ]);
-    assert.match(cost.fields!.footnotes![0]!.text, /^Entered by lead@firm\.example on /);
+    assert.match(cost.fields!.footnotes![0]!.text, /^Entered by lead on /);
     assert.equal(after.sections.find((section) => section.key === 'time')!.fields, undefined);
     assert.deepEqual(after.sections.map((section) => section.parts), before.sections.map((section) => section.parts), 'what the pack already said is unchanged');
   });

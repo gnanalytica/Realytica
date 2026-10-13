@@ -31,6 +31,11 @@ export interface Milestone {
   /** What was reported and on which day, one a day, oldest first: the rate a projected finish is read from. */
   readings?: Array<{ on: string; percent: number }>;
   completedOn?: string;
+  /**
+   * It was marked complete with a required photograph not taken, and a lead or signer of Construction said why by a
+   * pick from `MILESTONE_PHOTO_WAIVERS` (`photo-stations.ts`). Never a sentence. Gone once the milestone is reopened.
+   */
+  photoWaiver?: { reason: string; by: string; at: string };
   updatedAt: string;
   updatedBy: string;
 }
@@ -135,7 +140,10 @@ export function setMilestonePercent(project: DdProject, milestoneId: string, per
   m.updatedAt = at;
   m.updatedBy = actor;
   if (m.percent === 100 && !m.completedOn) m.completedOn = at.slice(0, 10);
-  if (m.percent < 100) delete m.completedOn;
+  if (m.percent < 100) {
+    delete m.completedOn;
+    delete m.photoWaiver;
+  }
   return m;
 }
 

@@ -30,27 +30,25 @@
  *   is put together here from the record.
  */
 
+import { asAtMoment, isPastDay, projectAsAt } from './as-at';
 import { dayNumber, evaluateFormula, fieldNumber, fieldOptions, fieldState, formatFieldValue, isBlank, standingField, type FormulaOutside } from './check-fields';
-import { departmentOfFunction, FieldRefused, addFieldRecord, readSheet, resolveFields, type FieldResolution, type FieldWriteOptions, type SheetReading } from './field-sheets';
+import { departmentOfFunction, FieldRefused, addFieldRecord, readSheet, refChoices, resolveFields, type FieldResolution, type FieldWriteOptions, type SheetReading } from './field-sheets';
 import { DEPARTMENT_KEYS } from './departments';
 import { optionSetById, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { SHARED_FN } from './field-sets/shared-records';
 import { recordAuditEvent } from './operations';
-import { COST_REPORT_PERIODS, costReportDue, costReportPeriods, freezeReading, sheetPeriodDue, sheetPeriodToIssue, sheetPeriods, sheetPeriodsNotKept } from './sheet-periods';
-import { dayAfter, isCalendarDay, monthsAfter, periodKind, periodOfDay, periodOfKey, periodShift, periodsBetween, yearWritten, type CalendarEvery, type PeriodSpan } from './period-keys';
-import { QUARTER_YEAR_DEFAULT, indiaToday, type QuarterYear } from './quarters';
+import { COST_REPORT_PERIODS, costReportDue, costReportPeriods, freezeReading, frozenAsNowSaid, sheetFirstPeriod, sheetPeriodDue, sheetPeriodToIssue, sheetPeriods, sheetPeriodsNotKept } from './sheet-periods';
+import { dayAfter, isCalendarDay, monthsAfter, periodKind, periodOfDay, periodOfKey, periodShift, periodsBetween, periodsNumbered, yearWritten, type CalendarEvery, type PeriodSpan } from './period-keys';
+import { indiaToday } from './quarters';
+import { stationRoundDue } from './photo-stations';
 import { ruleRow } from './rule-tables';
+import { personSaid } from './team';
 import { daySaid } from './said';
 import { OWED_ROLE_LABEL } from './types';
 import type { CheckFieldDef, CheckFieldValue, DdProject, FieldRecord, FieldSet, OptionDef, PeriodAttribute, Periodic } from './types';
 
 const now = (): string => new Date().toISOString();
-
-/** The year a project numbers its quarters and years in. */
-export function periodsNumbered(project: Pick<DdProject, 'reportDay'>): QuarterYear {
-  return project.reportDay?.setting?.quarters ?? QUARTER_YEAR_DEFAULT;
-}
 
 /* ==================================================================== */
 /* A set's periods                                                       */
@@ -132,14 +130,17 @@ export function periodDue(project: DdProject, periodic: Periodic, span: PeriodSp
 }
 
 /** How the fields that tell instances apart in one period read on a record: the key part and the words. */
-function perOf(set: FieldSet, record: FieldRecord, catalog: FieldCatalog): { key: string; said?: string } {
+function perOf(project: DdProject, set: FieldSet, record: FieldRecord, catalog: FieldCatalog): { key: string; said?: string } {
   const keys = set.periodic?.per ?? [];
   if (!keys.length) return { key: '' };
   const parts = keys.map((key) => stated(record, key));
   const words = keys.flatMap((key) => {
     const def = set.fields.find((field) => field.key === key);
     const value = standingField(record.values[key]);
-    return def && !isBlank(value) && def.kind !== 'ref' ? [formatFieldValue(def, value, (id) => optionSetById(id, catalog))] : [];
+    if (!def || isBlank(value)) return [];
+    // A link is said by what it links to: the building's name, the party's.
+    if (def.kind === 'ref') return refChoices(project, def.target, catalog).flatMap((choice) => (choice.id === value!.value ? [choice.label] : []));
+    return [formatFieldValue(def, value, (id) => optionSetById(id, catalog))];
   });
   return { key: `|${parts.map((part) => (part === undefined ? '' : String(part))).join('|')}`, ...(words.length ? { said: words.join(', ') } : {}) };
 }
@@ -164,7 +165,7 @@ export function periodsOf(project: DdProject, setId: string, at: Date = new Date
   for (const record of all) {
     const period = periodOfRecord(project, set, record, catalog);
     if (!period) continue;
-    const per = perOf(set, record, catalog);
+    const per = perOf(project, set, record, catalog);
     const due = periodDue(project, set.periodic, period, at);
     const read = readings?.(record.id) ?? readSheet(project, setId, record.id, (resolution ??= resolveFields(project, at, catalog)), catalog, at);
     const carried = record.carried ? { from: periodOfKey(record.carried.from)?.short ?? record.carried.from, keys: record.carried.keys } : undefined;
@@ -302,14 +303,33 @@ export function periodsDue(project: DdProject, at: Date = new Date(), catalog: F
       if (!recordsOf(project, set.id).length) continue;
       const due = periodDueOf(project, set, at, catalog);
       if (due) out.push(due);
-    } else if (project.fieldSheets?.[set.id]?.periods?.length) {
+    } else if (sheetFirstPeriod(project, set)) {
       const due = sheetPeriodDue(project, set, at, sheetPeriods(project, set, at), readSheet(project, set.id, undefined, undefined, catalog, at));
       if (due) out.push(due);
     }
   }
   const cost = costReportDue(project, at);
   if (cost) out.push(cost);
+  // The photograph round is kept by period too, a station at a time: what it waits on is one line with the rest.
+  const round = stationRoundDue(project, at);
+  if (round) out.push(round);
   return out;
+}
+
+/** Who opened the period a set is behind on: whoever made its record, or started the sheet on it. Named on the set, and told with its issuers. */
+export function periodOpenedBy(project: DdProject, due: Pick<PeriodDue, 'set' | 'record'>): string | undefined {
+  const sheet = project.fieldSheets?.[due.set];
+  return due.record ? sheet?.records?.find((record) => record.id === due.record)?.by : sheet?.open?.openedBy;
+}
+
+/**
+ * How an issued record says which of its figures are the day of issue's and
+ * not its period-end's ("2 figures as now, no history before 13 Oct 2026:
+ * …"). Undefined where every figure was read as at the period's last day.
+ */
+export function periodAsNowSaid(project: DdProject, set: FieldSet, recordId: string | undefined): string | undefined {
+  const record = recordId ? recordsOf(project, set.id).find((held) => held.id === recordId) : undefined;
+  return record?.issued ? frozenAsNowSaid(set, record.frozen) : undefined;
 }
 
 /* ==================================================================== */
@@ -330,6 +350,27 @@ function mayDecideIn(fn: string, options: FieldWriteOptions): boolean {
 
 /** A value as a person would have typed it: what stands on a record, copied to a new one under the name of whoever opened it. */
 const carriedValue = (value: CheckFieldValue): unknown => (value.entered?.text ? value.entered.text : value.value);
+
+/** The most rows a first period opens: a project with more buildings than this adds the rest by hand. */
+const FIRST_INSTANCES_MOST = 24;
+
+/**
+ * What tells apart the rows a first period opens, where the set keeps
+ * several instances a period: each option of the kind the set declares, or
+ * each building the project keeps, by the first of the set's `per` fields
+ * that names such a list. Empty where the set keeps one instance a period,
+ * tells its instances apart by something else (the party who states a
+ * figure), or the list is empty (no building recorded yet).
+ */
+function firstInstances(project: DdProject, set: FieldSet & { periodic: Periodic }, catalog: FieldCatalog): Array<Record<string, string>> {
+  for (const key of set.periodic.per ?? []) {
+    const def = set.fields.find((field) => field.key === key);
+    if (!def) continue;
+    const of = def.kind === 'enum' ? fieldOptions(def, (id) => optionSetById(id, catalog)).filter((option) => !option.retired).map((option) => option.key) : def.kind === 'ref' && def.target === 'building' ? refChoices(project, def.target, catalog).map((choice) => choice.id) : [];
+    if (of.length) return of.slice(0, FIRST_INSTANCES_MOST).map((value) => ({ [key]: value }));
+  }
+  return [];
+}
 
 /** What a period's `by` field holds for a span: its first day, the year as written, or the event's record. */
 function byValue(set: FieldSet, span: PeriodSpan): string {
@@ -379,18 +420,31 @@ export function openPeriod(
   const last = before.filter((instance) => instance.period.key === lastKey).map((instance) => all.find((record) => record.id === instance.record)!);
   const records: FieldRecord[] = [];
   const stamp = now();
-  for (const from of last.length ? last : [undefined]) {
-    const keys = from ? [...(set.periodic.per ?? []), ...(set.periodic.carry ?? [])].filter((key) => key !== set.periodic.by && !isBlank(standingField(from.values[key]))) : [];
-    const values: Record<string, unknown> = { [set.periodic.by!]: byValue(set, span) };
-    for (const key of keys) values[key] = carriedValue(from!.values[key]!);
+  // A first period on a set that keeps several instances a period (a certificate of each kind, one for each building)
+  // opens a row for each one the set declares or the project keeps, never one blank row that says no kind.
+  const firstRows = last.length ? [] : firstInstances(project, set, catalog);
+  for (const from of last.length ? last : firstRows.length ? firstRows : [undefined]) {
+    const opening = from && !('id' in from) ? (from as Record<string, string>) : undefined;
+    const before = from && 'id' in from ? (from as FieldRecord) : undefined;
+    const keys = before ? [...(set.periodic.per ?? []), ...(set.periodic.carry ?? [])].filter((key) => key !== set.periodic.by && !isBlank(standingField(before.values[key]))) : [];
+    const values: Record<string, unknown> = { [set.periodic.by!]: byValue(set, span), ...(opening ?? {}) };
+    for (const key of keys) values[key] = carriedValue(before!.values[key]!);
     const out = addFieldRecord(project, setId, values, actor, options, catalog);
     if (!out.record) throw new FieldRefused(out.rejected.map((line) => line.error).join(' '));
     // A key stays marked as carried until somebody writes it (`setFieldValues`, `decideField`).
-    if (from && keys.length) out.record.carried = { from: lastKey!, at: stamp, keys };
+    if (before && keys.length) out.record.carried = { from: lastKey!, at: stamp, keys };
     records.push(out.record);
   }
   recordAuditEvent(project, { actor, action: 'open_period', entityType: 'field_set', entityId: `${setId}::${span.key}`, newValue: `${set.title}, ${span.label}` });
   return { period: span, records, made: records.length };
+}
+
+/** The project read as at a day, with one record of a set as it is held now: a period's own entries are the period's, whenever they were typed. */
+function projectWithRecord(project: DdProject, setId: string, record: FieldRecord, day: string): DdProject {
+  const view = projectAsAt(project, day);
+  const sheet = view.fieldSheets?.[setId] ?? { values: {} };
+  const { issued: _issued, frozen: _frozen, carried: _carried, ...open } = record;
+  return { ...view, fieldSheets: { ...view.fieldSheets, [setId]: { ...sheet, records: [...(sheet.records ?? []).filter((held) => held.id !== record.id), open] } } };
 }
 
 function recordOf(project: DdProject, setId: string, recordId: string): FieldRecord {
@@ -435,8 +489,11 @@ export function issuePeriod(
   const undecided = Object.values(record.values).filter((value) => fieldState(value) === 'proposed' || fieldState(value) === 'disputed' || (value.other?.length ?? 0) > 0).length;
   if (undecided) throw new FieldRefused(`${undecided} ${undecided === 1 ? 'value waits' : 'values wait'} on it for a person. Accept or set ${undecided === 1 ? 'it' : 'them'} aside first.`);
   const stamp = at.toISOString();
-  // Every field in play is written down as it reads and prints now, the worked-out ones among them: an issued period is never worked out again.
-  const reading = readSheet(project, setId, record.id, undefined, catalog, at);
+  // Every field in play is written down as it reads and prints, the worked-out ones among them: an issued period is never
+  // worked out again. A period that has ended is read as at its last day, whenever it is issued: the record's own entries
+  // are the period's and are taken as typed, and what its worked-out fields read from the rest of the project is read as
+  // the project stood when that day ended.
+  const reading = isPastDay(period.to, at) ? readSheet(projectWithRecord(project, setId, record, period.to), setId, record.id, undefined, catalog, asAtMoment(period.to)) : readSheet(project, setId, record.id, undefined, catalog, at);
   if (reading) record.frozen = freezeReading(project, reading);
   record.issued = { by: issuer.actor, at: stamp, ...(name ? { name } : {}) };
   recordAuditEvent(project, { actor: issuer.actor, action: 'issue_period', entityType: 'field_set', entityId: `${setId}::${record.id}`, newValue: `${set.title}, ${period.label}`, at: stamp });
@@ -686,10 +743,17 @@ export interface SetPeriods {
   toIssue?: PeriodSpan;
   /** On a sheet held once: what the sheet carried from the last period issued, and which. */
   carried?: { from: string; keys: string[] };
+  /**
+   * Nothing kept yet: the one quiet line the set shows in place of a period, and the periods one press starts it on.
+   * Starting is what begins the due cycle; until then nothing is asked of the set.
+   */
+  first?: { said: string; start: PeriodSpan; earlier: PeriodSpan };
 }
 
-/** A person as the project's team names them, else as the record keeps them. */
-const personSaid = (project: DdProject, by: string): string => (project.team ?? []).find((member) => member.name && member.email.toLowerCase() === by.toLowerCase())?.name ?? by;
+/** The line a set kept by period shows before its first period: "No period kept yet · Start with October 2026". */
+function firstPeriodOf(start: PeriodSpan): NonNullable<SetPeriods['first']> {
+  return { said: `No period kept yet · Start with ${start.label}`, start, earlier: periodShift(start, -1) };
+}
 
 /** How an issued instance is said in the one line that opens the past. */
 export function periodIssuedSaid(project: DdProject, instance: PeriodInstance): string {
@@ -721,6 +785,7 @@ export function setPeriods(
     const carried = sheet?.open?.carried;
     return {
       current,
+      ...(sheetFirstPeriod(project, set) ? {} : { first: firstPeriodOf(current) }),
       shown: (sheet?.open?.key ? periodOfKey(sheet.open.key) : undefined) ?? current,
       open: all.filter((instance) => instance.status === 'open'),
       past,
@@ -751,6 +816,7 @@ export function setPeriods(
     ...(notKept.length ? { notKeptSaid: `${notKept.length} ${notKept.length === 1 ? 'period' : 'periods'} not kept: ${notKept.slice(0, 6).map((span) => span.short).join(', ')}${notKept.length > 6 ? ` and ${notKept.length - 6} more` : ''}` } : {}),
     ...(due ? { due } : {}),
     ...(current && !all.some((instance) => instance.period.key === current.key) ? { toOpen: current } : {}),
+    ...(current && !all.length ? { first: firstPeriodOf(current) } : {}),
   };
 }
 

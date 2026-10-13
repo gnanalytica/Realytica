@@ -139,7 +139,7 @@ describe('issuing a sheet’s period', () => {
     const frozen = issued.frozen!;
     for (const view of live.fields.filter((held) => held.shown !== 'hidden')) assert.ok(frozen[view.def.key], `${view.def.key} is frozen`);
     assert.deepEqual([frozen.outstanding_per_statement!.value, frozen.outstanding_per_statement!.said], [410_000_000, '₹41 Cr']);
-    assert.match(frozen.outstanding_per_statement!.footnote ?? '', /^Entered by lead@firm\.example on /);
+    assert.match(frozen.outstanding_per_statement!.footnote ?? '', /^Entered by A\. Rao on /, 'by the name the team gives them, never their address');
     const worked = Object.entries(frozen).filter(([, field]) => field.derived);
     assert.ok(worked.length >= 3, 'the figures nobody typed are written down too');
     assert.equal(frozen.position_standing!.derived, true);
@@ -192,13 +192,15 @@ describe('issuing a sheet’s period', () => {
   it('is what the page says of the sheet: the one line that opens the past, what is due, and what one press issues', () => {
     const p = withPosition();
     const before = readFunctionFields(p, 'finance.lenders', at('2026-10-05T06:00:00Z')).sheets.find((held) => held.set.id === POSITION)!.periods!;
-    assert.deepEqual([before.toIssue?.key, before.due, before.pastSaid], ['2026-09', undefined, undefined], 'nothing is due of a sheet nobody has issued yet');
+    assert.deepEqual([before.toIssue?.key, before.due, before.pastSaid], [undefined, undefined, undefined], 'nothing is due of a sheet nobody has started, and it has no earlier period to issue');
+    assert.equal(before.first!.said, 'No period kept yet · Start with October 2026', 'it says so in one quiet line');
     issueSheetPeriod(p, POSITION, { actor: LEAD }, seat(p, LEAD), { period: '2026-08', at: at('2026-09-03T06:00:00Z') });
     const page = readFunctionFields(p, 'finance.lenders', at('2026-10-05T06:00:00Z'));
     const periods = page.sheets.find((held) => held.set.id === POSITION)!.periods!;
     assert.equal(periods.pastSaid, 'August issued by A. Rao');
     assert.equal(periods.toIssue!.key, '2026-09');
-    assert.deepEqual(periods.carried, { from: 'August', keys: ['account_class', 'outstanding_per_statement', 'outstanding_per_books'] });
+    // How the lender classes the account goes on; what is outstanding is a balance as at a day, and opens blank.
+    assert.deepEqual(periods.carried, { from: 'August', keys: ['account_class'] });
     const [due] = page.needs.due_soon.filter((need) => need.kind === 'due');
     assert.deepEqual([due!.label, due!.text.replace(/\d+ of \d+ fields/, 'n of m fields')], ['Loan position', 'September: n of m fields, due 7 Oct 2026']);
     assert.equal(readFunctionFields(p, 'finance.lenders', at('2026-10-09T06:00:00Z')).needs.failing.filter((need) => need.kind === 'due').length, 1, 'past its day it is failing');
@@ -220,7 +222,7 @@ describe('a revision of a sheet’s period', () => {
     assert.equal(reviseSheetPeriod(p, POSITION, '2026-09', LEAD, seat(p, LEAD)), revision, 'one revision is open at a time');
     assert.deepEqual(setFieldValues(p, { set: POSITION, period: '2026-09' }, { outstanding_per_books: 405_000_000 }, LEAD, seat(p, LEAD)).rejected, []);
     assert.equal(first.values.outstanding_per_books!.value, 410_000_000, 'the issue is as it was issued');
-    assert.equal(p.fieldSheets![POSITION]!.values.outstanding_per_books!.value, 410_000_000, 'and the sheet itself, the open month, is not touched');
+    assert.equal(p.fieldSheets![POSITION]!.values.outstanding_per_books!.value, null, 'and the sheet itself, the open month, is not touched: a balance is read afresh, so it opened blank');
     const open = readSheetPeriod(p, POSITION, '2026-09')!;
     assert.equal(open.editable, true);
     assert.equal(open.reading.fields.find((view) => view.def.key === 'outstanding_per_books')!.text, '₹40.5 Cr');

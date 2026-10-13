@@ -1,4 +1,4 @@
-import { daySaid, formatMoney, looksLikeDay, percentSaid, type CurrencyCode, type ConfidenceBand, type DocumentKind } from '@realytica/shared';
+import { daySaid, formatMoney, looksLikeDay, percentSaid, personSaid, type CurrencyCode, type ConfidenceBand, type DdProject, type DocumentKind } from '@realytica/shared';
 
 // English-language UI, so euro figures use an English euro locale (en-IE) rather
 // than nl-NL — "€7.140/m²" in Dutch grouping reads as seven euros to everyone else.
@@ -118,6 +118,15 @@ export function readingSaid(display: string): string {
 export function person(who: string | null | undefined): string {
   if (!who) return '';
   return /@localhost$/i.test(who.trim()) ? 'the local operator' : who;
+}
+
+/**
+ * Who typed, accepted, issued or took something, as a line names them: the
+ * name the project's team gives them, else the name part of their address.
+ * No line prints an address.
+ */
+export function personNamed(project: Pick<DdProject, 'team'> | undefined, who: string | null | undefined): string {
+  return person(personSaid(project, who ?? undefined));
 }
 
 export function relativeTime(iso: string | null | undefined): string {

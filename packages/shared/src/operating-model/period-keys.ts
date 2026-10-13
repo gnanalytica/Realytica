@@ -8,12 +8,20 @@
  * (`quarters.ts`). A week runs Monday to Sunday and is numbered as ISO 8601
  * numbers it: the week that holds the year's first Thursday is week 1.
  *
- * Nothing here reads a project. `field-periods.ts` is where a set's periods
- * are opened, compared and issued.
+ * Nothing here reads a project but how it numbers its quarters and years
+ * (`periodsNumbered`). `field-periods.ts` is where a set's periods are
+ * opened, compared and issued, and `photo-stations.ts` where a station's
+ * round is read: both ask here what a week, a month or a quarter is.
  */
 
 import { QUARTER_YEAR_DEFAULT, quarterKey, quarterOf, quarterOfKey, quarterSaid, type QuarterYear } from './quarters';
 import { daySaid } from './said';
+import type { DdProject } from './types';
+
+/** The year a project numbers its quarters and years in: the Indian financial year unless its report setting says the calendar year. */
+export function periodsNumbered(project: Partial<Pick<DdProject, 'reportDay'>>): QuarterYear {
+  return project.reportDay?.setting?.quarters ?? QUARTER_YEAR_DEFAULT;
+}
 
 /** How often something is kept, where the calendar says when. */
 export type CalendarEvery = 'week' | 'month' | 'quarter' | 'year';

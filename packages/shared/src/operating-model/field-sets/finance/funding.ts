@@ -492,7 +492,8 @@ export const FUNDING_SETS: FieldSet[] = [
     title: 'Annual statement of accounts',
     v: 1,
     records: { of: 'year', titleField: 'year_end', summaryFields: ['excess_withdrawn', 'year_standing'] },
-    periodic: { every: 'year', by: 'year_end', carry: ['auditor'], cumulative: ['collected_to_date', 'withdrawn_to_date'], due: { rate: 'rera_annual_report_months' }, issuer: 'consultant' },
+    // The auditor holds from year to year, and a total to date only grows: each opens from where it stood, said to be carried. A year's own figures open blank.
+    periodic: { every: 'year', by: 'year_end', carry: ['auditor', 'collected_to_date', 'withdrawn_to_date'], cumulative: ['collected_to_date', 'withdrawn_to_date'], due: { rate: 'rera_annual_report_months' }, issuer: 'consultant' },
     fields: [
       day('year_end', 'Financial year ending'),
       worked('report_due', 'Report due', addMonths(dateOf('year_end'), rate('rera_annual_report_months')), { yields: 'date' }),

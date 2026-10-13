@@ -33,7 +33,8 @@ import { LIVE, PROJECT_FIGURES, projectFigure } from './field-figures';
 import { asAtMoment, isPastDay, projectAsAt } from './as-at';
 import { AS_NOW_NO_HISTORY, fieldHistorySaid, figureReadsAsAt, indiaDayEnd, stand, type FieldHistorySaid } from './field-history';
 import { periodsOf, periodsStanding, setPeriods, type SetPeriods } from './field-periods';
-import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
+import { SITE_FN, stationRoundDue } from './photo-stations';
+import { addressKey, depthSheet, fieldCatalog, fieldReads, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { RULE_ROWS } from './field-sets';
 import { SHARED_FN } from './field-sets/shared-records';
@@ -43,7 +44,7 @@ import { ruleCitation, ruleRow } from './rule-tables';
 import { parseMeasure, type Entered } from './units';
 import { recordAuditEvent } from './operations';
 import { decisionRefused, mayDecidePaper, reviewFacts } from './review';
-import type { MayDecide } from './team';
+import { personSaid, type MayDecide } from './team';
 import { documentWorkstream } from './vault';
 import type {
   ChatProposal,
@@ -278,7 +279,15 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       rests(assumes, value, () => labelAt(address));
       return value;
     },
-    records: (setId) => records(setId),
+    records: (setId) => {
+      const rows = records(setId);
+      // On a reading as at a past day: where a row's own values are today's, for want of a past, what is counted or summed over the rows is today's too.
+      if (project.asAt && rows && !nowOf.has(assumes)) {
+        const asNow = fieldRecords(project, setId).flatMap((record) => Object.values(record.values)).find((value) => value.asNow && !isBlank(value))?.asNow;
+        if (asNow) nowOf.set(assumes, asNow);
+      }
+      return rows;
+    },
     // The row for this project's place, in force on the day asked. What was read is kept, so the value can say where its figure is written.
     rate: (table, on, conditions) => {
       const row = ruleRow(rules, table, { state: project.jurisdiction, city: project.city }, on ?? today, conditions);
@@ -688,6 +697,14 @@ export interface FieldView {
   frozen?: FrozenField;
   /** On a reading as at a past day: the record does not reach the day for this value. The day its history begins, or `AS_NOW_NO_HISTORY`. */
   asNow?: string;
+  /**
+   * On the open period of a set kept by period, for a field that is read afresh each period: what it read in the period
+   * before, as that period printed it, and which period ("September"). Drawn beside the field as "last: …", so a person
+   * sees what to compare. Never on a field the set carries, nor on one that is worked out.
+   */
+  last?: { said: string; from: string };
+  /** A worked-out field with no answer because a field it reads holds nothing: those fields, by label. Drawn as "waiting for …", never as a blank. */
+  waitingFor?: string[];
 }
 
 /** The party a field's value is waited on from. */
@@ -803,7 +820,8 @@ function sourceOf(project: DdProject, catalog: FieldCatalog, value: CheckFieldVa
     const set = catalog.sets.get(origin.address.set);
     return { kind: 'field', label: set?.title ?? origin.address.set, address: origin.address };
   }
-  if (origin?.kind === 'person') return { kind: 'person', label: value?.acceptedBy ?? value?.by ?? '' };
+  // Who typed it, as the project's team names them: a line never prints an address.
+  if (origin?.kind === 'person') return { kind: 'person', label: personSaid(project, value?.acceptedBy ?? value?.by) };
   if (origin?.kind === 'default') return { kind: 'default', label: origin.cite ?? '' };
   // A value saved before origins were kept: its paper, where it cites one.
   if (value?.sourceEvidenceId) {
@@ -880,7 +898,7 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     return linked.get(key)!.find((choice) => choice.id === value!.value)?.label ?? removedLabel(project, catalog, refSet(def.target), String(value!.value)) ?? String(value!.value);
   };
   // A person as the project's team names them, else as the record keeps them.
-  const personNamed = (by: string): string => (project.team ?? []).find((member) => member.name && member.email.toLowerCase() === by.toLowerCase())?.name ?? by;
+  const personNamed = (by: string): string => personSaid(project, by);
   const linkGone = (def: CheckFieldDef, value: CheckFieldValue | undefined): boolean => def.kind === 'ref' && !isBlank(value) && removedLabel(project, catalog, refSet(def.target), String(value!.value)) !== undefined;
   // A record nobody has accepted or typed anything on holds only what was offered: it asks nothing and counts for nothing.
   const pending = Boolean(recordId) && !catalog.checks.has(setId) && !Object.values(held).some((value) => fieldStands(value) && !isBlank(value));
@@ -893,6 +911,23 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
   // An issued period: the record once issued, or the sheet read as at a day an issue covers.
   const heldRecord = recordId && !catalog.checks.has(setId) ? sheetOf(project, setId)?.records?.find((record) => record.id === recordId) : undefined;
   const frozenHere = recordId ? (heldRecord?.issued ? heldRecord.frozen : undefined) : catalog.checks.has(setId) ? undefined : sheetOf(project, setId)?.asIssued?.frozen;
+  // The period before the open one, on a set kept by period: what each field read then, as that period printed it.
+  const lastHeld = !set.periodic || catalog.checks.has(setId) || project.asAt || (recordId ? heldRecord?.issued : false) ? undefined : lastPeriodHeld(project, set, recordId, at, catalog, resolved, said);
+  const freshKeys = new Set(set.periodic ? [...(set.periodic.carry ?? []), ...(set.periodic.per ?? []), ...(set.periodic.by ? [set.periodic.by] : [])] : []);
+  /** The fields a worked-out field waits for: its own holder's fields that it reads and that hold nothing, followed down through other worked-out fields. */
+  const waitsOn = (def: CheckFieldDef, seen: Set<string> = new Set()): string[] => {
+    const out: string[] = [];
+    for (const read of fieldReads(def, set)) {
+      if (read.set !== set.id || read.record || read.column || seen.has(read.field)) continue;
+      seen.add(read.field);
+      const other = set.fields.find((field) => field.key === read.field);
+      if (!other || other.retired || !isBlank(acting[other.key])) continue;
+      if (!resolved.showing(other.showWhen, from)) continue;
+      if (fieldIsDerived(other)) out.push(...waitsOn(other, seen));
+      else if (fieldState(held[other.key]) !== 'not_applicable') out.push(other.label);
+    }
+    return out;
+  };
   const sectionDefs = [...(set.sections ?? [])];
   if (set.fields.some((def) => !def.section && !def.sheet)) sectionDefs.unshift({ key: '', label: '' });
   // Whether a field is expected yet: its step of the project has come, or its day has.
@@ -941,6 +976,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     const missing = expected && empty;
     // What it held before, where it has held anything: a mirror says its owner's, and what is worked out has no past of its own.
     const past = (kept ?? own)?.history?.length ? fieldHistorySaid(def, def.sameAs ? own : (kept ?? own), lists, personNamed) : undefined;
+    const lastSaid = lastHeld && !derived && !freshKeys.has(def.key) && def.kind !== 'table' && def.kind !== 'evidence' && def.kind !== 'longtext' ? lastHeld.said(def) : undefined;
+    const waitingFor = shown !== 'hidden' && def.kind === 'computed' && isBlank(own) ? [...new Set(waitsOn(def))].slice(0, 3) : [];
     return {
       def,
       address,
@@ -976,6 +1013,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       ...(carriedFrom && carriedKeys.has(def.key) && !isBlank(own) ? { carried: carriedFrom } : {}),
       ...(frozenHere?.[def.key] ? { frozen: frozenHere[def.key] } : {}),
       ...(own?.asNow && !isBlank(own) ? { asNow: own.asNow } : {}),
+      ...(lastSaid ? { last: { said: lastSaid, from: lastHeld!.from } } : {}),
+      ...(waitingFor.length ? { waitingFor } : {}),
     };
   });
 
@@ -1047,6 +1086,44 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     // Recorded: a value that stands, a usual one among them, or the field marked not applicable.
     filled: answerable.filter(recorded).length,
     total: answerable.length,
+  };
+}
+
+/**
+ * The period before the open one of a set kept by period, as a field reads
+ * it: for a sheet, the last period it issued, each field as frozen; for a
+ * record, the instance that stands for the nearest earlier period, of the
+ * same kind where the set keeps several a period. Undefined where there is
+ * none.
+ */
+function lastPeriodHeld(
+  project: DdProject,
+  set: FieldSet,
+  recordId: string | undefined,
+  at: Date,
+  catalog: FieldCatalog,
+  resolved: FieldResolution,
+  said: (def: CheckFieldDef, value: CheckFieldValue | undefined) => string,
+): { from: string; said(def: CheckFieldDef): string | undefined } | undefined {
+  const printed = (text: string | undefined): string | undefined => (text && text !== '—' && text !== 'waiting' ? text : undefined);
+  if (!recordId) {
+    const issued = [...(sheetOf(project, set.id)?.periods ?? [])].filter((period) => period.status === 'issued').sort((a, b) => a.from.localeCompare(b.from) || (a.issuedAt ?? '').localeCompare(b.issuedAt ?? ''));
+    const last = issued.at(-1);
+    if (!last) return undefined;
+    return { from: periodOfKey(last.key)?.short ?? last.key, said: (def) => printed(last.frozen?.[def.key]?.said) };
+  }
+  // How full each is does not matter here, and reading it would read every record of the set once more.
+  const all = periodsOf(project, set.id, at, catalog, () => ({ filled: 0, total: 0 }));
+  const here = all.find((instance) => instance.record === recordId);
+  if (!here) return undefined;
+  const per = here.id.slice(here.period.key.length);
+  const before = periodsStanding(all).find((instance) => instance.period.from < here.period.from && instance.id.slice(instance.period.key.length) === per && instance.record !== here.revises);
+  if (!before?.record) return undefined;
+  const record = sheetOf(project, set.id)?.records?.find((held) => held.id === before.record);
+  const values = resolved.holder(set.id, before.record);
+  return {
+    from: before.period.short,
+    said: (def) => printed(record?.issued && record.frozen?.[def.key] ? record.frozen[def.key]!.said : isBlank(values[def.key]) || !fieldStands(values[def.key]) ? undefined : said(def, values[def.key])),
   };
 }
 
@@ -1369,6 +1446,11 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
     const due = periods?.due;
     if (!due) continue;
     all.push({ kind: 'due', need: due.late ? 'failing' : 'due_soon', key: `${set.id}::::period::${due.period.key}`, sheet: set.title, ...(due.record ? { record: due.record } : {}), address: { fn: set.fn, set: set.id, field: '', ...(due.record ? { record: due.record } : {}) }, label: set.title, text: due.said, tone: due.late ? 'critical' : 'warning' });
+  }
+  // The photograph round is kept by period a station at a time: the stations not photographed this period are one such line.
+  const round = fn === SITE_FN ? stationRoundDue(project, at) : undefined;
+  if (round) {
+    all.push({ kind: 'due', need: round.late ? 'failing' : 'due_soon', key: `${round.set}::::period::${round.period.key}`, sheet: round.title, address: { fn, set: round.set, field: '' }, label: round.title, text: round.said, tone: round.late ? 'critical' : 'warning' });
   }
   // A line under Due soon a person put off stays off the page until its day, or until it starts failing.
   const day = indiaToday(at);

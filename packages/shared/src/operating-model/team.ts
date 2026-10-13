@@ -37,6 +37,25 @@ function normalise(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/**
+ * A person as a line names them: the name the project's team gives them,
+ * else the name part of their address, else what the record keeps. No line
+ * that says who typed, accepted or issued something prints an address.
+ */
+export function personSaid(project: Pick<DdProject, 'team'> | undefined, by: string | undefined): string {
+  const kept = (by ?? '').trim();
+  if (!kept) return '';
+  // "A. Rao (a.rao@firm.example)" is already a name with its address beside it.
+  const beside = /^(.*\S)\s*\(([^()\s]+@[^()\s]+)\)$/.exec(kept);
+  const email = beside ? beside[2]! : kept;
+  const member = (project?.team ?? []).find((held) => held.name && normalise(held.email) === normalise(email));
+  if (member?.name) return member.name;
+  if (beside) return beside[1]!;
+  // With sign-in off every request is the machine's own operator, whose address is no person's.
+  if (/@localhost$/i.test(kept)) return 'the local operator';
+  return /^[^@\s]+@[^@\s]+$/.test(kept) ? kept.slice(0, kept.indexOf('@')) : kept;
+}
+
 export function setTeamMember(project: DdProject, input: TeamMemberInput, actor: string): TeamMember {
   const email = normalise(input.email);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('That is not an email address.');

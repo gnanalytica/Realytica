@@ -774,6 +774,11 @@ export interface FrozenField {
   /** Worked out, a standing or a mirror: nobody entered it. */
   derived?: true;
   tone?: Tone;
+  /**
+   * Frozen as it read on the day of issue, not as at the period's last day: the record's history did not reach that
+   * day for it, or the module that keeps the figure keeps no past. The day its history begins, or `AS_NOW_NO_HISTORY`.
+   */
+  asNow?: string;
 }
 
 /** One issued period of a sheet held once: every field as it read at issue. The open period is the sheet itself. */
@@ -1772,7 +1777,8 @@ export interface ReportBoundSource {
   moved?: boolean;
   /**
    * Fields, tables and charts of fields: the day the section is read as at, as `YYYY-MM-DD`. Absent, it reads the
-   * record as it stands. A report made for a period sets it to the period's last day.
+   * record as it stands. A report made for a period sets it to the period's last day. On `station_photographs` it is
+   * the day whose period the photographs are of.
    */
   asAt?: string;
   /** `station_photographs`: which stations or place, and whether the period before is printed beside. The period is `from` and `to` where given, else the one today falls in. */

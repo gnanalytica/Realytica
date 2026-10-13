@@ -20,18 +20,20 @@
  *   charts see it as they see any set kept by period.
  */
 
-import { asAtMoment, projectAsAt } from './as-at';
+import { asAtMoment, isPastDay, projectAsAt } from './as-at';
 import { fieldIsDerived, fieldNumber, fieldState, formatFieldValue, isBlank, standingField, type FormulaOutside } from './check-fields';
 import { costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
-import { stand } from './field-history';
-import { compareHolders, periodDue, periodDueSaid, periodsNumbered, periodsOf, periodsStanding, type PeriodComparison, type PeriodDue, type PeriodInstance } from './field-periods';
+import { PROJECT_FIGURES } from './field-figures';
+import { AS_NOW_NO_HISTORY, stand } from './field-history';
+import { compareHolders, periodDue, periodDueSaid, periodsOf, periodsStanding, type PeriodComparison, type PeriodDue, type PeriodInstance } from './field-periods';
 import { optionSetById, type FieldCatalog } from './field-registry';
 import { departmentOfFunction, FieldRefused, readSheet, resolveFields, type FieldWriteOptions, type SheetReading } from './field-sheets';
 import { fieldCatalogFor } from './firm-fields';
 import { recordAuditEvent } from './operations';
-import { dayAfter, periodOfDay, periodOfKey, periodShift, periodsBetween, type CalendarEvery, type PeriodSpan } from './period-keys';
+import { dayAfter, periodOfDay, periodOfKey, periodShift, periodsBetween, periodsNumbered, type CalendarEvery, type PeriodSpan } from './period-keys';
 import { indiaToday } from './quarters';
 import { fieldPrinted } from './report-fields';
+import { daySaid } from './said';
 import { OWED_ROLE_LABEL } from './types';
 import type { CheckFieldValue, DdProject, FieldAddress, FieldPeriod, FieldSet, FrozenField, Periodic, StoredFieldSheet } from './types';
 
@@ -58,9 +60,26 @@ export function freezeReading(project: DdProject, reading: SheetReading): Record
       ...(view.source?.evidenceId ? { evidenceId: view.source.evidenceId } : {}),
       ...(derived ? { derived: true as const } : {}),
       ...(view.tone ? { tone: view.tone } : {}),
+      // Read as at the period's last day, and the record did not reach it for this figure: it is the day of issue's, and says so.
+      ...(view.asNow && value !== null ? { asNow: view.asNow } : {}),
     };
   }
   return out;
+}
+
+/**
+ * How an issue says which of its figures are not the period-end's: "2 figures
+ * as now, no history before 13 Oct 2026: Budget, Certified to date".
+ * Undefined where every figure is as at the period's last day.
+ */
+export function frozenAsNowSaid(set: Pick<FieldSet, 'fields'>, frozen: Record<string, FrozenField> | undefined): string | undefined {
+  const held = Object.entries(frozen ?? {}).filter(([, field]) => field.asNow);
+  if (!held.length) return undefined;
+  const labels = held.map(([key]) => set.fields.find((def) => def.key === key)?.label ?? key);
+  // One day where they share it; the earliest otherwise, since before it none of them has a past.
+  const days = held.map(([, field]) => field.asNow!).filter((day) => day !== AS_NOW_NO_HISTORY).sort();
+  const why = days.length ? `no history before ${daySaid(days[0]!)}` : 'what keeps them keeps no history';
+  return `${held.length} ${held.length === 1 ? 'figure' : 'figures'} as now, ${why}: ${labels.join(', ')}`;
 }
 
 /** A holder's stored values as an issue keeps them: a copy with nothing shared, and without the history each value carries on the sheet. */
@@ -130,14 +149,56 @@ export function sheetPeriods(project: DdProject, set: FieldSet, at: Date = new D
     .map(({ index: _index, ...instance }) => instance);
 }
 
-/** What a sheet kept by period asks for: once a first period has been issued, the latest period that has ended and is not. */
+/**
+ * The first period a sheet was kept for: the earliest it issued, or the one
+ * somebody started it on (`startSheetPeriod`) where nothing is issued yet.
+ * Undefined until one or the other: a sheet nobody has started keeps no
+ * period, and nothing is expected of it.
+ */
+export function sheetFirstPeriod(project: DdProject, set: FieldSet): PeriodSpan | undefined {
+  const sheet = sheetOf(project, set.id);
+  const issued = (sheet?.periods ?? []).filter((period) => period.status === 'issued').map((period) => period.from).sort()[0];
+  const first = (sheet?.periods ?? []).find((period) => period.from === issued);
+  if (first) return periodOfKey(first.key) ?? { key: first.key, from: first.from, to: first.to, label: first.key, short: first.key };
+  return sheet?.open?.key ? periodOfKey(sheet.open.key) : undefined;
+}
+
+/**
+ * Starts a sheet kept by period on its first period: the one today falls in,
+ * or one named that has begun. From here the sheet is that period's, and the
+ * period is due once it has ended; before this nothing was asked of it. What
+ * the sheet already holds stays, as that period's entries. Asked of a sheet
+ * that has a period already, it changes nothing.
+ */
+export function startSheetPeriod(project: DdProject, setId: string, actor: string, options: FieldWriteOptions = {}, input: { period?: string; at?: Date } = {}, catalog: FieldCatalog = fieldCatalogFor(project)): PeriodSpan {
+  const set = snapshotSet(project, setId, catalog);
+  const department = departmentOfFunction(set.fn);
+  if (options.mayEdit && !(department && options.mayEdit(department))) throw new FieldRefused('Your role on this project reads this department and does not change it.');
+  const kept = sheetFirstPeriod(project, set);
+  const at = input.at ?? new Date();
+  if (kept) return (sheetOf(project, setId)?.open?.key ? periodOfKey(sheetOf(project, setId)!.open!.key) : undefined) ?? kept;
+  const span = input.period ? periodOfKey(input.period) : periodOfDay(set.periodic.every, indiaToday(at), periodsNumbered(project));
+  if (!span || periodOfDay(set.periodic.every, span.from, periodsNumbered(project))?.key !== span.key) throw new FieldRefused(`${set.title} is kept by the ${set.periodic.every}.`);
+  if (span.from > indiaToday(at)) throw new FieldRefused('That period has not begun.');
+  project.fieldSheets ??= {};
+  const sheet = (project.fieldSheets[setId] ??= { values: {} });
+  const stamp = at.toISOString();
+  sheet.open = { key: span.key, openedAt: stamp, openedBy: actor };
+  project.updatedAt = stamp;
+  recordAuditEvent(project, { actor, action: 'open_period', entityType: 'field_set', entityId: `${setId}::${span.key}`, newValue: `${set.title}, ${span.label}`, at: stamp });
+  return span;
+}
+
+/** What a sheet kept by period asks for: once it has a first period (one issued, or the one it was started on), the latest period that has ended and is not issued. */
 export function sheetPeriodDue(project: DdProject, set: FieldSet, at: Date, kept: readonly PeriodInstance[], live?: Pick<SheetReading, 'filled' | 'total'>): PeriodDue | undefined {
   const periodic = set.periodic;
   if (!periodic || set.records || typeof periodic.every === 'object') return undefined;
   const issued = kept.filter((instance) => instance.status === 'issued');
-  if (!issued.length) return undefined;
+  const first = sheetFirstPeriod(project, set);
+  if (!first) return undefined;
   const ended = lastEnded(project, periodic.every, at);
-  if (issued.some((instance) => instance.period.key === ended.key) || ended.from < issued[issued.length - 1]!.period.from) return undefined;
+  // Before the first period the sheet was kept for, nothing was expected of it.
+  if (issued.some((instance) => instance.period.key === ended.key) || ended.from < first.from) return undefined;
   const due = periodDue(project, periodic, ended, at);
   const late = Boolean(due) && indiaToday(at) > due!;
   return { fn: set.fn, set: set.id, title: set.title, period: ended, state: 'open', filled: live?.filled ?? 0, total: live?.total ?? 0, ...(due ? { due } : {}), late, said: periodDueSaid(ended, 'open', live?.filled ?? 0, live?.total ?? 0, due, late) };
@@ -147,19 +208,23 @@ export function sheetPeriodDue(project: DdProject, set: FieldSet, at: Date, kept
 export function sheetPeriodsNotKept(project: DdProject, set: FieldSet, at: Date, kept: readonly PeriodInstance[]): PeriodSpan[] {
   const periodic = set.periodic;
   const issued = kept.filter((instance) => instance.status === 'issued');
-  if (!periodic || typeof periodic.every === 'object' || !issued.length) return [];
+  const first = sheetFirstPeriod(project, set);
+  if (!periodic || typeof periodic.every === 'object' || !first) return [];
   const have = new Set(issued.map((instance) => instance.period.key));
   const ended = lastEnded(project, periodic.every, at);
-  return periodsBetween(issued[issued.length - 1]!.period, periodShift(ended, -1))
+  return periodsBetween(first, periodShift(ended, -1))
     .filter((span) => !have.has(span.key))
     .reverse();
 }
 
-/** The period one press issues: the latest that has ended, where the sheet holds anything and that period is not issued. */
+/** The period one press issues: the latest that has ended, where the sheet was being kept by then, holds anything, and that period is not issued. */
 export function sheetPeriodToIssue(project: DdProject, set: FieldSet, at: Date, kept: readonly PeriodInstance[]): PeriodSpan | undefined {
   const periodic = set.periodic;
   if (!periodic || set.records || typeof periodic.every === 'object') return undefined;
   const ended = lastEnded(project, periodic.every, at);
+  const first = sheetFirstPeriod(project, set);
+  // A sheet nobody has started, or started on a later period, has no earlier period to issue.
+  if (!first || ended.from < first.from) return undefined;
   if (kept.some((instance) => instance.period.key === ended.key && instance.status === 'issued')) return undefined;
   return Object.values(sheetOf(project, set.id)?.values ?? {}).some((value) => !isBlank(value)) ? ended : undefined;
 }
@@ -249,7 +314,14 @@ export function issueSheetPeriod(
   if (held.some((period) => period.key === span.key && period.status === 'issued')) throw new FieldRefused('This period is already issued. A correction is a revision kept beside it.');
   const waiting = valuesWaiting(sheet.values);
   if (waiting) throw new FieldRefused(`${waiting} ${waiting === 1 ? 'value waits' : 'values wait'} on it for a person. Accept or set ${waiting === 1 ? 'it' : 'them'} aside first.`);
-  const reading = readSheet(project, setId, undefined, undefined, catalog, at);
+  // A period that has ended is written down as at its last day, whenever it is issued: what the sheet itself holds is the
+  // period's own entries and is taken as typed, and everything it reads from the rest of the project (the milestones,
+  // the site log, other sheets and records) is read as the project stood when that day ended. September issued on
+  // 13 October carries nothing recorded in October.
+  const ended = isPastDay(span.to, at);
+  const reading = ended
+    ? readSheet(projectWithPeriod(project, setId, { key: span.key, from: span.from, to: span.to, status: 'open', values: sheet.values, openedAt: stamp, openedBy: issuer.actor }), setId, undefined, undefined, catalog, asAtMoment(span.to))
+    : readSheet(project, setId, undefined, undefined, catalog, at);
   if (!reading || !reading.fields.some((view) => !isBlank(view.held))) throw new FieldRefused(`${set.title} holds nothing to issue yet.`);
   const period: FieldPeriod = {
     key: span.key,
@@ -469,8 +541,16 @@ export function periodSeries(project: DdProject, address: Pick<FieldAddress, 'se
   }
   const set = catalog.sets.get(address.set);
   const def = set?.fields.find((field) => field.key === address.field);
-  if (!set?.periodic || !def) return [];
+  if (!set || !def) return [];
   const lists = (id: string) => optionSetById(id, catalog);
+  // A figure whose own module keeps its readings month by month (progress by the milestones, the plan by their dates) is a
+  // series of periods too, whatever sheet it is on: each month as it read at its end, and the month in hand as it reads now.
+  const figure = def.kind === 'computed' && def.formula?.op === 'figure' ? PROJECT_FIGURES[def.formula.key] : undefined;
+  if (figure?.series) {
+    const today = indiaToday(at);
+    return cut(figure.series(project, at).map((held) => ({ period: held.period, value: held.value, said: held.value === null ? '—' : formatFieldValue(def, { value: held.value, at: '', by: 'computed' }, lists), status: held.period.to < today ? ('issued' as const) : ('open' as const) })));
+  }
+  if (!set.periodic) return [];
   const point = (period: PeriodSpan, value: CheckFieldValue | undefined, status: PeriodPoint['status']): PeriodPoint => ({ period, value: fieldNumber(value), said: formatFieldValue(def, value, lists), status });
   if (set.records) {
     const resolution = resolveFields(project, at, catalog);

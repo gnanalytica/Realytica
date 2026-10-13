@@ -32,6 +32,7 @@ import { asAtMoment, isPastDay, projectAsAt } from './as-at';
 import { fieldIsDerived, fieldNumber, formatFieldValue, isBlank, tableRows } from './check-fields';
 import { asNowSaid } from './field-history';
 import { daySaid } from './said';
+import { personSaid } from './team';
 import { COST_REPORT_PERIODS, COST_REPORT_SERIES, periodSeries } from './sheet-periods';
 import { workstreamDefinition } from './departments';
 import { fieldCatalog, optionSetById, sharedSetsOf, type FieldCatalog } from './field-registry';
@@ -139,12 +140,12 @@ export function fieldPrinted(project: DdProject, view: FieldView): FieldPrinted 
   const value = def.kind === 'evidence' ? (papersSaid(project, held) ?? view.text) : view.text;
   const notes: string[] = [];
   const source = view.source;
-  const decided = held!.acceptedBy ? `accepted by ${held!.acceptedBy}${day(held!.acceptedAt) ? ` on ${day(held!.acceptedAt)}` : ''}` : '';
+  const decided = held!.acceptedBy ? `accepted by ${personSaid(project, held!.acceptedBy)}${day(held!.acceptedAt) ? ` on ${day(held!.acceptedAt)}` : ''}` : '';
   if (source?.kind === 'paper') notes.push([`${source.label}${source.page ? `, p. ${source.page}` : ''}`, decided].filter(Boolean).join('; '));
   else if (source?.kind === 'external') notes.push([`${source.label}${source.asOf ? `, read ${day(source.asOf) || source.asOf}` : ''}`, decided].filter(Boolean).join('; '));
   else if (source?.kind === 'field') notes.push(`Read from ${source.label}.`.replace(/\.\.$/, '.'));
   else if (source?.kind === 'default') notes.push(`A usual value${source.label ? `: ${source.label}` : ''}. It gives way when a value is recorded.`);
-  else if (!fieldIsDerived(def) && held!.by && held!.by !== 'computed') notes.push(`Entered by ${held!.by}${day(held!.at) ? ` on ${day(held!.at)}` : ''}`);
+  else if (!fieldIsDerived(def) && held!.by && held!.by !== 'computed') notes.push(`Entered by ${personSaid(project, held!.by)}${day(held!.at) ? ` on ${day(held!.at)}` : ''}`);
 
   const cites = view.cites ?? [];
   for (const cite of cites) {

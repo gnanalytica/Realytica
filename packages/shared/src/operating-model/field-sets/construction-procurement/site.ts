@@ -9,9 +9,11 @@
  *
  * The round is the one sheet above them. Every figure on it is blank, never
  * nought, until a station is kept, so a project that keeps none is shown no
- * round. What needs a person is said there once, as a count: the stations not photographed this period are one line
- * under Needs you, not one for each station, so a station's own standing is
- * never in a tone that would raise a line of its own.
+ * round. What needs a person is said once: the stations not photographed
+ * this period are one line under Needs you, of kind `due` like any set kept
+ * by period (`stationRoundDue`), not one for each station and not a rule's.
+ * So neither the round's standing nor a station's own is in a tone that
+ * would raise a line of its own for it.
  */
 
 import { PHOTO_ELEMENTS, PHOTO_ELEMENT_LABEL } from '../../photo-picks';
@@ -42,14 +44,14 @@ export const SITE_SETS: FieldSet[] = [
         ...KEPT,
         cases: [
           { when: { kind: 'at_most', fields: ['milestones_short'], against: 0, say: 'Milestones reported complete with a required photograph missing: {a}.', severity: 'high' }, label: 'Milestone photographs missing', tone: 'critical' },
-          { when: { kind: 'at_most', fields: ['due'], against: 0, say: 'Stations with no photograph this period: {a}.', severity: 'medium' }, label: 'Stations to photograph', tone: 'warning' },
+          // Said in no tone that raises a line: the stations to photograph are the round's one `due` line (`stationRoundDue`), as any period's is.
+          { when: { kind: 'at_most', fields: ['due'], against: 0, say: 'Stations with no photograph this period: {a}.', severity: 'low' }, label: 'Stations to photograph', tone: 'info' },
         ],
         otherwise: { label: 'Every station photographed this period', tone: 'good' },
       },
     ],
     rules: [
       { kind: 'at_most', fields: ['milestones_short'], against: 0, say: 'Milestones reported complete with a required photograph missing: {a}.', severity: 'high' },
-      { kind: 'at_most', fields: ['due'], against: 0, say: 'Stations with no photograph this period: {a}.', severity: 'medium' },
       { kind: 'at_most', fields: ['place_not_set'], against: 0, say: 'Recent photographs with no place set: {a}.', severity: 'medium' },
     ],
   },
