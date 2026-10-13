@@ -4,6 +4,9 @@ import { useMe } from '../../lib/useMe';
 import { Card, CardBody, CardHeader } from '../ui/kit';
 import { FigureButton } from './FigureList';
 
+/** How long the oldest has waited, in words: "oldest today", "oldest 3 days". */
+const waited = (days: number | undefined): string => (!days ? 'oldest today' : `oldest ${days} day${days === 1 ? '' : 's'}`);
+
 /**
  * One project by department: what waits for acceptance and for how long, the
  * actions open and overdue, the requests out and their age.
@@ -34,12 +37,12 @@ export function DepartmentFigures({ project }: { project: DdProject }) {
                 <p className="shrink-0 text-[13px] font-medium text-ink [@container(min-width:40rem)]:w-28">{d.label}</p>
                 <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                   <FigureButton label="to accept" title={`${d.label}: waiting for acceptance`} figure={d.waiting} showProject={false}>
-                    {d.waiting.count ? <span className="text-ink-muted">· oldest {d.waitingOldestDays}d</span> : null}
+                    {d.waiting.count ? <span className="text-ink-muted">· {waited(d.waitingOldestDays)}</span> : null}
                   </FigureButton>
                   <FigureButton label={d.actionsOpen.count === 1 ? 'action open' : 'actions open'} title={`${d.label}: actions open`} figure={d.actionsOpen} showProject={false} />
                   {d.actionsOverdue.count ? <FigureButton label="overdue" title={`${d.label}: actions overdue`} figure={d.actionsOverdue} tone="critical" showProject={false} /> : null}
                   <FigureButton label={d.requestsOut.count === 1 ? 'request out' : 'requests out'} title={`${d.label}: requests out`} figure={d.requestsOut} tone={d.requestsOverdue ? 'critical' : undefined} showProject={false}>
-                    {d.requestsOut.count ? <span className="text-ink-muted">· oldest {d.requestsOldestDays}d</span> : null}
+                    {d.requestsOut.count ? <span className="text-ink-muted">· {waited(d.requestsOldestDays)}</span> : null}
                   </FigureButton>
                 </div>
               </li>

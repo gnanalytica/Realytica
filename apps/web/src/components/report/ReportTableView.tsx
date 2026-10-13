@@ -2,6 +2,7 @@ import type { DdProject, ReportTable } from '@realytica/shared';
 import { evidenceFileUrl } from '../../lib/api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { cn } from '../ui/kit';
+import { daySaid } from '@realytica/shared';
 
 /**
  * A report section that is a table: the observations and their mitigations,
@@ -69,7 +70,7 @@ function Photo({ project, evidenceId, caption, print }: { project: DdProject; ev
       </div>
       <figcaption className={cn('mt-1 text-[11px] leading-snug', print ? 'text-neutral-700' : 'text-ink-secondary')}>
         {caption}: {row.title}
-        {taken ? ` · ${new Date(taken).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+        {taken ? ` · ${daySaid(taken)}` : ''}
         {shot.capture?.lat != null && shot.capture?.lng != null ? ` · ${shot.capture.lat.toFixed(5)}, ${shot.capture.lng.toFixed(5)}` : ''}
       </figcaption>
     </figure>

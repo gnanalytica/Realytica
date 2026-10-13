@@ -20,6 +20,7 @@ import { specForProposal } from '../../../components/create/specs';
 import { DecideButtons } from '../../../components/review/Decide';
 import { useLiveHighlight } from '../LiveRow';
 import { tabHolding } from './rail';
+import { waitingOnPane } from './waiting-here';
 import { WAITING_CHIPS_SHOWN, visibleTurnChips } from './turn-waiting-chips';
 
 export type Waiting = ReturnType<typeof waitingOnCanvas>;
@@ -100,7 +101,36 @@ export function TurnWaiting({
   );
 }
 
-/** One proposal waiting where it would land: what it is, what it would change, and the decision. */
+/**
+ * The papers a card rests on: each by its title and page, with that page's own
+ * words under it where the card carries them. Never a reason somebody wrote.
+ */
+function ProposalPapers({ item, papers }: { item: ChatProposal; papers: Array<{ id: string; title: string }> }) {
+  if (!papers.length) return null;
+  const cites = item.cites ?? [];
+  if (!cites.length) return <span className="block truncate text-[12px] text-ink-muted">From {papers.map((row) => row.title).join(', ')}</span>;
+  return (
+    <span className="block space-y-0.5 text-[12px] leading-snug text-ink-muted">
+      {papers.map((row) => {
+        const cite = cites.find((held) => held.evidenceId === row.id);
+        return (
+          <span key={row.id} className="block">
+            From {row.title}
+            {cite ? `, p. ${cite.page}` : ''}
+            {cite?.quote ? <span className="block">“{cite.quote}”</span> : null}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
+ * One proposal waiting where it would land: what it is, what it would change,
+ * the papers it rests on, and the decision. The reason a model gave for it is
+ * a model's sentence, and is not drawn: what a person reads here is the
+ * record's own words and the paper.
+ */
 function WaitingCard({
   project,
   item,
@@ -120,21 +150,25 @@ function WaitingCard({
   const [editing, setEditing] = useState(false);
   const changes = useMemo(() => proposalChanges(project, item), [project, item]);
   const form = useMemo(() => specForProposal(item.kind), [item.kind]);
+  const papers = useMemo(() => (item.citedEvidenceIds ?? []).flatMap((id) => project.evidence.find((row) => row.id === id) ?? []), [item.citedEvidenceIds, project.evidence]);
   // Lit as a row of a register is, when a chip in the chat names this card.
   const { ref, on } = useLiveHighlight<HTMLLIElement>(item.id, highlightIds);
   return (
     <li ref={ref} data-live={on ? 'true' : undefined} className={cn('flex flex-col gap-1 px-3 py-2', on && 'bg-brand-soft ring-2 ring-inset ring-brand/35')}>
       <div className="flex items-start gap-2.5">
         <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-provenance" aria-hidden />
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="min-w-0 flex-1 text-left"
-        >
-          <span className="block break-words text-[13px] font-medium text-ink">{item.title}</span>
-          {!open && item.rationale ? <span className="block truncate text-[12px] text-ink-muted">{item.rationale}</span> : null}
-        </button>
+        {item.kind === 'log_site_entry' ? (
+          // A site entry's lines unfold under it. Nothing else has more to show than the card already says.
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="min-w-0 flex-1 text-left">
+            <span className="block break-words text-[13px] font-medium text-ink">{item.title}</span>
+          <ProposalPapers item={item} papers={papers} />
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <span className="block break-words text-[13px] font-medium text-ink">{item.title}</span>
+          <ProposalPapers item={item} papers={papers} />
+          </div>
+        )}
         <DecideButtons
           label={item.title}
           busy={busy}
@@ -161,11 +195,6 @@ function WaitingCard({
       ) : null}
       {open && item.kind === 'log_site_entry' ? (
         <SiteEntryLines projectId={project.id} proposalId={item.id} payload={item.payload} />
-      ) : open ? (
-        <div className="ml-4 space-y-1">
-          <p className="text-[12px] leading-relaxed text-ink-secondary">{item.rationale}</p>
-          <p className="text-[11px] text-ink-muted">{item.impact}</p>
-        </div>
       ) : null}
       {form ? (
         <CreateWizard
@@ -194,10 +223,15 @@ function WaitingCard({
  * documents, the documents with values to review; on the checks, the other
  * checks with values waiting. A long list folds, so a busy file does not
  * push the register itself off the screen.
+ *
+ * On a function's page it lists only what concerns that function. What waits
+ * for another function, or for none, is not this page's to show: it is
+ * counted on the bell, which walks to it.
  */
 export function WaitingHere({
   project,
   pane,
+  workstream,
   waiting,
   sittingCheckId,
   busy,
@@ -208,6 +242,8 @@ export function WaitingHere({
 }: {
   project: DdProject;
   pane: ProjectCockpitPane;
+  /** The function whose page is on screen, where the pane is a function's. */
+  workstream?: string;
   waiting: Waiting;
   /** The check already open on the scope — its values are decided there, not listed here. */
   sittingCheckId?: string | null;
@@ -218,8 +254,7 @@ export function WaitingHere({
   onSetAside: (id: string) => void;
   onGo: (entry: WaitingEntry) => void;
 }) {
-  const tab = tabHolding(pane).tab.pane;
-  const here = waiting.entries.filter((e) => tabHolding(e.pane).tab.pane === tab || (pane === 'dd' && e.pane === 'scope'));
+  const here = waitingOnPane(waiting.entries, { pane, workstream, sameTab: (a, b) => tabHolding(a).tab.pane === tabHolding(b).tab.pane });
   const documents = here.filter((e) => e.kind === 'facts');
   const checks = here.filter((e) => e.pane === 'scope' && e.extra?.checkId !== sittingCheckId);
   const cards = here
@@ -250,7 +285,7 @@ export function WaitingHere({
   const shown = documents.length + byCheck.size + cards.length;
 
   return (
-    <section aria-label="Waiting for you" data-waiting-anchor="pane" className="mb-3 scroll-mt-3 overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-inset ring-ai/25">
+    <section aria-label="To accept" data-waiting-anchor="pane" className="mb-3 scroll-mt-3 overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-inset ring-ai/25">
       <button
         type="button"
         onClick={() => setFolded((v) => !v)}
@@ -259,7 +294,7 @@ export function WaitingHere({
       >
         <AiMark size="xs" />
         <span className="flex-1 text-[13px] font-semibold text-ink">
-          Waiting for you
+          To accept
           <span className="ml-1.5 rounded-full bg-ai/12 px-1.5 font-mono text-micro font-medium text-ai-ink">{shown}</span>
         </span>
         <span className="hidden text-micro text-ink-muted sm:inline">{folded ? 'Show' : 'Accept or set aside each where it sits'}</span>

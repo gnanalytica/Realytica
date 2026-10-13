@@ -27,6 +27,7 @@ import { Badge, Callout, Card, CardBody, EmptyState, PageHeader, Skeleton, cn } 
 import { severityTone } from './projects/shared';
 import { TellCard } from '../components/TellCard';
 import { PersonFigures } from '../components/analytics/PersonFigures';
+import { daySaid } from '@realytica/shared';
 
 /**
  * What I am supposed to be doing.
@@ -63,7 +64,7 @@ function dueOn(iso: string): string {
   const at = new Date(iso);
   return Number.isNaN(at.getTime())
     ? iso
-    : at.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    : daySaid(at);
 }
 
 /** Where the row lives. The pane is the record's register; the check is its scope. */
@@ -110,9 +111,8 @@ export default function MyWork() {
         }
       />
 
-      {/* What I was told comes first: it is why some of the work below exists. */}
+      {/* Notices come first: they are why some of the work below exists. */}
       <TellCard />
-      <PersonFigures />
 
       {error ? <Callout tone="critical" title="Could not load your work">{error}</Callout> : null}
       {loading && !data ? <Skeleton className="h-40 w-full" /> : null}
@@ -147,7 +147,7 @@ export default function MyWork() {
           <CardBody>
             <EmptyState
               icon={<CircleCheck size={18} />}
-              title="Nothing is waiting on you"
+              title="Nothing needs you"
               description={
                 me
                   ? `Work is yours when its owner reads ${me.email}${me.name ? ` or ${me.name}` : ''}. If a name is spelled differently on the project, its work will not appear here — check the spelling matches.`
@@ -198,6 +198,8 @@ export default function MyWork() {
           </CardBody>
         </Card>
       ) : null}
+      {/* How the work has gone is read after the work itself. */}
+      <PersonFigures />
     </div>
   );
 }

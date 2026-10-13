@@ -82,7 +82,7 @@ import type {
   PromptUsage,
   PropertyIdentity,
 } from '@realytica/shared';
-import { exactValue, KHATA_TYPE_LABEL, prepareValue, STANDARD_PAPERS, standardKeyForm, standardKeyGuide, standardPaperOfKind } from '@realytica/shared';
+import { exactValue, KHATA_TYPE_LABEL, paperKeyGuide, paperKeys, prepareValue, readablePapers, readDocumentTypes, standardKeyForm, standardPaperOfKind } from '@realytica/shared';
 import { describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt, type ResolvedPrompt } from '../prompts';
 import { describeGap } from '../routing';
@@ -109,9 +109,9 @@ export interface DocumentIntelligenceResult {
   pagesInFile?: number;
   pagesSent?: number[];
   /**
-   * Which of the rules' own papers the reader took the document for
-   * (`STANDARD_PAPERS`), or `other`. A value under one of the rules' keys is
-   * taken only on a paper that carries the key.
+   * Which kind of paper the reader took the document for, in the rules' name
+   * for it (`readablePapers`), or `other`. A value under a key is taken only
+   * on a paper that carries the key.
    */
   paper?: string;
   /**
@@ -181,6 +181,18 @@ export interface RunDocumentIntelligenceInput {
    * page the reading names is mapped back to its place in the whole file.
    */
   pages?: readonly number[];
+  /**
+   * The kind of paper this server's rules took the file for, in their name for
+   * it (`sale_deed`), where they could say. The reader is told, and answers in
+   * that paper's keys.
+   */
+  paper?: string;
+  /**
+   * The reader answers only in the keys listed for the paper, and gives
+   * nothing under a name of its own: for a reading whose values wait on a
+   * project's fields, where a value no field waits for reaches nothing.
+   */
+  listedKeysOnly?: boolean;
 }
 
 /* ==================================================================== */
@@ -287,7 +299,7 @@ export const CUT_OFF_REASON =
  * to loop over here; a single `create`/`.stream()` call is simpler and is
  * exactly what the SDK docs recommend for a one-shot structured-output ask.
  */
-function buildExtractionTool(): LlmSchemaTool {
+export function buildExtractionTool(): LlmSchemaTool {
   return {
     kind: 'schema',
     name: EXTRACTION_TOOL_NAME,
@@ -306,8 +318,8 @@ function buildExtractionTool(): LlmSchemaTool {
         },
         paper: {
           type: 'string',
-          enum: [...STANDARD_PAPERS, 'other'],
-          description: 'Which of the papers listed with the standard keys this document is, or "other". Only that paper\'s standard keys may be used.',
+          enum: [...readablePapers(), 'other'],
+          description: 'Which of the papers listed with the keys this document is, or "other". Only that paper\'s keys may be used.',
         },
         kindConfidence: { type: 'number', minimum: 0, maximum: 1, description: 'Your honest confidence in the classification.' },
         fields: {
@@ -387,7 +399,7 @@ function buildSystemPrompt(): Promise<ResolvedPrompt> {
    */
   const standard =
     '- Standard keys, for a document of any kind. Where the document states one of the things below, record it under exactly ' +
-    `that key; every other field keeps a short camelCase key of your own. ${standardKeyGuide()}`;
+    `that key; every other field keeps a short camelCase key of your own. ${paperKeyGuide()}`;
   const guidance = [...(Object.keys(FIELD_GUIDANCE) as DocumentKind[]).map(k => `- ${k}: extract ${FIELD_GUIDANCE[k]}`), standard].join('\n');
 
   return resolvePrompt(PROMPT_KEYS.documentIntelligenceSystem, {
@@ -397,7 +409,21 @@ function buildSystemPrompt(): Promise<ResolvedPrompt> {
   });
 }
 
-function buildUserPrompt(document: CaseDocument, identity: PropertyIdentity, shown?: { pages: number[]; of: number }): string {
+/** What a reading for a project's fields is told of the paper in front of it: its kind where the rules know it, and its keys. */
+function paperBrief(paper: string | undefined, listedKeysOnly: boolean | undefined): string[] {
+  const known = paper && readablePapers().includes(paper as ReturnType<typeof readablePapers>[number]) ? paper : undefined;
+  const label = known ? readDocumentTypes().find(({ type }) => type === known)?.label : undefined;
+  const keys = known ? [...new Set([...paperKeys(known).map((key) => key.key)])] : [];
+  return [
+    ...(known ? [`This document was recognised here as: ${known} (${label}). Give "paper" as ${known} and use that paper's keys.`] : []),
+    ...(known && keys.length ? [`Fields are waiting for these of its keys: ${keys.join(', ')}. Look for each on the page.`] : []),
+    ...(listedKeysOnly
+      ? ['Record a value only under a key listed for the paper, each with the page it is on and the exact words that state it. Give nothing under a key of your own: a value no listed key names is left out.']
+      : []),
+  ];
+}
+
+function buildUserPrompt(document: CaseDocument, identity: PropertyIdentity, shown?: { pages: number[]; of: number }, brief: string[] = []): string {
   return [
     `Case property: ${identity.label} — ${identity.addressLine}, ${identity.locality}, ${identity.city}, ${identity.state}.`,
     `Survey/parcel on file: ${identity.parcelId || 'not recorded'}.`,
@@ -407,6 +433,7 @@ function buildUserPrompt(document: CaseDocument, identity: PropertyIdentity, sho
       ? [`You are shown ${shown.pages.length} of its ${shown.of} pages: ${shown.pages.map((page) => page + 1).join(', ')} of the original. Count pages as they are given to you, from 1.`]
       : []),
     'Classify this document and extract its fields as instructed in the system prompt.',
+    ...brief,
   ].join('\n');
 }
 
@@ -960,12 +987,13 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   const tool = buildExtractionTool();
   const systemPrompt = await buildSystemPrompt();
   promptUsages = systemPrompt.usages;
-  const userPrompt = [buildUserPrompt(document, identity, pdfWindow), wordsReadHere(input.pageTexts, pdfWindow?.pages)].filter(Boolean).join('\n\n');
+  const userPrompt = [buildUserPrompt(document, identity, pdfWindow, paperBrief(input.paper, input.listedKeysOnly)), wordsReadHere(input.pageTexts, pdfWindow?.pages)].filter(Boolean).join('\n\n');
   // Counted from the file's page tree, which the loader's scan of the bytes cannot always do.
   const pagesInFile = isPdf ? ((await pdfPageCount(fileBytes)) ?? documentPages) : 1;
   const pagesSent = pdfWindow ? pdfWindow.pages.map((page) => page + 1) : Array.from({ length: pagesInFile }, (_, i) => i + 1);
 
-  emit({ kind: 'tool_call', label: `Requesting classification & extraction from ${model} (${tier} tier)`, toolName: EXTRACTION_TOOL_NAME });
+  // What a person watching sees while it reads: the plain act. Which model and which tier are in the trace's own fields, not in its words.
+  emit({ kind: 'tool_call', label: 'Reading the paper', toolName: EXTRACTION_TOOL_NAME });
 
   // Built once and handed to the port. Everything provider-specific — the
   // `cache_control` marker, `citations: { enabled: true }`, the base64
@@ -1067,7 +1095,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
    */
   const paperName = (said: string | null | undefined): string | undefined => {
     const name = (said ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-    return (STANDARD_PAPERS as readonly string[]).includes(name) ? name : undefined;
+    return (readablePapers() as readonly string[]).includes(name) ? name : undefined;
   };
   const kindAsPaper = isDocumentKind(parsed.data.kind) ? undefined : paperName(parsed.data.kind);
   /*
@@ -1112,6 +1140,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
    * the model named is only where to look; the page a field ends up with is
    * one the value was found on.
    */
+  // The kind of paper its keys are read as: what this server's rules took it for, else what the reader named.
+  const paperTaken = input.paper ?? paperName(parsed.data.paper) ?? kindAsPaper ?? standardPaperOfKind(kind);
   let placements: Placement[] | undefined;
   let pagesChecked = 0;
   /** A page went without its second reading for want of time. */
@@ -1126,12 +1156,14 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       onUsage: (usage, checkModel) => pageCheckUsage.push({ model: checkModel, usage }),
       onCut: () => (checksCut = true),
       ...(input.stopAt !== undefined ? { stopAt: input.stopAt } : {}),
+      ...(paperTaken ? { paper: paperTaken } : {}),
     });
     const deadline = input.checkDeadline;
     const placed = await placeReadings({
       readings: parsed.data.fields.map((f) => ({ key: f.key, value: f.value, unit: f.unit, originalValue: f.originalValue, quote: f.quote, hint: originalPage(f.page, isPdf, pdfWindow) })),
       pageTexts: input.pageTexts,
       ocrPages: input.ocrPages,
+      ...(paperTaken ? { paper: paperTaken } : {}),
       pageCount: pagesInFile,
       // Only where the first reader looked: a value is not placed on a page it was never sent.
       pagesSent,

@@ -205,7 +205,8 @@ describe('a dropped paper', () => {
 
     const back = await undo(project.id, dropped.assistantTurn);
     assert.deepEqual(back.project.evidence.map((row) => row.id), [khata!.id], 'the paper nobody touched is gone, and the one with a decision on it stays');
-    assert.match(back.assistantTurn.text, /^Undone, \d+ of \d+:\n- Filed “[^”]+”\.\nThe file it added is removed from storage\.\nLeft as it is:\n- Filed “[^”]+”: it was changed again since\.$/);
+    // With the paper go the values it offered to the fields that read its kind.
+    assert.match(back.assistantTurn.text, /^Undone, \d+ of \d+:\n- Filed “[^”]+”\.\n- Changed values on the sheets\.\nThe file it added is removed from storage\.\nLeft as it is:\n- Filed “[^”]+”: it was changed again since\.$/);
     assert.deepEqual([await inStorage(project.id, keyOf(khata!)), await inStorage(project.id, keyOf(tax!))], [true, false]);
   });
 });
@@ -274,7 +275,7 @@ describe('other work done while a message runs', () => {
 
     // The reply says what the message did, and apart from it what else changed while it ran.
     assert.deepEqual(kept.assistantTurn.changed?.lines, ['Kept the notes of a meeting of 3 Oct 2026']);
-    assert.deepEqual([...(kept.assistantTurn.changed?.meanwhile?.lines ?? [])].sort(), ['Accepted Khata number on “Khata certificate”: 112/4', 'Filed “Sale deed”', 'Recorded the decision “Proceed to the agreement”']);
+    assert.deepEqual([...(kept.assistantTurn.changed?.meanwhile?.lines ?? [])].sort(), ['Accepted Khata number on “Khata certificate”: 112/4', 'Changed values on the sheets', 'Filed “Sale deed”', 'Recorded the decision “Proceed to the agreement”']);
     const deedKey = kept.project.evidence.find((row) => row.title === 'Sale deed')!.attachments[0]!.storageKey;
     // Every line the message wrote to the trail carries its request's mark, and no line written from a page carries one.
     const trail = (await stored(project.id)).audit;
@@ -311,11 +312,12 @@ describe('a step of a plan', () => {
     const shown = await say(project.id, 'Read the filed papers, then suggest answers to the questionnaire');
     const ran = await say(project.id, 'Run the plan', { plan: { id: shown.assistantTurn.planId!, act: 'run' } });
     const tick = ran.project.conversation.find((turn) => turn.text.startsWith('Step 1 of 2 done.'))!;
-    assert.ok(tick.changed?.kept && tick.changed.lines.every((line) => line.startsWith('Read “')), JSON.stringify(tick.changed));
+    // Each paper read, and what the two offered to the fields that read their kinds.
+    assert.ok(tick.changed?.kept && tick.changed.lines.every((line) => line.startsWith('Read “') || line === 'Changed values on the sheets'), JSON.stringify(tick.changed));
     assert.ok(ran.project.evidence.every((row) => row.facts?.length), 'the step read both papers');
 
     const back = await undo(project.id, tick);
-    assert.match(back.assistantTurn.text, /^Undone:\n- Read “Paper 1”\.\n- Read “Paper 2”\.$/);
+    assert.match(back.assistantTurn.text, /^Undone:\n- Read “Paper 1”\.\n- Read “Paper 2”\.\n- Changed values on the sheets\.$/);
     assert.ok(back.project.evidence.every((row) => !row.facts?.length && row.attachments.length === 1), 'the readings are gone, and the papers and their files are as they were');
   });
 });

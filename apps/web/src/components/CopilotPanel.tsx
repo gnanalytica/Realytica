@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnswerCard } from './chat/AnswerCard';
 import { AttachControls, type VoiceInfo } from './chat/AttachControls';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, PanelLeftClose, SearchX, X } from 'lucide-react';
@@ -27,6 +28,14 @@ import { relativeTime } from '../lib/format';
  * own citations. The time is the part that differs between turns and the part
  * somebody scrolling back is looking for.
  */
+/** Steps that say which model answered: kept on the turn, never drawn. */
+const ROUTING_STEPS: ReadonlySet<string> = new Set(['senior_model', 'basic_model']);
+
+/** A step as a person reads it while they wait: a line that names a model or its tier says only that the paper is being read. */
+export function stepSaid(label: string): string {
+  return /\b(model|tier|classification|extraction)\b/i.test(label) ? 'Reading the paper' : label;
+}
+
 function TurnTime({ at, spend }: { at: string; spend?: TurnSpend }) {
   return (
     <div className="mt-1 flex items-center gap-1.5 text-micro text-ink-muted">
@@ -43,11 +52,7 @@ function TurnTime({ at, spend }: { at: string; spend?: TurnSpend }) {
         beside a call that cost real money reads as free rather than as
         unpriced — so an inexact figure says that instead of quoting itself.
       */}
-      {spend ? (
-        <span title={spend.exact ? 'Priced at this route’s published rate' : 'No rate on file for this model'}>
-          · {spend.exact ? formatSpend(spend.usd) : 'cost not priced'}
-        </span>
-      ) : null}
+      {spend?.exact ? <span title="What this answer cost">· {formatSpend(spend.usd)}</span> : null}
     </div>
   );
 }
@@ -120,7 +125,8 @@ function TurnBubble({
   const inlineEvidence = new Set(Array.from(turn.text.matchAll(/\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g), m => m[1]));
   const known = new Set((evidence ?? []).map(e => e.id));
   const uncitedMissing = turn.citedEvidenceIds.filter(id => !inlineEvidence.has(id) && !known.has(id));
-  const consulted = Array.from(new Set((turn.toolCalls ?? []).map(t => t.summary.trim()).filter(Boolean)));
+  // Which model answered, and why one handed over to another, is routing: it is kept on the turn and not drawn.
+  const consulted = Array.from(new Set((turn.toolCalls ?? []).filter((t) => !ROUTING_STEPS.has(t.name)).map(t => t.summary.trim()).filter(Boolean)));
   // A critic flag has to travel with the claim it concerns. Surfacing it only
   // in the verification panel would let someone read an unsupported answer
   // cleanly here and never see the warning sitting on another screen.
@@ -222,14 +228,20 @@ function TurnBubble({
             </span>
           </p>
         ) : null}
-        <AnswerBody
-          text={turn.text}
-          evidence={evidence}
-          nodes={nodes}
-          rests={turn.restsOn}
-          onOpenEvidence={onOpenEvidence}
-          onOpenNode={onOpenNode}
-        />
+        {turn.card ? (
+          <AnswerCard card={turn.card} text={turn.text} onOpenEvidence={onOpenEvidence} />
+        ) : (
+          <AnswerBody
+            text={turn.text}
+            evidence={evidence}
+            nodes={nodes}
+            rests={turn.restsOn}
+            onOpenEvidence={onOpenEvidence}
+            onOpenNode={onOpenNode}
+          />
+        )}
+        {/* Only a model's turn carries what it cost. One with no card was kept before answers were cards: its words are the model's own. */}
+        {!turn.card && turn.spend && !turn.unanswered ? <p className="mt-1 text-mini text-ink-muted">Written by a model, before this change.</p> : null}
         {/*
           Deduped. The agent loops up to eight times and routinely consults
           the same tool twice — the observed answer showed "Looking up get
@@ -430,7 +442,7 @@ function TypingIndicator({ steps }: { steps: AgentStep[] }) {
               />
             ))}
           </span>
-          {current ? <span className="text-shimmer min-w-0 truncate text-[13px]">{current.label}</span> : <span className="text-shimmer text-[13px]">Thinking</span>}
+          {current ? <span className="text-shimmer min-w-0 truncate text-[13px]">{stepSaid(current.label)}</span> : <span className="text-shimmer text-[13px]">Thinking</span>}
         </div>
         {done > 0 ? (
           <span className="text-mini text-ink-muted">
@@ -1265,7 +1277,7 @@ export function CopilotPanel({
         <div className="flex items-start gap-2 rounded-lg bg-sunken px-2.5 py-2 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
           <Info size={13} className="mt-px shrink-0 text-ink-muted" />
           <span>
-            {disabledReason ?? 'No model is configured for this deployment.'} Everything else on this case works.
+            {disabledReason ?? 'No AI model is set up.'} Everything else on this project works.
           </span>
         </div>
       ) : null}
@@ -1370,7 +1382,7 @@ export function CopilotPanel({
         {compact ? null : (
           <p className="flex items-center gap-1.5 px-1 text-[11px] text-ink-muted">
             <Lock size={11} aria-hidden />
-            Only people change the record. AI proposals wait for a decision.
+            Only people change the record. What AI proposes waits to be accepted.
           </p>
         )}
       </form>

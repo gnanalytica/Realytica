@@ -1,21 +1,54 @@
+import { RuleRows } from '../components/law/RuleRows';
 import { useState } from 'react';
 import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, LAW_ACTIONS_A_PROJECT, STAGES, lawDay, type DepartmentKey, type LawChange, type LawProposedAction, type LawSource, type LawSourceInput, type StageKey } from '@realytica/shared';
+import {
+  DEPARTMENT_KEYS,
+  DEPARTMENT_SHORT,
+  LAW_ACTIONS_A_PROJECT,
+  LAW_NEXT,
+  LAW_NEXT_LABEL,
+  STAGES,
+  lawChangeSaid,
+  lawDay,
+  lawLists,
+  reachesEveryProject,
+  ruleSourceSaid,
+  type DepartmentKey,
+  type LawChange,
+  type LawChangeFields,
+  type LawLists,
+  type LawNext,
+  type LawProposedAction,
+  type LawRuleRowOffer,
+  type LawSource,
+  type LawSourceInput,
+  type StageKey,
+} from '@realytica/shared';
+import { AboutSelect, LawFieldsEdit, LawFieldsRead, aboutChoices } from '../components/law/LawChangeFields';
 import { lawWatchApi, type LawWaiting, type LawWatchShown } from '../lib/law-watch-api';
 import { useAsync } from '../lib/useAsync';
-import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, Checkbox, Disclosure, Field, Input, Modal, PageHeader, Select, Skeleton, Textarea, useToast } from '../components/ui/kit';
+import { useMe } from '../lib/useMe';
+import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, Checkbox, Disclosure, Field, Input, Modal, PageHeader, Select, Skeleton, useToast } from '../components/ui/kit';
 
 /**
  * The firm's law and policy watch: the official pages it watches, how each
  * last read, and the changes waiting on a person.
  *
- * A change shows the lines that came and went. Where a model proposed a
- * summary and actions they are marked as a model's and open in boxes a
- * person edits. Nothing reaches a project until somebody presses Confirm.
+ * A change shows the lines that came and went: they are the source, and
+ * what a person reads. Beside them are the change's fields (the instrument,
+ * its reference and dates, the kind of change, what a figure was and is,
+ * what it affects), filled by a model where one is set up and marked as a
+ * model's, each a pick, a day, a number or a reference a person corrects.
+ * An action is a department, a next step off a list and what it is about.
+ * Nobody types a summary or an instruction, and no model writes one.
+ * Nothing reaches a project until somebody presses Confirm.
+ *
+ * A change proposed or confirmed before this was so still shows what was
+ * written then, marked as written by a model before the change.
  */
 
 interface Draft {
-  summary: string;
+  fields: LawChangeFields;
   /** Actions by project id. */
   actions: Record<string, LawProposedAction[]>;
 }
@@ -24,10 +57,13 @@ function draftOf(change: LawWaiting): Draft {
   const actions: Record<string, LawProposedAction[]> = {};
   for (const project of change.bearsOn) {
     const proposed = change.proposal?.projects.find((row) => row.projectId === project.id)?.actions ?? [];
-    actions[project.id] = proposed.filter((action) => project.departments.includes(action.department));
+    // An action kept before actions were fields has no next step: it is shown above as it was written, and not carried into the draft.
+    actions[project.id] = proposed.filter((action) => action.next && project.departments.includes(action.department));
   }
-  return { summary: change.proposal?.summary ?? '', actions };
+  return { fields: change.proposal?.fields ?? { affects: [] }, actions };
 }
+
+const TODAY = new Date().toISOString().slice(0, 10);
 
 function Lines({ sign, lines, total }: { sign: '+' | '−'; lines: string[]; total: number }) {
   if (!lines.length) return null;
@@ -45,10 +81,28 @@ function Lines({ sign, lines, total }: { sign: '+' | '−'; lines: string[]; tot
   );
 }
 
-function Waiting({ change, mayReview, busy, onConfirm, onDismiss }: { change: LawWaiting; mayReview: boolean; busy: boolean; onConfirm: (draft: Draft) => void; onDismiss: () => void }) {
+/** What a model wrote for a change before changes were fields, shown as that and nothing more. */
+function WrittenBefore({ change }: { change: LawWaiting | LawChange }) {
+  const before = [change.proposal?.summary ?? change.summary, ...(change.proposal?.projects ?? []).flatMap((row) => row.actions.filter((action) => !action.next && action.title).map((action) => `${DEPARTMENT_SHORT[action.department]}: ${action.title}`))].filter(Boolean);
+  if (!before.length) return null;
+  return (
+    <div className="space-y-1 rounded-lg border border-hairline p-3">
+      <p className="text-[11px] font-medium text-ink-muted">Written by a model, before this change</p>
+      {before.map((line, i) => (
+        <p key={i} className="text-[13px] text-ink-secondary">
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function Waiting({ change, lists, mayReview, busy, onConfirm, onDismiss }: { change: LawWaiting; lists: LawLists; mayReview: boolean; busy: boolean; onConfirm: (draft: Draft) => void; onDismiss: () => void }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(change));
   const setActions = (projectId: string, next: LawProposedAction[]) => setDraft((held) => ({ ...held, actions: { ...held.actions, [projectId]: next } }));
-  const count = Object.values(draft.actions).reduce((sum, rows) => sum + rows.filter((row) => row.title.trim()).length, 0);
+  const count = Object.values(draft.actions).reduce((sum, rows) => sum + rows.length, 0);
+  // An action is about one of the things the change affects, or about the change itself.
+  const abouts = aboutChoices(lists);
   return (
     <article className="space-y-3 border-b border-hairline pb-4 last:border-b-0 last:pb-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -70,17 +124,15 @@ function Waiting({ change, mayReview, busy, onConfirm, onDismiss }: { change: La
       ))}
       {mayReview && change.mayDecide ? (
         <>
-          <Field
-            label={
-              <span className="inline-flex items-center gap-1.5">
-                {change.proposal ? <AiMark size="xs" /> : null}
-                What changed
-              </span>
-            }
-            hint={change.proposal ? 'Proposed by a model. Read the lines above and edit before confirming.' : undefined}
-          >
-            <Textarea rows={3} value={draft.summary} maxLength={1200} onChange={(e) => setDraft((held) => ({ ...held, summary: e.target.value }))} />
-          </Field>
+          <WrittenBefore change={change} />
+          <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-[12px] text-ink-muted">
+              {change.proposal?.fields ? <AiMark size="xs" /> : null}
+              {change.proposal?.fields ? 'Filled by a model from the lines above. Check each against them before confirming.' : 'Fill from the lines above.'}
+            </p>
+            {change.proposal?.quote ? <p className="break-words font-mono text-[12px] text-ink-muted">“{change.proposal.quote}”</p> : null}
+            <LawFieldsEdit fields={draft.fields} lists={lists} onChange={(fields) => setDraft((held) => ({ ...held, fields }))} />
+          </div>
           {change.bearsOn.length === 0 ? <p className="text-[12px] text-ink-muted">No project of yours is one this source bears on.</p> : null}
           {change.bearsOn.map((project) => {
             const rows = draft.actions[project.id] ?? [];
@@ -94,12 +146,32 @@ function Waiting({ change, mayReview, busy, onConfirm, onDismiss }: { change: La
                         <option key={key} value={key}>{DEPARTMENT_SHORT[key]}</option>
                       ))}
                     </Select>
-                    <Input aria-label="Action" className="min-w-[12rem] flex-1" value={row.title} maxLength={200} onChange={(e) => setActions(project.id, rows.map((held, at) => (at === i ? { ...held, title: e.target.value } : held)))} />
+                    <Select aria-label="Next step" value={row.next ?? 'read_change'} className="min-w-0 flex-1 basis-56" onChange={(e) => setActions(project.id, rows.map((held, at) => (at === i ? { ...held, next: e.target.value as LawNext } : held)))}>
+                      {LAW_NEXT.map((key) => (
+                        <option key={key} value={key}>{LAW_NEXT_LABEL[key]}</option>
+                      ))}
+                    </Select>
+                    <AboutSelect
+                      label="What it is about"
+                      value={row.about}
+                      choices={abouts}
+                      none="About the change itself"
+                      onChange={(about) =>
+                        setActions(
+                          project.id,
+                          rows.map((held, at) => {
+                            if (at !== i) return held;
+                            const { about: _was, ...rest } = held;
+                            return about ? { ...rest, about } : rest;
+                          }),
+                        )
+                      }
+                    />
                     <Button variant="ghost" size="sm" aria-label="Remove action" icon={<Trash2 size={14} />} onClick={() => setActions(project.id, rows.filter((_, at) => at !== i))} />
                   </div>
                 ))}
                 {rows.length < LAW_ACTIONS_A_PROJECT ? (
-                  <Button variant="ghost" size="sm" icon={<Plus size={14} />} onClick={() => setActions(project.id, [...rows, { department: project.departments[0]!, title: '' }])}>
+                  <Button variant="ghost" size="sm" icon={<Plus size={14} />} onClick={() => setActions(project.id, [...rows, { department: project.departments[0]!, next: 'read_change', ...(draft.fields.affects[0] ? { about: draft.fields.affects[0] } : {}) }])}>
                     Add action
                   </Button>
                 ) : null}
@@ -107,17 +179,22 @@ function Waiting({ change, mayReview, busy, onConfirm, onDismiss }: { change: La
             );
           })}
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" disabled={busy || !draft.summary.trim()} onClick={() => onConfirm(draft)}>
+            <Button variant="primary" disabled={busy || !draft.fields.change} onClick={() => onConfirm(draft)}>
               {count ? `Confirm and add ${count} ${count === 1 ? 'action' : 'actions'}` : 'Confirm, no actions'}
             </Button>
             <Button variant="ghost" disabled={busy} onClick={onDismiss}>Not relevant</Button>
           </div>
         </>
       ) : change.proposal ? (
-        <p className="flex items-start gap-1.5 text-[13px] text-ink-secondary">
-          <AiMark size="xs" className="mt-0.5" />
-          <span>{change.proposal.summary}</span>
-        </p>
+        <div className="space-y-2">
+          <WrittenBefore change={change} />
+          {change.proposal.fields ? (
+            <div className="flex items-start gap-1.5">
+              <AiMark size="xs" className="mt-0.5" />
+              <LawFieldsRead fields={change.proposal.fields} quote={change.proposal.quote} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </article>
   );
@@ -201,7 +278,10 @@ function decidedLine(change: LawChange): string {
 }
 
 export default function LawWatch() {
-  const { data: loaded, error, loading } = useAsync(() => lawWatchApi.open(), []);
+  // The watch is the firm's own people's: somebody working from a grant is told so, and nothing is asked of the server for them.
+  const me = useMe();
+  const staff = me ? reachesEveryProject(me.role) : false;
+  const { data: loaded, error, loading } = useAsync(() => (staff ? lawWatchApi.open() : Promise.resolve(null)), [staff]);
   const [fresh, setFresh] = useState<LawWatchShown | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<LawSource | 'new' | null>(null);
@@ -240,15 +320,21 @@ export default function LawWatch() {
           ) : null
         }
       />
-      <p className="text-[13px] text-ink-secondary">Watches the pages listed here only. Not legal advice.</p>
+      {me && !staff ? (
+        <Callout tone="neutral" title="Law and policy is for the firm’s own people">
+          An action that comes of a change in the law is on the project it was added to.
+        </Callout>
+      ) : (
+        <p className="text-[13px] text-ink-secondary">Watches the pages listed here only. Not legal advice.</p>
+      )}
 
       {error ? <Callout tone="critical" title="Could not load the watch">{error}</Callout> : null}
-      {loading && !data ? <Skeleton className="h-64 w-full rounded-xl" /> : null}
+      {staff && loading && !data ? <Skeleton className="h-64 w-full rounded-xl" /> : null}
 
       {data ? (
         <>
           <Card>
-            <CardHeader title="Changes waiting" subtitle={`${data.waiting.length} to review${data.model ? '' : ' · no model set up, so no proposals'}`} />
+            <CardHeader title="Changes waiting" subtitle={`${data.waiting.length} to review${data.model ? '' : ' · no model set up, so no fields are filled for you'}`} />
             <CardBody>
               {data.waiting.length ? (
                 <div className="space-y-4">
@@ -256,6 +342,7 @@ export default function LawWatch() {
                     <Waiting
                       key={change.id}
                       change={change}
+                      lists={lawLists(data.sources.find((source) => source.id === change.sourceId) ?? { departments: [...DEPARTMENT_KEYS], jurisdiction: '' }, TODAY)}
                       mayReview={data.mayReview}
                       busy={busy}
                       onConfirm={(draft) =>
@@ -263,9 +350,9 @@ export default function LawWatch() {
                           () =>
                             lawWatchApi.confirm(
                               change.id,
-                              draft.summary.trim(),
+                              draft.fields,
                               Object.entries(draft.actions)
-                                .map(([projectId, actions]) => ({ projectId, actions: actions.filter((action) => action.title.trim()) }))
+                                .map(([projectId, actions]) => ({ projectId, actions }))
                                 .filter((row) => row.actions.length),
                             ),
                           'Confirmed',
@@ -326,6 +413,43 @@ export default function LawWatch() {
             </CardBody>
           </Card>
 
+          {data.offeredRows?.length ? (
+            <Card>
+              <CardHeader title="Rule rows offered" subtitle="A confirmed change of a rate offers a new dated row. It is not verified until a firm admin checks it against the instrument." />
+              <CardBody>
+                <ul className="divide-y divide-hairline">
+                  {data.offeredRows.map((offer: LawRuleRowOffer) => (
+                    <li key={offer.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0">
+                      <div className="min-w-0 flex-1 basis-64 space-y-0.5">
+                        <p className="text-[13px] font-medium text-ink">
+                          {offer.row.label}: <span className="font-mono tabular-nums">{offer.row.value}</span>
+                          {offer.row.unit ? ` ${offer.row.unit}` : ''}, in force from {lawDay(offer.row.from)}
+                        </p>
+                        <p className="text-[12px] text-ink-muted">
+                          {ruleSourceSaid(offer.row.source)} · supersedes the row in force from {lawDay(offer.supersedes.from)}
+                        </p>
+                      </div>
+                      {offer.row.verified ? (
+                        <Badge tone="good">Verified by {offer.row.verifiedBy}</Badge>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Badge tone="warning">Not verified</Badge>
+                          {data.mayManage ? (
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => lawWatchApi.verifyRow(offer.id), 'Marked verified')}>
+                              Mark verified
+                            </Button>
+                          ) : null}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </CardBody>
+            </Card>
+          ) : null}
+
+          <RuleRows />
+
           {data.decided.length ? (
             <Disclosure title="Decided" count={data.decided.length}>
               <ul className="space-y-2">
@@ -333,7 +457,12 @@ export default function LawWatch() {
                   <li key={change.id} className="text-[13px]">
                     <a href={change.url} target="_blank" rel="noreferrer" className="font-medium text-ink hover:text-brand">{change.sourceTitle}</a>
                     <span className="text-ink-muted"> · seen {lawDay(change.seenAt)}</span>
-                    {change.summary ? <p className="text-ink-secondary">{change.summary}</p> : null}
+                    {change.fields ? <p className="text-ink-secondary">{lawChangeSaid(change.fields)}</p> : null}
+                    {!change.fields && change.summary ? (
+                      <p className="text-ink-secondary">
+                        {change.summary} <span className="text-[12px] text-ink-muted">Written by a model, before this change.</span>
+                      </p>
+                    ) : null}
                     <p className="text-[12px] text-ink-muted">{decidedLine(change)}</p>
                   </li>
                 ))}

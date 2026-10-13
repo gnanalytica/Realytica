@@ -161,6 +161,18 @@ list or by their firm role), for that project only. A signer does not count as
 a lead here. A viewer reads no figures about a person, their own included. No
 figures are kept about a collaborator.
 
+Set up is for the firm's own people too: `GET /api/setup` is read-only, says
+what is connected and what each thing still needs, and is refused to a
+collaborator (403). Keys and webhooks are in its answer for an owner or a
+manager only, as on `/api/integrations`. The sidebar lists a place only for
+somebody who may use it (`workspace-menu.ts`: Law and policy and Set up for
+the firm's own people, Integrations for an owner or a manager). Papers owed
+are each department's own list, on its Documents: somebody working from a
+grant keeps the list of each department they were given, without the firm's
+replies or its requests made by hand, and Overview's count across departments
+is not shown to them. Hiding an entry is a courtesy; each route refuses by
+itself.
+
 A workspace always keeps at least one owner. The last one cannot demote or
 remove themselves — there is no way back into a workspace that has nobody who
 can administer it.
@@ -196,6 +208,13 @@ Three things follow from the grant rather than being written per route:
   flow they run. What a change reaches (`GET /graph/impact`) is not asked of
   the store at all for somebody working from a grant. It is worked out on
   their own copy, and a record that is not on it is not found.
+  A field's node is handed on only where the caller's own copy draws it, and
+  with what their copy says of it: a figure worked out from records they are
+  not handed is not the figure the whole file works out.
+  A route that answers with something other than a project answers from the
+  caller's copy too: a check's fields (`GET /checks/:checkId/fields`), the
+  dashboard's counts, what changed since the last assessment, and every
+  report route.
 - **Writes are gated separately.** The API mutates the real project, not the
   copy, so a request naming a record that exists but is not in the caller's
   projection is refused — whether the id came from the path or the body.
@@ -214,6 +233,59 @@ connected folder are never on a collaborator's copy of a project. A paper the
 folder brought is on it without its folder path or link. A report the timer
 prepared is not on it until a person issues it, and an issued status report is
 on it without the checklist's lines.
+
+**Field sheets on a collaborator's copy.** A function's sheets and records are
+on it only where the grant names a scope the function's checks sit in, and
+the function passes the gate the rest of the copy is cut by
+(`fieldFunctionsInReach`):
+
+| Function's sheets | Also needs |
+|---|---|
+| Procurement's (bids, earnest money, orders, vendors) | The scope `procurement` on the grant. `allScopes` does not name it, and a scope the function shares with Finance does not open it |
+| Finance › Budget | The Budget and figures area |
+| Finance › Valuation | The Valuation area |
+
+The same test decides what they may write: a sheet that is not on their copy
+is not found by the routes that type into it, add a record to it, decide one
+of its values, set its situation or put one of its lines off. A check's own
+fields are not sheets: they go with the check, by its scope.
+
+Nothing worked out from a sheet is kept on the project. A figure, a mirror, a
+standing, a rule's sentence, a pairing and the counts under Needs you are
+worked out from the copy each time it is read, so one that reads a sheet out
+of reach has no answer on that copy. A line put off (`fieldSnoozes`) is kept
+under its line's key and goes only where the line can be drawn.
+
+Four things are narrower than that, whatever the grant names:
+
+- **Buyers are nobody's outside the firm.** The buyers' set
+  (`commercial.inventory.buyers`, the sets in `CUSTOMER_SETS`) is never on the
+  copy, and neither is a party record one of them names (a buyer, a
+  co-applicant), that the buyer's tax deduction or the buyer's ledger names
+  (`finance.tax.buyer_tds`, `finance.ledgers.customer_ledgers`), or that
+  carries the role customer.
+- **A shared record carries only what is in reach.** A unit, a party, a
+  building is one record that several departments add their own facts to. The
+  copy holds the record's own fields and the additions of functions in the
+  grant's reach: a surveyor on Handover reads the unit and its possession, and
+  none of its sale.
+- **A report is cut by the same rule.** A section that names a field out of
+  reach, a buyers' set, a department's addition out of reach, or a list of
+  parties kept as it read one day, is left out of the copy whole. So is a
+  frozen section that prints the name of a party the copy is not handed: a
+  frozen row keeps a link as the name it read that day.
+- **A report is written to within the same reach.** Somebody whose grant
+  ticks Reports makes a report, adds sections and edits them. A function's
+  report whose template reads a field out of their reach, and a section whose
+  source does, are refused before anything is written (404). Every report
+  route answers with the report as their copy holds it. Freezing a section
+  (detach) and issuing a report are for the firm's own people (403), on the
+  routes and in the chat: what is frozen is read off the whole file, and an
+  issued report is signed.
+
+A firm's own fields (Set up › Fields) and the rule rows it has verified are
+read by anybody who can read; only a firm admin changes the first or verifies
+the second.
 
 ### Who runs the deployment
 
@@ -343,6 +415,7 @@ what they find. They decide nothing that was read.
 |---|---|
 | What a document states, on its own row | The department whose function holds the document. While no function holds it: a lead or signer of any department the project uses. |
 | A value waiting on a check | The check's department |
+| A value waiting on a field of a function's sheet, a dispute between two values, a situation, a field or section marked not applicable, a record taken off its list, a Due-soon line put off | A lead or signer of the function's department. On a shared record: a lead or signer of any department. |
 | A value offered to the valuation, and which comparables count | Finance |
 | Moving a document out of the function that holds it | The department that holds it now |
 | Saying what kind of document a row is, once a value on it has been decided | The department that holds it |

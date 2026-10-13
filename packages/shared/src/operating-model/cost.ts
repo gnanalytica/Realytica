@@ -282,6 +282,14 @@ const MONEY: Record<Currency, { sign: string; locale: string }> = {
 export function moneySaid(amount: number, currency: Currency = 'INR'): string {
   const { sign, locale } = MONEY[currency] ?? MONEY.INR;
   const paise = Math.abs(inPaise(amount));
+  // Rupees are written in lakh and crore, as a field writes them, wherever that says the amount exactly: ₹18.4 Cr, ₹11.3 lakh.
+  // A figure that is not a whole number of thousands is written to the rupee, so no ledger loses one.
+  // Every whole number of thousands is exact: to two places of a lakh, to four of a crore (₹22.095 Cr).
+  if ((currency === 'INR' || !MONEY[currency]) && paise >= 1e7 && paise % 100_000 === 0) {
+    const rupees = paise / 100;
+    const band = rupees >= 1e7 ? { size: 1e7, word: 'Cr', places: 4 } : { size: 1e5, word: 'lakh', places: 2 };
+    return `${amount < 0 ? '−' : ''}${sign}${(rupees / band.size).toLocaleString('en-IN', { maximumFractionDigits: band.places })} ${band.word}`;
+  }
   const digits = (paise / 100).toLocaleString(locale, { minimumFractionDigits: paise % 100 === 0 ? 0 : 2, maximumFractionDigits: 2 });
   return `${amount < 0 && paise !== 0 ? '−' : ''}${sign}${digits}`;
 }

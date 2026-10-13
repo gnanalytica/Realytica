@@ -3,11 +3,14 @@
  *
  * The brief: that it is built from the record alone, carries paper and page
  * where a paper states a value, names nobody, and stays under its length.
- * The holding: that a proposal citing a line the brief does not have is
- * dropped whole. The memory: that a matter is raised once across days
- * however it is worded, and that a dismissed one never comes back. The
+ * The rules: that four of the six kinds are found by code with no model.
+ * The holding: that only a kind and marks are read from a model, that any
+ * sentence it sends is thrown away and never stored, and that a nomination
+ * citing a line the brief does not have is dropped whole. The wording: that
+ * every line a person reads is a template's. The memory: that a matter is
+ * raised once across days, and that a dismissed one never comes back. The
  * spending: a project a day, every project a day, and a run that stops
- * starting reviews. And that with no model nothing is done.
+ * starting reviews. And that with no model the rules still run.
  *
  * Every project, paper, package, activity and date is invented.
  */
@@ -42,7 +45,12 @@ import {
   sweepDue,
   sweepEntries,
   sweepFingerprint,
-  sweepProposalsHeld,
+  sweepNominationsHeld,
+  sweepRuleFindings,
+  setFieldValues,
+  proposeFieldValues,
+  decideField,
+  sweepSaid,
   sweepRaise,
   sweepStateOf,
   syncAlerts,
@@ -51,6 +59,7 @@ import {
   type DocumentFact,
   type FileSweepState,
   type SweepBrief,
+  type SweepSuggestion,
 } from '@realytica/shared';
 
 type Cron = typeof import('../apps/api/src/cron/file-sweep');
@@ -104,7 +113,7 @@ const markOf = (brief: SweepBrief, words: string): string => {
   return entry.mark;
 };
 
-/** What a model would answer about `built`: the cost that moved, the action on nobody, and two things that cite what is not there. */
+/** What a model would answer about `built`, sentences and all: the cost that moved, a kind that is a rule's and not its to name, and things that cite what is not there. */
 function answered(brief: SweepBrief, wording = 'The structure’s forecast rose with no reason recorded.') {
   return [
     { kind: 'cost_unexplained', statement: wording, why: 'The package moved and the report gives no variation, award or reason.', action: 'Ask the cost consultant for the reason and type it against the package.', cites: [markOf(brief, 'A Structure')], department: 'finance', severity: 'high', as: 'finding' },
@@ -219,58 +228,179 @@ describe('a brief cut to its length', () => {
   });
 });
 
+/** Every string a stored thing holds, at any depth. */
+const stringsOf = (held: unknown): string[] => (typeof held === 'string' ? [held] : held && typeof held === 'object' ? Object.values(held).flatMap(stringsOf) : []);
+
+describe('what the rules find, with no model', () => {
+  it('finds two papers that state one field differently, with the paper and page of each', () => {
+    const p = built();
+    const found = sweepRuleFindings(p, day('2026-10-12')).filter((held) => held.kind === 'papers_disagree');
+    assert.equal(found.length, 1);
+    const [matter] = found;
+    assert.equal(matter!.by, 'rule');
+    assert.deepEqual(matter!.subjects, [{ fn: 'legal.title', set: 'land_site.parcel_identification', field: 'survey_numbers' }]);
+    assert.deepEqual(matter!.sources.map((source) => [source.paper, source.page]), [['Sale deed of the northern parcel', 2], ['Khata extract', 1]]);
+    assert.equal(sweepSaid(matter!).line, 'Survey number 41/2 (Sale deed of the northern parcel) against 41/3 (Khata extract, waiting on a person).');
+    assert.deepEqual([matter!.severity, matter!.next, matter!.as], ['high', 'correct_value', 'finding']);
+  });
+
+  it('says nothing of two papers that agree within the tolerance, and gives the divergence where they do not', () => {
+    const p = built();
+    const [deed, khata] = p.evidence;
+    deed!.facts = [value('extent_title', 4046, '4,046 sq m', 2)];
+    khata!.documentType = 'RTC (record of rights)';
+    khata!.facts = [value('extent_title', 4050, '4,050 sq m', 1)];
+    assert.equal(sweepRuleFindings(p, day('2026-10-12')).filter((held) => held.kind === 'papers_disagree').length, 0);
+    khata!.facts = [value('extent_title', 5000, '5,000 sq m', 1)];
+    const [matter] = sweepRuleFindings(p, day('2026-10-12')).filter((held) => held.kind === 'papers_disagree');
+    assert.deepEqual([matter!.difference, matter!.unit], [19.1, '%']);
+    // The matter is about the extent per title, on the parcel check: one deed's extent is no longer read as the extent of the whole holding.
+    assert.deepEqual(matter!.subjects, [{ fn: 'legal.title', set: 'land_site.parcel_identification', field: 'extent_title' }]);
+    assert.match(sweepSaid(matter!).line, /: 19\.1% apart\.$/);
+  });
+
+  it('finds a date that cannot be right: a finish before its start, work logged before its certificate', () => {
+    const p = built();
+    p.milestones![0]!.plannedStart = '2026-11-15';
+    const cc = addEvidence(p, { title: 'Commencement certificate', kind: 'document', status: 'received' }, LEAD);
+    cc.documentType = 'Commencement certificate';
+    cc.facts = [value('issued_on', '2026-10-20', '20 October 2026', 1)];
+    const lines = sweepRuleFindings(p, day('2026-10-22')).filter((held) => held.kind === 'date_impossible').map((held) => sweepSaid(held).line);
+    assert.deepEqual(lines, [
+      'Plinth: planned start (2026-11-15) is after its planned finish (2026-10-31), by 15 days.',
+      'Commencement certificate: issued (2026-10-20) is after the first work logged on site (2026-10-08), by 12 days.',
+    ]);
+  });
+
+  it('runs every date rule a department’s field set declares, wherever a paper states one of the two dates', () => {
+    const p = built();
+    const paper = addEvidence(p, { title: 'Commencement certificate', kind: 'document', status: 'received' }, LEAD);
+    const OCCUPANCY = 'legal.approvals.occupancy';
+    const at = (field: string) => ({ fn: 'legal.approvals', set: OCCUPANCY, field });
+    const mine = (held: { subjects?: Array<{ set: string }> }) => Boolean(held.subjects?.some((subject) => subject.set === OCCUPANCY));
+    // Liaison's own rule, on a sheet the review was never told about: the architect certified completion before work was allowed to begin.
+    assert.deepEqual(setFieldValues(p, { set: OCCUPANCY }, { completion_certificate_on: '2026-06-01' }, LEAD).rejected, []);
+    const offered = proposeFieldValues(p, [{ address: at('commencement_on'), value: '2026-08-01', origin: { kind: 'paper', evidenceId: paper.id, page: 1, quote: 'Commencement certificate issued on 1 August 2026', reader: 'parser' } }], 'parser');
+    assert.deepEqual(offered.map((held) => held.outcome), ['waiting']);
+    assert.equal(sweepRuleFindings(p, day('2026-10-12')).filter(mine).length, 0, 'a date that waits on a person breaks no rule');
+
+    decideField(p, at('commencement_on'), 'accept', LEAD);
+    const [matter] = sweepRuleFindings(p, day('2026-10-12')).filter(mine);
+    assert.ok(matter, 'once it stands, the review raises it');
+    assert.deepEqual([matter!.kind, matter!.by, matter!.department], ['date_impossible', 'rule', 'legal']);
+    assert.equal(sweepSaid(matter!).line, 'Commencement and occupancy: Commencement certificate on (2026-08-01) is after Architect’s completion certificate on (2026-06-01), by 61 days.');
+    assert.deepEqual(matter!.sources.map((source) => source.evidenceId), [paper.id]);
+  });
+
+  it('finds an approval work depends on that is missing or lapsed, and not one that is merely due', () => {
+    const p = built();
+    const missing = sweepRuleFindings(p, day('2026-10-12')).filter((held) => held.kind === 'approval_missing');
+    assert.deepEqual(missing.map((held) => [sweepSaid(held).line, held.next]), [
+      ['Building plan sanction: not on file, and work depends on it.', 'request_paper'],
+      ['Commencement certificate: not on file, and work depends on it.', 'request_paper'],
+    ]);
+    assert.deepEqual(missing[0]!.sources.map((source) => source.kind), ['approval', 'site_log']);
+    const plan = addEvidence(p, { title: 'Sanctioned plan', kind: 'document', status: 'received' }, LEAD);
+    plan.documentType = 'Sanctioned building plan';
+    plan.facts = [value('sanction_date', '2023-01-10', '10 January 2023', 1), value('valid_until', '2025-01-09', '9 January 2025', 1)];
+    const lapsed = sweepRuleFindings(p, day('2026-10-12')).find((held) => held.kind === 'approval_missing' && held.left === 'Building plan sanction')!;
+    assert.deepEqual([sweepSaid(lapsed).line, lapsed.next, sweepSaid(lapsed).next], ['Building plan sanction: expired, and work depends on it.', 'renew_approval', 'Renew the approval']);
+    // No work logged and nothing under way: the register's own alert is all there is.
+    p.siteLog = [];
+    p.milestones![0]!.percent = 0;
+    assert.equal(sweepRuleFindings(p, day('2026-10-12')).filter((held) => held.kind === 'approval_missing').length, 0);
+  });
+
+  it('finds an open action nobody is named for, and not one somebody is', () => {
+    const p = built();
+    const found = sweepRuleFindings(p, day('2026-10-12')).filter((held) => held.kind === 'action_unowned');
+    assert.deepEqual(found.map((held) => [sweepSaid(held).line, held.next, held.severity, held.as]), [['Get the revised structural drawings stamped: nobody is named for it.', 'assign_owner', 'low', 'risk']]);
+    assert.equal(found[0]!.sources[0]!.ref, p.actions[0]!.id);
+  });
+});
+
 describe('what a model answers', () => {
-  it('is dropped where it cites no line of a kind it is about', () => {
+  it('is read for a kind and marks only: every sentence beside them is thrown away', () => {
+    const p = built();
+    const brief = sweepBrief(p, { now: day('2026-10-12') });
+    const { kept, dropped } = sweepNominationsHeld(p, brief, answered(brief));
+    assert.deepEqual(kept.map((proposal) => proposal.kind), ['cost_unexplained']);
+    // A kind that is a rule's, a mark not in the brief, another rule's kind, no line at all, and a kind not asked for.
+    assert.equal(dropped, 5);
+    const [cost] = kept;
+    assert.deepEqual(Object.keys(cost!).sort(), ['as', 'by', 'department', 'difference', 'kind', 'left', 'next', 'severity', 'sources', 'unit']);
+    // What the model wrote is nowhere in what is kept; the line is worked out from the package's own figures.
+    for (const written of ['forecast rose with no reason', 'gives no variation, award or reason', 'Ask the cost consultant']) assert.ok(!JSON.stringify(cost).includes(written), written);
+    assert.deepEqual([cost!.left, cost!.difference, cost!.unit, cost!.by], ['A Structure', 250, 'INR', 'model']);
+    // Severity, what it makes and the next step are the table's, whatever the model said of them.
+    assert.deepEqual([cost!.severity, cost!.as, cost!.next, cost!.department], ['medium', 'finding', 'record_reason', 'finance']);
+    assert.match(sweepSaid(cost!).line, /^A Structure: \+.*250 that no variation, award or reason accounts for\.$/);
+    assert.equal(cost!.sources[0]!.ref, `${p.costReports!.at(-1)!.id}:${p.cost!.workPackages[0]!.id}`);
+  });
+
+  it('is dropped where it cites no line of a kind it is about, or code cannot work out what it claims', () => {
     const p = built();
     const brief = sweepBrief(p, { now: day('2026-10-12') });
     const action = markOf(brief, 'Get the revised structural drawings stamped');
     const other = markOf(brief, 'Chase the lift supplier');
-    const approval = sweepEntries(brief).find((entry) => entry.kind === 'approval')!.mark;
     const log = markOf(brief, 'Concrete poured to the plinth beams');
-    const base = { statement: 'Something looks wrong.', why: 'Read off the lines cited.', action: 'Look.', department: 'legal', severity: 'medium', as: 'finding' };
-    const { kept, dropped } = sweepProposalsHeld(p, brief, [
-      { ...base, kind: 'approval_missing', cites: [action] },
-      { ...base, kind: 'papers_disagree', cites: [action, other] },
-      { ...base, kind: 'cost_unexplained', cites: [log] },
-      { ...base, kind: 'action_unowned', cites: [approval] },
-      { ...base, kind: 'approval_missing', cites: [approval, log] },
+    const plinth = markOf(brief, 'Plinth: 20% done');
+    const report = markOf(brief, 'Cost Report');
+    const approval = sweepEntries(brief).find((entry) => entry.kind === 'approval')!.mark;
+    const { kept, dropped } = sweepNominationsHeld(p, brief, [
+      { kind: 'cost_unexplained', cites: [log] },
+      { kind: 'schedule_cost_differ', cites: [action, other] },
+      // One line where two are set against each other.
+      { kind: 'schedule_cost_differ', cites: [report] },
+      // The plinth's line carries no unexplained amount.
+      { kind: 'cost_unexplained', cites: [plinth] },
+      { kind: 'approval_missing', cites: [approval, log] },
+      { kind: 'schedule_cost_differ', cites: [`[${report}]`, plinth] },
     ]);
-    assert.equal(dropped, 4);
-    assert.deepEqual(kept.map((proposal) => [proposal.kind, proposal.sources.map((source) => source.kind).sort()]), [['approval_missing', ['approval', 'site_log']]]);
-  });
-  it('is kept only where every line it cites is a line of the brief', () => {
-    const p = built();
-    const brief = sweepBrief(p, { now: day('2026-10-12') });
-    const { kept, dropped } = sweepProposalsHeld(p, brief, answered(brief));
-    assert.deepEqual(kept.map((proposal) => proposal.kind), ['cost_unexplained', 'action_unowned']);
-    // A mark not in the brief, one line for two papers, no line at all, and a kind not asked for.
-    assert.equal(dropped, 4);
-    const cost = kept[0]!;
-    assert.equal(cost.sources.length, 1);
-    assert.match(cost.sources[0]!.says, /A Structure: forecast/);
-    assert.equal(cost.sources[0]!.ref, `${p.costReports!.at(-1)!.id}:${p.cost!.workPackages[0]!.id}`);
-    // A mark written in brackets is the same mark.
-    assert.deepEqual(kept[1]!.sources.map((source) => source.kind).sort(), ['action', 'milestone']);
-  });
-
-  it('carries the paper and page of a line that has them', () => {
-    const p = built();
-    const brief = sweepBrief(p, { now: day('2026-10-12') });
-    const said = [{ kind: 'papers_disagree', statement: 'The deed and the khata give the survey number differently.', why: 'One says 41/2 and the other, waiting, 41/3.', action: 'Read both pages.', cites: [markOf(brief, 'Survey number: 41/2'), markOf(brief, 'Survey number: 41/3')], department: 'legal', severity: 'high', as: 'finding' }];
-    const [kept] = sweepProposalsHeld(p, brief, said).kept;
-    assert.deepEqual(
-      kept!.sources.map((source) => [source.paper, source.page]),
-      [['Sale deed of the northern parcel', 2], ['Khata extract', 1]],
-    );
+    assert.equal(dropped, 5);
+    assert.deepEqual(kept.map((proposal) => [proposal.kind, proposal.sources.map((source) => source.kind).sort()]), [['schedule_cost_differ', ['cost', 'milestone']]]);
+    // 700 of 1,750 forecast is paid, and the plinth is 20% done.
+    assert.deepEqual([kept[0]!.left, kept[0]!.right, kept[0]!.difference, kept[0]!.unit], ['Cost Report August 2026', 'Plinth', 20, 'points']);
+    assert.equal(sweepSaid(kept[0]!).line, 'Cost Report August 2026 against Plinth: money paid and work done are 20 points apart.');
   });
 
   it('falls to a department the project uses, and is nothing when it is no list', () => {
     const p = built();
     p.departments = ['construction'];
     const brief = sweepBrief(p, { now: day('2026-10-12') });
-    const [kept] = sweepProposalsHeld(p, brief, [answered(brief)[0]]).kept;
+    const [kept] = sweepNominationsHeld(p, brief, [answered(brief)[0]]).kept;
     assert.equal(kept!.department, 'construction');
-    assert.deepEqual(sweepProposalsHeld(p, brief, 'nothing wrong'), { kept: [], dropped: 0 });
+    assert.deepEqual(sweepNominationsHeld(p, brief, 'nothing wrong'), { kept: [], dropped: 0 });
+  });
+});
+
+describe('a suggestion kept before suggestions were fields', () => {
+  const before: SweepSuggestion = {
+    id: 'swp_before',
+    kind: 'cost_unexplained',
+    statement: 'The structure’s forecast rose with no reason recorded.',
+    why: 'The package moved and the report gives no variation.',
+    action: 'Ask the cost consultant for the reason.',
+    department: 'finance',
+    severity: 'high',
+    as: 'finding',
+    sources: [{ ref: 'cr_1:wp_1', kind: 'cost', says: 'A Structure: forecast 1,000 to 1,250' }],
+    fingerprint: 'cost_unexplained:x',
+    raisedAt: '2026-10-01T01:30:00.000Z',
+    status: 'open',
+  };
+
+  it('still opens, reads as it was written, and is marked as a model’s', () => {
+    const state = sweepStateOf({ v: 1, suggestions: [before] });
+    assert.deepEqual(state.suggestions, [before]);
+    assert.deepEqual(sweepSaid(state.suggestions[0]!), { line: before.statement, why: before.why, next: before.action, byModelBefore: true });
+  });
+
+  it('is the same matter as one raised now about the same line, so it is not raised twice', () => {
+    const state = sweepStateOf({ v: 1, suggestions: [before] });
+    const now = { kind: 'cost_unexplained' as const, by: 'model' as const, left: 'A Structure', difference: 250, unit: 'INR', department: 'finance' as const, severity: 'medium' as const, as: 'finding' as const, next: 'record_reason' as const, sources: before.sources };
+    assert.deepEqual(sweepRaise(state, [now], '2026-10-13T01:30:00.000Z').repeats, 1);
+    assert.equal(sweepSaid(now).byModelBefore, false);
   });
 });
 
@@ -309,15 +439,20 @@ describe('the daily review', () => {
     const was = JSON.stringify(p);
     const { cronSource, states } = source([p]);
     const run = await cron.fileSweep(day('2026-10-12'), cronSource);
-    assert.deepEqual({ projects: run.projects, due: run.due, swept: run.swept, raised: run.raised, dropped: run.dropped, failed: run.failed, noModel: run.noModel }, { projects: 1, due: 1, swept: 1, raised: 2, dropped: 4, failed: 0, noModel: 0 });
+    // Four by rule (the survey number, two approvals, the action on nobody) and the one the model named.
+    assert.deepEqual({ projects: run.projects, due: run.due, swept: run.swept, byRule: run.byRule, raised: run.raised, dropped: run.dropped, failed: run.failed, noModel: run.noModel }, { projects: 1, due: 1, swept: 1, byRule: 4, raised: 5, dropped: 5, failed: 0, noModel: 0 });
     assert.equal(JSON.stringify(p), was);
     const state = states.get(p.id)!;
     assert.equal(state.sweptThrough, p.updatedAt);
     assert.equal(state.tokens, 7000);
     const [first] = openSweepSuggestions(state);
     assert.equal(first!.status, 'open');
-    assert.ok(first!.sources.length > 0 && first!.statement && first!.why && first!.department);
+    assert.ok(first!.sources.length > 0 && first!.department && first!.next && first!.by);
     assert.equal(first!.fingerprint, sweepFingerprint(first!.kind, first!.sources.map((s) => s.ref)));
+    // Nothing a model wrote is stored: no suggestion has a sentence of its own, and none of the model's words is in the file.
+    for (const held of state.suggestions) assert.deepEqual([held.statement, held.why, held.action], [undefined, undefined, undefined]);
+    const stored = stringsOf(state).join('\n');
+    for (const written of ['forecast rose with no reason', 'is on nobody', 'Name somebody for it', 'Ask the cost consultant', 'lapsed last year']) assert.ok(!stored.includes(written), written);
   });
 
   it('called twice on one day reviews once', async () => {
@@ -345,13 +480,13 @@ describe('the daily review', () => {
     const p = built();
     let wording = 'The structure’s forecast rose with no reason recorded.';
     const { cronSource, states } = source([p], { answer: (project) => answered(sweepBrief(project, { now: day('2026-10-12') }), wording).slice(0, 2) });
-    assert.equal((await cron.fileSweep(day('2026-10-12'), cronSource)).raised, 2);
+    assert.equal((await cron.fileSweep(day('2026-10-12'), cronSource)).raised, 5);
     // The record moves, so the project is due again, and the model says the same things in other words.
-    addAction(p, { title: 'Order the rebar', kind: 'clarification', owner: 'Unassigned', priority: 'low' }, LEAD);
+    addAction(p, { title: 'Order the rebar', kind: 'clarification', owner: 'Anika Rao', priority: 'low' }, LEAD);
     wording = 'Package A went up by 250 and nobody wrote down why.';
     const next = await cron.fileSweep(day('2026-10-13'), cronSource);
-    assert.deepEqual({ swept: next.swept, raised: next.raised, repeats: next.repeats }, { swept: 1, raised: 0, repeats: 2 });
-    assert.equal(states.get(p.id)!.suggestions.length, 2);
+    assert.deepEqual({ swept: next.swept, raised: next.raised, repeats: next.repeats }, { swept: 1, raised: 0, repeats: 5 });
+    assert.equal(states.get(p.id)!.suggestions.length, 5);
   });
 
   it('never raises a dismissed matter again, and does not duplicate an accepted one', async () => {
@@ -365,10 +500,10 @@ describe('the daily review', () => {
     for (const on of ['2026-10-13', '2026-10-14', '2026-10-20']) {
       addAction(p, { title: `Something else on ${on}`, kind: 'clarification', owner: 'Anika Rao', priority: 'low' }, LEAD);
       const run = await cron.fileSweep(day(on), cronSource);
-      assert.deepEqual({ swept: run.swept, raised: run.raised, repeats: run.repeats }, { swept: 1, raised: 0, repeats: 2 }, on);
+      assert.deepEqual({ swept: run.swept, raised: run.raised, repeats: run.repeats }, { swept: 1, raised: 0, repeats: 5 }, on);
     }
     const kept = states.get(p.id)!;
-    assert.deepEqual(kept.suggestions.map((s) => s.status).sort(), ['accepted', 'dismissed']);
+    assert.deepEqual(kept.suggestions.map((s) => s.status).sort(), ['accepted', 'dismissed', 'open', 'open', 'open']);
     assert.equal(kept.suggestions.find((s) => s.status === 'dismissed')!.reason, 'The rise is the steel escalation, minuted in August.');
   });
 
@@ -383,8 +518,10 @@ describe('the daily review', () => {
       dismissSweepSuggestion(state, state.suggestions[0]!.id, { actor: LEAD, reason: 'Known and minuted.' });
       return original(input);
     };
-    await cron.fileSweep(day('2026-10-13'), first.cronSource);
+    const next = await cron.fileSweep(day('2026-10-13'), first.cronSource);
     assert.equal(first.states.get(p.id)!.suggestions[0]!.status, 'dismissed');
+    // And the action added since, on nobody, is raised by rule beside it.
+    assert.equal(next.byRule, 1);
   });
 
   it('stops at a project’s tokens for the day: a model that fails is charged and not retried past the ceiling', async () => {
@@ -397,6 +534,8 @@ describe('the daily review', () => {
     assert.deepEqual(runs.map((run) => [run.failed, run.overCeiling]), [[1, 0], [1, 0], [0, 1], [0, 1]]);
     assert.equal(states.get(p.id)!.tokens, ahead * 2);
     assert.ok(states.get(p.id)!.tokens! <= cron.SWEEP_TOKENS_PER_PROJECT_PER_DAY);
+    // What the rules found is kept all the same, once, and the project stays due for a model.
+    assert.deepEqual([runs.map((run) => run.byRule), states.get(p.id)!.suggestions.length, states.get(p.id)!.sweptAt], [[4, 0, 0, 0], 4, undefined]);
     // A new day is a new allowance.
     assert.equal((await cron.fileSweep(day('2026-10-13'), cronSource)).failed, 1);
     assert.equal(asked.length, 3);
@@ -443,12 +582,14 @@ describe('the daily review', () => {
     assert.deepEqual(asked, [b.id]);
   });
 
-  it('does nothing with no model set up, and says so', async () => {
+  it('runs the rules with no model set up, asks nothing, and says so', async () => {
     const p = built();
-    const { cronSource, asked, writes } = source([p], { model: false });
+    const { cronSource, asked, states } = source([p], { model: false });
     const run = await cron.fileSweep(day('2026-10-12'), cronSource);
-    assert.deepEqual(run, { projects: 1, due: 0, swept: 0, raised: 0, dropped: 0, repeats: 0, overCeiling: 0, deferred: 0, failed: 0, tokens: 0, noModel: 1 });
-    assert.deepEqual([asked, writes], [[], []]);
+    assert.deepEqual(run, { projects: 1, due: 1, swept: 1, byRule: 4, raised: 4, dropped: 0, repeats: 0, overCeiling: 0, deferred: 0, failed: 0, tokens: 0, noModel: 1 });
+    assert.deepEqual(asked, []);
+    assert.deepEqual(states.get(p.id)!.suggestions.map((held) => held.by), ['rule', 'rule', 'rule', 'rule']);
+    assert.equal(states.get(p.id)!.tokens, undefined);
   });
 });
 
@@ -465,13 +606,15 @@ describe('a person’s answer to a suggestion', () => {
     const { p, state, cost } = await raised();
     const { record } = acceptSweepSuggestion(p, state, cost.id, { actor: LEAD, at: '2026-10-12T08:00:00.000Z' });
     const finding = p.findings.find((held) => held.id === record.id)!;
-    assert.equal(finding.title, 'The structure’s forecast rose with no reason recorded.');
-    assert.equal(finding.severity, 'high');
+    // The record's words are the template's line and the kind's reason; the model's sentence was never kept.
+    assert.match(finding.title, /^A Structure: \+.*250 that no variation, award or reason accounts for\.$/);
+    assert.match(finding.description, /^The forecast moved and the cost report gives no variation, award or typed reason for it\./);
+    assert.equal(finding.severity, 'medium');
     assert.equal(finding.status, 'open');
     assert.equal(finding.discipline, 'cost_quantity');
     assert.match(finding.description, /Rests on: A Structure: forecast/);
     assert.equal(finding.confidenceNote, `Suggested by the daily review on 2026-10-12, accepted by ${LEAD} on 2026-10-12.`);
-    assert.equal(finding.mitigation, 'Ask the cost consultant for the reason and type it against the package.');
+    assert.equal(finding.mitigation, 'Record the reason');
     const line = p.audit.at(-1)!;
     assert.deepEqual([line.action, line.actor, line.entityId], ['accept_review_suggestion', LEAD, finding.id]);
     assert.deepEqual(cost.record, { type: 'finding', id: finding.id });
@@ -483,8 +626,9 @@ describe('a person’s answer to a suggestion', () => {
     const { record } = acceptSweepSuggestion(p, state, unowned.id, { actor: LEAD });
     const risk = p.risks.find((held) => held.id === record.id)!;
     assert.equal(risk.status, 'identified');
-    assert.equal(risk.materiality, 'medium');
-    assert.equal(risk.mitigation, 'Name somebody for it.');
+    assert.equal(risk.title, 'Get the revised structural drawings stamped: nobody is named for it.');
+    assert.equal(risk.materiality, 'low');
+    assert.equal(risk.mitigation, 'Name who it is on');
     assert.equal(p.findings.length, 0);
   });
 
@@ -494,7 +638,7 @@ describe('a person’s answer to a suggestion', () => {
     assert.throws(() => dismissSweepSuggestion(state, cost.id, { actor: LEAD, reason: ' ' }), /Say why/);
     dismissSweepSuggestion(state, cost.id, { actor: LEAD, reason: 'Minuted in August.' });
     assert.equal(JSON.stringify(p), was);
-    assert.equal(openSweepSuggestions(state).length, 1);
+    assert.equal(openSweepSuggestions(state).length, 4);
     assert.throws(() => dismissSweepSuggestion(state, 'swp_nothing', { actor: LEAD, reason: 'No such thing.' }), /No suggestion by that id/);
   });
 
@@ -525,7 +669,7 @@ describe('what the review keeps', () => {
 
   it('tells a matter by what it is about: one cited line more or fewer is the same matter, another kind is not', () => {
     const state = sweepStateOf(undefined);
-    const about = (kind: 'cost_unexplained' | 'action_unowned', ...refs: string[]) => ({ kind, statement: 's', why: 'w', action: '', department: 'finance' as const, severity: 'low' as const, as: 'finding' as const, sources: refs.map((ref) => ({ ref, kind: 'cost' as const, says: ref })) });
+    const about = (kind: 'cost_unexplained' | 'action_unowned', ...refs: string[]) => ({ kind, department: 'finance' as const, severity: 'low' as const, as: 'finding' as const, sources: refs.map((ref) => ({ ref, kind: 'cost' as const, says: ref })) });
     assert.equal(sweepRaise(state, [about('cost_unexplained', 'a', 'b')], '2026-10-12T01:30:00.000Z').raised.length, 1);
     const next = sweepRaise(state, [about('cost_unexplained', 'b', 'a'), about('cost_unexplained', 'a'), about('cost_unexplained', 'a', 'b', 'c'), about('action_unowned', 'a', 'b'), about('cost_unexplained', 'c', 'd')], '2026-10-13T01:30:00.000Z');
     assert.deepEqual([next.repeats, next.raised.map((s) => s.kind)], [3, ['action_unowned', 'cost_unexplained']]);
@@ -534,7 +678,7 @@ describe('what the review keeps', () => {
 
   it('silences, for a dismissed matter, only a proposal about the very same entries, whatever kind it is called', () => {
     const state = sweepStateOf(undefined);
-    const about = (kind: 'approval_missing' | 'date_impossible', ...refs: string[]) => ({ kind, statement: 's', why: 'w', action: '', department: 'legal' as const, severity: 'low' as const, as: 'finding' as const, sources: refs.map((ref) => ({ ref, kind: 'approval' as const, says: ref })) });
+    const about = (kind: 'approval_missing' | 'date_impossible', ...refs: string[]) => ({ kind, department: 'legal' as const, severity: 'low' as const, as: 'finding' as const, sources: refs.map((ref) => ({ ref, kind: 'approval' as const, says: ref })) });
     const [first] = sweepRaise(state, [about('approval_missing', 'approval:fire_noc')], '2026-10-12T01:30:00.000Z').raised;
     dismissSweepSuggestion(state, first!.id, { actor: LEAD, reason: 'It expires soon; the renewal is in hand.' });
     // The same entry under another kind is the same matter the person dismissed.

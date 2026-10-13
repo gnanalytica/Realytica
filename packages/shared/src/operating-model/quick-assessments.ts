@@ -25,7 +25,7 @@ import { workstreamDefinition } from './departments';
 import { workstreamChecks } from './engagements';
 import { approvalsRegister, constructionGate } from './approvals';
 import { progressSummary } from './progress';
-import { valueInputRows, valueOffers, withValueOffers, type ValueOffer } from './value-inputs';
+import { valueInputRows, valueOffers, type ValueOffer } from './value-inputs';
 import { valueSummary } from './value-standing';
 import { runValuationApproaches } from './valuation-run';
 import { approachIsUsable } from './valuation-model';
@@ -141,7 +141,8 @@ function valuation(project: DdProject, at: string): QuickAssessment {
   const offers = valueOffers(project);
   const rows = valueInputRows(project, offers);
   const waiting = rows.flatMap((r) => (r.waiting ? [r.waiting] : []));
-  const working = runValuationApproaches(withValueOffers(project, waiting));
+  // The figure is worked out from what is recorded. A value the file offers and nobody has accepted is listed below as waiting, and moves nothing.
+  const working = runValuationApproaches(project);
   const s = valueSummary(project, working);
   const inputs: QuickInput[] = [];
   for (const r of rows) {

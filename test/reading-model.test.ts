@@ -192,7 +192,7 @@ describe('the model reader, sent the pages this server could not read well', () 
       field('registration_date', '09-07-2021', 'Registered as Document No. HRK-1-03127-2021-22 on 09-07-2021', 3),
       field('stamp_duty', 'Rs. 17,83,600', 'Stamp duty paid: Rs. 17,83,600', 3, 'INR'),
       field('boundary_north', 'Survey No. 72', 'bounded on the north by Survey No. 72', 2),
-      // A name of the model's own passes through as it is.
+      // A name of the model's own is no field's, and is not kept: a reader may not invent a key.
       field('roadName', 'Temple Tank Road', 'on the south by Temple Tank Road', 2),
       // Not a date, so not filed as one.
       field('conversion_date', 'some time in the monsoon', 'This deed recites an earlier Sale Deed', 1),
@@ -207,8 +207,8 @@ describe('the model reader, sent the pages this server could not read well', () 
       registration_date: ['2021-07-09', undefined, 'Registered on', 3],
       stamp_duty: [1783600, 'INR', 'Stamp duty', 3],
       boundary_north: ['Survey No. 72', undefined, 'North boundary', 2],
-      roadName: ['Temple Tank Road', undefined, 'roadName', 2],
     });
+    assert.match(asked[0]!.prompt, /Give nothing under a key of your own/, 'and the reader is told so');
     assert.ok((out.modelFacts ?? []).every((f) => f.source === 'model' && f.pageCheck === 'text' && f.proof === 'page_text'), 'each still with its words found on its page, and saying so');
   });
 
@@ -326,7 +326,7 @@ describe('the model reader, sent the pages this server could not read well', () 
     assert.deepEqual([bare.readFailure, bare.modelFacts?.map((f) => f.value)], [undefined, ['72']]);
 
     // A kind the catalogue does not have, and no paper named: the reading is kept, as a paper of no known kind.
-    // None of the rules' keys is taken on its strength, and what it states under a key of the reader's own is.
+    // None of the rules' keys is taken on its strength, nor anything under a key of the reader's own: no field waits for either.
     kind = 'lift_fitness_certificate';
     paper = null;
     answer = () => [
@@ -335,7 +335,7 @@ describe('the model reader, sent the pages this server could not read well', () 
     ];
     const unknown = await read({});
     assert.equal(unknown.readFailure, undefined, 'a paper with no name here is still a paper that was read');
-    assert.deepEqual(unknown.modelFacts?.map((f) => [f.key, f.value]), [['roadName', 'Temple Tank Road']]);
+    assert.equal(unknown.modelFacts, undefined);
     assert.equal(unknown.kindHint, undefined, 'and it is typed as nothing');
     kind = 'title_deed';
     paper = 'sale_deed';
@@ -439,27 +439,32 @@ describe('the model reader, sent the pages this server could not read well', () 
   it('keeps a value’s original script only where it is printed on the page', async () => {
     answer = () => [
       field('owner', 'Rathnamma', 'ಮಾಲೀಕರ ಹೆಸರು: ರತ್ನಮ್ಮ', 3, null, 'ರತ್ನಮ್ಮ'),
-      // The page prints this name in Latin letters only; the Kannada for it is the model's own.
-      field('occupier', 'Smt. Rathnamma Siddalingaiah', 'Smt. Rathnamma Siddalingaiah', 3, null, 'ಶ್ರೀಮತಿ ರತ್ನಮ್ಮ ಸಿದ್ದಲಿಂಗಯ್ಯ'),
     ];
     // A khata, which is the paper that names an owner.
     kind = 'khata_extract';
     paper = 'khata';
     const out = await read({}, [PAGE_TEXT[0]!, PAGE_TEXT[1]!, KANNADA_PAGE]);
+    // The page prints this name in Latin letters only; the Kannada for it is the model's own.
+    answer = () => [field('owner', 'Smt. Rathnamma Siddalingaiah', 'Smt. Rathnamma Siddalingaiah', 3, null, 'ಶ್ರೀಮತಿ ರತ್ನಮ್ಮ ಸಿದ್ದಲಿಂಗಯ್ಯ')];
+    const latin = await read({}, [PAGE_TEXT[0]!, PAGE_TEXT[1]!, KANNADA_PAGE]);
     kind = 'title_deed';
     paper = 'sale_deed';
-    const facts = Object.fromEntries((out.modelFacts ?? []).map((f) => [f.key, [f.value, f.originalValue, f.originalScript]]));
-    assert.deepEqual(facts, { owner: ['Rathnamma', 'ರತ್ನಮ್ಮ', 'kannada'], occupier: ['Smt. Rathnamma Siddalingaiah', undefined, undefined] });
+    const said = (file: typeof out) => (file.modelFacts ?? []).map((f) => [f.key, f.value, f.originalValue, f.originalScript]);
+    assert.deepEqual(said(out), [['owner', 'Rathnamma', 'ರತ್ನಮ್ಮ', 'kannada']]);
+    assert.deepEqual(said(latin), [['owner', 'Smt. Rathnamma Siddalingaiah', undefined, undefined]]);
   });
 
   it('reads a paper filed on a register row that the rules did not recognise, and files what the model found on its pages', async () => {
     // Nothing the rules have a name for: they find its survey number and no more.
     const lift = ['Lift fitness certificate LF-2231 for the building on Survey No. 73/4 at Navilugudda', 'Inspected and found fit for use until 09-07-2027 by the Inspector of Lifts'];
     kind = 'occupancy_certificate';
+    paper = 'occupancy_certificate';
     answer = () => [
       field('survey_numbers', 'Survey No. 73/4', 'for the building on Survey No. 73/4 at Navilugudda', 1),
+      field('oc_issued', 'yes', 'Lift fitness certificate LF-2231', 1),
+      field('oc_date', '09-07-2027', 'found fit for use until 09-07-2027', 2),
+      // A name of the model's own is no field's, and is not kept.
       field('certificateNumber', 'LF-2231', 'Lift fitness certificate LF-2231', 1),
-      field('fitUntil', '09-07-2027', 'found fit for use until 09-07-2027', 2),
     ];
     asked.length = 0;
     const p = project();
@@ -467,12 +472,13 @@ describe('the model reader, sent the pages this server could not read well', () 
     const bytes = await pdfOf(lift);
     const done = await readOntoRegister(p, [{ evidenceId: row.id, buffer: bytes, fileName: 'papers.pdf', mimeType: 'application/pdf', sizeBytes: bytes.length, storageKey: 'k-papers.pdf' }], 'tester');
     kind = 'title_deed';
+    paper = 'sale_deed';
     assert.equal(done.read, 1);
     assert.deepEqual(asked.map((a) => a.pages), [[1, 2]], 'the model was asked, as it is for a file dropped in the chat, and shown the whole of a paper nobody recognised');
     assert.deepEqual((row.facts ?? []).map((f) => [f.key, f.value, f.page, f.source, f.review]), [
-      ['certificateNumber', 'LF-2231', 1, 'model', 'proposed'],
-      ['fitUntil', '09-07-2027', 2, 'model', 'proposed'],
-    ], 'what the model read, each on its page; the survey number both read is the rules’, and the rules could not say what the paper is');
+      ['oc_issued', true, 1, 'model', 'proposed'],
+      ['oc_date', '2027-07-09', 2, 'model', 'proposed'],
+    ], 'what the model read under the keys of the paper it took it for, each on its page; the survey number both read is the rules’, and the rules could not say what the paper is');
     assert.equal(row.documentType, undefined, 'a model’s word for what the paper is names nothing on the register');
     assert.equal(row.proposedDocumentType, 'Occupancy certificate', 'it is offered, for a person to confirm');
     assert.ok(row.modelReadAt, 'and the row is marked as read by a model');
@@ -502,9 +508,9 @@ describe('the model reader, sent the pages this server could not read well', () 
       field('ec_transactions', '4', 'Number of transactions found during the period: 4', 1),
       // A count the words quoted for it do not state: a heading, with no number in it.
       field('subsisting_charges', '2', 'TRANSACTIONS FOUND DURING THE PERIOD', 1),
-      // What the rules have no name for, and so nobody can be asked for by name.
-      field('applicationNumber', 'EC/WTF/2025/118842', 'Application No. EC/WTF/2025/118842', 1),
-      // A name under a key of the model's own: its words are among those this server read on the page.
+      // A key a field waits for, which the second reader is asked for by that field's name, and does not find.
+      field('ec_certificate_number', 'EC/WTF/2025/118842', 'Application No. EC/WTF/2025/118842', 1),
+      // A name under a key of the model's own: no field's, and not kept.
       field('executant', 'Ramaiah', 'Executant: Sri K. Ramaiah', 1),
       // A digit out, in the value and in its quote alike: a second reader reads what the page prints.
       field('ec_to', '31-03-2026', 'Period of search: from 01-04-1995 to 31-03-2026', 1),
@@ -527,7 +533,7 @@ describe('the model reader, sent the pages this server could not read well', () 
     kind = 'title_deed';
     paper = 'sale_deed';
     assert.equal(pageChecks, 1, 'one page, read a second time once, for every value that has to be exact');
-    assert.match(secondWasSent[0]!, /Read these from the page:\n1\. Survey number: .*\n2\. Transactions in the period: .*\n3\. EC searched to: /, 'asked by the names of the rules’ keys');
+    assert.match(secondWasSent[0]!, /Read these from the page:\n1\. Survey number: .*\n2\. Transactions in the period: .*\n3\. Certificate number, of Encumbrance certificates: as written\n4\. EC searched to: /, 'asked by the names of the rules’ keys, and of the field that waits');
     assert.equal(/118842|2026|118\/2/.test(secondWasSent[0]!), false, 'and shown none of what the first reader read');
 
     const merged = mergeModelReading(local, model);
@@ -538,9 +544,8 @@ describe('the model reader, sent the pages this server could not read well', () 
       [3, 4, 'second_reader'],
       'where they differ, both wait: the rules’ count, and the model’s that a second reader read the same',
     );
-    assert.deepEqual([facts.executant!.value, facts.executant!.source, facts.executant!.proof, facts.executant!.page], ['Ramaiah', 'model', 'page_text', 1]);
-    assert.ok(facts.executant!.marks?.quote.length, 'with where its words sit on the page, so they can be shown');
-    assert.equal(facts.applicationNumber, undefined, 'an exact value under a key of the model’s own, on a scanned page, is nobody’s to confirm');
+    assert.equal(facts.executant, undefined, 'a value under a key of the model’s own is no field’s, and is not kept');
+    assert.equal(facts.ec_certificate_number, undefined, 'an exact value on a scanned page that no second reader read there is no fact');
     assert.equal(facts.ec_to!.value, '2025-03-31', 'the rules’ date stands');
     // A reading nothing confirmed on the page is still another reader's different reading: set beside the rules' value, marked
     // unverified, and the rules' value waits with it for a person.
@@ -549,7 +554,7 @@ describe('the model reader, sent the pages this server could not read well', () 
     assert.equal(facts.owner, undefined, 'a key this paper does not carry is not taken');
     assert.deepEqual(
       merged.reading?.unverified?.map((f) => [f.key, f.value, f.page, f.proof]),
-      [['applicationNumber', 'EC/WTF/2025/118842', 1, 'unverified']],
+      [['ec_certificate_number', 'EC/WTF/2025/118842', 1, 'unverified']],
       'what is beside no value of the rules’ is kept apart, as unverified',
     );
     assert.deepEqual([merged.reading?.pagesRead, merged.reading?.readers, merged.reading?.modelPagesSent, merged.reading?.modelPagesRead], [1, { text: 0, ocr: 1, model: 1 }, [1], [1]]);

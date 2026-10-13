@@ -338,7 +338,7 @@ export function ReadingDesk({
           </p>
           <p className="text-micro text-ink-muted" aria-live="polite">
             {readCount} of {session.files.length} read · {factTotal} fact{factTotal === 1 ? '' : 's'}
-            {settled ? ' · all settled' : waitingTotal ? ` · ${waitingTotal} waiting for you` : ''}
+            {settled ? ' · all settled' : waitingTotal ? ` · ${waitingTotal} to accept` : ''}
           </p>
         </div>
         <button
@@ -547,14 +547,14 @@ export function ReadingDesk({
                   <ArrowRight size={12} aria-hidden />
                 </Link>
               ) : (
-                <p className="text-micro text-ink-muted">{current.taken.as === 'voice' ? 'What it proposes waits under “Needs your decision”.' : 'What it proposes is in the chat.'}</p>
+                <p className="text-micro text-ink-muted">{current.taken.as === 'voice' ? 'What it proposes waits to be accepted.' : 'What it proposes is in the chat.'}</p>
               )}
             </div>
           ) : nothingRead({ shown, streamed: facts.length, held: rowFacts.length, notes: current.notes, phase: current.phase }) ? (
             // Only where nothing was read. A filed paper's values are its row's, listed above, and the stream's own list is empty beside them.
             <p className="flex items-center gap-1.5 text-[13px] text-ink-muted">
               <FileText size={13} aria-hidden />
-              {current.summary ?? 'Filed as it is; nothing on it matched what the reader knows how to read.'}
+              {current.summary ?? 'Filed as it is. No value on it could be read into a field.'}
             </p>
           ) : null}
         </div>

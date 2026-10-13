@@ -127,6 +127,12 @@ export type ProjectGraphNodeKind =
   | 'answer'
   /** One line of a bill: what the contractor says is due for one item, and what was passed for it. */
   | 'bill_line'
+  /**
+   * One field of a function's sheet, with the value it holds that stands:
+   * keyed by the field's address, so the same field is the same node every
+   * time. A value nobody has accepted is not one.
+   */
+  | 'field_value'
   /* --- judgements: what we concluded ----------------------------- */
   | 'assessment'
   | 'scope'
@@ -172,6 +178,7 @@ export const PROJECT_NODE_KINDS: readonly ProjectGraphNodeKind[] = [
   'bill',
   'contradiction',
   'answer',
+  'field_value',
   'bill_line',
   'assessment',
   'scope',
@@ -223,6 +230,7 @@ const LAYER_BY_KIND: Record<ProjectGraphNodeKind, ProjectGraphLayer> = {
   bill: 'evidence',
   contradiction: 'claim',
   answer: 'claim',
+  field_value: 'claim',
   bill_line: 'claim',
   // An assessment and a scope are containers for judgement rather than
   // judgements themselves, but they carry a status that IS a conclusion
@@ -404,6 +412,8 @@ export type ProjectGraphEdgeKind =
   /** check | finding | risk -> the parcel or asset it is about. */
   | 'about'
   | 'answers'
+  /** A field that mirrors another -> the field it is entered on. One fact, read in two places. */
+  | 'same_as'
   /* --- judgement flow -------------------------------------------- */
   | 'produces'
   | 'found'
@@ -475,6 +485,7 @@ export const PROJECT_EDGE_KINDS: readonly ProjectGraphEdgeKind[] = [
   'contradicts',
   'about',
   'answers',
+  'same_as',
   'produces',
   'found',
   'raises',
@@ -510,7 +521,7 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   has_workstream: { from: ['department'], to: ['workstream'] },
   holds: {
     from: ['workstream'],
-    to: ['check', 'evidence', 'approval', 'milestone', 'site_visit', 'site_entry', 'finding', 'encumbrance', 'instrument', 'questionnaire', 'work_package', 'contract', 'bill'],
+    to: ['check', 'evidence', 'approval', 'milestone', 'site_visit', 'site_entry', 'finding', 'encumbrance', 'instrument', 'questionnaire', 'work_package', 'contract', 'bill', 'field_value'],
   },
   assesses: { from: ['quick_assessment'], to: ['workstream'] },
   certifies: { from: ['certified_report'], to: ['workstream'] },
@@ -560,7 +571,7 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   // are not: each always arrives under its bill.
   has_record: {
     from: ['project'],
-    to: ['evidence', 'finding', 'action', 'decision', 'approval', 'milestone', 'site_entry', 'questionnaire', 'certified_report', 'engagement', 'member', 'contradiction', 'parcel', 'party', 'work_package', 'contract', 'bill'],
+    to: ['evidence', 'finding', 'action', 'decision', 'approval', 'milestone', 'site_entry', 'questionnaire', 'certified_report', 'engagement', 'member', 'contradiction', 'parcel', 'party', 'work_package', 'contract', 'bill', 'field_value'],
   },
   observed_on: { from: ['evidence', 'finding'], to: ['site_visit', 'site_entry'] },
 
@@ -580,12 +591,13 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   // sheet, a contract on the work order, a bill and a certificate on their own
   // files, and a line on the page or the cell it was read from.
   supported_by: {
-    from: ['check', 'finding', 'risk', 'action', 'report', 'assessment', 'quick_assessment', 'certified_report', 'approval', 'answer', 'work_package', 'contract', 'bill', 'bill_line', 'certification'],
+    from: ['check', 'finding', 'risk', 'action', 'report', 'assessment', 'quick_assessment', 'certified_report', 'approval', 'answer', 'work_package', 'contract', 'bill', 'bill_line', 'certification', 'field_value'],
     to: ['evidence'],
   },
   contradicts: { from: ['contradiction'] },
   about: { from: ['check', 'finding', 'risk', 'action'], to: ['parcel', 'asset'] },
   answers: { from: ['answer'], to: ['questionnaire'] },
+  same_as: { from: ['field_value'], to: ['field_value', 'check'] },
 
   produces: { from: ['check'], to: ['finding'] },
   found: { from: ['assessment'], to: ['finding'] },
@@ -687,6 +699,7 @@ export const PROJECT_EDGE_LABEL: Record<ProjectGraphEdgeKind, { forward: string;
   contradicts: { forward: 'puts in doubt', backward: 'is put in doubt by' },
   about: { forward: 'is about', backward: 'is the subject of' },
   answers: { forward: 'is asked on', backward: 'asks' },
+  same_as: { forward: 'is read from', backward: 'is also read at' },
   produces: { forward: 'led to', backward: 'came out of' },
   found: { forward: 'found', backward: 'was found by' },
   raises: { forward: 'raises', backward: 'is raised by' },

@@ -2566,87 +2566,6 @@
        "source": "link",
        "from": "Finance and Engineering",
        "add": ""
-      }
-     ]
-    },
-    {
-     "id": "disputes",
-     "name": "Disputes and cases",
-     "icon": "scale",
-     "blocks": [
-      {
-       "type": "search",
-       "title": "Case look-ups by party",
-       "source": "eCourts, High Court, NCLT, consumer commission, K-RERA",
-       "query": "Lakeview Developers LLP; Lakeview Tower",
-       "results": [
-        {
-         "t": "K-RERA complaint, parking allotment",
-         "sub": "Allottee, unit 502, hearing 12 Nov 2026",
-         "picked": true
-        },
-        {
-         "t": "No pending civil suit",
-         "sub": "eCourts, Bengaluru",
-         "picked": false
-        },
-        {
-         "t": "No insolvency petition",
-         "sub": "NCLT",
-         "picked": false
-        },
-        {
-         "t": "No consumer complaint",
-         "sub": "Consumer commission",
-         "picked": false
-        }
-       ]
-      },
-      {
-       "type": "table",
-       "title": "Orders and notices received",
-       "cols": [
-        "Received",
-        "From",
-        "What",
-        "Next date",
-        "Owner",
-        "Status"
-       ],
-       "rows": [
-        [
-         "26 Sep 2026",
-         "K-RERA",
-         "Hearing notice, parking complaint",
-         "12 Nov 2026",
-         "P. Nair",
-         "Open"
-        ],
-        [
-         "30 Sep 2026",
-         "Northline Constructions",
-         "Reminder for running bill 14",
-         "10 Oct 2026",
-         "A. Menon",
-         "Open"
-        ],
-        [
-         "9 Sep 2026",
-         "K-RERA",
-         "Query on April to June update",
-         "—",
-         "S. Kulkarni",
-         "Closed"
-        ]
-       ],
-       "status": 5,
-       "money": [],
-       "bar": null,
-       "total": false,
-       "low": false,
-       "source": "message",
-       "from": "K-RERA and Northline Constructions",
-       "add": "Log a notice"
       },
       {
        "type": "outputs"
@@ -2690,9 +2609,7 @@
    "outputs": {
     "indicative": [
      "Clause extract with missing-registration and one-sided term flags",
-     "Delay damages and interest exposure per contract",
-     "Limitation and next-hearing countdowns",
-     "Dispute exposure total by forum"
+     "Delay damages and interest exposure per contract"
     ],
     "certified": [
      "Registration of JDA, agreement for sale, conveyance, lease over one year: Sub-Registrar, Registration Act s.17.",
@@ -2701,9 +2618,7 @@
     ],
     "reports": [
      "Agreement register",
-     "Case register and hearing diary",
-     "Obligations and notices tracker",
-     "Litigation disclosure for K-RERA registration"
+     "Obligations and notices tracker"
     ],
     "sent": [
      "Draft notices: payment, cure, delay, termination, legal notice",
@@ -2715,8 +2630,7 @@
     "JDA and power of attorney must be registered; limit the power to developer's share.",
     "Lease over one year, and any agreement to sell with possession, must be registered.",
     "Delay interest to allottees: SBI highest MCLR plus 2% (Karnataka Rule 16, s.18).",
-    "Contractor and consultant contracts should carry five-year defect liability to match the promoter's (s.14(3)).",
-    "Disputes: consumer complaint within two years; homebuyers' insolvency petition needs 100 allottees or 10%."
+    "Contractor and consultant contracts should carry five-year defect liability to match the promoter's (s.14(3))."
    ],
    "standards": [
     {
@@ -3408,6 +3322,427 @@
      "name": "Karnataka Apartment (Ownership and Management) Bill 2026, not yet law",
      "why": "Would replace KAOA and KOFA; sets 60-day handover duties",
      "url": "https://nemmadi.in/karnataka-apartment-ownership-management-bill-2026-explained/"
+    }
+   ]
+  },
+  {
+   "name": "Litigation",
+   "stages": [
+    "land",
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "1 matter and 2 open notices recorded, 5 registries searched"
+   },
+   "sections": [
+    {
+     "id": "matters",
+     "name": "Matters",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Matter register",
+       "cols": [
+        "Case",
+        "Forum",
+        "About",
+        "We are",
+        "Stage",
+        "Next hearing",
+        "Claimed",
+        "Likelihood"
+       ],
+       "rows": [
+        [
+         "Complaint 2291 of 2026",
+         "K-RERA",
+         "Parking allotment, unit 502",
+         "Respondent",
+         "Objections",
+         "12 Nov 2026",
+         "₹ 6.5 L",
+         "Possible"
+        ]
+       ],
+       "status": 7,
+       "money": [
+        6
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "fetched",
+       "from": "",
+       "add": "Add matter"
+      },
+      {
+       "type": "fields",
+       "title": "Read from the complaint, waiting on a person",
+       "items": [
+        {
+         "l": "Claim amount",
+         "v": "₹ 6.5 L",
+         "state": "sug",
+         "from": "K-RERA complaint 2291, as filed",
+         "page": 3
+        },
+        {
+         "l": "Summons served on",
+         "v": "26 Sep 2026",
+         "state": "sug",
+         "from": "K-RERA complaint 2291, as filed",
+         "page": 1
+        },
+        {
+         "l": "Written statement due by",
+         "v": "26 Oct 2026",
+         "state": "calc"
+        },
+        {
+         "l": "Situation: litigation pending",
+         "v": "In play, by the matter recorded",
+         "state": "calc"
+        },
+        {
+         "l": "Litigation standing",
+         "v": "A reply is due within seven days",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "What is at stake",
+       "items": [
+        {
+         "l": "Matters pending",
+         "v": "1",
+         "state": "calc"
+        },
+        {
+         "l": "Claimed in pending matters",
+         "v": "₹ 6.5 L",
+         "state": "calc"
+        },
+        {
+         "l": "Claimed in open notices",
+         "v": "₹ 3.4 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Orders in force restraining a sale",
+         "v": "0",
+         "state": "calc"
+        },
+        {
+         "l": "Orders in force restraining construction",
+         "v": "0",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "hearings",
+     "name": "Hearings and orders",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "calendar",
+       "title": "Hearing diary",
+       "items": [
+        {
+         "t": "File objections, complaint 2291",
+         "due": "5 Nov 2026",
+         "who": "P. Nair",
+         "state": "Upcoming"
+        },
+        {
+         "t": "K-RERA complaint 2291, objections",
+         "due": "12 Nov 2026",
+         "who": "P. Nair",
+         "state": "Upcoming"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Orders",
+       "cols": [
+        "Order dated",
+        "Matter",
+        "Passed by",
+        "Effect",
+        "In force",
+        "Comply by",
+        "Status"
+       ],
+       "rows": [
+        [
+         "26 Sep 2026",
+         "Complaint 2291 of 2026",
+         "K-RERA",
+         "No restraint",
+         "Yes",
+         "—",
+         "Open"
+        ]
+       ],
+       "status": 6,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "fetched",
+       "from": "",
+       "add": "Add order"
+      }
+     ]
+    },
+    {
+     "id": "searches",
+     "name": "Court and registry searches",
+     "icon": "search",
+     "blocks": [
+      {
+       "type": "search",
+       "title": "Case look-ups by party",
+       "source": "eCourts, High Court, NCLT, consumer commission, K-RERA",
+       "query": "Lakeview Developers LLP; Lakeview Tower",
+       "results": [
+        {
+         "t": "K-RERA complaint, parking allotment",
+         "sub": "Allottee, unit 502, hearing 12 Nov 2026",
+         "picked": true
+        },
+        {
+         "t": "No pending civil suit",
+         "sub": "eCourts, Bengaluru",
+         "picked": false
+        },
+        {
+         "t": "No insolvency petition",
+         "sub": "NCLT",
+         "picked": false
+        },
+        {
+         "t": "No consumer complaint",
+         "sub": "Consumer commission",
+         "picked": false
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Search log",
+       "cols": [
+        "Registry",
+        "Searched for",
+        "Period",
+        "Hits",
+        "Ours"
+       ],
+       "rows": [
+        [
+         "District and civil courts",
+         "Lakeview Developers LLP",
+         "2011 to 2026",
+         "0",
+         "0"
+        ],
+        [
+         "High Court",
+         "Lakeview Developers LLP",
+         "2011 to 2026",
+         "0",
+         "0"
+        ],
+        [
+         "Company law tribunal",
+         "Lakeview Developers LLP",
+         "2011 to 2026",
+         "0",
+         "0"
+        ],
+        [
+         "Consumer commission",
+         "Lakeview Tower",
+         "2023 to 2026",
+         "0",
+         "0"
+        ],
+        [
+         "RERA authority",
+         "Lakeview Tower",
+         "2023 to 2026",
+         "1",
+         "1"
+        ]
+       ],
+       "status": null,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "fetched",
+       "from": "",
+       "add": "Log a search"
+      },
+      {
+       "type": "slots",
+       "title": "Search papers",
+       "groups": [
+        {
+         "name": "Searches",
+         "lines": [
+          {
+           "t": "Litigation search report",
+           "state": "in",
+           "pages": 6
+          },
+          {
+           "t": "K-RERA complaint 2291, as filed",
+           "state": "in",
+           "pages": 14
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "notices",
+     "name": "Notices and claims",
+     "icon": "chat",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Notices",
+       "cols": [
+        "Received",
+        "From",
+        "Kind",
+        "Amount",
+        "Reply due",
+        "Owner",
+        "State"
+       ],
+       "rows": [
+        [
+         "26 Sep 2026",
+         "K-RERA",
+         "Hearing notice, parking complaint",
+         "—",
+         "12 Nov 2026",
+         "P. Nair",
+         "Open"
+        ],
+        [
+         "30 Sep 2026",
+         "Northline Constructions",
+         "Legal notice, running bill 14",
+         "₹ 3.4 Cr",
+         "10 Oct 2026",
+         "A. Menon",
+         "Open"
+        ],
+        [
+         "9 Sep 2026",
+         "K-RERA",
+         "Query on April to June update",
+         "—",
+         "—",
+         "S. Kulkarni",
+         "Closed"
+        ]
+       ],
+       "status": 6,
+       "money": [
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "message",
+       "from": "",
+       "add": "Log a notice"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "One buyer complaint is pending and counsel calls a loss possible",
+     "rests": []
+    },
+    {
+     "t": "A reply to Northline falls due in seven days with ₹ 3.4 Cr claimed",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Reply to a legal notice due within seven days",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "One search hit is ours: linked to complaint 2291",
+     "by": "rule",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Limitation and next-hearing countdowns",
+     "Dispute exposure total by forum",
+     "Orders in force, and what each restrains"
+    ],
+    "certified": [
+     "Litigation search certificate: advocate, over the registries and names searched.",
+     "Past-project and pending-case disclosure: promoter’s affidavit, RERA s.4(2)(b), checked by advocate."
+    ],
+    "reports": [
+     "Case register and hearing diary",
+     "Notice register",
+     "Litigation disclosure for K-RERA registration",
+     "Contingent liability schedule"
+    ],
+    "sent": [
+     "Hearing and reply-date reminders to owners",
+     "Claims and ordered amounts to Finance; restraints to Engineering and Sales"
+    ]
+   },
+   "mustHave": [
+    "Every hit that is ours in a search links to a matter.",
+    "An order in force that restrains a sale or construction is on the matter, with the parcel it covers.",
+    "A reply date is recorded for every open notice.",
+    "Disputes: consumer complaint within two years; homebuyers' insolvency petition needs 100 allottees or 10%."
+   ],
+   "standards": [
+    {
+     "name": "eCourts services: case status by CNR, party name and case number",
+     "why": "The identifiers, stage and next date a matter carries are the court’s own",
+     "url": "https://services.ecourts.gov.in/"
+    },
+    {
+     "name": "Real Estate (Regulation and Development) Act 2016 ss.4(2)(b), 18, 43, 44",
+     "why": "Case disclosure at registration, buyers’ remedies and appeals",
+     "url": "https://rera.karnataka.gov.in/"
+    },
+    {
+     "name": "Transfer of Property Act 1882 s.52",
+     "why": "A transfer made while a suit over the land is pending is bound by its result",
+     "url": "https://www.indiacode.nic.in/"
     }
    ]
   }

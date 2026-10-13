@@ -38,6 +38,8 @@ import {
   SEVERITY_LABEL,
   describeCapture,
   observationIsUseful,
+  PHOTO_NOTE_MOST,
+  photoWrittenByModelBefore,
   iso19650Completeness,
   iso19650Name,
   originSaid,
@@ -45,6 +47,7 @@ import {
   readingLine,
   quotesForEvidence,
   ricsConditionRating,
+  countSaid,
   type CapturePurpose,
   type DepartmentKey,
   type EnvironmentalCondition,
@@ -56,7 +59,7 @@ import {
   type FindingStatus,
   type RicsEscalation,
 } from '@realytica/shared';
-import { api } from '../../lib/api';
+import { api, request } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Input, RegisterRow, Select, TONE_FILL, andList, cn, toneChip, useToast, type Tone } from '../../components/ui/kit';
 import { CreateButton } from '../../components/create/CreateWizard';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -635,6 +638,7 @@ export function EvidenceRegister() {
                                       attachment={f}
                                       busy={reading === f.id}
                                       onRead={() => void readPhoto(e.id, f.id)}
+                                      onNote={async (text) => setProject(await request<typeof project>(`/projects/${project.id}/photographs/note`, { method: 'PUT', body: JSON.stringify({ evidenceId: e.id, fileId: f.id, text }) }))}
                                     />
                                   </>
                                 ) : null}
@@ -781,7 +785,7 @@ export function FindingRegister() {
                   meta={
                     <>
                       <span>
-                        {SCOPE_LABEL[f.discipline]} · {f.assessmentIds.length} DD link(s) · {f.evidenceIds.length} evidence ·{' '}
+                        {SCOPE_LABEL[f.discipline]} · {countSaid(f.assessmentIds.length, 'due diligence link')} · {f.evidenceIds.length} evidence ·{' '}
                         {f.riskIds.length} risks · {f.actionIds.length} actions
                       </span>
                       {/*
@@ -989,12 +993,15 @@ function ObservationStrip({
   attachment,
   busy,
   onRead,
+  onNote,
 }: {
   attachment: EvidenceAttachment;
   busy: boolean;
   onRead: () => void;
+  onNote: (text: string) => Promise<void>;
 }) {
   const observation = attachment.observation;
+  const [note, setNote] = useState<string | null>(null);
 
   if (!observation) {
     return (
@@ -1020,8 +1027,9 @@ function ObservationStrip({
   return (
     <div className="ml-0.5 mt-0.5 space-y-1 border-l-2 border-brand/30 pl-2">
       <p className="text-[11px] text-ink-secondary">
-        <span className="text-ink-muted">Read by {observation.model}:</span> {observation.description}
+        <span className="text-ink-muted">{observation.seen ? 'Picked from the lists by' : 'Read by'} {observation.model}:</span> {observation.description}
       </p>
+      {photoWrittenByModelBefore(observation) ? <p className="text-[11px] text-ink-muted">Written by a model, before this change.</p> : null}
       {observation.notes.length ? (
         <ul className="space-y-0.5">
           {observation.notes.map((n, i) => (
@@ -1038,6 +1046,27 @@ function ObservationStrip({
           {observation.suggestedFindings.length} proposed — review on AI drafts
         </p>
       ) : null}
+      {/* The only free words about a photograph: a person's own note, one capped line. */}
+      {note === null ? (
+        <p className="text-[11px] text-ink-secondary">
+          {observation.personNote ? <span>Note: {observation.personNote.text} </span> : null}
+          <button type="button" className="text-brand hover:underline" onClick={() => setNote(observation.personNote?.text ?? '')}>
+            {observation.personNote ? 'Change' : 'Add a note'}
+          </button>
+        </p>
+      ) : (
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void onNote(note.trim()).then(() => setNote(null));
+          }}
+        >
+          <Input aria-label="Your note on this photograph" value={note} maxLength={PHOTO_NOTE_MOST} onChange={(e) => setNote(e.target.value)} className="min-w-0 flex-1" autoFocus />
+          <Button type="submit" size="sm">Save</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setNote(null)}>Cancel</Button>
+        </form>
+      )}
     </div>
   );
 }

@@ -10,7 +10,7 @@
 
 import type { DdProject, EvidenceRecord, LifecycleStage } from './types';
 import type { DocumentFact } from './document-parse';
-import { standingFacts, waitingReadings } from './fact-review';
+import { acceptedStanding, unacceptedReadings } from './fact-review';
 import { SUB_STAGES, SUB_STAGE_LABEL } from './departments';
 
 export interface ApprovalKind {
@@ -65,7 +65,7 @@ export interface ApprovalHeld {
   page?: number;
   /**
    * A reading of its dates, its number or who issued it waits on the paper:
-   * a model's that nobody has accepted, or one two readers differ on. It
+   * anything read off it that nobody has accepted, whoever read it. It
    * dates nothing here until a person decides it.
    */
   readingWaiting?: boolean;
@@ -110,8 +110,8 @@ const REFERENCE_KEYS = ['reference', 'sanction_number', 'rera_number', 'clearanc
 const HELD_KEYS = new Set([...ISSUED_KEYS, ...VALID_KEYS, ...REFERENCE_KEYS, 'issued_by']);
 
 function heldFrom(row: EvidenceRecord): ApprovalHeld {
-  // What stands on the paper. A date only a model read, that nobody has accepted, neither starts nor ends an approval.
-  const facts = standingFacts(row);
+  // What a person has accepted on the paper. A date nobody has accepted, whoever read it and however surely, neither starts nor ends an approval.
+  const facts = acceptedStanding(row);
   const issued = fact(facts, ...ISSUED_KEYS);
   const valid = fact(facts, ...VALID_KEYS);
   const ref = fact(facts, ...REFERENCE_KEYS);
@@ -124,7 +124,7 @@ function heldFrom(row: EvidenceRecord): ApprovalHeld {
     ...(dateOf(issued) ? { issuedOn: dateOf(issued) } : {}),
     ...(dateOf(valid) ? { validUntil: dateOf(valid) } : {}),
     ...(issued?.page ? { page: issued.page } : {}),
-    ...(waitingReadings(row).some((f) => HELD_KEYS.has(f.key)) ? { readingWaiting: true } : {}),
+    ...(unacceptedReadings(row).some((f) => HELD_KEYS.has(f.key)) ? { readingWaiting: true } : {}),
   };
 }
 
@@ -165,7 +165,7 @@ export function approvalsRegister(project: DdProject, now = new Date()): Approva
         say = `Valid until ${onDay(earliest!)} — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left.`;
       } else {
         status = 'in_force';
-        say = earliest ? `Valid until ${onDay(earliest)}.` : held[0]!.issuedOn ? `Issued ${onDay(held[0]!.issuedOn)}; no expiry stated.` : 'On file; no dates read yet.';
+        say = earliest ? `Valid until ${onDay(earliest)}.` : held[0]!.issuedOn ? `Issued ${onDay(held[0]!.issuedOn)}; no expiry stated.` : held.some((h) => h.readingWaiting) ? 'On file; no date accepted yet.' : 'On file; no dates read yet.';
       }
     } else if (kind.conditional) {
       status = 'if_applicable';
@@ -178,7 +178,7 @@ export function approvalsRegister(project: DdProject, now = new Date()): Approva
       say = `Needed from the ${SUB_STAGE_LABEL[kind.neededBy]} step.`;
     }
     // Said where a reading would have dated it: it waits, and until a person decides it the line above stands without it.
-    if (held.some((h) => h.readingWaiting)) say = `${say} A reading of its details is waiting to be accepted on the document.`;
+    if (held.some((h) => h.readingWaiting)) say = `${say} What was read off it is waiting to be accepted.`;
     return { kind, status, held, daysLeft, say };
   });
 }

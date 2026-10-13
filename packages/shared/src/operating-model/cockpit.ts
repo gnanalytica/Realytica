@@ -151,7 +151,7 @@ import { asksForOutgoing, outgoingAsked } from './outgoing';
 import { draftToSendSaid } from './plans';
 import { questionnaireDepartment, questionnaireSummary } from './questionnaire';
 import { runValuationApproaches } from './valuation-run';
-import { valueInputRows, withValueOffers } from './value-inputs';
+import { valueInputRows } from './value-inputs';
 import { valueSummary } from './value-standing';
 
 export const PROJECT_COCKPIT_PANES = [
@@ -463,6 +463,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     citedNodeIds: extra.citedNodeIds,
     toolCalls: extra.toolCalls,
     choices: extra.choices,
+    ...(extra.card ? { card: extra.card } : {}),
     unsupportedClaims: extra.unsupportedClaims,
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
@@ -906,14 +907,12 @@ function valuationSaid(project: DdProject, run: ValuationRun): { figure?: string
   const amount = value ? value.fairMarket : run.indicatedValue > 0 ? run.indicatedValue : null;
   if (amount === null) {
     if (value?.outcome === 'approaches_disagree') return { text: `No figure: the approaches disagree. ${run.working!.reconciliation.spreadBasis}`, tag: 'No figure' };
-    // The page counts the values the file offers before anybody accepts them, and a run does not. Those are said to wait, and an approach needs only what nothing offers.
+    // Values the file offers and nobody has accepted are said to wait. No figure is worked out from them, here or on the page.
     const waiting = valueInputRows(project).flatMap((row) => (row.waiting ? [row.waiting] : []));
-    const shown = waiting.length ? valueSummary(project, runValuationApproaches(withValueOffers(project, waiting))) : value;
-    const needs = (shown?.approaches ?? []).filter((a) => a.amount === null && a.missing.length).slice(0, 2).map((a) => `${a.label} needs ${a.missing.slice(0, 2).join(' and ').toLowerCase()}.`);
+    const needs = (value?.approaches ?? []).filter((a) => a.amount === null && a.missing.length).slice(0, 2).map((a) => `${a.label} needs ${a.missing.slice(0, 2).join(' and ').toLowerCase()}.`);
     if (!waiting.length) return { text: ['No figure yet.', ...needs].join(' '), tag: 'No figure yet' };
     const wait = `No figure yet. ${plural(waiting.length, 'value')} ${waiting.length === 1 ? 'waits' : 'wait'} on the Valuation page to be accepted.`;
-    const then = shown?.fairMarket ? [`With ${waiting.length === 1 ? 'it' : 'them'} the page shows ${amountSaid(shown.fairMarket, run.currency)}, provisional.`] : needs;
-    return { text: [wait, ...then].join(' '), tag: `No figure yet · ${waiting.length} to accept` };
+    return { text: [wait, ...needs].join(' '), tag: `No figure yet · ${waiting.length} to accept` };
   }
   const figure = amountSaid(amount, run.currency);
   const by = (value?.approaches ?? []).filter((a) => a.amount !== null && a.share > 0).map((a) => `${a.label}: ${amountSaid(a.amount!, run.currency)} (${Math.round(a.share * 100)}%)`);
@@ -1072,6 +1071,8 @@ export function applyProjectAgentTurn(
     citedNodeIds?: string[];
     /** What the call cost. Rendered beside the turn, never summed in prose. */
     spend?: TurnSpend;
+    /** The answer as a card of fields. `text` is then code's rendering of it, and is kept whole. */
+    card?: import('./chat-answer').ChatAnswerCard;
   },
 ): ProjectChatResult {
   ensureProjectShape(project);
@@ -1102,9 +1103,11 @@ export function applyProjectAgentTurn(
    * model asks three, the person answers the last, and two are lost. Held
    * rather than cut, so the interview continues.
    */
-  const brief = trimTurn(agent.text);
+  // A card's text is one line a row, made by code: there is no prose in it to trim and no question to hold back.
+  const brief = agent.card ? { text: agent.text, heldQuestions: [], trimmed: false } : trimTurn(agent.text);
   const assistantTurn = turn('assistant', brief.text, {
     choices: agent.choices?.length ? agent.choices : undefined,
+    card: agent.card,
     heldQuestions: brief.heldQuestions.length ? brief.heldQuestions : undefined,
     trimmed: brief.trimmed || undefined,
     unsupportedClaims: attribution.unsupported.length ? attribution.unsupported.map((c) => c.text) : undefined,
@@ -2393,7 +2396,10 @@ export function applyProjectChat(
       const report = read.report;
       const cmd = read.command;
       try {
-        if (cmd.kind === 'issue') {
+        if (options.outside && (cmd.kind === 'issue' || cmd.kind === 'detach_block')) {
+          // As the report routes refuse it: what a frozen section says is read off the whole file, and an issued report is signed.
+          assistantText = 'Freezing what a report reads, and issuing it, are for the firm’s own people. Nothing has changed.';
+        } else if (cmd.kind === 'issue') {
           issueReport(project, report.id, actor);
           assistantText =
             `Issued “${report.title}”. Every live section is now frozen at what it said just now, and the report will not move again. `

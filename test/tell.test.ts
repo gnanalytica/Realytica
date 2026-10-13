@@ -131,7 +131,7 @@ describe('a paper filed', () => {
     assert.deepEqual(told(project), [CA, OWNER, STAFF, VIEWER].sort(), 'the action’s owner by name, who asked for it, and who put the line on the checklist');
     assert.equal(lineFor(project, STAFF).action, 'See whether “Chase the encumbrance certificate” can close.');
     assert.equal(lineFor(project, VIEWER).detail, 'It answers the request “EC for 2004 to 2026”.');
-    assert.equal(lineFor(project, CA).detail, 'It answers “Encumbrance certificate” on the checklist.');
+    assert.equal(lineFor(project, CA).detail, 'It answers “Encumbrance certificate” on Papers owed.');
   });
 
   it('whose values a reader read and nobody accepted is said only as waiting to be checked', () => {

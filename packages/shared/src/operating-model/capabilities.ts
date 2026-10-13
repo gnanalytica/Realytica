@@ -576,12 +576,16 @@ export function recordPhotoObservation(
         // Observed and reasoning stay in separate sentences all the way to the
         // card. Merged, they read as one confident statement, and the reviewer
         // loses the only thing that lets them disagree with half of it.
-        body: [
-          `Seen in ${attachment.fileName}: ${suggestion.observed}`,
-          `Why it may matter (the model's reasoning, not a finding): ${suggestion.whyItMayMatter}`,
-          `Read by ${observation.model} at confidence ${(suggestion.confidence * 100).toFixed(0)}%.`,
-          observation.limits ? `What this photograph does not show: ${observation.limits}` : '',
-        ]
+        // From a pick, every line is a template's: the pick's own words, the table's reason, and who picked it.
+        body: (suggestion.seen
+          ? [`Seen in ${attachment.fileName}: ${suggestion.observed}`, suggestion.whyItMayMatter, `Picked from the lists by ${observation.model}, at confidence ${(suggestion.confidence * 100).toFixed(0)}%. Next: inspect on site.`]
+          : [
+              `Seen in ${attachment.fileName}: ${suggestion.observed}`,
+              `Why it may matter (the model's reasoning, not a finding): ${suggestion.whyItMayMatter}`,
+              `Read by ${observation.model} at confidence ${(suggestion.confidence * 100).toFixed(0)}%.`,
+              observation.limits ? `What this photograph does not show: ${observation.limits}` : '',
+            ]
+        )
           .filter(Boolean)
           .join('\n'),
         source: 'model',
@@ -596,6 +600,8 @@ export function recordPhotoObservation(
           // decides which report section it appears in.
           discipline: 'technical',
           evidenceIds: [evidenceId],
+          // What the draft is, as fields: its kind, what it is about, how grave by the table, and the next step.
+          ...(suggestion.seen ? { structured: { kind: 'finding', entries: [evidenceId], element: suggestion.seen.element, condition: suggestion.seen.condition, location: suggestion.seen.location, severity: suggestion.suggestedSeverity, next: 'inspect_on_site' } } : {}),
         },
       }),
     );

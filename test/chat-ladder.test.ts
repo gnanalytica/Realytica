@@ -3,13 +3,15 @@
  *
  * Driven end to end against a fake model endpoint, because the interesting
  * part is not either model's answer but who answers: the free model's own
- * lookup stands; a hand-over, a failure, or a figure the file cannot back
- * goes to the senior model; and a free model's tokens cost nothing.
+ * lookup stands; a hand-over, a failure, or an answer that picked nothing
+ * on the record goes to the senior model; and a free model's tokens cost
+ * nothing. A model answers by picking (`answer_with_fields`); what it
+ * writes is not the answer.
  */
 
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
-import { createProject, type DdProject } from '@realytica/shared';
+import { addAction, createProject, type DdProject } from '@realytica/shared';
 
 const BASE = 'http://ladder.test';
 const BASIC = 'basic/model:free';
@@ -63,14 +65,24 @@ beforeEach(() => {
   asked.length = 0;
 });
 
-const project = (): DdProject => createProject({ name: 'Whitefield plot', type: 'commercial', location: 'Whitefield', city: 'Bengaluru' }, 'RYT-L1');
+const project = (): DdProject => {
+  const p = createProject({ name: 'Whitefield plot', type: 'commercial', location: 'Whitefield', city: 'Bengaluru' }, 'RYT-L1');
+  addAction(p, { title: 'Get the khata extract', kind: 'clarification', owner: 'Anika Rao', priority: 'medium' }, 'lead@builders.example');
+  return p;
+};
+
+/** A model's answer: it picks, once, and stops when it is told its picks were recorded. */
+const picks = (model: string, messages: Array<{ content: unknown }>, input: Record<string, unknown>, words = '') =>
+  sawToolResult(messages) ? text(model, '') : { body: message(model, [...(words ? [{ type: 'text', text: words }] : []), { type: 'tool_use', id: 'tu_a', name: 'answer_with_fields', input: { outcome: 'answered', fields: [], records: [], facts: [], passages: [], ...input } }], 'tool_use') };
 
 describe('a lookup', () => {
   it('is answered by the free model, and costs nothing', async () => {
-    script = (model) => text(model, 'The project is a commercial site in Whitefield, Bengaluru.');
-    const answer = await runProjectChat({ project: project(), question: 'Where is this project?' });
+    const p = project();
+    script = (model, messages) => picks(model, messages, { records: [p.actions[0]!.id] }, 'One action is open.');
+    const answer = await runProjectChat({ project: p, question: 'What is open?' });
+    assert.equal(answer.text, 'From the record:\n- Action: Get the khata extract · Not started (On the record)');
     assert.equal(answer.answeredBy, BASIC);
-    assert.deepEqual(asked, [BASIC], 'the senior model was never called');
+    assert.deepEqual([...new Set(asked)], [BASIC], 'the senior model was never called');
     assert.equal(answer.spend?.usd, 0);
     assert.equal(answer.spend?.exact, true);
   });
@@ -79,14 +91,16 @@ describe('a lookup', () => {
 describe('a question that needs judgement', () => {
   it('is handed over by the free model, and answered by the senior one', async () => {
     script = (model, messages) => {
-      if (model === SENIOR) return text(model, 'The title chain has a gap between 1998 and 2004.');
+      if (model === SENIOR) return picks(model, messages, { outcome: 'not_on_record' }, 'The title chain has a gap between 1998 and 2004.');
       if (sawToolResult(messages)) return text(model, '');
-      return { body: message(model, [{ type: 'tool_use', id: 'tu_1', name: 'hand_over', input: { reason: 'it asks whether the title is clean' } }], 'tool_use') };
+      // The reason is one off a list. Words sent in its place are not kept: the list's first reason stands in.
+      return { body: message(model, [{ type: 'tool_use', id: 'tu_1', name: 'hand_over', input: { reason: 'legal_standing' } }], 'tool_use') };
     };
     const answer = await runProjectChat({ project: project(), question: 'Is the title clean enough to buy?' });
     assert.equal(answer.answeredBy, SENIOR);
-    assert.equal(answer.handedOverBecause, 'it asks whether the title is clean');
-    assert.match(answer.text, /title chain has a gap/);
+    assert.equal(answer.handedOverBecause, 'it is about title or legal standing');
+    // The senior model's sentence is not the answer either: it picked nothing, and the reply says the record does not answer.
+    assert.equal(answer.text, 'Neither the record nor the papers answer this.');
     assert.equal(asked.at(-1), SENIOR);
   });
 });
@@ -102,12 +116,12 @@ describe('the free model failing', () => {
     assert.equal(answer.handedOverBecause, 'the free model was unavailable');
   });
 
-  it('hands over when it states a figure the file does not support', async () => {
-    script = (model) =>
-      model === SENIOR ? text(model, 'No budget is recorded on this file.') : text(model, 'The budget is ₹52,00,00,000.');
+  it('hands over when it wrote an answer and picked nothing: a figure it states is never the reply', async () => {
+    script = (model, messages) => (model === SENIOR ? picks(model, messages, { outcome: 'not_on_record' }) : text(model, 'The budget is ₹52,00,00,000.'));
     const answer = await runProjectChat({ project: project(), question: 'What is the budget?' });
     assert.equal(answer.answeredBy, SENIOR);
-    assert.equal(answer.handedOverBecause, 'it stated figures the file does not support');
+    assert.equal(answer.handedOverBecause, 'it had no answer');
+    assert.ok(!JSON.stringify(answer).includes('52,00,00,000'));
   });
 });
 

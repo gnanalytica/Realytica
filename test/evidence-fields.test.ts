@@ -63,7 +63,7 @@ describe('an evidence field holds a set of rows', () => {
     // The titles live on the project, which the formatter cannot see. Better
     // to say how many than to put "ev_1a05…" in a report.
     const at = '2026-09-01T00:00:00.000Z';
-    assert.equal(formatFieldValue(SITE_PHOTOS, { value: ['ev_1', 'ev_2'], at, by: 'x' }), '2 document(s)');
+    assert.equal(formatFieldValue(SITE_PHOTOS, { value: ['ev_1', 'ev_2'], at, by: 'x' }), '2 papers');
   });
 });
 

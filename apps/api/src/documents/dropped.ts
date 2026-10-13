@@ -8,6 +8,11 @@
  * ends before a paper is read (the platform's limit, a restart) leaves its
  * note behind: the paper can be filed as it is, and "Read the filed
  * documents" reads it.
+ *
+ * The reading does not stop when the tab that dropped the papers closes. The
+ * note says when it began (`readingSince`), so any page of the project can
+ * tell a paper still being read from one a request left behind
+ * (`papersInHand` in the shared model).
  */
 import { createChatProposal, type ChatIngestFile, type ChatProposal, type DdProject } from '@realytica/shared';
 
@@ -34,6 +39,9 @@ export function notReadYetCard(file: ChatIngestFile, actor: string): ChatProposa
       kind: 'document',
       title: file.fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
       readFailure: NOT_READ_YET,
+      // When its reading began. The reading goes on with nobody watching, so a page opened meanwhile can say it is under way
+      // (`papersInHand`); past the longest a request runs, the note is one a request left behind.
+      readingSince: new Date().toISOString(),
     },
     actor,
   );

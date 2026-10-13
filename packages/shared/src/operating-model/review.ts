@@ -10,9 +10,10 @@
  */
 
 import { paperCarries, type DocumentFact } from './document-parse';
-import type { ChatProposal, DdProject, EvidenceRecord } from './types';
+import { offerPaperToSheets } from './field-sheets';
+import type { ChatProposal, DdProject, EvidenceRecord, FieldOrigin } from './types';
 import { findCheck, recordAuditEvent, recordCheckFields } from './operations';
-import { isBlank } from './check-fields';
+import { isBlank, standingField, standingValues } from './check-fields';
 import { acceptedOneAtATime, factReview, stands, toReopen, valueOnPaper } from './fact-review';
 import { commitChatProposal, rejectChatProposal } from './wizard';
 import { decidedOnACheck, factFillProposals, pendingFactProposals } from './document-intake';
@@ -258,7 +259,7 @@ function contested(project: DdProject, card: ChatProposal, key: string): boolean
   const value = String(nowOffered(project, card, key).value);
   let held: unknown;
   try {
-    const field = findCheck(project, checkId).check.fields?.[key];
+    const field = standingField(findCheck(project, checkId).check.fields?.[key]);
     held = isBlank(field) ? undefined : field!.value;
   } catch {
     return false;
@@ -447,6 +448,8 @@ export function reviewFacts(
     if (offer.length) {
       const source = { fileName: evidence.attachments[0]?.fileName ?? evidence.title, evidenceId: evidence.id, documentLabel: evidence.documentType ?? evidence.title };
       project.chatProposals.push(...factFillProposals(project, offer, source, actor, [], { differences: true }));
+      // And to every sheet that reads this kind of paper, where each waits again for that function's lead or signer.
+      offerPaperToSheets(project, evidence.id, offer);
     }
   }
 
@@ -567,6 +570,13 @@ export function decideCheckFields(
       ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey))?.id : undefined);
     const outcome = recordCheckFields(project, checkId, subset, actor, sourceEvidenceId, citations);
     if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
+    // A value read from a named public source keeps the source and the day it was read, as one read off a paper keeps its page.
+    const origins = (payload.origins ?? {}) as Record<string, FieldOrigin | undefined>;
+    for (const k of Object.keys(subset)) {
+      const origin = origins[k];
+      const written = outcome.check.fields?.[k];
+      if (origin?.kind === 'external' && written && !(overrides && k in overrides)) outcome.check.fields![k] = { ...written, state: 'accepted', origin, proposedBy: card.createdBy === 'copilot' ? 'model' : card.createdBy, acceptedBy: actor, acceptedAt: written.at };
+    }
     // The card says what went onto the check, not what it was raised with.
     for (const [k, offer] of offers) if ('fact' in offer && offer.fact) values[k] = offer.value;
   } else {
@@ -641,7 +651,7 @@ export function waitingOnCheck(project: DdProject, checkId: string): CheckWaitin
   let held: Record<string, unknown> = {};
   try {
     const { check } = findCheck(project, checkId);
-    held = Object.fromEntries(Object.entries(check.fields ?? {}).filter(([, v]) => !isBlank(v)).map(([k, v]) => [k, v!.value]));
+    held = Object.fromEntries(Object.entries(standingValues(check.fields)).filter(([, v]) => !isBlank(v)).map(([k, v]) => [k, v!.value]));
   } catch {
     return { fields: [], results: [], other: [] };
   }

@@ -199,7 +199,9 @@ describe('the daily review, run as the timer runs it', () => {
     const { FILE_SWEEP_TOOL } = await import('@realytica/agents');
     const was = await onFile();
     const run = await fileSweep(new Date('2026-10-12T01:30:00.000Z'));
-    assert.deepEqual({ due: run.due, swept: run.swept, raised: run.raised, dropped: run.dropped, failed: run.failed, noModel: run.noModel }, { due: 1, swept: 1, raised: 2, dropped: 1, failed: 0, noModel: 0 });
+    assert.deepEqual({ due: run.due, swept: run.swept, raised: run.raised, dropped: run.dropped, failed: run.failed, noModel: run.noModel }, { due: 1, swept: 1, raised: 2, dropped: 2, failed: 0, noModel: 0 });
+    // The action on nobody is the rule's; the model naming it too is thrown away, with the mark the brief does not have.
+    assert.equal(run.byRule, 1);
     assert.equal(asked.length, 1);
     assert.equal(asked[0]!.tool, FILE_SWEEP_TOOL);
     assert.match(asked[0]!.text, /^Project: Canal Bank homes \(residential\), Kadamba\. Stage: Under construction\. Today: 2026-10-12\./);
@@ -209,6 +211,8 @@ describe('the daily review, run as the timer runs it', () => {
     assert.ok(!/@builders\.example|@site\.example/.test(asked[0]!.text));
     assert.deepEqual(await onFile(), was);
     const state = await kept();
+    // The model's sentences are in nothing that is kept.
+    assert.ok(!/forecast rose with no reason|is on nobody|Name somebody for it|lapsed last year/.test(JSON.stringify(state)));
     assert.equal(state.tokens, 1500);
     assert.equal(run.tokens, 1500);
     costId = state.suggestions.find((s) => s.kind === 'cost_unexplained')!.id;
@@ -303,7 +307,7 @@ describe('what the daily review suggested', () => {
     assert.equal(answer.body.record.type, 'risk');
     assert.deepEqual(answer.body.suggestions, []);
     const risk = answer.body.project.risks.find((r: { id: string }) => r.id === answer.body.record.id);
-    assert.equal(risk.title, 'The stamping of the revised drawings is on nobody.');
+    assert.equal(risk.title, 'Get the revised structural drawings stamped: nobody is named for it.');
     assert.match(risk.cause, /Rests on: Get the revised structural drawings stamped: nobody named for it/);
     assert.deepEqual(await onFile(), { findings: 0, risks: 1 });
     assert.equal((await call('POST', `${at}/${unownedId}/accept`, { token: owner(), body: {} })).status, 409);
@@ -316,7 +320,7 @@ describe('what the daily review suggested', () => {
     assert.deepEqual({ due: run.due, swept: run.swept, raised: run.raised, repeats: run.repeats }, { due: 1, swept: 1, raised: 0, repeats: 2 });
     assert.equal(asked.length, 2);
     // The second brief lists the risk as raised already, and the change since the first review.
-    assert.match(asked[1]!.text, /Risk, Medium: The stamping of the revised drawings is on nobody\./);
+    assert.match(asked[1]!.text, /Risk, Low: Get the revised structural drawings stamped: nobody is named for it\./);
     assert.match(asked[1]!.text, /accept review suggestion risk/);
     assert.deepEqual((await call('GET', at, { token: owner() })).body.suggestions, []);
   });
@@ -326,9 +330,9 @@ describe('an answer given while something else is being written', () => {
   const suggestion = (id: string): SweepSuggestion => ({
     id,
     kind: 'action_unowned',
-    statement: `Nobody is named for ${id}.`,
-    why: 'It is open with nobody named.',
-    action: 'Name somebody.',
+    by: 'rule',
+    left: id,
+    next: 'assign_owner',
     department: 'construction',
     severity: 'medium',
     as: 'finding',

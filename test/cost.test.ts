@@ -178,7 +178,7 @@ describe('work packages', () => {
       [pack.id, 'B', 'Structure', 5_500_000, milestone!.id, pack.createdAt, COST_CERTIFIER],
     );
     assert.deepEqual(lastAudit(project), ['update_work_package', 'work_package', pack.id, COST_CERTIFIER]);
-    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['B Structure, ₹50,00,000', 'B Structure, ₹55,00,000']);
+    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['B Structure, ₹50 lakh', 'B Structure, ₹55 lakh']);
 
     const cleared = updateWorkPackage(project, pack.id, { budget: null, code: null, milestoneId: null }, COST_LEAD);
     assert.deepEqual(Object.keys(cleared).sort(), ['createdAt', 'id', 'name', 'updatedAt', 'updatedBy']);
@@ -250,7 +250,7 @@ describe('contracts', () => {
     );
     assert.match(contract.id, /^ctr_/);
     assert.deepEqual(lastAudit(project), ['add_contract', 'contract', contract.id, COST_LEAD]);
-    assert.equal(project.audit.at(-1)!.newValue, 'Sharma Constructions: Civil works, ₹45,00,000');
+    assert.equal(project.audit.at(-1)!.newValue, 'Sharma Constructions: Civil works, ₹45 lakh');
     // Work can be awarded before the budget is split: such a contract covers nothing yet.
     assert.deepEqual(addContract(project, { contractor: 'Lakshmi Interiors', title: 'Finishes', value: 800_000 }, COST_LEAD).workPackageIds, []);
 
@@ -279,7 +279,7 @@ describe('contracts', () => {
     );
     assert.equal(costRegister(project).contracts[0], next, 'the register holds the contract as it now is');
     assert.deepEqual(lastAudit(project), ['update_contract', 'contract', contract.id, COST_CERTIFIER]);
-    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['Sharma Constructions: Civil works, ₹45,00,000', 'Sharma Constructions: Civil works, ₹50,00,000']);
+    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['Sharma Constructions: Civil works, ₹45 lakh', 'Sharma Constructions: Civil works, ₹50 lakh']);
     const cleared = updateContract(project, contract.id, { retentionPercent: null, reference: null }, COST_LEAD);
     assert.deepEqual(['retentionPercent' in cleared, 'reference' in cleared], [false, false]);
 
@@ -388,7 +388,7 @@ describe('a bill', () => {
     assert.ok(/^line_/.test(raft!.id) && raft!.id !== credit!.id);
     assert.equal(costRegister(project).bills[0], bill);
     assert.deepEqual(lastAudit(project), ['add_bill', 'bill', bill.id, COST_LEAD]);
-    assert.equal(project.audit.at(-1)!.newValue, 'Sharma Constructions bill RA-1, 2026-08-31: 2 lines, ₹5,75,000');
+    assert.equal(project.audit.at(-1)!.newValue, 'Sharma Constructions bill RA-1, 2026-08-31: 2 lines, ₹5.75 lakh');
   });
 
   it('gives every line an id of its own, however many are read at once', () => {
@@ -470,7 +470,7 @@ describe('a bill’s lines', () => {
     );
     assert.ok(!old.includes(bill.lines[0]!.id), 'a line read again is a new line');
     assert.deepEqual(lastAudit(project), ['set_bill_lines', 'bill', bill.id, COST_LEAD]);
-    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['2 lines, ₹10,00,000', '1 line, ₹5,90,000']);
+    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['2 lines, ₹10 lakh', '1 line, ₹5.9 lakh']);
 
     refused(project, () => setBillLines(project, bill.id, [line(), line({ amount: Number.NaN })], COST_LEAD), /Each line of a bill needs the amount it claims, as a number\./);
     refused(project, () => setBillLines(project, 'bill_nothing', [], COST_LEAD), /No bill by that id\./);
@@ -510,17 +510,17 @@ describe('a bill’s lines', () => {
     assert.deepEqual([described.id, described.unit, described.rate, described.quantityToDate, described.variation], [raft!.id, 'cum', 3000, 200, true]);
     assert.equal(bill.lines[0], described, 'the bill holds the line as it now is');
     assert.deepEqual(lastAudit(project), ['update_bill_line', 'bill_line', raft!.id, COST_LEAD]);
-    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹6,00,000, B Structure', '₹6,00,000, B Structure. Changed: unit, rate, quantity to date, variation']);
+    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹6 lakh, B Structure', '₹6 lakh, B Structure. Changed: unit, rate, quantity to date, variation']);
 
     const reclaimed = updateBillLine(project, bill.id, columns!.id, { amount: 450_000 }, COST_LEAD);
     assert.equal(reclaimed.amount, 450_000);
-    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹4,00,000, B Structure', '₹4,50,000, B Structure. Changed: amount claimed']);
+    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹4 lakh, B Structure', '₹4.5 lakh, B Structure. Changed: amount claimed']);
 
     // A line moved to another work package claims what it claimed. The trail says where it was and where it is.
     const [earthwork] = addWorkPackages(project, [{ code: 'A', name: 'Earthwork' }], COST_LEAD);
     updateContract(project, contract.id, { workPackageIds: [pack.id, earthwork!.id] }, COST_LEAD);
     assert.equal(updateBillLine(project, bill.id, raft!.id, { workPackageId: earthwork!.id }, COST_LEAD).workPackageId, earthwork!.id);
-    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹6,00,000, B Structure', '₹6,00,000, A Earthwork. Changed: work package']);
+    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹6 lakh, B Structure', '₹6 lakh, A Earthwork. Changed: work package']);
 
     const cleared = updateBillLine(project, bill.id, raft!.id, { workPackageId: null, unit: null, variation: null }, COST_LEAD);
     assert.deepEqual(['workPackageId' in cleared, 'unit' in cleared, 'variation' in cleared, cleared.rate], [false, false, false, 3000]);
@@ -587,7 +587,7 @@ describe('deciding a line', () => {
     assert.deepEqual([passed.certified?.amount, passed.certified?.note, passed.certified?.by], [600_000, undefined, COST_CERTIFIER]);
     assert.ok(!Number.isNaN(Date.parse(passed.certified!.at)));
     assert.deepEqual(lastAudit(project), ['certify_line', 'bill_line', raft!.id, COST_CERTIFIER]);
-    assert.equal(project.audit.at(-1)!.newValue, '₹6,00,000 of ₹6,00,000 claimed');
+    assert.equal(project.audit.at(-1)!.newValue, '₹6 lakh of ₹6 lakh claimed');
 
     // An adjustment says why.
     const why = /Say why the amount passed differs from the amount claimed\./;
@@ -597,7 +597,7 @@ describe('deciding a line', () => {
     refused(project, () => certifyLine(project, bill.id, columns!.id, { amount: 400_000.01 }, COST_CERTIFIER), why);
     const adjusted = certifyLine(project, bill.id, columns!.id, { amount: 350_000, quantity: 87.5, note: ' Two columns are not cast ' }, COST_CERTIFIER);
     assert.deepEqual(adjusted.certified, { amount: 350_000, quantity: 87.5, note: 'Two columns are not cast', by: COST_CERTIFIER, at: adjusted.certified!.at });
-    assert.equal(project.audit.at(-1)!.newValue, '₹3,50,000 of ₹4,00,000 claimed: Two columns are not cast');
+    assert.equal(project.audit.at(-1)!.newValue, '₹3.5 lakh of ₹4 lakh claimed: Two columns are not cast');
 
     // What is passed is kept to the paisa. Less than half a paisa from the claim is the claim, and needs no reason.
     assert.equal(certifyLine(project, bill.id, raft!.id, { amount: 600_000.004 }, COST_CERTIFIER).certified?.amount, 600_000);
@@ -705,7 +705,7 @@ describe('the certificate for a bill', () => {
     refused(
       project,
       () => certifyBill(project, bill.id, { ...input, deductions: [{ kind: 'retention', amount: 47_000 }, { kind: 'penalty', amount: 893_001 }] }, COST_CERTIFIER),
-      /The deductions come to more than the ₹9,40,000 certified\./,
+      /The deductions come to more than the ₹9.4 lakh certified\./,
     );
 
     const certificate = certifyBill(
@@ -740,7 +740,7 @@ describe('the certificate for a bill', () => {
     assert.match(certificate.id, /^cert_/);
     assert.equal(standingCertification(bill), certificate);
     assert.deepEqual(lastAudit(project), ['certify_bill', 'certification', certificate.id, COST_LEAD]);
-    assert.equal(project.audit.at(-1)!.newValue, 'Bill RA-1: ₹9,40,000 gross, ₹8,74,200 net. R. Menon, Quantity Surveyor');
+    assert.equal(project.audit.at(-1)!.newValue, 'Bill RA-1: ₹9.4 lakh gross, ₹8,74,200 net. R. Menon, Quantity Surveyor');
 
     refused(project, () => certifyBill(project, bill.id, input, COST_CERTIFIER), /This bill already has a certificate\. Withdraw it before issuing another\./);
   });
@@ -775,7 +775,7 @@ describe('the certificate for a bill', () => {
       'what was passed on each line is kept, as the place to start from',
     );
     assert.deepEqual(lastAudit(project), ['withdraw_certification', 'certification', certificate.id, COST_LEAD]);
-    assert.deepEqual([project.audit.at(-1)!.reason, project.audit.at(-1)!.oldValue], ['The rate of item 2.6 is to be checked', 'Bill RA-1: ₹10,00,000 gross, ₹10,00,000 net']);
+    assert.deepEqual([project.audit.at(-1)!.reason, project.audit.at(-1)!.oldValue], ['The rate of item 2.6 is to be checked', 'Bill RA-1: ₹10 lakh gross, ₹10 lakh net']);
     refused(project, () => withdrawCertification(project, bill.id, COST_LEAD), /No certificate stands on this bill\./);
 
     // Decided again and certified again. The bill keeps both certificates, and the second is the one that stands.
@@ -835,7 +835,7 @@ describe('paying, and what the job is expected to cost', () => {
     assert.equal(costRegister(project).forecast, second);
     assert.deepEqual([second.finalCost, 'note' in second, second.by], [6_500_000, false, COST_LEAD]);
     assert.deepEqual(lastAudit(project), ['set_cost_forecast', 'cost', project.id, COST_LEAD]);
-    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹62,00,000', '₹65,00,000']);
+    assert.deepEqual([project.audit.at(-1)!.oldValue, project.audit.at(-1)!.newValue], ['₹62 lakh', '₹65 lakh']);
   });
 });
 
@@ -1167,7 +1167,7 @@ describe('payments', () => {
     assert.ok(!Number.isNaN(Date.parse(voided.voided!.at)));
     assert.equal(bill.payments.length, 2, 'what was once recorded as paid can still be read');
     assert.deepEqual(lastAudit(project), ['void_payment', 'bill', bill.id, COST_LEAD]);
-    assert.deepEqual([project.audit.at(-1)!.reason, project.audit.at(-1)!.oldValue], ['Paid to another contractor', '₹4,00,000 paid on 2026-09-12 against bill RA-1 (NEFT 1)']);
+    assert.deepEqual([project.audit.at(-1)!.reason, project.audit.at(-1)!.oldValue], ['Paid to another contractor', '₹4 lakh paid on 2026-09-12 against bill RA-1 (NEFT 1)']);
 
     assert.deepEqual([billPosition(bill).paid, billPosition(bill).outstanding, billPosition(bill).status], [250_000, 750_000, 'certified']);
     assert.equal(contractPosition(project, contract.id).paid, 250_000);
@@ -1296,7 +1296,7 @@ describe('taking back what was entered wrongly', () => {
     removeContract(project, contract.id, COST_LEAD);
     assert.deepEqual(costRegister(project).contracts, []);
     assert.deepEqual(lastAudit(project), ['remove_contract', 'contract', contract.id, COST_LEAD]);
-    assert.equal(project.audit.at(-1)!.oldValue, 'Sharma Constructions: Civil works, ₹45,00,000');
+    assert.equal(project.audit.at(-1)!.oldValue, 'Sharma Constructions: Civil works, ₹45 lakh');
     refused(project, () => removeContract(project, contract.id, COST_LEAD), /No contract by that id\./);
     // And the package it covered is free to go.
     removeWorkPackage(project, pack.id, COST_LEAD);
@@ -1309,7 +1309,7 @@ describe('amounts and sources in words', () => {
     assert.equal(moneySaid(0), '₹0');
     assert.equal(moneySaid(999), '₹999');
     assert.equal(moneySaid(1000), '₹1,000');
-    assert.equal(moneySaid(100_000), '₹1,00,000');
+    assert.equal(moneySaid(100_000), '₹1 lakh');
     assert.equal(moneySaid(12_345_678), '₹1,23,45,678');
     assert.equal(moneySaid(12_345_678.5), '₹1,23,45,678.50');
     assert.equal(moneySaid(0.05), '₹0.05');

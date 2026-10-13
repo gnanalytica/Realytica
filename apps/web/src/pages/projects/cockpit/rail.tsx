@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import {
   Building2,
   ChevronDown,
@@ -35,6 +35,7 @@ import {
   type MenuStage,
   type ProjectCockpitPane,
   type StageKey,
+  fieldsNeeding,
 } from '@realytica/shared';
 import { cn } from '../../../components/ui/kit';
 import { DepartmentPicker, FunctionTabs, type FunctionTab, type PickerItem } from '../../../components/workspace/WorkspaceBar';
@@ -429,7 +430,7 @@ export function ProjectPicker({
  * the page on screen. The dot marks the functions whose page is a pane of
  * its own (Valuation, Site), the only ones the waiting list is kept by today.
  */
-function functionTabs(menu: DepartmentKey, enabled: readonly DepartmentKey[], at: MenuStage, standing: string | undefined, byPane: WaitingByPane): FunctionTab[] {
+function functionTabs(menu: DepartmentKey, enabled: readonly DepartmentKey[], at: MenuStage, standing: string | undefined, byPane: WaitingByPane, sheetsWaiting: ReadonlySet<string>): FunctionTab[] {
   const shown = new Set(menuFunctions(menu, at).filter((fn) => enabled.includes(fn.department)).map((fn) => fn.key));
   return [
     { key: 'summary', label: 'Summary' },
@@ -439,7 +440,8 @@ function functionTabs(menu: DepartmentKey, enabled: readonly DepartmentKey[], at
         key: fn.key,
         label: fn.label,
         muted: !fn.built,
-        waiting: Boolean(WORKSTREAM_PANE[fn.key] && byPane[WORKSTREAM_PANE[fn.key]!]),
+        // Or its own sheets hold a value to accept or a dispute to settle.
+        waiting: Boolean(WORKSTREAM_PANE[fn.key] && byPane[WORKSTREAM_PANE[fn.key]!]) || sheetsWaiting.has(fn.key),
       })),
   ];
 }
@@ -486,7 +488,7 @@ export function CockpitPaneStrip({
   const second = menu ? (
     <FunctionTabs
       className="min-w-0 flex-1"
-      tabs={functionTabs(menu, projectDepartments(project), at, fn, waiting?.byPane ?? {})}
+      tabs={functionTabs(menu, projectDepartments(project), at, fn, waiting?.byPane ?? {}, new Set(fieldsNeeding(project).filter((row) => row.counts.proposed + row.counts.situation + row.counts.disputed > 0).map((row) => row.fn)))}
       current={fn ?? 'summary'}
       onPick={(key) => {
         if (key === 'summary') onGo('department', { department: menu });
@@ -508,7 +510,7 @@ export function CockpitPaneStrip({
             go: () => onGo(t.pane),
             extra: (
               <>
-                {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
+                {toDecide > 0 ? <WaitingCount n={toDecide} label="to accept" /> : null}
                 {count != null ? <Count n={count} /> : null}
               </>
             ),

@@ -32,6 +32,7 @@
  */
 
 import type { AuditEvent, DdProject, EvidenceRecord } from './types';
+import { standingField } from './check-fields';
 import type { DepartmentKey } from './departments';
 import { DEPARTMENT_SHORT, FUNCTION_SHORT, functionKey, withDepartment, workstreamDefinition, workstreamOfCheck } from './departments';
 import type { WorkspaceRole } from './tenancy';
@@ -40,6 +41,7 @@ import { allChecks } from './engagements';
 import { acceptedFacts, factReview, standingFacts, waitingReadings } from './fact-review';
 import { projectLinks } from './links';
 import { ownedBy } from './my-work';
+import { paperPlace, requestPlace, type PapersPlace } from './papers-owed';
 import { departmentOfPaper } from './review';
 import { departmentRole, projectDepartments } from './team';
 import { documentWorkstream } from './vault';
@@ -233,7 +235,7 @@ function plain(value: unknown): value is string | number | boolean {
 /** The checks holding another value under this key, read off some other paper or typed by hand. */
 function checksThatDiffer(project: DdProject, key: string, value: unknown, evidenceId: string) {
   return allChecks(project).filter((check) => {
-    const held = check.fields?.[key];
+    const held = standingField(check.fields?.[key]);
     return held !== undefined && plain(held.value) && held.sourceEvidenceId !== evidenceId && !sameValue(held.value, value);
   });
 }
@@ -562,6 +564,8 @@ export interface TellLine {
   waiting?: number;
   evidenceId?: string;
   page?: number;
+  /** Where a paper owed or a request is worked: its department's Documents, or the firm's Requests for a request that belongs to none. */
+  open?: PapersPlace;
   read: boolean;
 }
 
@@ -615,7 +619,7 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     if (differs.length) said.push(listed(differs));
     if (waiting) said.push(`${plural(waiting, 'value')} waiting for ${decides ? 'you' : 'a lead or signer'} to check.`);
     if (!said.length) {
-      if (item && line) said.push(line.how === 'offered' ? `It may be “${item.title}” on the checklist.` : `It answers “${item.title}” on the checklist.`);
+      if (item && line) said.push(line.how === 'offered' ? `It may be “${item.title}” on Papers owed.` : `It answers “${item.title}” on Papers owed.`);
       else if (request) said.push(asked?.how === 'offered' ? `It came in reply to the request “${request.title}”.` : `It answers the request “${request.title}”.`);
       else if (action) said.push(`It touches your action “${action.title}”.`);
     }
@@ -638,7 +642,7 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     const said: string[] = [];
     if (notice.kind === 'value_changed' && notice.was) said.push(`${notice.was} stood before.`);
     const other = against ? allChecks(project).find((check) => check.id === against.checkId) : undefined;
-    const held = other && notice.factKey ? other.fields?.[notice.factKey]?.value : undefined;
+    const held = other && notice.factKey ? standingField(other.fields?.[notice.factKey])?.value : undefined;
     if (other && plain(held)) said.push(`“${other.title}” in ${DEPARTMENT_SHORT[against!.department]} holds ${String(held)}.`);
     else if (feeds) {
       const rests = checkTitle(feeds.checkId);
@@ -658,7 +662,7 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     const item = (project.checklist ?? []).find((held) => held.id === notice.checklistItemId);
     if (!item) return undefined;
     const paper = item.received?.evidenceId ? project.evidence.find((held) => held.id === item.received!.evidenceId) : undefined;
-    return { ...base, title: `In hand: ${item.title}`, ...(paper ? { detail: `Marked against ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read it.' : 'See that it is on file.' };
+    return { ...base, title: `In hand: ${item.title}`, ...(paper ? { detail: `Marked against ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read it.' : 'See that it is on file.', open: paperPlace(item) };
   }
 
   const request = (project.requests ?? []).find((held) => held.id === notice.requestId);
@@ -667,17 +671,17 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
     // The reply this line of the trail recorded, by who sent it and when. Their words are not repeated: they wait on a person.
     const reply = (request.replies ?? []).find((held) => held.receivedAt === notice.at && `${OUTSIDE_ACTOR}${held.from}` === notice.by);
     const papers = reply?.attachments.length ?? 0;
-    return { ...base, title: `Reply: ${request.title}`, detail: papers ? `${plural(papers, 'paper')} came with it, waiting to be confirmed.` : 'Words alone, with no paper.', action: 'Confirm it answers the request, or set it aside.' };
+    return { ...base, title: `Reply: ${request.title}`, detail: papers ? `${plural(papers, 'paper')} came with it, waiting to be confirmed.` : 'Words alone, with no paper.', action: 'Confirm it answers the request, or set it aside.', open: requestPlace(project, request) };
   }
   const paper = request.answeredByEvidenceId ? project.evidence.find((held) => held.id === request.answeredByEvidenceId) : undefined;
-  return { ...base, title: `Answered: ${request.title}`, ...(paper ? { detail: `With ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read what came.' : 'See what came.' };
+  return { ...base, title: `Answered: ${request.title}`, ...(paper ? { detail: `With ${paper.title}.`, evidenceId: paper.id } : {}), action: paper ? 'Read what came.' : 'See what came.', open: requestPlace(project, request) };
 }
 
 const KIND_COUNTED: Record<TellEventKind, [string, string]> = {
   paper_filed: ['paper filed', 'papers filed'],
   value_accepted: ['value accepted', 'values accepted'],
   value_changed: ['value changed', 'values changed'],
-  line_answered: ['checklist line in hand', 'checklist lines in hand'],
+  line_answered: ['paper owed now in hand', 'papers owed now in hand'],
   request_answered: ['request answered', 'requests answered'],
   request_replied: ['reply to a request', 'replies to requests'],
 };

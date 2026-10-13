@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { papersPlacePath, reachesEveryProject } from '@realytica/shared';
+import { useMe } from '../lib/useMe';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Bell, CalendarDays, CircleAlert, Columns3, FolderTree, Inbox, LayoutTemplate, List, Plus, Search, TriangleAlert } from 'lucide-react';
 import {
@@ -108,7 +110,7 @@ function ProjectCard({ project, next }: { project: ProjectSummary; next?: Portfo
         {project.pendingDecisions ? (
           <span className="inline-flex items-center gap-1 rounded-md bg-ai/10 px-1.5 py-0.5 text-mini font-medium leading-4 text-ai-ink ring-1 ring-inset ring-ai/25">
             <AiMark size="xs" className="size-3 text-[6px]" />
-            {project.pendingDecisions} to decide
+            {project.pendingDecisions} to accept
           </span>
         ) : null}
         {project.waitingOn ? <Badge tone="neutral">{project.waitingOn} waiting</Badge> : null}
@@ -220,6 +222,9 @@ function PortfolioFigure({
  * others, and what falls due in the next two weeks.
  */
 export default function Portfolio() {
+  // A request opens on its department's Documents, or on the firm's Requests when it belongs to none; somebody working from a grant is taken to the project instead.
+  const me = useMe();
+  const staff = me ? reachesEveryProject(me.role) : false;
   const navigate = useNavigate();
   const { data, error, loading } = useAsync(() => api.portfolio(), []);
   const [query, setQuery] = useState('');
@@ -303,8 +308,8 @@ export default function Portfolio() {
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-hairline shadow-card ring-1 ring-[var(--ring)] lg:grid-cols-5 [&>*]:bg-surface max-lg:[&>*:last-child]:col-span-2">
             <PortfolioFigure icon={FolderTree} label="Projects" value={all.length} hint={`${all.length - issued} active`} />
             <PortfolioFigure icon={CircleAlert} label="At risk" value={blockedProjects} tone={blockedProjects ? 'critical' : undefined} hint={`${data.blockers} blocker${data.blockers === 1 ? '' : 's'}`} />
-            <PortfolioFigure ai label="Waiting for a decision" value={data.decisions.length} hint="AI proposals" />
-            <PortfolioFigure icon={Inbox} label="Requests open" value={openRequests} hint="Waiting on others" />
+            <PortfolioFigure ai label="To accept" value={data.decisions.length} hint="Proposed by AI, waiting for a person" />
+            <PortfolioFigure icon={Inbox} label="Requests open" value={openRequests} hint="Asked for, not yet in hand" />
             <PortfolioFigure icon={CalendarDays} label="Site visits" value={data.visitsInWindow} hint="Next 14 days" />
           </div>
         </Reveal>
@@ -317,7 +322,7 @@ export default function Portfolio() {
               <p className="text-[12px] font-semibold text-ink">Since your last visit</p>
               <p className="text-[13px] text-ink-secondary">
                 {digest
-                  .map(({ project, decisions }) => `${project.name}: updated ${dayMonth(project.updatedAt)}${decisions ? `, ${decisions} new proposal${decisions === 1 ? '' : 's'}` : ''}`)
+                  .map(({ project, decisions }) => `${project.name}: updated ${dayMonth(project.updatedAt)}${decisions ? `, ${decisions} to accept` : ''}`)
                   .join(' · ')}
               </p>
             </div>
@@ -435,13 +440,13 @@ export default function Portfolio() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Card className={cn(data.decisions.length > 0 && 'ring-[1.5px] ring-ai/45')}>
             <CardHeader
-              title="Needs your decision"
+              title="To accept"
               icon={data.decisions.length > 0 ? <AiMark size="xs" /> : undefined}
-              subtitle={data.decisions.length ? `${data.decisions.length} proposal${data.decisions.length === 1 ? '' : 's'}` : 'Nothing waiting'}
+              subtitle={data.decisions.length ? `${data.decisions.length} waiting for a person` : 'Nothing waiting'}
             />
             <CardBody>
               {data.decisions.length === 0 ? (
-                <p className="text-[13px] text-ink-muted">No proposals are waiting for a person.</p>
+                <p className="text-[13px] text-ink-muted">Nothing is waiting to be accepted.</p>
               ) : (
                 <Stagger as="ul" className="divide-y divide-hairline">
                   {data.decisions.slice(0, 6).map((d) => (
@@ -461,24 +466,24 @@ export default function Portfolio() {
                   ))}
                 </Stagger>
               )}
-              <p className="mt-3 text-[11px] text-ink-muted">Only people change the record. AI proposals wait for a decision.</p>
+              <p className="mt-3 text-[11px] text-ink-muted">Only people change the record. What AI proposes waits to be accepted.</p>
             </CardBody>
           </Card>
 
           <Card>
             <CardHeader
-              title="Waiting on others"
+              title="Asked for"
               subtitle={`${data.waitingOn.length} open request${data.waitingOn.length === 1 ? '' : 's'}`}
               action={<Link to="/requests" className="text-[12px] font-medium text-brand">All requests</Link>}
             />
             <CardBody>
               {data.waitingOn.length === 0 ? (
-                <p className="text-[13px] text-ink-muted">Nothing outstanding. Requests sent from a project's Overview appear here.</p>
+                <p className="text-[13px] text-ink-muted">Nothing is waiting on others. Ask from a department’s Documents.</p>
               ) : (
                 <ul className="divide-y divide-hairline">
-                  {data.waitingOn.slice(0, 6).map(({ request, projectName, projectId, ageDays, overdue }) => (
+                  {data.waitingOn.slice(0, 6).map(({ request, projectName, projectId, ageDays, overdue, open }) => (
                     <li key={request.id}>
-                      <Link to={`/projects/${projectId}`} className="flex items-center gap-3 py-2">
+                      <Link to={staff ? papersPlacePath(projectId, open) : `/projects/${projectId}`} className="flex items-center gap-3 py-2">
                         <Avatar name={request.recipient} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[13px] font-medium text-ink">{request.recipient}</p>

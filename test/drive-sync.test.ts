@@ -328,9 +328,27 @@ describe('two reads of one folder at once', () => {
   it('the second finds the first at work and does nothing', async () => {
     const { id, root, fake, provider } = await connected('Rope Walk');
     fake.file('file-letter-0010', 'Piling letter.txt', root, LETTER);
-    const [a, b] = await Promise.all([sync.syncFolder(id, { now: T0, provider }), new Promise<Awaited<ReturnType<Sync['syncFolder']>>>((resolve) => setTimeout(() => void sync.syncFolder(id, { now: T0, provider }).then(resolve), 5))]);
+    // The first run is held at its download until the second has come and gone,
+    // so the two overlap however fast the machine is.
+    let reached!: () => void;
+    let release!: () => void;
+    const atDownload = new Promise<void>((resolve) => { reached = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const slow: typeof provider = Object.assign(Object.create(provider), {
+      download: async (entry: Parameters<typeof provider.download>[0], maxBytes: number) => {
+        reached();
+        await gate;
+        return provider.download(entry, maxBytes);
+      },
+    });
+    const first = sync.syncFolder(id, { now: T0, provider: slow });
+    await atDownload;
+    const b = await sync.syncFolder(id, { now: T0, provider });
+    release();
+    const a = await first;
     assert.equal(a.takenIn + b.takenIn, 1);
-    assert.ok(a.busy || b.busy);
+    assert.equal(b.busy, true);
+    assert.equal(a.busy, undefined);
     assert.equal(brought(await held(id)).length, 1);
     // The mark is gone with the run that left it.
     assert.equal((await sync.syncFolder(id, { now: new Date(T0.getTime() + 60_000), provider, full: true })).busy, undefined);

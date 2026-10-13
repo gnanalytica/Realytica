@@ -68,13 +68,13 @@ export function failureCause(raw: string | undefined | null): FailureCause {
 export function unansweredReason(cause: FailureCause): string {
   switch (cause) {
     case 'rate_limited':
-      return 'I could not answer that — the model is rate limited just now. Ask again in a minute.';
+      return 'I could not answer that just now. Ask again in a minute.';
     case 'unconfigured':
-      return 'I cannot answer questions on this deployment — no model endpoint is configured.';
+      return 'I could not find that on the file. Questions the file’s own rules do not answer are not switched on here: Set up says what is needed.';
     case 'timeout':
       return 'I could not answer that in time.';
     case 'malformed':
-      return 'I could not answer that — the model returned something unusable.';
+      return 'I could not answer that. Ask it again, or in other words.';
     default:
       return 'I could not answer that.';
   }

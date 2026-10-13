@@ -24,6 +24,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  recordCheckFields,
+  setFieldValues,
   addAction,
   addAsset,
   addBill,
@@ -281,6 +283,12 @@ function filledProject(): DdProject {
   applyProjectChat(project, 'Give me a briefing');
   project.conversation.at(-1)!.citedNodeIds = [finding.id];
   commitAiDraft(project, proposeAiDrafts(project).find((d) => d.kind === 'action')!.id);
+  // A function's sheet holds a value, and one of its fields mirrors a check's: the field value node and its `same_as`.
+  const parcelCheck = project.assessments.flatMap((a) => a.scopes.flatMap((sc) => sc.checks)).find((c) => c.definitionId === 'land_site.parcel_identification');
+  assert.ok(parcelCheck, 'the fixture has the parcel check the example sheet mirrors');
+  recordCheckFields(project, parcelCheck.id, { extent_title: 6273 }, 'tester');
+  setFieldValues(project, { set: 'legal.title.holding' }, { extent: '1 acre 22 guntas', tenure: 'freehold' }, 'tester');
+
   return project;
 }
 
@@ -436,7 +444,7 @@ describe('the frame is the one the menu shows', () => {
       'the name in full leads the detail',
     );
     assert.ok(departments.every((n) => (n.detail ?? '').split(' · ').length === 2), 'and the purpose is kept after it');
-    assert.deepEqual(departments.map((n) => n.status), ['live', 'live', 'live', 'coming_soon', 'live']);
+    assert.deepEqual(departments.map((n) => n.status), ['live', 'live', 'live', 'live', 'live']);
     assert.ok(!graph.nodes.some((n) => n.id === `${project.id}::dept::design`), 'Design is not a department here');
     assert.equal(graph.edges.filter((e) => e.rel === 'has_department' && e.from === project.id).length, 5);
   });
@@ -454,8 +462,8 @@ describe('the frame is the one the menu shows', () => {
       'and under it Design alone: Engineering’s own functions are switched off',
     );
     // It stands for Design alone here, so it is described as Design is and is
-    // no more built than Design: not `live`, and not "the technical work".
-    assert.equal(engineering[0]!.status, 'coming_soon');
+    // as built as Design, whose functions hold sheets: `live`, and not "the technical work".
+    assert.equal(engineering[0]!.status, 'live');
     assert.match(engineering[0]!.detail ?? '', /^Design & Architecture · What will be built/);
   });
 
@@ -467,7 +475,7 @@ describe('the frame is the one the menu shows', () => {
     const designId = `${project.id}::ws::design`;
     const design = graph.nodes.filter((n) => n.kind === 'workstream' && (n.key ?? '').startsWith('design'));
     assert.deepEqual(design.map((n) => [n.id, n.label, n.key]), [[designId, 'Design', 'design']], 'four workstreams, one node');
-    assert.match(design[0]!.detail ?? '', /^Design & Architecture · Drawings & versions, Design compliance, RFIs, Coordination · /, 'the name in full leads the detail, then the four it stands for');
+    assert.match(design[0]!.detail ?? '', /^Design & Architecture · Drawings & versions, Design compliance, RFIs, Coordination, Brief & unit mix, .*, Lifts · /, 'the name in full leads the detail, then the functions it stands for');
     assert.deepEqual(
       graph.edges.filter((e) => e.rel === 'has_workstream' && e.to === designId).map((e) => e.from),
       [`${project.id}::dept::construction`],
@@ -479,7 +487,7 @@ describe('the frame is the one the menu shows', () => {
     const project = bareProject();
     const graph = buildProjectGraph(project);
     const own = WORKSTREAMS.filter((w) => w.department !== 'design');
-    assert.equal(own.length, 23);
+    assert.ok(own.length > 20 && own.length < WORKSTREAMS.length, 'every workstream but Design’s, which are drawn as one');
     for (const w of own) {
       const node = graph.nodes.find((n) => n.id === `${project.id}::ws::${w.key}`);
       assert.ok(node, `${w.key} lost its node`);
@@ -488,7 +496,7 @@ describe('the frame is the one the menu shows', () => {
       assert.equal(node.label, FUNCTION_SHORT[w.key], `${w.key} is not named by its one word`);
       if (w.label !== node.label) assert.ok((node.detail ?? '').startsWith(`${w.label} · `), `${w.label} is no longer findable`);
     }
-    assert.equal(graph.nodes.filter((n) => n.kind === 'workstream').length, 24, '23 of their own, and Design');
+    assert.equal(graph.nodes.filter((n) => n.kind === 'workstream').length, own.length + 1, 'each of their own, and Design');
   });
 
   it('joins what pointed at a design workstream to Design once, and drops a link between two of them', () => {
@@ -566,7 +574,7 @@ describe('the names people still use find something', () => {
     // The kind keeps the record's word; a search answers to the reader's too.
     for (const word of ['function', 'functions', 'Functions', 'workstream']) {
       const hits = findProjectNodes(buildProjectGraph(bareProject()), word);
-      assert.equal(hits.length, 24, `"${word}"`);
+      assert.equal(hits.length, WORKSTREAMS.filter((w) => w.department !== 'design').length + 1, `"${word}"`);
       assert.ok(hits.every((n) => n.kind === 'workstream'));
     }
   });
@@ -581,7 +589,7 @@ describe('the names people still use find something', () => {
       ['department', 'department', 5],
       ['departments', 'department', 5],
       ['Departments', 'department', 5],
-      ['workstreams', 'workstream', 24],
+      ['workstreams', 'workstream', WORKSTREAMS.filter((w) => w.department !== 'design').length + 1],
     ] as const) {
       assert.equal(findProjectNodes(graph, word).filter((n) => n.kind === kind).length, count, `"${word}"`);
     }
@@ -596,7 +604,7 @@ describe('the names people still use find something', () => {
 
     // Whatever the frame draws is named, and by the word the frame gives it.
     const drawn = projectFrameLabels(project);
-    assert.equal(drawn.length, 4 + 5 + 24);
+    assert.equal(drawn.length, 4 + 5 + WORKSTREAMS.filter((w) => w.department !== 'design').length + 1);
     for (const { id, label } of drawn) {
       assert.ok(projectFrameNames(id).some((name) => label === name || label.endsWith(` › ${name}`)), `${id} is drawn as "${label}" and named ${JSON.stringify(projectFrameNames(id))}`);
     }

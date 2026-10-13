@@ -38,6 +38,7 @@ import { haversineMetres } from '../site';
 import { addEvidence, recordAuditEvent } from './operations';
 import { decisionRefused } from './review';
 import type { MayDecide } from './team';
+import { SQM_PER_AREA_UNIT } from './units';
 
 /* ==================================================================== */
 /* Units                                                                 */
@@ -45,14 +46,15 @@ import type { MayDecide } from './team';
 
 export type ComparableAreaUnit = 'sqft' | 'sqyd' | 'sqm' | 'acres' | 'cents' | 'guntas' | 'hectares';
 
+/** The same conversions every other measure uses (`units.ts`), under the names listings write. */
 const SQM_PER: Record<ComparableAreaUnit, number> = {
-  sqft: 0.09290304,
-  sqyd: 0.83612736,
+  sqft: SQM_PER_AREA_UNIT.sqft,
+  sqyd: SQM_PER_AREA_UNIT.sqyd,
   sqm: 1,
-  acres: 4046.8564224,
-  cents: 40.468564224,
-  guntas: 101.17141056,
-  hectares: 10000,
+  acres: SQM_PER_AREA_UNIT.acre,
+  cents: SQM_PER_AREA_UNIT.cent,
+  guntas: SQM_PER_AREA_UNIT.gunta,
+  hectares: SQM_PER_AREA_UNIT.hectare,
 };
 
 export function toSqm(value: number, unit: ComparableAreaUnit | null | undefined): number {

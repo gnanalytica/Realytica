@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Camera, HardHat, Smartphone, Upload, Users } from 'lucide-react';
 import {
   constructionGate,
+  daySaid,
   departmentRole,
   progressSummary,
   roleCanDecide,
@@ -13,6 +14,7 @@ import {
   type ScheduleSkippedRow,
   type SiteLogEntry,
 } from '@realytica/shared';
+import { person } from '../../lib/format';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
@@ -87,9 +89,11 @@ function MilestoneRow({
         <p className="text-[13px] text-ink">{milestone.name}</p>
         <p className="text-micro text-ink-muted">
           Weight {milestone.weight}
-          {milestone.plannedFinish ? ` · planned ${milestone.plannedFinish}` : ''}
-          {moved ? ` (was ${milestone.baselineFinish})` : ''}
-          {milestone.completedOn ? ` · done ${milestone.completedOn}` : ''}
+          {/* The day it is held to now: its planned finish, moved by the days of extension granted on its contract. */}
+          {(watch?.plannedFinish ?? milestone.plannedFinish) ? ` · planned ${daySaid(watch?.plannedFinish ?? milestone.plannedFinish)}` : ''}
+          {watch?.extensionDays ? ` (moved ${watch.extensionDays} ${watch.extensionDays === 1 ? 'day' : 'days'} by extensions granted, from ${daySaid(milestone.plannedFinish)})` : ''}
+          {moved ? ` (first planned ${daySaid(milestone.baselineFinish)})` : ''}
+          {milestone.completedOn ? ` · done ${daySaid(milestone.completedOn)}` : ''}
           {!milestone.completedOn && watch?.expectedPercent !== undefined ? ` · expected ${watch.expectedPercent}% today` : ''}
         </p>
       </div>
@@ -271,7 +275,7 @@ export function ProgressBoard({
         </Callout>
       ) : null}
       <Card>
-        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${summary.lastEntry.date} by ${summary.lastEntry.author}` : 'Nothing logged from site yet'} />
+        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${daySaid(summary.lastEntry.date)} by ${person(summary.lastEntry.author)}` : 'Nothing logged from site yet'} />
         <CardBody className="flex flex-wrap items-center gap-6">
           <Ring percent={summary.percent} />
           <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-2 text-[13px] sm:grid-cols-4">
@@ -316,11 +320,12 @@ export function ProgressBoard({
           {schedule.plannedCompletion ? (
             <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-secondary">
               <span>
-                Planned completion <span className="font-mono text-ink">{schedule.plannedCompletion}</span>
+                Planned completion <span className="font-mono text-ink">{daySaid(schedule.plannedCompletion)}</span>
+                {schedule.extensionDays ? ` · moved ${schedule.extensionDays} ${schedule.extensionDays === 1 ? 'day' : 'days'} by extensions of time granted, from ${daySaid(schedule.completionBeforeExtensions)}` : ''}
                 {schedule.projectedCompletion ? (
                   <>
                     {' · at the current rate '}
-                    <span className="font-mono text-ink">{schedule.projectedCompletion}</span>
+                    <span className="font-mono text-ink">{daySaid(schedule.projectedCompletion)}</span>
                   </>
                 ) : null}
               </span>
@@ -363,7 +368,7 @@ export function ProgressBoard({
               {log.slice(0, 30).map((entry) => (
                 <li key={entry.id} data-marked={entry.id === marked ? '' : undefined} className={cn('rounded-lg p-3', entry.id === marked ? MARKED_ROW : 'bg-sunken/50')}>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <p className="font-mono text-[12px] font-semibold text-ink">{entry.date}</p>
+                    <p className="font-mono text-[12px] font-semibold text-ink">{daySaid(entry.date)}</p>
                     <p className="text-[12px] text-ink-secondary">{entry.author}</p>
                     {entry.weather ? <Badge tone="neutral">{entry.weather}</Badge> : null}
                     {entry.manpower.length ? (

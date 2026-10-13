@@ -142,7 +142,7 @@ describe('notes of a meeting pasted into the chat', () => {
     assert.equal(asked, 1, 'a model read the notes once, and no model worded the reply');
     assert.deepEqual(
       answer.proposals.map((card) => card.title),
-      ['Decision: Go ahead with the resurvey of the plot before the sale agreement.', 'Action: Vikram to get the encumbrance certificate by Friday.', 'Decision: Build the boundary wall before the monsoon'],
+      ['Decision: Go ahead with the resurvey of the plot before the sale agreement.', 'Action: Vikram to get the encumbrance certificate by Friday.', 'Decision: It was agreed that the boundary wall will be built before the monsoon.'],
       'two lines the rules read, one sentence only a model read, and nothing the notes do not say',
     );
 

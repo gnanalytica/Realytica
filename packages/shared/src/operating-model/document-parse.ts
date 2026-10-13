@@ -22,6 +22,7 @@
  */
 
 import type { DocumentKind } from '../types';
+import { SQM_PER_ACRE, SQM_PER_GUNTA, SQM_PER_SQFT, rupeesSaid } from './units';
 import { normalizeDigits } from '../script';
 import type { EvidenceKind, FindingSeverity, ScopeKey } from './types';
 
@@ -53,6 +54,29 @@ export type ReadDocumentType =
   | 'company_incorporation'
   | 'legal_opinion'
   | 'tds_certificate'
+  | 'loan_sanction_letter'
+  | 'bank_statement'
+  | 'rera_withdrawal_certificate'
+  | 'independent_engineer_report'
+  | 'revised_sanction'
+  | 'power_of_attorney'
+  | 'disbursement_advice'
+  | 'bank_guarantee'
+  | 'work_order'
+  | 'running_bill'
+  | 'variation_claim'
+  | 'time_claim'
+  | 'bid'
+  | 'allotment_letter'
+  | 'unit_sale_agreement'
+  | 'demand_letter'
+  | 'payment_receipt'
+  | 'price_sheet'
+  | 'brokerage_invoice'
+  | 'rera_agent_registration'
+  | 'empanelment_letter'
+  | 'stage_completion_certificate'
+  | 'cancellation_letter'
   | 'other';
 
 /** One thing a document states, with where it states it. */
@@ -68,6 +92,12 @@ export interface DocumentFact {
   unit?: string;
   /** How a person would say it: "12,000 sqm", "12 Mar 2019", "yes". */
   display: string;
+  /**
+   * A measure as the page writes it, where that is not the unit `value` is
+   * kept in: "1 acre 20 guntas" beside 6,070 sqm. A field shows land in the
+   * paper's own units with the square metres beside it.
+   */
+  written?: string;
   /** 1-based page the words are on. */
   page: number;
   /** The words themselves, clipped at a sentence. Never rewritten. */
@@ -322,7 +352,7 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     label: 'RTC (record of rights)',
     documentKind: 'other',
     evidenceKind: 'document',
-    rowHints: ['rtc', 'record of rights', 'pahani', 'title extract'],
+    rowHints: ['rtc', 'record of rights', 'pahani'],
     scopes: ['legal', 'land_site'],
     title: [/\brecord\s+of\s+rights\b/i, /\bpahani\b/i, /\bRTC\b/],
     body: [/\btenancy\s+and\s+crops\b/i, /\bcultivator\b/i],
@@ -332,7 +362,7 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     label: 'Joint development agreement',
     documentKind: 'joint_development_agreement',
     evidenceKind: 'contract',
-    rowHints: ['jda', 'joint development', 'jv/jda', 'contracts'],
+    rowHints: ['jda', 'joint development', 'jv/jda'],
     scopes: ['legal', 'commercial_market'],
     title: [/\bjoint\s+development\s+agreement\b/i],
     body: [/\bowner'?s?\s+share\b/i, /\bdeveloper'?s?\s+share\b/i, /\bsharing\s+ratio\b/i],
@@ -342,7 +372,7 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     label: 'Agreement to sell',
     documentKind: 'sale_agreement',
     evidenceKind: 'contract',
-    rowHints: ['agreement to sell', 'sale agreement', 'contracts'],
+    rowHints: ['agreement to sell', 'sale agreement'],
     scopes: ['legal'],
     title: [/\bagreement\s+(?:to|for)\s+sale\b/i, /\bagreement\s+to\s+sell\b/i, /\bsale\s+agreement\b/i],
     body: [/\badvance\s+(?:amount|paid)\b/i, /\bbalance\s+(?:sale\s+)?consideration\b/i],
@@ -420,7 +450,7 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     label: 'Lease deed',
     documentKind: 'lease_agreement',
     evidenceKind: 'contract',
-    rowHints: ['lease', 'tenancy', 'rent roll'],
+    rowHints: ['lease', 'lease deed', 'tenancy', 'rent roll'],
     scopes: ['legal', 'commercial_market'],
     title: [/\blease\s+(?:deed|agreement)\b/i, /\bleave\s+and\s+licen[cs]e\b/i],
     body: [/\blessor\b/i, /\blessee\b/i, /\bmonthly\s+rent\b/i],
@@ -463,6 +493,262 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     title: [/\bcertificate\s+under\s+section\s+\d+[A-Z]?(?:\(\d+\))?\s+of\s+the\s+(?:income[\s-]*tax\s+)?act\s+for\s+tax\s+deducted\s+at\s+source\b/i, /\bform\s*(?:no\.?)?\s*(?:16B|132)\b/i],
     body: [/\btax\s+deducted\s+at\s+source\b/i, /\bdeductor\b/i, /\bdeductee\b/i, /\bTDS\b/],
     file: [/tds|form[\s_-]*(?:16b|132)/i],
+  },
+  /*
+   * A lender's letter sanctioning a facility: the amount, the rate, the
+   * period, the promoter's contribution and the conditions. Lenders' facility
+   * record is read from it.
+   */
+  loan_sanction_letter: {
+    label: 'Loan sanction letter',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['sanction letter', 'loan sanction', 'term sheet', 'facility agreement'],
+    scopes: ['financial_appraisal'],
+    title: [/\bsanction\s+letter\b/i, /\bsanction\s+of\s+(?:a\s+)?(?:term\s+loan|credit\s+facilit(?:y|ies)|construction\s+finance)\b/i, /\bfacility\s+agreement\b/i],
+    body: [/\bterms\s+and\s+conditions\s+of\s+sanction\b/i, /\bpromoters?['’]?\s+contribution\b/i, /\bmoratorium\b/i, /\bavailability\s+period\b/i, /\bpre-?disbursement\s+conditions?\b/i],
+    file: [/sanction[\s_-]*letter/i, /loan[\s_-]*sanction/i, /term[\s_-]*sheet/i],
+  },
+  /*
+   * A bank's statement of an account for a period: Finance reads the closing
+   * balance and the day it stands at, and reconciles the books to it.
+   */
+  bank_statement: {
+    label: 'Bank statement',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['bank statement', 'statement of account', 'account statement'],
+    scopes: ['financial_appraisal'],
+    title: [/\bstatement\s+of\s+account\b/i, /\baccount\s+statement\b/i, /\bbank\s+statement\b/i],
+    body: [/\bopening\s+balance\b/i, /\bclosing\s+balance\b/i, /\bIFSC\b/, /\bwithdrawals?\b.*\bdeposits?\b/i],
+    file: [/bank[\s_-]*statement/i, /account[\s_-]*statement/i],
+  },
+  /*
+   * The chartered accountant's certificate for withdrawing money from a
+   * project's RERA designated account: cost estimated and incurred, and the
+   * amount that can be withdrawn. Its form number differs by state.
+   */
+  rera_withdrawal_certificate: {
+    label: 'RERA withdrawal certificate',
+    documentKind: 'other',
+    evidenceKind: 'certificate',
+    rowHints: ['ca certificate', 'chartered accountant certificate', 'withdrawal certificate', 'form 4'],
+    scopes: ['financial_appraisal', 'regulatory'],
+    title: [/\bchartered\s+accountant['’]?s?\s+certificate\b.*\bwithdraw/i, /\bcertificate\b.*\bwithdrawal\s+of\s+money\b/i],
+    body: [/\bdesignated\s+(?:bank\s+)?account\b/i, /\bamount\s+(?:which|that)\s+can\s+be\s+withdrawn\b/i, /\btotal\s+estimated\s+cost\b/i, /\bUDIN\b/],
+    file: [/withdrawal[\s_-]*certificate/i, /\bca[\s_-]*certificate/i],
+  },
+  /*
+   * The report of the engineer a lender appoints to see a project it has
+   * financed: progress, cost incurred, cost to complete and the drawdown it
+   * recommends.
+   */
+  independent_engineer_report: {
+    label: 'Independent engineer report',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['lie report', 'independent engineer', "lender's engineer"],
+    scopes: ['financial_appraisal', 'technical'],
+    title: [/\blender['’]?s?\s+(?:independent\s+)?engineer['’]?s?\s+report\b/i, /\bindependent\s+engineer['’]?s?\s+report\b/i, /\bLIE\s+report\b/],
+    body: [/\bphysical\s+progress\b/i, /\bcost\s+(?:incurred|to\s+complete)\b/i, /\bmeans\s+of\s+finance\b/i, /\bsite\s+visit\b/i],
+    file: [/\bLIE\b/, /independent[\s_-]*engineer/i, /lender[\s_-]*engineer/i],
+  },
+  /*
+   * The papers below are read by the model reader into the fields that wait
+   * for them (`paper-fields.ts`). The rules here say what each one is, so it
+   * is filed under its own name; they read no value off it themselves.
+   */
+  /* A sanction of a modified plan: Liaison's revision record is read from it, never the first sanction's own fields. */
+  revised_sanction: {
+    label: 'Revised plan sanction',
+    documentKind: 'other',
+    evidenceKind: 'approval',
+    rowHints: ['revised sanction', 'modified sanction', 'modified plan', 'revised plan'],
+    scopes: ['regulatory', 'technical'],
+    title: [/\b(?:modified|revised)\s+(?:building\s+)?plan\b/i, /\b(?:modified|revised)\s+sanction\b/i],
+    body: [/\bsupersedes\s+the\s+plan\s+sanctioned\b/i, /\bmodified\s+plan\b/i],
+    file: [/(?:revised|modified)[\s_-]*(?:building[\s_-]*)?(?:plan|sanction)/i],
+  },
+  power_of_attorney: {
+    label: 'Power of attorney',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['power of attorney', 'gpa', 'spa'],
+    scopes: ['legal'],
+    title: [/\b(?:general|special|irrevocable)\s+power\s+of\s+attorney\b/i, /\bpower\s+of\s+attorney\b/i],
+    body: [/\btrue\s+and\s+lawful\s+attorney\b/i, /\bappoint,?\s+nominate\s+and\s+constitute\b/i, /\bthe\s+attorney\s+is\s+authori[sz]ed\b/i, /\bprincipal\b/i],
+    file: [/power[\s_-]*of[\s_-]*attorney/i, /(?:^|[^a-z])[GS]PA(?:[^a-z]|$)/i],
+  },
+  disbursement_advice: {
+    label: 'Disbursement advice',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['disbursement advice', 'drawdown advice', 'disbursement letter'],
+    scopes: ['financial_appraisal'],
+    title: [/\b(?:disbursement|drawdown)\s+(?:advice|letter|memo|confirmation)\b/i],
+    body: [/\bhas\s+been\s+disbursed\b/i, /\btranche\b/i, /\bloan\s+account\b/i],
+    file: [/disbursement/i, /drawdown/i],
+  },
+  bank_guarantee: {
+    label: 'Bank guarantee',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['bank guarantee', 'performance guarantee', 'advance guarantee'],
+    scopes: ['procurement', 'financial_appraisal'],
+    title: [/\bbank\s+guarantee\b/i, /\b(?:performance|advance\s+payment)\s+guarantee\b/i],
+    body: [/\bguarantee\s+no\b/i, /\bhereby\s+guarantee\b/i, /\bremain\s+valid\s+(?:until|up\s*to|till)\b/i, /\bclaim\s+under\s+this\s+guarantee\b/i],
+    file: [/bank[\s_-]*guarantee/i, /(?:^|[^a-z])BG(?:[^a-z]|$)/i],
+  },
+  work_order: {
+    label: 'Work order',
+    documentKind: 'other',
+    evidenceKind: 'contract',
+    rowHints: ['work order', 'letter of acceptance', 'letter of award', 'letter of intent'],
+    scopes: ['procurement'],
+    title: [/\bletter\s+of\s+(?:acceptance|award|intent)\b/i, /\bwork\s+order\b/i],
+    body: [/\bcontract\s+price\b/i, /\bdate\s+of\s+commencement\b/i, /\bdefects?\s+liability\b/i, /\byour\s+(?:bid|tender|offer|quotation)\b/i],
+    file: [/work[\s_-]*order/i, /letter[\s_-]*of[\s_-]*(?:acceptance|award|intent)/i, /(?:^|[^a-z])LO[AI](?:[^a-z]|$)/i],
+  },
+  running_bill: {
+    label: 'Running account bill',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['running account bill', 'ra bill', 'interim payment certificate', 'contractor bill'],
+    scopes: ['procurement', 'cost_quantity'],
+    title: [/\brunning\s+account\s+bill\b/i, /\bR\.?\s?A\.?\s+bill\b/i, /\binterim\s+payment\s+(?:application|certificate)\b/i],
+    body: [/\bwork\s+done\b/i, /\bprevious\s+bills?\b/i, /\bretention\b/i, /\bnet\s+amount\s+payable\b/i],
+    file: [/(?:^|[^a-z])RA[\s_-]*bill/i, /running[\s_-]*(?:account[\s_-]*)?bill/i],
+  },
+  variation_claim: {
+    label: 'Variation claim',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['variation claim', 'variation order', 'notice of variation'],
+    scopes: ['procurement', 'cost_quantity'],
+    title: [/\b(?:notice|claim)\s+(?:of|for)\s+(?:a\s+)?variation\b/i, /\bvariation\s+(?:order|claim|notice|request)\b/i],
+    body: [/\bextra\s+item\b/i, /\bwe\s+claim\b/i, /\bvariation\b/i],
+    file: [/variation/i, /(?:^|[^a-z])VO[\s_-]?\d/i],
+  },
+  time_claim: {
+    label: 'Extension of time claim',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['extension of time', 'time claim', 'eot claim'],
+    scopes: ['procurement', 'schedule_progress'],
+    title: [/\bextension\s+of\s+time\b/i, /\bEOT\b/],
+    body: [/\bdate\s+for\s+completion\b/i, /\bprolongation\b/i, /\bwe\s+claim\b/i],
+    file: [/extension[\s_-]*of[\s_-]*time/i, /(?:^|[^a-z])EOT(?:[^a-z]|$)/i],
+  },
+  bid: {
+    label: 'Bid',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['price bid', 'financial bid', 'bid received', 'quotation'],
+    scopes: ['procurement'],
+    title: [/\b(?:price|financial|commercial|technical)\s+bid\b/i, /\bform\s+of\s+(?:bid|tender)\b/i, /\bquotation\b/i],
+    body: [/\bquoted\s+amount\b/i, /\bvalidity\s+of\s+(?:the\s+)?(?:bid|offer|quotation)\b/i, /\bearnest\s+money\b/i, /\btender\b/i],
+    file: [/(?:^|[^a-z])bid(?:[^a-z]|$)/i, /quotation/i],
+  },
+  allotment_letter: {
+    label: 'Allotment letter',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['allotment letter', 'letter of allotment'],
+    scopes: ['commercial_market'],
+    title: [/\ballotment\s+letter\b/i, /\bletter\s+of\s+allotment\b/i, /\bprovisional\s+allotment\b/i],
+    body: [/\bpleased\s+to\s+allot\b/i, /\bbooking\s+amount\b/i, /\b(?:apartment|unit|flat)\s+no\b/i],
+    file: [/allotment/i],
+  },
+  /* The agreement a promoter signs with the buyer of one unit. A land owner's agreement to sell the land is `sale_agreement`. */
+  unit_sale_agreement: {
+    label: 'Agreement for sale',
+    documentKind: 'other',
+    evidenceKind: 'contract',
+    rowHints: ['agreement for sale', 'registered agreement for sale'],
+    scopes: ['commercial_market', 'legal'],
+    title: [/\bagreement\s+for\s+sale\b/i],
+    body: [/\ballottee\b/i, /\bpromoter\b/i, /\bcarpet\s+area\b/i, /\b(?:apartment|unit|flat)\s+no\b/i],
+    file: [/agreement[\s_-]*for[\s_-]*sale/i],
+  },
+  demand_letter: {
+    label: 'Demand letter',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['demand letter', 'demand note', 'demand notice'],
+    scopes: ['commercial_market', 'financial_appraisal'],
+    title: [/\bdemand\s+(?:letter|note|notice)\b/i],
+    body: [/\bdemand\s+no\b/i, /\binstal?ment\b/i, /\bdue\s+on\s+or\s+before\b/i, /\ballottee\b/i],
+    file: [/demand/i],
+  },
+  payment_receipt: {
+    label: 'Payment receipt',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['payment receipt', 'money receipt', 'receipt issued'],
+    scopes: ['commercial_market', 'financial_appraisal'],
+    title: [/\b(?:payment|money)\s+receipt\b/i],
+    body: [/\breceipt\s+no\b/i, /\breceived\s+with\s+thanks\b/i, /\ba\s+sum\s+of\b/i],
+    file: [/receipt/i],
+  },
+  price_sheet: {
+    label: 'Price sheet',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['price sheet', 'price list', 'cost sheet'],
+    scopes: ['commercial_market'],
+    title: [/\bprice\s+(?:sheet|list)\b/i, /\bcost\s+sheet\b/i],
+    body: [/\bbase\s+rate\b/i, /\bfloor\s+rise\b/i, /\beffective\s+from\b/i],
+    file: [/price[\s_-]*(?:sheet|list)/i, /cost[\s_-]*sheet/i],
+  },
+  brokerage_invoice: {
+    label: 'Brokerage invoice',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['brokerage invoice', 'commission invoice'],
+    scopes: ['commercial_market'],
+    title: [/\b(?:brokerage|commission)\s+invoice\b/i],
+    body: [/\bbrokerage\b/i, /\btaxable\s+value\b/i, /\bchannel\s+partner\b/i],
+    file: [/brokerage/i],
+  },
+  rera_agent_registration: {
+    label: 'RERA agent registration certificate',
+    documentKind: 'other',
+    evidenceKind: 'certificate',
+    rowHints: ['agent registration', 'rera agent'],
+    scopes: ['commercial_market', 'regulatory'],
+    title: [/\bregistration\s+certificate\s+of\s+real\s+estate\s+agent\b/i, /\breal\s+estate\s+agent\b/i],
+    body: [/\bAG\/[A-Z]{2}\/RERA\//, /\bto\s+act\s+as\s+a\s+real\s+estate\s+agent\b/i],
+    file: [/agent[\s_-]*(?:registration|certificate)/i],
+  },
+  empanelment_letter: {
+    label: 'Empanelment letter',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['empanelment letter', 'empanelment'],
+    scopes: ['commercial_market'],
+    title: [/\bempanelment\b/i],
+    body: [/\bempanelled\b/i, /\bchannel\s+partner\b/i, /\bbrokerage\b/i],
+    file: [/empanel/i],
+  },
+  stage_completion_certificate: {
+    label: 'Stage completion certificate',
+    documentKind: 'other',
+    evidenceKind: 'certificate',
+    rowHints: ['stage completion certificate', "architect's certificate"],
+    scopes: ['technical', 'commercial_market'],
+    title: [/\bstage\s+completion\s+certificate\b/i, /\bcertificate\s+of\s+(?:stage|percentage)\s+(?:of\s+)?completion\b/i],
+    body: [/\bstage\s+of\s+construction\b/i, /\bhas\s+been\s+completed\b/i, /\bcertif(?:y|ied)\s+that\b/i],
+    file: [/stage[\s_-]*completion/i],
+  },
+  cancellation_letter: {
+    label: 'Cancellation letter',
+    documentKind: 'other',
+    evidenceKind: 'document',
+    rowHints: ['cancellation letter', 'cancellation request'],
+    scopes: ['commercial_market'],
+    title: [/\bcancellation\s+(?:letter|request|notice)\b/i, /\b(?:request|letter)\s+(?:for|of)\s+cancellation\b/i],
+    body: [/\bcancel\s+(?:my|our|the)\s+(?:booking|allotment)\b/i, /\brefund\b/i, /\bforfeit/i],
+    file: [/cancellation/i],
   },
 };
 
@@ -624,15 +910,9 @@ function parseAmount(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function displayInr(n: number): string {
-  if (n >= 1e7) return `Rs ${(n / 1e7).toLocaleString('en-IN', { maximumFractionDigits: 2 })} Cr`;
-  if (n >= 1e5) return `Rs ${(n / 1e5).toLocaleString('en-IN', { maximumFractionDigits: 2 })} lakh`;
-  return `Rs ${n.toLocaleString('en-IN')}`;
-}
-
-const SQM_PER_ACRE = 4046.8564224;
-const SQM_PER_GUNTA = 101.17141056;
-const SQM_PER_SQFT = 0.09290304;
+/** Rupees as a person says them. Lakh and crore are written in one place (`units.ts`). */
+// As a field writes rupees: the sign, then lakh or crore.
+const displayInr = (n: number): string => rupeesSaid(n, '₹');
 
 /** An area phrase to square metres, or null. Understands acres and guntas. */
 function areaToSqm(value: string, unit: string): number | null {
@@ -696,6 +976,21 @@ function classify(pages: string[], fileName: string): { type: ReadDocumentType; 
   const mother = scores.find(([t]) => t === 'mother_deed')!;
   if (mother[1] > 0 && deed[1] > 0) mother[1] += deed[1] * 0.5;
 
+  // A paper that says at its head what one of these is, is that, whatever else its words look like: a sanction of a modified
+  // plan carries every word a first sanction does, a power to sell names the deed it lets its holder sign, and a promoter's
+  // agreement with a buyer is titled as a land owner's is.
+  const named = (type: ReadDocumentType) => PROFILES[type as Exclude<ReadDocumentType, 'other'>].title.some((re) => re.test(head));
+  const over = (type: ReadDocumentType, other: ReadDocumentType, needs = 0) => {
+    const mine = scores.find(([t]) => t === type)!;
+    const theirs = scores.find(([t]) => t === other)!;
+    const own = PROFILES[type as Exclude<ReadDocumentType, 'other'>].body.filter((re) => re.test(full)).length;
+    if (named(type) && own >= needs && mine[1] <= theirs[1]) mine[1] = theirs[1] + 1;
+  };
+  over('revised_sanction', 'building_sanction');
+  // A deed signed by an attorney names the power at its head too: the power itself also speaks as one.
+  over('power_of_attorney', 'sale_deed', 2);
+  over('unit_sale_agreement', 'sale_agreement', 2);
+
   scores.sort((a, b) => b[1] - a[1]);
   const [best, bestScore] = scores[0]!;
   const second = scores[1]?.[1] ?? 0;
@@ -732,7 +1027,7 @@ function surveyNumber(pages: string[]): Hit & { value: string } | null {
   return { ...first, value };
 }
 
-function extent(pages: string[], lead: RegExp): (Hit & { sqm: number }) | null {
+function extent(pages: string[], lead: RegExp): (Hit & { sqm: number; written?: string }) | null {
   const re = new RegExp(`${lead.source}[^\\d\\n]{0,40}?${NUMBER}\\s*${AREA_UNIT}`, 'i');
   const hit = find(pages, re);
   if (!hit) return null;
@@ -740,14 +1035,20 @@ function extent(pages: string[], lead: RegExp): (Hit & { sqm: number }) | null {
   const unit = groups[groups.length - 1]!;
   const value = groups[groups.length - 2]!;
   const sqm = areaToSqm(value, unit);
-  return sqm === null ? null : { ...hit, sqm };
+  if (sqm === null) return null;
+  // Stated in acres or square feet, it is kept as the page writes it beside the square metres.
+  const named = /^acres?$/i.test(unit) ? (Number(value.replace(/,/g, '')) === 1 ? 'acre' : 'acres') : /f(?:ee|oo)?t|sft/i.test(unit) ? 'sqft' : /^hectares?$/i.test(unit) ? 'hectares' : '';
+  return { ...hit, sqm, ...(named ? { written: `${value} ${named}` } : {}) };
 }
 
-function acresGuntas(pages: string[]): (Hit & { sqm: number }) | null {
+function acresGuntas(pages: string[]): (Hit & { sqm: number; written: string }) | null {
   const hit = find(pages, /(\d+)\s*acres?\s*(?:and\s+)?(\d+(?:\.\d+)?)\s*guntas?/i);
   if (!hit) return null;
-  const sqm = Number(hit.match[1]) * SQM_PER_ACRE + Number(hit.match[2]) * SQM_PER_GUNTA;
-  return { ...hit, sqm: Math.round(sqm) };
+  const acres = Number(hit.match[1]);
+  const guntas = Number(hit.match[2]);
+  const sqm = acres * SQM_PER_ACRE + guntas * SQM_PER_GUNTA;
+  const inGuntas = `${guntas} ${guntas === 1 ? 'gunta' : 'guntas'}`;
+  return { ...hit, sqm: Math.round(sqm), written: acres ? `${acres} ${acres === 1 ? 'acre' : 'acres'} ${inGuntas}` : inGuntas };
 }
 
 function firstDateNear(pages: string[], lead: RegExp): (Hit & { iso: string }) | null {
@@ -765,8 +1066,31 @@ function money(pages: string[], lead: RegExp): (Hit & { amount: number }) | null
   return amount === null ? null : { ...hit, amount };
 }
 
+/**
+ * A page with the breaks a full line was wrapped at taken out.
+ *
+ * A text layer breaks a paragraph wherever its line ran out of width, so
+ * "the Sub-Registrar, Mysuru" ends one line and "West, on 23-08-2019" begins
+ * the next, and a value read to the end of its line came back as "Mysuru". A
+ * line is taken for a wrapped one when it is nearly as long as the longest on
+ * its page, ends on no full stop, colon or semicolon, and has words under it.
+ * A short line (a boundary, a label and its value) ends where it ends.
+ */
+function unwrapped(page: string): string {
+  const lines = page.split('\n');
+  const longest = Math.max(0, ...lines.map((line) => line.length));
+  if (longest < 60) return page;
+  let out = '';
+  lines.forEach((line, i) => {
+    const wraps = line.length >= longest * 0.8 && !/[.:;]$/.test(line) && Boolean(lines[i + 1]?.trim());
+    out += line + (i === lines.length - 1 ? '' : wraps ? ' ' : '\n');
+  });
+  return out;
+}
+
 function text(pages: string[], lead: RegExp, stop = /[.\n;]/, which: 'first' | 'last' = 'first'): (Hit & { value: string }) | null {
   const pattern = new RegExp(`${lead.source}\\s*[:\\-]?\\s*([^\\n]{2,160})`, 'i');
+  pages = pages.map(unwrapped);
   const hit = which === 'last' ? findLast(pages, pattern) : find(pages, pattern);
   if (!hit) return null;
   const raw = hit.match[hit.match.length - 1]!;
@@ -790,10 +1114,12 @@ function commonParcel(pages: string[], facts: DocumentFact[], extentKey?: string
   const sy = surveyNumber(pages);
   if (sy) push(facts, { key: 'survey_numbers', label: 'Survey number', value: sy.value, display: `Sy. No. ${sy.value}`, page: sy.page, quote: sy.quote });
   if (extentKey) {
-    const area =
-      extent(pages, /\b(?:measuring|admeasuring|site\s+area|extent|total\s+area|land\s+area)\b/)
-      ?? acresGuntas(pages);
-    if (area) push(facts, { key: extentKey, label: extentLabel ?? 'Extent', value: area.sqm, unit: 'sqm', display: fmtSqm(area.sqm), page: area.page, quote: area.quote });
+    const stated = extent(pages, /\b(?:measuring|admeasuring|site\s+area|extent|total\s+area|land\s+area)\b/);
+    const local = acresGuntas(pages);
+    // A deed that states square metres and, beside them, acres and guntas: the value is the square metres, and the local
+    // measure is kept as written where it is the same land (within a hundredth).
+    const area = stated ? { ...stated, ...(!stated.written && local && Math.abs(local.sqm - stated.sqm) <= stated.sqm * 0.01 ? { written: local.written } : {}) } : local;
+    if (area) push(facts, { key: extentKey, label: extentLabel ?? 'Extent', value: area.sqm, unit: 'sqm', display: fmtSqm(area.sqm), page: area.page, quote: area.quote, ...(area.written ? { written: area.written } : {}) });
   }
 }
 
@@ -1179,6 +1505,36 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
     if (site) push(facts, { key: 'sanctioned_extent', label: 'Extent per sanctioned layout', value: site.sqm, unit: 'sqm', display: fmtSqm(site.sqm), page: site.page, quote: site.quote });
   },
 
+  /*
+   * A sanction of a modified plan is read as the first one is, and filed
+   * under keys of its own: what it states is the revision's, and is offered to
+   * the revision's record, never to the first sanction's fields.
+   */
+  revised_sanction(pages, facts, flags) {
+    const read: DocumentFact[] = [];
+    BUILDERS.building_sanction!(pages, read, flags);
+    const as: Record<string, [string, string]> = {
+      sanction_number: ['revised_sanction_number', 'Revision'],
+      sanction_date: ['revised_sanction_date', 'Sanctioned on'],
+      sanctioned_area: ['revised_built_up_area', 'Built-up area after'],
+    };
+    for (const fact of read) {
+      const renamed = as[fact.key];
+      if (renamed) push(facts, { ...fact, key: renamed[0], label: renamed[1] });
+      else if (fact.key === 'survey_numbers' || fact.key === 'covered_survey_numbers') push(facts, fact);
+    }
+    const units = find(pages, /\b(?:dwelling\s+)?units\s+sanctioned\s*[:\-]?\s*(\d+)\b/i);
+    if (units) push(facts, { key: 'revised_units', label: 'Units after', value: Number(units.match[1]), display: units.match[1]!, page: units.page, quote: units.quote });
+    const height = find(pages, /\bheight\s+of\s+[^:\n]{1,30}:\s*(\d+(?:\.\d+)?)\s*(?:m|mtrs?|met(?:re|er)s?)\b/i);
+    if (height) push(facts, { key: 'revised_height', label: 'Height after', value: Number(height.match[1]), unit: 'm', display: `${height.match[1]} m`, page: height.page, quote: height.quote });
+  },
+
+  commencement_certificate(pages, facts) {
+    commonParcel(pages, facts);
+    const on = firstDateNear(pages, /\b(?:certificate\s+(?:is\s+)?issued\s+on|issued\s+on|date\s+of\s+issue|dated)\b/);
+    if (on) push(facts, { key: 'issued_on', label: 'Issued on', value: on.iso, display: displayDate(on.iso), page: on.page, quote: on.quote });
+  },
+
   survey_sketch(pages, facts) {
     commonParcel(pages, facts, 'extent_survey', 'Extent per survey sketch');
     const road = find(pages, /\broad\s+width\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(feet|ft|metres|meters|m)\b/i);
@@ -1538,15 +1894,39 @@ export function documentKindForLabel(label: string | undefined): DocumentKind | 
  * Whether a document read as `label` is the document an expected-evidence
  * row titled `title` is waiting for.
  *
- * Phrase against phrase, never a shared single word: "Survey plan" is a
- * survey sketch, "Condition survey" is not; "Sanctioned layout" is a building
- * sanction, an electrical "Sanction letter" is not.
+ * Only where the row names this kind of paper and nothing else. Phrase
+ * against phrase, never a shared single word: "Survey plan" is a survey
+ * sketch, "Condition survey" is not; "Sanctioned plan" is a building
+ * sanction, an electrical "Sanction letter" is not. And never a near miss: a
+ * joint development agreement is not what "Maintenance contracts" waits for,
+ * a contractor's claim is not a "Façade maintenance contract", a lease is not
+ * a "Release deed". A paper no row names is filed as a row of its own, under
+ * its name.
  */
 export function documentAnswers(label: string, title: string): boolean {
   const profile = (Object.values(PROFILES) as TypeProfile[]).find((p) => p.label.toLowerCase() === label.toLowerCase());
   if (!profile) return false;
-  const t = title.toLowerCase();
-  return profile.rowHints.some((h) => h.length > 2 && (t.includes(h) || (h.includes(t) && t.length > 5)));
+  const names = [profile.label, ...profile.rowHints].map(titleWords).filter((name) => name.length > 0);
+  const asked = titleWords(title);
+  // One of the paper's own names is in the title, whole and in order.
+  const named = names.some((name) => asked.some((_, at) => name.every((word, n) => asked[at + n] === word)));
+  if (!named) return false;
+  // And the title says nothing else: a word that is none of the paper's own makes it a different paper. "Maintenance contracts"
+  // is not waiting for a joint development agreement because both are contracts, nor "Release deed" for a lease.
+  const own = new Set(names.flat());
+  return asked.every((word) => own.has(word) || TITLE_FILLER.has(word) || /^\d+$/.test(word));
+}
+
+/** Words a requirement's title carries that say nothing of which paper it is. */
+const TITLE_FILLER = new Set(['the', 'of', 'and', 'or', 'for', 'a', 'an', 'in', 'on', 'to', 'from', 'with', 'copy', 'certified', 'latest', 'current', 'original', 'signed', 'year', 'period', 'all']);
+
+/** A title's words, lower-cased and without a plural's last letter: "Survey plans" and "Survey plan" are one name. */
+function titleWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((word) => (word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word));
 }
 
 /* ==================================================================== */
@@ -1684,6 +2064,11 @@ export const RULES_FACT_KEYS: Record<string, { label: string; form: FactForm }> 
   rera_acknowledgement: { label: 'Application acknowledgement', form: 'identifier' },
   rera_approved_on: { label: 'Approved on', form: 'date' },
   rera_carpet_area: { label: 'RERA carpet area', form: 'sqm' },
+  revised_built_up_area: { label: 'Built-up area after', form: 'sqm' },
+  revised_height: { label: 'Height after', form: 'number' },
+  revised_sanction_date: { label: 'Sanctioned on', form: 'date' },
+  revised_sanction_number: { label: 'Revision', form: 'identifier' },
+  revised_units: { label: 'Units after', form: 'number' },
   root_year: { label: 'Root of title', form: 'date' },
   saleable_area: { label: 'Saleable area', form: 'sqm' },
   site_coordinates: { label: 'Site coordinates', form: 'words' },
@@ -1715,10 +2100,32 @@ export function standardKeyFits(key: string, paper: string | null | undefined): 
 export function paperCarries(documentType: string | undefined, key: string): boolean {
   const known = STANDARD_FACT_KEYS[key];
   if (!known) return true;
-  const label = documentType?.toLowerCase();
-  const type = (Object.keys(PROFILES) as Array<keyof typeof PROFILES>).find((kind) => PROFILES[kind].label.toLowerCase() === label) ?? 'other';
+  const type = readTypeOfLabel(documentType);
   if (known.papers.includes(type as StandardPaper)) return true;
-  return key === 'survey_numbers' && (type === 'lease' || !BUILDERS[type]);
+  // Or a registered field reads the key off this kind of paper: a joint development agreement's own document number.
+  if (type !== 'other' && fieldsRead(type, key)) return true;
+  return key === 'survey_numbers' && (type === 'lease' || type === 'commencement_certificate' || type === 'revised_sanction' || !BUILDERS[type]);
+}
+
+/** The rules' name for a kind of paper as the register writes it ("Sale deed"); `other` for a type no rule knows. */
+export function readTypeOfLabel(documentType: string | undefined): ReadDocumentType {
+  const label = documentType?.toLowerCase();
+  return (Object.keys(PROFILES) as Array<keyof typeof PROFILES>).find((kind) => PROFILES[kind].label.toLowerCase() === label) ?? 'other';
+}
+
+/** Every kind of paper the rules can take a file for, with the name the register writes for it. */
+export function readDocumentTypes(): Array<{ type: Exclude<ReadDocumentType, 'other'>; label: string }> {
+  return (Object.keys(PROFILES) as Array<keyof typeof PROFILES>).map((type) => ({ type, label: PROFILES[type].label }));
+}
+
+/**
+ * Whether a registered field reads a key off a kind of paper. The field
+ * catalog says so (`paper-fields.ts`); this module cannot see it, and is told.
+ */
+let fieldsRead: (type: ReadDocumentType, key: string) => boolean = () => false;
+
+export function tellPaperKeys(reads: (type: ReadDocumentType, key: string) => boolean): void {
+  fieldsRead = reads;
 }
 
 /** A width with its unit written straight after the number, in English. */
@@ -1812,10 +2219,17 @@ function bare(text: string): string {
  */
 export function standardFact(key: string, value: string, unit?: string | null): Pick<DocumentFact, 'label' | 'value' | 'unit' | 'display'> | null {
   const known = STANDARD_FACT_KEYS[key];
+  return known ? factInForm(known.label, known.form, value, unit, known.choices) : null;
+}
+
+/**
+ * A value a reader wrote, in one of the forms a fact is kept in, under a name
+ * for it. Null when it cannot be put in that form.
+ */
+export function factInForm(label: string, form: FactForm, value: string, unit?: string | null, choices?: readonly string[]): Pick<DocumentFact, 'label' | 'value' | 'unit' | 'display'> | null {
   // A page in Kannada writes its dates, amounts and areas in Kannada digits; the forms below are in Latin ones.
   const text = normalise(normalizeDigits(value)).trim();
-  if (!known || !text) return null;
-  const { label, form, choices } = known;
+  if (!text) return null;
   const first = /\d[\d,]*(?:\.\d+)?/.exec(text)?.[0];
   switch (form) {
     case 'date': {

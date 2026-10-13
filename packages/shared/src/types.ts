@@ -2738,6 +2738,8 @@ export interface CopilotTurn {
    * signal: a turn carrying choices changed nothing, and says so.
    */
   choices?: ChatChoice[];
+  /** The answer as a card of fields, on a turn a model answered. See `ProjectChatTurn`. */
+  card?: import('./operating-model/chat-answer').ChatAnswerCard;
   /** Figures in a model answer that nothing on the file supports. See `ProjectChatTurn`. */
   unsupportedClaims?: string[];
   /** The facts of the project's memory the answer rests on, with the tags code printed for them and where in the text each stands. See `ProjectChatTurn`. */

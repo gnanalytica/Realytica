@@ -4,13 +4,14 @@ import { Smartphone, Trash2 } from 'lucide-react';
 import { workspaceApi, type PairCode, type PairedDevice } from '../../lib/workspace-api';
 import { useAsync } from '../../lib/useAsync';
 import { Button, Card, CardBody, CardHeader, useToast } from '../ui/kit';
+import { daySaid } from '@realytica/shared';
 
 function grouped(code: string): string {
   return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
 function since(iso?: string): string {
-  return iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'never';
+  return iso ? daySaid(iso) : 'never';
 }
 
 /**

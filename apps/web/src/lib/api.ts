@@ -1,4 +1,6 @@
 import type {
+  FieldAddress,
+  FieldValueDecision,
   KeptOwnerPack,
   PreparedReport,
   QuarterYear,
@@ -104,6 +106,7 @@ import type {
   FlowRunSummary,
   FlowNodeType,
 } from '@realytica/shared';
+import type { CheckFieldsShown, FirmFieldPack, LawRuleRowOffer } from '@realytica/shared';
 import { authHeader, renewToken, signOut } from './auth';
 import type { RevenueReadResult } from './revenue-run';
 
@@ -499,6 +502,25 @@ export function evidenceFileUrl(
   return `${BASE}/projects/${projectId}/evidence/${evidenceId}/files/${fileId}${opts?.inline ? '?inline=1' : ''}`;
 }
 
+/** A built-in set as the Fields page lists it. */
+export interface FirmFieldSet {
+  id: string;
+  title: string;
+  function: string;
+  repeats: boolean;
+  titleField?: string;
+  sections: Array<{ key: string; label: string }>;
+  fields: Array<{ key: string; label: string; kind: string; tier: 'core' | 'situational' | 'expert' }>;
+}
+
+export interface FirmFieldsShown {
+  pack: FirmFieldPack;
+  sets: FirmFieldSet[];
+  mayManage: boolean;
+  /** The rule rows the firm's law watch offered and a named person verified: what its projects' formulas read in place of the rows they supersede. */
+  ruleRows?: LawRuleRowOffer[];
+}
+
 export const api = {
   health: () => request<HealthResponse>('/health'),
 
@@ -841,6 +863,9 @@ export const api = {
     request<DecisionRecord>(`/projects/${projectId}/decisions/${decisionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   generateReport: (projectId: string, body: GenerateReportInput) =>
     request<GeneratedReport>(`/projects/${projectId}/reports`, { method: 'POST', body: JSON.stringify(body) }),
+  /** Whether the firm lets a model reword a status report's lines, and whether the person asking may change that. */
+  reportSettings: () => request<{ modelWording: boolean; maySet: boolean }>('/report-settings'),
+  setReportSettings: (modelWording: boolean) => request<{ modelWording: boolean; maySet: boolean }>('/report-settings', { method: 'PUT', body: JSON.stringify({ modelWording }) }),
   /* --- The report day and kept owner packs ------------------------- */
   reportDay: (projectId: string) => request<ReportDayShown>(`/projects/${projectId}/report-day`),
   setReportDay: (projectId: string, body: { clear: true } | { day: number; reports: TimedReport[]; every: ReportEvery; quarters?: QuarterYear; tell: string[] }) =>
@@ -882,7 +907,7 @@ export const api = {
     request<{ reportId: string; status: string; rows: ReportDriftRow[] }>(`/projects/${projectId}/reports/${reportId}/drift`),
 
   checkFields: (projectId: string, checkId: string) =>
-    request<CheckFieldReading & { checkId: string; title: string }>(`/projects/${projectId}/checks/${checkId}/fields`),
+    request<CheckFieldReading & CheckFieldsShown & { checkId: string; title: string }>(`/projects/${projectId}/checks/${checkId}/fields`),
   recordCheckFields: (
     projectId: string,
     checkId: string,
@@ -1209,6 +1234,27 @@ export const api = {
   /** Say what a filed document is, in place of what a model took it for. */
   correctDocumentType: (projectId: string, evidenceId: string, documentType: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/correct`, { method: 'POST', body: JSON.stringify({ documentType }) }),
+  /* --- Field sets: a function's sheets (docs/fields.md) --- */
+  setFieldValues: (projectId: string, body: { set: string; record?: string; values: Record<string, unknown> }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/values`, { method: 'PUT', body: JSON.stringify(body) }),
+  decideField: (projectId: string, body: { address: FieldAddress; decision: FieldValueDecision; value?: unknown; pick?: number; reason?: string; note?: string }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/decide`, { method: 'POST', body: JSON.stringify(body) }),
+  acceptPaperFields: (projectId: string, fn: string, evidenceId: string) =>
+    request<{ project: DdProject; accepted: number; left: number }>(`/projects/${projectId}/fields/accept-paper`, { method: 'POST', body: JSON.stringify({ fn, evidenceId }) }),
+  addFieldRecord: (projectId: string, set: string, values: Record<string, unknown> = {}) =>
+    request<{ project: DdProject; recordId?: string }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, values }) }),
+  removeFieldRecord: (projectId: string, set: string, record: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, remove: record }) }),
+  setSituation: (projectId: string, fn: string, key: string, on: boolean) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/situation`, { method: 'PUT', body: JSON.stringify({ fn, key, on }) }),
+  setSectionNotApplicable: (projectId: string, set: string, section: string, reason: string | null) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/section`, { method: 'PUT', body: JSON.stringify({ set, section, reason }) }),
+  /** Put a line under Due soon off until a day, or with null bring it back. */
+  snoozeNeed: (projectId: string, fn: string, key: string, until: string | null) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/snooze`, { method: 'PUT', body: JSON.stringify({ fn, key, until }) }),
+  /** The firm's own fields: what it has added to the built-in sets, the sets it may add to, and whether this person may change them. */
+  firmFields: () => request<FirmFieldsShown>('/firm-fields'),
+  saveFirmFields: (pack: Pick<FirmFieldPack, 'optionSets' | 'add' | 'demote'>) => request<FirmFieldsShown>('/firm-fields', { method: 'PUT', body: JSON.stringify(pack) }),
   /** Accept or set aside values waiting on a check, a field at a time. */
   decideCheckFields: (projectId: string, proposalId: string, body: { keys: string[]; decision: 'accept' | 'reject'; values?: Record<string, unknown> }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/fields`, { method: 'POST', body: JSON.stringify(body) }),

@@ -162,7 +162,7 @@ describe('get_report', () => {
     if (derived) {
       assert.equal(out.blocks.find((b: { id: string }) => b.id === derived.id)?.live, true);
     }
-    assert.match(String(out.note), /live block/i);
+    assert.match(String(out.note), /you write none of them/, "and the note says a model writes no words of a report, only what a section reads");
   });
 
   it('says a frozen report may not be edited, and shows what it said at issue', async () => {

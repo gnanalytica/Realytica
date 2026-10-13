@@ -7,15 +7,29 @@
  * before register writes) when the person asked for that work.
  */
 
+import { PROPOSAL_CONCERNS, PROPOSAL_NEXT, structuredProposal } from '@realytica/shared';
+import { findQuoteInPages } from '../agents/page-check';
+import { paperCellValue } from '../agents/review-answers';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
+  describeField,
+  fieldCatalogFor,
+  fieldRecords,
+  fieldSet,
+  proposeFieldValues,
+  readFunctionFields,
+  readSheet,
+  type FieldAddress,
+  type FieldOrigin,
   CHECK_RESULTS,
   candidateChoices,
   checkFieldReading,
   findCheck,
   formatFieldValue,
   isBlank,
+  fieldSourceFault,
   isLiveBlock,
+  isReportBoundSource,
   openReportOf,
   reportIsFrozen,
   reportSummaryLine,
@@ -84,6 +98,7 @@ import {
   type ChatProposalKind,
   type CockpitPathExtra,
   type DdProject,
+  type ReportBoundSource,
   type ProjectCockpitPane,
   type ProjectGraphRagSource,
   type ScopeKey,
@@ -155,6 +170,40 @@ export function setPaperSearch(next: PaperSearch | null): void {
   paperSearch = next;
 }
 
+/** The words of each page of one paper on a project as this server read them, page 1 first, or null where none are kept. */
+export type PaperPages = (project: Pick<DdProject, 'id' | 'evidence'>, evidenceId: string) => Promise<string[] | null>;
+
+/**
+ * How a paper's own pages are read, to hold a model's quote to the page it
+ * names. Installed by the app, as the search is. Where none is installed, or
+ * a paper's pages are not kept, a quote cannot be found and is unverified.
+ */
+let paperPages: PaperPages | null = null;
+
+export function setPaperPages(next: PaperPages | null): void {
+  paperPages = next;
+}
+
+/** The most values one call may offer, and the most answers one call may suggest. */
+const OFFERS_MOST = 80;
+
+/**
+ * Where a model's quotes are on the papers it names: the page of each paper
+ * that holds the words (`findQuoteInPages`, the page check a review answer
+ * is held to), or nothing where no page this server read does.
+ */
+async function quotePlacer(project: DdProject, cited: readonly unknown[]): Promise<(evidenceId: string, page: number, quote: string) => number | undefined> {
+  const pages = new Map<string, string[] | null>();
+  for (const id of cited) {
+    if (typeof id !== 'string' || pages.has(id) || !project.evidence.some((row) => row.id === id)) continue;
+    pages.set(id, paperPages ? await paperPages(project, id).catch(() => null) : null);
+  }
+  return (evidenceId, page, quote) => {
+    const texts = pages.get(evidenceId);
+    return texts ? findQuoteInPages(quote, texts, page) : undefined;
+  };
+}
+
 export interface ProjectAgentCollectors {
   proposals: ChatProposal[];
   navigations: Array<{ target: string } & CockpitPathExtra>;
@@ -166,6 +215,8 @@ export interface ProjectAgentCollectors {
    * configured.
    */
   choices: ChatChoice[];
+  /** Passages a search of the papers found in this turn, each under the mark an answer picks it by. */
+  passages?: import('@realytica/shared').ChatPassage[];
 }
 
 function openTalk(bag: ProjectAgentCollectors, sitting: ReturnType<typeof sittingFromCitedId>): void {
@@ -325,13 +376,18 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
   }
   if (kind === 'edit_report') {
     if (!str('reportId')) return 'edit_report needs reportId.';
-    const hasText = typeof payload.text === 'string';
     const hasSource = typeof payload.source === 'object' && payload.source !== null;
-    if (!hasText && !hasSource) return 'edit_report needs text (a paragraph) or source (what a live section reads).';
     // The rule this whole feature turns on, checked before a card is even
-    // queued: a model may add prose or retune a section, never restate what
-    // the registers say in its own words.
-    if (hasSource && !str('blockId')) return 'Changing what a section reads needs the blockId of that section.';
+    // queued: a report's words are a person's and its readings are code's.
+    // What a model may offer is what a section reads, never a sentence.
+    if (typeof payload.text === 'string' || typeof payload.heading === 'string') {
+      return 'A report’s words are written by a person, never by a model. Propose source instead: what a section reads, such as {kind:"fields", addresses:[{fn,set,field}]} with addresses from get_fields. A person arranges it and writes any note.';
+    }
+    if (!hasSource) return 'edit_report needs source: what a section reads. With blockId it changes that section; without, it adds a section.';
+    const source = payload.source as ReportBoundSource;
+    if (!isReportBoundSource(source.kind)) return `"${String(source.kind)}" is not something a report section can read.`;
+    const fault = fieldSourceFault(source);
+    if (fault) return fault;
   }
   if (kind === 'add_decision' && (!str('title') || !str('decisionType') || !str('decisionMaker') || !str('rationale'))) {
     return 'add_decision needs title, decisionType, decisionMaker, rationale.';
@@ -533,6 +589,106 @@ export function createProjectTools(
     },
   });
 
+  /**
+   * What a function's sheets record, or one field set's: every field with
+   * its address, what it takes and where it stands. The addresses are the
+   * only ones `propose_field_values` accepts.
+   */
+  const getFields = betaTool({
+    name: 'get_fields',
+    description:
+      'Read the fields of a function (fn, as legal.title) or of one field set (set). Returns every field with its address, label, kind, unit, choices, the kinds of paper that state it, whether it is showing, its state (empty, proposed, accepted, typed, disputed, not_applicable, assumed) and its value, then what needs a person. Call before propose_field_values: those addresses are the only ones accepted. A field with mayPropose false cannot be offered a value.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { fn: { type: 'string' }, set: { type: 'string' }, record: { type: 'string' } },
+    } as const,
+    run: async ({ fn, set, record }) => {
+      const catalog = fieldCatalogFor(project);
+      const named = typeof set === 'string' ? fieldSet(set, catalog) : undefined;
+      const of = typeof fn === 'string' && fn ? fn : named?.fn;
+      if (!of || (typeof set === 'string' && !named)) return JSON.stringify({ error: 'Name a function (fn) or a field set (set). Functions with sheets: ' + [...catalog.sheets.keys()].join(', ') });
+      const readings = named
+        ? named.records && !record
+          ? fieldRecords(project, named.id).flatMap((row) => readSheet(project, named.id, row.id) ?? [])
+          : [readSheet(project, named.id, typeof record === 'string' ? record : undefined)].flatMap((r) => r ?? [])
+        : readFunctionFields(project, of).sheets.flatMap((sheet) => (sheet.reading ? [sheet.reading] : (sheet.records ?? [])));
+      const page = named ? undefined : readFunctionFields(project, of);
+      // Said on the chat's line of what was read: the sheet or the function by the name on its page, never by its key.
+      bag.toolCalls.push({ name: 'get_fields', summary: `${named?.title ?? workstreamDefinition(of)?.label ?? 'The sheets'}: ${readings.reduce((n, r) => n + r.filled, 0)} of ${readings.reduce((n, r) => n + r.total, 0)} recorded` });
+      return JSON.stringify({
+        fn: of,
+        sheets: readings.map((reading) => ({ set: reading.set.id, title: reading.set.title, ...(reading.recordId ? { record: reading.recordId, recordTitle: reading.title } : {}), repeats: Boolean(reading.set.records), fields: reading.fields.map((view) => describeField(view, catalog)) })),
+        ...(page
+          ? {
+              needs: { decide: page.needs.decide.length, accept: page.needs.accept.length, failing: page.needs.failing.length, due_soon: page.needs.due_soon.length, missing: page.needs.missing.length },
+              waitingOn: page.waitingOn.map((group) => ({ party: group.label, fields: group.fields.map((field) => field.label) })),
+              situations: page.situations.map((s) => ({ key: s.situation.key, label: s.situation.label, state: s.state })),
+            }
+          : {}),
+        note: 'Offer a value only with where you read it: a paper on this project with its page and its exact words, or a public source with its name and the date read. Never offer a value for a field that is worked out, mirrored or prose. What you offer waits for a person and counts for nothing until they accept it.',
+      });
+    },
+  });
+
+  /**
+   * Offer values to fields. Each waits on its field for a person; nothing
+   * offered here stands. A check's field waits the one way a check's value
+   * waits (`check-waiting.ts`): one already held, waiting or set aside there
+   * is not offered again.
+   */
+  const proposeFieldValuesTool = betaTool({
+    name: 'propose_field_values',
+    description:
+      'Offer values for fields, each with its address from get_fields and its source. origin is {kind:"paper", evidenceId, page, quote} with the paper\'s exact words, or {kind:"external", source, asOf, url?} for a named public source and the date read (YYYY-MM-DD). Refused: a value with no source, a choice not on the list, a link to something not on the project, and any field that is computed, a status, a mirror or prose. For a set that repeats, give record to fill an existing record; leave it out and the values offered together make one new record.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['values'],
+      properties: {
+        values: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['address', 'value', 'origin'],
+            properties: {
+              address: { type: 'object', additionalProperties: false, required: ['set', 'field'], properties: { fn: { type: 'string' }, set: { type: 'string' }, field: { type: 'string' }, record: { type: 'string' } } },
+              value: {},
+              origin: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['kind'],
+                properties: {
+                  kind: { type: 'string', enum: ['paper', 'external'] },
+                  evidenceId: { type: 'string' },
+                  page: { type: 'number' },
+                  quote: { type: 'string', description: 'The paper\'s own words that state the value, copied exactly, under 220 characters.' },
+                  source: { type: 'string', description: 'The name of the public source, under 120 characters.' },
+                  asOf: { type: 'string', description: 'The date it was read, YYYY-MM-DD.' },
+                  url: { type: 'string', description: 'Its https address.' },
+                },
+              },
+            },
+          },
+        },
+      },
+    } as const,
+    run: async ({ values }) => {
+      const catalog = fieldCatalogFor(project);
+      const offered = ((Array.isArray(values) ? values : []) as Array<{ address: FieldAddress; value: unknown; origin: FieldOrigin }>).filter((row) => row && typeof row === 'object' && row.address && typeof row.address === 'object').slice(0, OFFERS_MOST);
+      const withFn = offered.map((row) => ({ ...row, address: { ...row.address, fn: row.address?.fn ?? catalog.sets.get(row.address?.set)?.fn ?? '' } }));
+      // What is kept as each value's source is built by the server from the named members of `origin`, never stored as sent: who read it
+      // is this model, and whether its words are on the page is found by looking, on the pages this server read itself.
+      const placed = await quotePlacer(project, offered.map((row) => (row.origin as { evidenceId?: unknown } | undefined)?.evidenceId));
+      // One door for a sheet's field and a check's. A check's value waits on a card of the check's, which this turn collects, and reads on the field as proposed.
+      const outcomes = proposeFieldValues(project, withFn, 'model', catalog, { pending: bag.proposals, raise: (card) => bag.proposals.push(card), placed });
+      const waiting = outcomes.filter((o) => o.outcome === 'waiting').length;
+      bag.toolCalls.push({ name: 'propose_field_values', summary: `${waiting} offered, ${outcomes.filter((o) => o.outcome === 'refused').length} refused` });
+      return JSON.stringify({ outcomes, note: 'Offered values wait for a person. Do not speak of one as recorded.' });
+    },
+  });
+
   const getFinding = betaTool({
     name: 'get_finding',
     description: 'Read one finding by id with linked evidence titles. Use before proposing a duplicate or a critic card.',
@@ -698,7 +854,7 @@ export function createProjectTools(
   const getReport = betaTool({
     name: 'get_report',
     description:
-      'Read a report before proposing any edit to it: status, whether it is frozen, and every block with its id, heading, whether it is live (reads the registers) or authored prose, and what it currently says. With no reportId this reads the open one. Call before propose_update kind=edit_report — a live block will refuse text.',
+      'Read a report before proposing any edit to it: status, whether it is frozen, and every block with its id, heading, whether it is live (reads the registers or the fields) or a person’s words, and what it currently says. With no reportId this reads the open one. Call before propose_update kind=edit_report. You never write a report’s words.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -754,7 +910,7 @@ export function createProjectTools(
         blockCount: report.body.blocks.length,
         note: frozen
           ? 'This report is frozen: it was issued and must not change. Propose generate_report for a fresh one rather than editing this.'
-          : 'A live block reads the registers and refuses text. To change what it says, propose edit_report {reportId, blockId, source}. To add prose, propose {reportId, text, heading?, afterBlockId?}. To rewrite prose somebody wrote, propose {reportId, blockId, text} and say what you changed.',
+          : 'A report’s words are a person’s: you write none of them. To change what a section reads, propose edit_report {reportId, blockId, source}. To add a section, propose {reportId, source, afterBlockId?}; for fields the source is {kind:"fields", addresses:[{fn,set,field}]}, {kind:"field_table", address or records, columns?} or {kind:"field_chart", address or records, x, y}.',
       });
     },
   });
@@ -911,7 +1067,7 @@ export function createProjectTools(
   const suggestAnswersTool = betaTool({
     name: 'suggest_answers',
     description:
-      'Lay answers beside questionnaire questions as SUGGESTIONS for a person to confirm. Use only what a filed document states or a site record shows: give the evidenceId, and the page and a short quote when it is a document. Never guess, and never answer from general knowledge — leave a question unanswered instead. A question a person already answered is left alone. Call get_questionnaire first for the question ids, and read the documents with the other tools before answering.',
+      'Lay answers beside questionnaire questions as SUGGESTIONS for a person to confirm. You write no answer: name the field whose value answers, or give the paper and its exact words. Use only what a filed document states or a site record shows: give the evidenceId, and the page and a short quote when it is a document. Never guess, and never answer from general knowledge — leave a question unanswered instead. A question a person already answered is left alone. Call get_questionnaire first for the question ids, and read the documents with the other tools before answering.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -923,14 +1079,21 @@ export function createProjectTools(
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['questionId', 'answer', 'evidenceId'],
+            required: ['questionId'],
             properties: {
               questionId: { type: 'string' },
-              answer: { type: 'string', description: 'Short and factual, in the units the question asks for.' },
+              field: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['set', 'field'],
+                properties: { set: { type: 'string' }, field: { type: 'string' }, record: { type: 'string' } },
+                description: 'The field whose value answers, by its address from get_fields. The answer is then the value as the record holds it.',
+              },
               source: { type: 'string', enum: [...ANSWER_SOURCES], description: 'document for a filed paper, site for a photograph or site entry.' },
               evidenceId: { type: 'string', description: 'The filed document or photograph the answer rests on.' },
               page: { type: 'number' },
-              quote: { type: 'string', description: 'The words on the page, under 300 characters.' },
+              quote: { type: 'string', description: 'The words on the page that answer, copied exactly, under 300 characters. With no field, the answer is these words.' },
+              value: { type: 'string', description: 'The value inside the quoted words, copied exactly: a figure, a date, a name. Never a sentence of your own.' },
             },
           },
         },
@@ -938,7 +1101,23 @@ export function createProjectTools(
     } as const,
     run: async ({ questionnaireId, answers }) => {
       const known = new Set(project.evidence.map((e) => e.id));
-      const usable = (answers ?? []).filter((x) => x.answer?.trim() && known.has(x.evidenceId));
+      const asked = (answers ?? []).slice(0, OFFERS_MOST);
+      // Words given as a paper's are held to its pages before they are laid beside a question as the paper's.
+      const placed = await quotePlacer(project, asked.map((x) => x.evidenceId));
+      // An answer is a field's value as the record holds it, or a paper's own words. Nothing a model composed is laid beside a question.
+      const usable = asked.flatMap((x) => {
+        const set = x.field ? fieldSet(String(x.field.set)) : undefined;
+        const view = set ? readSheet(project, set.id, typeof x.field?.record === 'string' ? x.field.record : undefined)?.fields.find((held) => held.def.key === x.field?.field) : undefined;
+        if (view && view.state !== 'empty' && view.state !== 'proposed' && view.state !== 'disputed') {
+          const evidenceId = view.source?.evidenceId ?? (known.has(String(x.evidenceId)) ? String(x.evidenceId) : undefined);
+          return evidenceId && known.has(evidenceId) ? [{ questionId: x.questionId, answer: view.text, source: x.source, evidenceId, page: view.source?.page ?? x.page, quote: view.source?.quote ?? x.quote }] : [];
+        }
+        const quote = typeof x.quote === 'string' ? x.quote.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+        if (!quote || !known.has(String(x.evidenceId))) return [];
+        // The page that holds the words, whichever page was named. Words no page of the paper holds are not the paper's, and are not suggested.
+        const page = placed(String(x.evidenceId), typeof x.page === 'number' ? x.page : 0, quote);
+        return page ? [{ questionId: x.questionId, answer: paperCellValue(typeof x.value === 'string' ? x.value : undefined, quote), source: x.source, evidenceId: String(x.evidenceId), page, quote }] : [];
+      });
       const dropped = (answers ?? []).length - usable.length;
       try {
         const landed = suggestAnswers(
@@ -954,7 +1133,7 @@ export function createProjectTools(
         );
         bag.toolCalls.push({ name: 'suggest_answers', summary: `${landed} answer(s) suggested` });
         if (!bag.navigations.some((n) => n.target === 'workstream')) bag.navigations.push({ target: 'workstream', workstream: 'construction.quality' });
-        return JSON.stringify({ suggested: landed, droppedForNoProof: dropped, note: 'They show as suggestions on the questionnaire. A person confirms each, or all at once.' });
+        return JSON.stringify({ suggested: landed, droppedForNoProof: dropped, note: 'They show as suggestions on the questionnaire, each a field\'s value or a paper\'s own words. A person confirms each, or all at once.' });
       } catch (err) {
         return JSON.stringify({ error: err instanceof Error ? err.message : 'Could not suggest those answers.' });
       }
@@ -1003,36 +1182,54 @@ export function createProjectTools(
   const proposeUpdate = betaTool({
     name: 'propose_update',
     description:
-      'Queue a propose-and-review card. Nothing is written to a register until a person approves. Use for findings, risks, actions, decisions, evidence requests, starting a DD, reports, or a property screen. Do not propose a duplicate of an already-open card.',
+      'Queue a propose-and-review card. Nothing is written to a register until a person approves. Use for findings, risks, actions, decisions, evidence requests, starting a DD, reports, or a property screen. You write no title, reason or description: say what the card is about (fields by address, records by id) and pick a concern or a next step, and the card is worded from the record. Do not propose a duplicate of an already-open card.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['kind', 'title', 'rationale', 'impact', 'payloadJson'],
+      required: ['kind', 'about', 'payloadJson'],
       properties: {
         kind: { type: 'string', enum: [...PROPOSE_KINDS] },
-        title: { type: 'string' },
-        rationale: { type: 'string', description: 'Why this follows from the registers. Cite record ids in prose.' },
-        impact: { type: 'string', description: 'What lands on the project if approved.' },
+        about: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            fields: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['set', 'field'], properties: { set: { type: 'string' }, field: { type: 'string' }, record: { type: 'string' } } }, description: 'Addresses of the fields it is about, from get_fields or get_check_fields.' },
+            records: { type: 'array', items: { type: 'string' }, description: 'Ids of the records it is about: a paper, a finding, an action, a check, a milestone.' },
+          },
+        },
+        concern: { type: 'string', enum: [...PROPOSAL_CONCERNS], description: 'For add_finding and add_risk: what it is concerned with. Severity and the next step come from this.' },
+        next: { type: 'string', enum: [...PROPOSAL_NEXT], description: 'For add_action: what is to be done.' },
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind, holding ids, picks and values only. Any sentence in it (description, comments, rationale) is taken out and written from the record. record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, source, and blockId to change what that section reads or afterBlockId to add a section after one}. source says what the section reads: a register kind, or fields as {kind:"fields", addresses:[{fn,set,field}]}, {kind:"field_table", address|records, columns?} or {kind:"field_chart", address|records, x, y}. You never write a report’s words: no text and no heading. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,
-    run: async ({ kind, title, rationale, impact, payloadJson }) => {
+    run: async ({ kind, about, concern, next, payloadJson }) => {
       if (!(PROPOSE_KINDS as readonly string[]).includes(kind)) {
         return JSON.stringify({ error: `"${kind}" is not a proposable kind.` });
       }
-      const payload = parsePayload(payloadJson);
-      if ('error' in payload) return JSON.stringify(payload);
+      const sent = parsePayload(payloadJson);
+      if ('error' in sent) return JSON.stringify(sent);
+      // The card's words are made from the record: its title, its reason and any sentence its payload needs. A sentence the model sent is taken out.
+      const made = structuredProposal(project, { kind: kind as ChatProposalKind, about, concern, next }, sent);
+      if ('error' in made) return JSON.stringify(made);
+      const { title, rationale, impact, payload } = made;
       const invalid = validateProposal(kind as ChatProposalKind, payload);
       if (invalid) return JSON.stringify({ error: invalid });
       const open = project.chatProposals.filter((p) => p.status === 'proposed');
       if (open.some((p) => p.title === title) || bag.proposals.some((p) => p.title === title)) {
         return JSON.stringify({ error: 'A card with that title is already open. Do not duplicate it.' });
       }
-      const card = createChatProposal(kind as ChatProposalKind, title, rationale, impact, payload, actor);
+      // The papers it is about, each with the page and the page's own words where a search of the papers found them this turn.
+      // The card shows those, and no reason of the model's.
+      const papers = (Array.isArray(about?.records) ? about.records : []).filter((id): id is string => typeof id === 'string' && project.evidence.some((row) => row.id === id));
+      const cites = papers.flatMap((id) => {
+        const hit = (bag.passages ?? []).find((passage) => passage.evidenceId === id);
+        return hit ? [{ evidenceId: id, page: hit.page, quote: hit.quote.replace(/\s+/g, ' ').trim().slice(0, 220) }] : [];
+      });
+      const card = createChatProposal(kind as ChatProposalKind, title, rationale, impact, payload, actor, { ...(papers.length ? { citedEvidenceIds: papers } : {}), ...(cites.length ? { cites } : {}) });
       bag.proposals.push(card);
       bag.toolCalls.push({ name: 'propose_update', summary: title });
       const pane = paneForProposalKind(kind as ChatProposalKind);
@@ -1423,13 +1620,22 @@ export function createProjectTools(
       const papers = papersAsked(project, { words: String(words ?? ''), ...(paper ? { paper: String(paper) } : {}) });
       const found = papers.length ? await paperSearch({ id: project.id, evidence: papers }, String(words ?? '')) : { hits: [], opened: 0, notOpened: 0 };
       bag.toolCalls.push({ name: 'search_papers', summary: found.hits.length ? `Searched the papers: ${found.hits.length === 1 ? '1 page' : `${found.hits.length} pages`}` : 'Searched the papers: nothing found' });
+      // Each passage under a mark, so an answer names it and code prints the page's own words.
+      const held = (bag.passages ??= []);
+      const marked = found.hits.map((hit) => {
+        const known = held.find((passage) => passage.evidenceId === hit.evidenceId && passage.page === hit.page && passage.quote === hit.snippet);
+        if (known) return { hit, mark: known.mark };
+        const passage = { mark: `p${held.length + 1}`, evidenceId: hit.evidenceId, title: hit.title, page: hit.page, quote: hit.snippet };
+        held.push(passage);
+        return { hit, mark: passage.mark };
+      });
       return JSON.stringify({
         searched: true,
-        hits: found.hits.map((hit) => ({ evidenceId: hit.evidenceId, paper: hit.title, fileName: hit.fileName, page: hit.page, readBy: hit.reader, passage: hit.snippet, cite: `[ev:${hit.evidenceId}:p${hit.page}]` })),
+        hits: marked.map(({ hit, mark }) => ({ mark, evidenceId: hit.evidenceId, paper: hit.title, fileName: hit.fileName, page: hit.page, readBy: hit.reader, passage: hit.snippet, cite: `[ev:${hit.evidenceId}:p${hit.page}]` })),
         papersSearched: found.opened,
         papersNotSearched: found.notOpened,
         note: found.hits.length
-          ? 'These are the papers\' own words. Quote them as that, each with its cite, and state none as a value on the file.'
+          ? 'These are the papers\' own words. Give the marks of the passages that answer in answer_with_fields: the words are printed from the page, never by you.'
           : papers.length
             ? 'No page of the papers searched holds all of those words. Try fewer words, or say that the papers do not mention it.'
             : 'No paper on this project goes by that name.',
@@ -1563,6 +1769,8 @@ export function createProjectTools(
     getSitting,
     getCheck,
     getCheckFields,
+    getFields,
+    proposeFieldValuesTool,
     getFinding,
     getStandardsView,
     getSiteRecord,

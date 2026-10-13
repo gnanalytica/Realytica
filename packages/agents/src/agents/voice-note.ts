@@ -32,14 +32,32 @@ const SYSTEM = `You are given the words of a voice note recorded on a constructi
 Rules:
 1. Record only what the note says. Never add a line the note does not state. A quantity, a name or a date the note does not say is left out, never estimated.
 2. Every item carries "quote": the exact words of the note it comes from, copied character for character in the note's own language and script, one sentence or clause, no more. An item you cannot quote is not an item.
-3. "text" is the item in one plain line of English, under 160 characters, saying no more than the quoted words do.
+3. You write no line of your own, in English or any language. The item is its quote, with what you pick beside it.
 4. "kind" is "work" for work done or under way, "issue" for a problem, a delay, a shortage, a defect or anything unsafe, "manpower" for how many of a trade were on site, "weather" for the weather.
 5. For "manpower", "trade" is the trade in English (masons, carpenters, helpers) and "count" is the number, only where the quoted words say the number. Otherwise both are null.
 6. "day": "said" is "today" or "yesterday" where the note says so in any language, "date" where it names a calendar date in full, else null. With "date", give it as YYYY-MM-DD. "quote" is the words that say the day. Never work a date out from anything else.
 7. Talk that says nothing for the entry (greetings, who the note is for) is not an item.
 Call ${VOICE_NOTE_TOOL} once with everything.`;
 
-function tool(): LlmSchemaTool {
+/** The trades a note may count, in English. A fixed list: a model picks one and writes none. */
+export const VOICE_TRADES = ['masons', 'carpenters', 'helpers', 'labourers', 'bar benders', 'fitters', 'electricians', 'plumbers', 'painters', 'welders', 'tile layers', 'operators', 'supervisors'] as const;
+
+/**
+ * A model's items as the reading keeps them: the line of each is its quote,
+ * the note's own words in the note's own script, and never a line the model
+ * wrote (one sent under `text` is not read). A trade is one off the list.
+ */
+export function voiceItemsFromPicks(items: readonly unknown[]): VoiceNoteSaidByModel['items'] {
+  return items.flatMap((raw) => {
+    const item = (raw && typeof raw === 'object' ? raw : {}) as { kind?: unknown; quote?: unknown; trade?: unknown; count?: unknown };
+    const quote = typeof item.quote === 'string' ? item.quote.trim() : '';
+    if (!quote || typeof item.kind !== 'string') return [];
+    const trade = VOICE_TRADES.find((known) => known === item.trade) ?? null;
+    return [{ kind: item.kind, text: quote, quote, trade, count: trade && typeof item.count === 'number' && Number.isFinite(item.count) ? item.count : null }];
+  });
+}
+
+export function voiceNoteTool(): LlmSchemaTool {
   return {
     kind: 'schema',
     name: VOICE_NOTE_TOOL,
@@ -65,12 +83,11 @@ function tool(): LlmSchemaTool {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['kind', 'text', 'quote', 'trade', 'count'],
+            required: ['kind', 'quote', 'trade', 'count'],
             properties: {
               kind: { type: 'string', enum: ['work', 'issue', 'manpower', 'weather'] },
-              text: { type: 'string', description: 'The item in one plain line of English.' },
               quote: { type: 'string', description: 'The exact words of the note this comes from, in the note’s own script.' },
-              trade: { type: ['string', 'null'] },
+              trade: { type: ['string', 'null'], enum: [...VOICE_TRADES, null] },
               count: { type: ['number', 'null'] },
             },
           },
@@ -93,14 +110,14 @@ export async function readVoiceNoteByModel(input: { words: string; caseId?: stri
       model: route.model,
       maxTokens: 2500,
       system: [{ text: SYSTEM, cacheBreakpoint: true }],
-      tools: [tool()],
+      tools: [voiceNoteTool()],
       toolChoice: { type: 'tool', name: VOICE_NOTE_TOOL },
       messages: [{ role: 'user', content: `The words of the note:\n\n${words}` }],
       timeoutMs: input.timeoutMs ?? VOICE_NOTE_LIMIT_MS,
     });
     const said = toolUseOf(result, VOICE_NOTE_TOOL)?.input as { day?: unknown; items?: unknown } | undefined;
     if (!said || !Array.isArray(said.items)) return null;
-    return { day: (said.day ?? null) as VoiceNoteSaidByModel['day'], items: said.items as VoiceNoteSaidByModel['items'] };
+    return { day: (said.day ?? null) as VoiceNoteSaidByModel['day'], items: voiceItemsFromPicks(said.items) };
   } catch (err) {
     console.warn(`[voice note] a model did not read the words: ${err instanceof Error ? err.name : 'error'}`);
     return null;

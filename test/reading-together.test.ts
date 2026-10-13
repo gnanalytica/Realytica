@@ -67,13 +67,20 @@ before(async () => {
 });
 
 after(async () => {
-  server?.close();
+  // Nothing may still be writing under the directory when it goes: the server is closed and waited for, the work that
+  // goes on after a reply is let end, and what the store has still to write is written. The removal is then retried a few
+  // times, for a file a slow disk has not let go of yet. (It used to be removed while a save was in flight, now and then.)
+  server?.closeAllConnections?.();
+  await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   const { releaseOcr } = await import('../apps/api/src/documents/read-text');
   await releaseOcr();
   // A paper whose page was closed is still read after the reply: let that end before its directory goes.
   const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
   await afterReplyWorkDone();
-  rmSync(dataDir, { recursive: true, force: true });
+  const { store } = await import('../apps/api/src/store');
+  await store.flush();
+  await afterReplyWorkDone();
+  rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe('papers read together', () => {

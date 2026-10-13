@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Sparkles } from 'lucide-react';
 import { otherReadingSaid, proofSaid, type DocumentFact } from '@realytica/shared';
 import { cn } from '../ui/kit';
+import { readingSaid } from '../../lib/format';
 
 const reducedMotion = (): boolean =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -63,7 +64,8 @@ export function FactRow({
   onPoint: (fact: DocumentFact | null) => void;
 }) {
   const delay = index * 170;
-  const value = useTyped(fact.display, delay + 120, revealing);
+  const said = readingSaid(fact.display);
+  const value = useTyped(said, delay + 120, revealing);
   const model = fact.source === 'model';
   return (
     <div
@@ -109,9 +111,9 @@ export function FactRow({
           </span>
         )}
       </div>
-      <p className={cn('min-h-[1.25em] break-words text-[14px] font-medium leading-snug text-ink', fact.display.length < 40 && 'font-mono text-[13px]')}>
+      <p className={cn('min-h-[1.25em] break-words text-[14px] font-medium leading-snug text-ink', said.length < 40 && 'font-mono text-[13px]')}>
         {value}
-        {value.length < fact.display.length ? <span className="ml-px inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-provenance" aria-hidden /> : null}
+        {value.length < said.length ? <span className="ml-px inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-provenance" aria-hidden /> : null}
       </p>
       {fact.originalValue ? (
         <p className="text-[12px] text-ink-secondary" lang={fact.originalScript === 'telugu' ? 'te' : 'kn'}>
@@ -130,7 +132,7 @@ export function OtherReading({ fact }: { fact: DocumentFact }) {
   const said = proofSaid(other);
   return (
     <span className="block text-micro text-provenance-ink">
-      {other.source === 'model' ? 'A model read' : 'The page was read here as'} <span className="font-mono">{other.display}</span>
+      {other.source === 'model' ? 'A model read' : 'The page was read here as'} <span className="font-mono">{readingSaid(other.display)}</span>
       {other.page ? ` on p.${other.page}` : ''}
       {said ? ` (${said})` : ''}. {otherReadingSaid(fact)}
     </span>

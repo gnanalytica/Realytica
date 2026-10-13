@@ -6,6 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
+import { offerPaperToSheets } from './field-sheets';
 import { dropAsItStands, proofOf, proposeOnRow, standingAsRead, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
@@ -24,7 +25,6 @@ import {
   generateReport,
   recordAuditEvent,
   recordCheckFields,
-  editReportBlock,
   insertReportBlock,
   retuneReportBlock,
   patchAsset,
@@ -32,6 +32,7 @@ import {
   updateEvidenceStatus,
 } from './operations';
 import { logSiteEntry } from './progress';
+import { fieldSourceHeading } from './report-fields';
 import { siteEntryInput, type SiteEntryProposal } from './site-notes';
 import { LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
@@ -202,6 +203,8 @@ function proposal(
     createdAt: nowIso(),
     createdBy: actor,
     citedEvidenceIds: extra.citedEvidenceIds,
+    // The page and the page's own words of each paper it cites, where whoever raised it found them.
+    ...(extra.cites?.length ? { cites: extra.cites } : {}),
     citedNodeIds: extra.citedNodeIds,
   };
 }
@@ -367,7 +370,8 @@ export function classifyIngestFile(
   let byTitle = read
     ? matchReadToRow(project, read, file.kindHint)
     : (titled.find((gap) => named.includes(plainWords(gap.title)))
-      ?? titled.find((gap) => kinds.some((kind) => singular(gap.title).includes(kind) || kind.includes(singular(gap.title)))));
+      // Only a row titled as that kind is: "Façade maintenance contract" is not waiting for whatever file is some contract.
+      ?? titled.find((gap) => kinds.some((kind) => singular(gap.title).trim() === kind.trim())));
   const assessmentIds = new Set<string>(byTitle?.assessmentIds ?? []);
   const scopeInstanceIds = new Set<string>(byTitle?.scopeInstanceIds ?? []);
   const checkIds = new Set<string>(byTitle?.checkIds ?? []);
@@ -595,6 +599,10 @@ export function proposalsFromIngest(
       // A paper put on its row as it was read (`landed`) has been in front of people since. A value set aside or corrected there
       // meanwhile is what the paper states now, so its checks are offered the row as it stands, never the reading as it was read.
       out.push(...factFillProposals(project, dropAsItStands(project, file).standing, source, actor, out, { differences: true }));
+      // And to the one field that owns each value, where it waits for that function's lead or signer: a model's reading too, which then
+      // waits there once with its page and words. Never a value a person set aside on the row.
+      const stated = dropAsItStands(project, file);
+      offerPaperToSheets(project, classified.evidence?.id, [...stated.standing, ...stated.waiting], undefined, { waiting: true });
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }
@@ -844,37 +852,21 @@ export function commitChatProposal(
     if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
     recordId = outcome.check.id;
   } else if (item.kind === 'edit_report') {
-    // A report edit card carries exactly one of three shapes, and none of
-    // them can write a bound block's text — the model may add prose, rewrite
-    // prose it or somebody else wrote, or change what a block asks the
-    // registers for. `editReportBlock` refuses the fourth case outright.
+    // A report edit card comes from a model, and a model writes no words into
+    // a report. What it may offer is what a section reads: the fields or the
+    // register behind it. Accepted, that changes a section's reading or adds
+    // a section a person then arranges. A card that carries words (one raised
+    // before this rule) is refused when somebody accepts it.
     const reportId = String(payload.reportId);
     const blockId = typeof payload.blockId === 'string' ? payload.blockId : '';
-    if (payload.source && blockId) {
-      const record = retuneReportBlock(project, reportId, blockId, payload.source as ReportBoundSource, actor);
-      recordId = record.id;
-    } else if (blockId) {
-      const record = editReportBlock(
-        project,
-        reportId,
-        blockId,
-        { text: typeof payload.text === 'string' ? payload.text : undefined, heading: typeof payload.heading === 'string' ? payload.heading : undefined },
-        actor,
-      );
-      recordId = record.id;
-    } else {
-      const record = insertReportBlock(
-        project,
-        reportId,
-        {
-          heading: typeof payload.heading === 'string' ? payload.heading : undefined,
-          text: typeof payload.text === 'string' ? payload.text : '',
-          afterBlockId: typeof payload.afterBlockId === 'string' ? payload.afterBlockId : undefined,
-        },
-        actor,
-      );
-      recordId = record.id;
+    if (typeof payload.text === 'string' || !payload.source) {
+      throw new Error('A report’s words are written by a person, not taken from a card. Write the note on the report yourself; a card may only change what a section reads.');
     }
+    const source = payload.source as ReportBoundSource;
+    const record = blockId
+      ? retuneReportBlock(project, reportId, blockId, source, actor)
+      : insertReportBlock(project, reportId, { heading: fieldSourceHeading(source), source, afterBlockId: typeof payload.afterBlockId === 'string' ? payload.afterBlockId : undefined }, actor);
+    recordId = record.id;
   } else if (item.kind === 'run_valuation') {
     const record = createValuationRun(project, actor);
     recordId = record.id;

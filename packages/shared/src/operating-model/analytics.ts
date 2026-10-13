@@ -30,7 +30,7 @@ import type { CockpitPathExtra } from './sitting';
 import type { WorkspaceRole } from './tenancy';
 import { sameEmail } from './tenancy';
 import { waitingOnCanvas } from './cockpit';
-import { functionOfDocument } from './chat-places';
+import { functionOfDocument, papersOwedOpen } from './chat-places';
 import { checklistOwed } from './checklist';
 import { requirementSheet } from './requirement-sheet';
 import { compareCostReports, costReportDecisions } from './cost-report-compare';
@@ -372,9 +372,9 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
           detail: line.status === 'requested' ? `Asked for${line.dueAt ? `, due ${meetingDay(line.dueAt)}` : ''}` : 'Not asked for yet',
           ...(line.dueAt ? { when: line.dueAt } : {}),
           ...(line.overdue ? { overdue: true } : {}),
-          source: `the ${DEPARTMENT_SHORT[desk]} checklist`,
-          pane: 'department',
-          extra: { department: desk },
+          source: `Papers owed, ${DEPARTMENT_SHORT[desk]}`,
+          // The line, open on its department's Documents.
+          ...papersOwedOpen(line.item.department, `l:${line.item.id}`),
         });
       }
     }
@@ -572,7 +572,9 @@ export function departmentAnalytics(project: DdProject, now: Date): DepartmentAn
     const workstream = (check ? workstreamOfCheck(check.definitionId) : undefined) ?? (paper ? documentWorkstream(project, paper) : undefined) ?? from?.place?.fn;
     const department = (workstream ? functionDepartment(workstream) : undefined) ?? (from?.place?.department as DepartmentKey | undefined);
     const due = action.dueDate?.slice(0, 10);
-    const overdue = action.status === 'overdue' || Boolean(due && due < today);
+    // By the day asked about, never by the stamp: an action is marked overdue by the clock of whichever day it was last touched, and a
+    // figure asked for as at a day has to come out the same whenever it is worked out.
+    const overdue = Boolean(due && due < today);
     bucket(department).actions.push({
       ...base(project),
       title: action.title,

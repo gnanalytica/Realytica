@@ -13,10 +13,10 @@
  */
 
 import { checkSchema } from './operations';
-import { acceptedFacts, standingFacts, settled, waitingReadings } from './fact-review';
+import { acceptedFacts, acceptedStanding, standingFacts, settled, unacceptedReadings, waitingReadings } from './fact-review';
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS } from './libraries';
 import { SCOPE_LABEL } from './catalogs';
-import { formatFieldValue, isBlank } from './check-fields';
+import { formatFieldValue, isBlank, standingField } from './check-fields';
 import { createChatProposal } from './wizard';
 import { documentAnswers, type DocumentFact, type DocumentFlag } from './document-parse';
 import { surveyPieces } from './revenue-map';
@@ -43,6 +43,12 @@ function words(text: string): string[] {
  * "mother deed", "title chain", so the phrase decides and the shared word
  * does not.
  *
+ * Only a row that names this kind of paper and nothing else is its row. A
+ * joint development agreement was filed under "Maintenance contracts" because
+ * both are contracts, and the page then cited "Maintenance contracts" as the
+ * source of the agreement's terms. A paper no open row names is filed as a
+ * row of its own, under its own name.
+ *
  * A row the screen raised names the document kind it is waiting for
  * (`gap:<kind>`); that is the strongest match of all, and it wins outright.
  */
@@ -52,18 +58,12 @@ export function matchReadToRow(project: DdProject, read: NonNullable<ChatIngestF
   let best: EvidenceRecord | undefined;
   let bestScore = 0;
   for (const row of gaps) {
-    const title = ` ${row.title.toLowerCase()} `;
     let score = 0;
     if (documentKind && row.screenCode === `gap:${documentKind}`) score += 100;
-    for (const hint of read.rowHints) {
-      const h = hint.toLowerCase().trim();
-      if (!h) continue;
-      if (title.includes(` ${h} `) || title.includes(` ${h}`) || title.includes(h)) score += 10 + h.length;
-    }
-    // A word-level overlap only counts once the phrase has said something.
-    if (score > 0) {
+    // The row names this kind of paper and no other (`documentAnswers`): a near miss is no match, and the paper is then a row of its own.
+    if (documentAnswers(read.label, row.title)) {
       const rowWords = new Set(words(row.title));
-      score += words(read.label).filter((w) => rowWords.has(w)).length;
+      score += 10 + words(read.label).filter((w) => rowWords.has(w)).length;
     }
     if (score > bestScore) {
       best = row;
@@ -71,6 +71,50 @@ export function matchReadToRow(project: DdProject, read: NonNullable<ChatIngestF
     }
   }
   return bestScore >= 10 ? best : undefined;
+}
+
+/* ==================================================================== */
+/* Papers dropped and not on a row yet                                   */
+/* ==================================================================== */
+
+/**
+ * How long after a drop its papers are taken to be still under way: a little
+ * past the longest a request runs. A paper not on its row by then was left
+ * behind by a request that ended, and nobody is reading it.
+ */
+export const READING_UNDER_WAY_MS = 15 * 60_000;
+
+export interface PaperInHand {
+  fileName: string;
+  storageKey: string;
+  /** When its reading began. */
+  since: string;
+}
+
+/**
+ * The papers dropped in the chat that are on no row yet: the ones still being
+ * read, and the ones a request left behind unread.
+ *
+ * A drop is read a few papers at a time and goes on after the tab that
+ * dropped it closes. A page opened meanwhile showed three papers of ten and
+ * nothing to say the other seven were coming. Each paper is noted on the
+ * record as its reading begins and the note goes as it lands, so what is
+ * still noted is what is still to come: `reading` while a request could
+ * still be at work on it, `unread` after.
+ */
+export function papersInHand(project: Pick<DdProject, 'chatProposals' | 'evidence'>, at: Date = new Date()): { reading: PaperInHand[]; unread: PaperInHand[] } {
+  const filed = new Set(project.evidence.flatMap((e) => e.attachments.map((a) => a.storageKey)));
+  const reading: PaperInHand[] = [];
+  const unread: PaperInHand[] = [];
+  for (const card of project.chatProposals ?? []) {
+    const { readingSince, storageKey, fileName } = card.payload as { readingSince?: unknown; storageKey?: unknown; fileName?: unknown };
+    if (card.kind !== 'file_evidence' || card.status !== 'proposed' || typeof readingSince !== 'string' || typeof storageKey !== 'string' || filed.has(storageKey)) continue;
+    const began = Date.parse(readingSince);
+    if (Number.isNaN(began)) continue;
+    const paper = { fileName: typeof fileName === 'string' ? fileName : 'document', storageKey, since: readingSince };
+    (at.getTime() - began < READING_UNDER_WAY_MS ? reading : unread).push(paper);
+  }
+  return { reading, unread };
 }
 
 /* ==================================================================== */
@@ -119,11 +163,16 @@ function alreadyProposed(project: DdProject, checkId: string, def: CheckFieldDef
   );
 }
 
+/** Whether two values are one value for a field: a measure a rounding apart is. What every door that offers a check a value asks. */
+export function statesTheSameOnField(def: CheckFieldDef, a: unknown, b: unknown): boolean {
+  return statesTheSame(def.key, a, b, isMeasure(def));
+}
+
 /**
  * A person has already decided this value for this field: accepted it, set it
  * aside, or kept what the check held in its place. It is not asked again.
  */
-function alreadyDecided(project: DdProject, checkId: string, key: string, value: unknown): boolean {
+export function alreadyDecided(project: DdProject, checkId: string, key: string, value: unknown): boolean {
   return project.chatProposals.some(
     (p) =>
       p.kind === 'record_check_fields'
@@ -232,7 +281,7 @@ function fieldTakes(def: CheckFieldDef, value: unknown): boolean {
  * set aside is not raised again each time the paper is read.
  */
 export function differsOnCheck(project: DdProject, check: CheckInstance, def: CheckFieldDef, fact: DocumentFact): boolean {
-  const held = check.fields?.[fact.key];
+  const held = standingField(check.fields?.[fact.key]);
   if (isBlank(held) || Array.isArray(held!.value) || def.kind === 'computed') return false;
   if (statesTheSame(fact.key, held!.value, fact.value, isMeasure(def)) || !fieldTakes(def, fact.value)) return false;
   // On a site of several parcels the check may hold one parcel's number and the paper state another's. Where both are the
@@ -269,7 +318,13 @@ export function factFillProposals(
   pending: ChatProposal[] = [],
   options: { differences?: boolean } = {},
 ): ChatProposal[] {
-  const facts = read.filter(settled);
+  // One parcel's extent is not the holding's. A deed or a record of rights that names fewer survey numbers than the project
+  // holds states the extent of those alone: it goes to that parcel's own record on the sheets, and is offered to no check
+  // that asks for the extent of the whole land.
+  const named = surveyNumbersIn(read.find((fact) => fact.key === 'survey_numbers')?.value ?? '');
+  const held = surveyNumbersIn(project.parcelId ?? '');
+  const ofOneParcel = named.length > 0 && held.length > named.length;
+  const facts = read.filter(settled).filter((fact) => !(ofOneParcel && /^extent_/.test(fact.key)));
   if (!facts.length) return [];
   const out: ChatProposal[] = [];
   for (const seated of everyCheck(project)) {
@@ -282,7 +337,7 @@ export function factFillProposals(
     for (const fact of facts) {
       const def = fields.find((f) => f.key === fact.key);
       if (!def || def.kind === 'computed') continue;
-      const held = seated.check.fields?.[fact.key];
+      const held = standingField(seated.check.fields?.[fact.key]);
       if (!isBlank(held) && !(options.differences && differsOnCheck(project, seated.check, def, fact))) continue;
       if (alreadyProposed(project, seated.check.id, def, fact.value, [...pending, ...out])) continue;
       if (!fieldTakes(def, fact.value)) continue;
@@ -393,6 +448,26 @@ export function factsOnFile(project: DdProject): Array<{ fact: DocumentFact; evi
   const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
   const rows = [...project.evidence].filter((e) => standingFacts(e).length).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   for (const evidence of rows) for (const fact of standingFacts(evidence)) out.push({ fact, evidence });
+  return out;
+}
+
+/**
+ * Every fact on the register a person has accepted, newest document first:
+ * what a chat answer tells as a fact. Narrower than `factsOnFile`: a reading
+ * nobody has looked at is offered to a check, and never said in a sentence.
+ */
+export function factsAcceptedOnFile(project: DdProject): Array<{ fact: DocumentFact; evidence: EvidenceRecord }> {
+  const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
+  const rows = [...project.evidence].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const evidence of rows) for (const fact of acceptedStanding(evidence)) out.push({ fact, evidence });
+  return out;
+}
+
+/** Every reading nobody has decided on a paper still relied on, whoever read it, newest document first: what such an answer says is waiting. */
+export function readingsUnacceptedOnFile(project: DdProject): Array<{ fact: DocumentFact; evidence: EvidenceRecord }> {
+  const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
+  const rows = [...project.evidence].filter((e) => e.status !== 'superseded' && e.status !== 'rejected').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const evidence of rows) for (const fact of unacceptedReadings(evidence)) out.push({ fact, evidence });
   return out;
 }
 

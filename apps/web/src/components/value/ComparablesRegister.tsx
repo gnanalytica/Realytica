@@ -21,6 +21,7 @@ import {
 } from '@realytica/shared';
 import { Button, Select, Tooltip, cn } from '../ui/kit';
 import { money } from '../../lib/format';
+import { daySaid } from '@realytica/shared';
 
 export interface ComparablesActions {
   onSearch: () => void;
@@ -104,7 +105,7 @@ export function ComparablesRegister({
           <Tooltip
             label={
               configured === false
-                ? 'Portal search needs a scraping service account (Zyte, Bright Data or Oxylabs) set on the API: UNBLOCKER_PROVIDER and UNBLOCKER_API_KEY.'
+                ? 'Portal search is not set up. It needs an account with a scraping service (Zyte, Bright Data or Oxylabs), added by whoever runs the deployment.'
                 : 'Searches 99acres and MagicBricks near the site — about twenty paid requests to the scraping service.'
             }
           >
@@ -128,7 +129,7 @@ export function ComparablesRegister({
 
       {search ? (
         <p className="px-4 pb-2 text-mini leading-relaxed text-ink-muted">
-          Searched {new Date(search.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} near {search.localities.join(' / ')}
+          Searched {daySaid(search.at)} near {search.localities.join(' / ')}
           {search.cities.length ? ` (${search.cities[0]})` : ''} within {search.radiusKm} km
           {search.diagnostics.radiusWidened ? ', widened because nearer listings were thin' : ''}: {search.found} found.
           {search.empty ? <span className="block text-ink-secondary">{search.empty}</span> : null}

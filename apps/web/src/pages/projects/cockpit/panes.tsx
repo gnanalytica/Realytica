@@ -9,6 +9,7 @@ import { formatWhen } from '../shared';
 import { useAsync } from '../../../lib/useAsync';
 import { useBackgroundRun } from '../../../lib/useBackgroundRun';
 import { ProjectGraphCanvas } from './ProjectGraphCanvas';
+import { countSaid } from '@realytica/shared';
 
 export type { ProjectCockpitPane } from '@realytica/shared';
 
@@ -72,7 +73,7 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
     try {
       const result = await api.orchestrateProject(project.id);
       await onChanged();
-      toast(`${result.drafts.length} draft(s) proposed — review before commit`, 'good');
+      toast(`${countSaid(result.drafts.length, 'draft')} proposed. Review before commit.`, 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'The run failed', 'critical');
     }
@@ -107,7 +108,7 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
         <Callout tone="brand" title="Running in the background">
           {background.line ?? 'Started. You can leave this pane — the run keeps going and the result lands on the registers.'}
           {background.keptAlive === false
-            ? ' This deployment does not guarantee work outliving a request, so if the instance is recycled the run will show as interrupted rather than finishing.'
+            ? ' If the server restarts while it runs, the run will show as interrupted rather than finishing.'
             : ''}
         </Callout>
       ) : null}

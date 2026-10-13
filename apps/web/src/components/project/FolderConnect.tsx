@@ -149,7 +149,7 @@ export function FolderConnect({ project, onTaken }: { project: DdProject; onTake
             <Skeleton className="h-9 w-full" />
           </div>
         ) : !shown.configured ? (
-          <p className="text-[13px] text-ink-secondary">The firm has not set this up.</p>
+          <p className="text-[13px] text-ink-secondary">Google Drive is not set up for the firm yet. Set up, in the sidebar, says what is needed.</p>
         ) : connector && standing ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">

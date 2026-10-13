@@ -12,7 +12,7 @@ Writes on a project need a role that allows them: workspace `write` capability f
 | POST | `/projects` | Create one: name, type, location, city, `currentStage`, `departments`, optional first `engagement` |
 | GET, PATCH, DELETE | `/projects/:id` | Read, change particulars, delete (with its documents and graph) |
 | POST | `/projects/:id/stage` | Move the project or a phase to a step; the history keeps the reason |
-| GET | `/portfolio` | The firm's projects, decisions waiting, requests out, the next 14 days |
+| GET | `/portfolio` | The firm's projects, decisions waiting, requests out, the next 14 days. Each request row carries `open`: the Documents part of the department it belongs to (`{ pane, extra }`), or `{ firm: 'requests' }` for a request that belongs to no department |
 
 ## Departments and people
 
@@ -113,12 +113,29 @@ Deciding where a value read off a document stands needs a lead or signer in the 
 | POST | `/projects/:id/evidence/:evidenceId/facts/review` | `{ keys, decision: "accept" \| "reject" \| "reopen", edit?, take? }`. The department whose function holds the document. |
 | POST | `/projects/:id/proposals/:proposalId/fields` | `{ keys, decision: "accept" \| "reject", values? }` on a card of check values. The check's department. |
 | POST | `/projects/:id/checks/:checkId/fields/:key/pick` | `{ proposalId }`, or `null` to keep what the check holds. The check's department. |
+| PUT | `/projects/:id/fields/values` | `{ set, record?, values }`. What a person types into a function's sheet. All or nothing. A role that edits in the function's department. |
+| POST | `/projects/:id/fields/decide` | `{ address, decision, value?, pick?, reason?, note? }`. `decision` is `accept`, `keep`, `set_aside`, `dispute`, `not_applicable` or `reopen`. A lead or signer of the function's department, but for `dispute`. |
+| POST | `/projects/:id/fields/accept-paper` | `{ fn, evidenceId }`. Accepts every value one paper offered to a function's sheets, but for the ones a person has to name. |
+| POST | `/projects/:id/fields/records` | `{ set, values }` adds a record to a set that repeats; `{ set, remove }` takes one off its list. |
+| PUT | `/projects/:id/fields/situation` | `{ fn, key, on }`. Puts a situation in play or takes it out. |
+| PUT | `/projects/:id/fields/snooze` | `{ fn, key, until }`, `until` a day as `YYYY-MM-DD` or `null`. Puts a line under Due soon off until that day, at most 90 days ahead, or brings it back. A lead or signer of the function's department; only a Due-soon line can be put off. |
+| PUT | `/projects/:id/fields/section` | `{ set, section, reason, note? }`. Marks a section not applicable with one of five reasons, or with `null` asks it again. |
 | POST | `/projects/:id/proposals/:proposalId/accept`, `/set-aside` | The check's department when the card is check values. Any other card: anybody who may write. |
 | POST | `/projects/:id/value/accept`, `/value/set-aside` | `{ ids, record? }`. Finance. |
 | POST | `/projects/:id/comparables/decide` | `{ ids, decision: "accept" \| "reject" }`. Finance. |
 | PUT | `/projects/:id/evidence/:evidenceId/workstream` | `{ workstream }` or `null`, where it moves a document out of the function that holds it. The department that holds it now. |
 | POST | `/projects/:id/evidence/:evidenceId/document-type/confirm`, `/correct` | Where the kind would move a document a function already holds, or the row holds a value somebody has decided. The department that holds it now. |
 | POST | `/projects/:id/certified` | Where it files a document another function holds. The department that holds it now. |
+
+`POST /projects/:id/fields/decide` on a check's address settles the card the value waits on, and settling the card settles the field: there is one store. `GET /projects/:id/checks/:checkId/fields` also returns `shown` (each key as `shown`, `folded` or `hidden`), `notInPlay`, `situations` and `fn`, so a check screen asks only what its approach brings into play.
+
+Reports: `POST /projects/:id/reports` takes `kind: "function"` with `template`, the id of a function's report template (listed in [departments.md](departments.md)); **400** for a template that does not exist. A report block's source may be `fields` (`addresses`, `layout`), `field_table` (`address` or `records`, `columns`) or `field_chart` (`address` or `records`, `x`, `y`, `mark`). Editing the text of a block frozen from fields, or a note past its cap of 2,000 characters, answers **400**.
+
+Photographs: `PUT /projects/:id/photographs/note` `{ evidenceId, fileId, text }` keeps a person's own capped note on a photograph, beside what was picked for it.
+
+A chat result's `assistantTurn` may carry `card`: the rows a model picked, each with its label, the value as the record holds it, where it stands (`worked_out` for a figure nobody accepted because it is worked out), its source, and for a figure read from the rule table the rows it read with `verified` for each.
+
+**What a collaborator's copy leaves out of the fields.** `GET /projects/:id` for somebody working from a grant omits every buyers' set (`commercial.inventory.buyers`), the party records one of them names or that carry the role customer, and, on a shared record, the fields a department added whose function is out of the grant's reach. A report in that copy carries no section naming any of those, and no list of parties kept as it read one day.
 
 The chat takes only what the caller may decide and says in its reply what it left, and for which department; it does not answer 403. That holds for an approval typed or pressed, for a step of a plan that accepts, and for "File … under …". What is covered and what is not: [auth.md](auth.md#who-decides-what-a-document-states).
 
@@ -149,6 +166,8 @@ Under `/projects/:projectId/procurement`. Stages, bidders and the estimate need 
 | POST, DELETE | `/tenders/:tenderId/letter-of-acceptance` | `{ bidderId, value, letterOn, evidenceId? }` offers the value to Finance; DELETE takes it back while Finance has not accepted |
 | POST | `/tenders/:tenderId/offer/accept` | Writes PO issued, in place of what stood, on the newest draft Cost Report holding the package; refused when there is none |
 | POST | `/tenders/:tenderId/offer/decline`, `/offer/again` | `{ reason }`; offer a declined value again |
+| POST | `/variations/:variationId/offer/accept` | A lead or signer in Finance takes an approved variation onto the newest draft Cost Report holding its package: PO issued and the anticipated cost move by the amount and the variation log gains the line. `{ forecast: 'already_in' }` moves PO issued alone. 404 where no approved variation by that id waits; 400 where no draft holds the package |
+| POST | `/variations/:variationId/offer/decline` | `{ reason }`. The Cost Report is left as it is; the variation is offered again only if its approved amount changes |
 
 ## Templates
 
@@ -180,7 +199,7 @@ Under `/projects/:projectId/daily-review`. Firm members only; 404 to a collabora
 
 | Method | Path | |
 |---|---|---|
-| GET | `/` | The suggestions nobody has decided, whether a model is set up, when the project was last reviewed, and the departments this person decides in |
+| GET | `/` | The suggestions nobody has decided, whether a model is set up, when the project was last reviewed, and the departments this person decides in. A suggestion says whether a rule or a model's nomination found it (`by`), the fields it is about (`subjects`) and the two things set against each other; its line is worded by code. The run's counts carry `byRule`, and `noModel` means only that the two kinds that need a model did not run |
 | POST | `/:suggestionId/accept` | Body `{ as?: "finding" \| "risk" }`. Lead or signer of the suggestion's department; 403 otherwise, 409 if already decided. Answers with the project and `{ record: { type, id } }` |
 | POST | `/:suggestionId/dismiss` | Body `{ reason }` (3 to 300 characters). Same role. A later proposal about the very same entries is not raised again |
 
@@ -221,17 +240,30 @@ Outside sign-in, each needing `Authorization: Bearer <CRON_SECRET>`, else 401. V
 | GET | `/health` | Up, the version, how many projects the instance holds, auth mode, graph store, upload limits — no sign-in |
 | GET, POST, PATCH, DELETE | `/members`, `/members/:email` | Who is in the workspace; invite; change a role or remove somebody; the auto-join domain |
 | GET | `/work` | What waits for me across projects |
-| GET | `/tell` | The caller's own notices across every project they reach, newest first (at most 200), with unread, the projects they have quieted, and `channels { email, push }` |
+| GET | `/tell` | The caller's own notices across every project they reach, newest first (at most 200), with unread, the projects they have quieted, and `channels { email, push }`. A notice of a paper owed or a request carries `open`, the same place a request row does |
 | POST | `/tell/read` | `{ ids: string[] (1 to 500) \| 'all' }` — marks the caller's own notices read; 404 when ids are named and none is theirs |
 | PUT | `/tell/quiet/:projectId` | `{ quiet: boolean }` — quiets a project's mail and push for the caller, or stops; 404 for a project they cannot reach |
 | GET | `/analytics/portfolio` | The firm's projects side by side: forecast against budget from each project's last issued Cost Report with the movement since the one before, planned against projected completion and extension-of-time flags, papers owed by party, open alerts by kind, and what waits on the owner. Every figure carries the rows it counts (at most 200, with a `more` count), each with its source and where it opens |
 | GET | `/analytics/departments?project=<id>` | One project by department: decisions waiting for acceptance and the oldest's age, actions open and overdue, requests out and their age. 400 without a project id, 404 for a project that is not the firm's |
 | GET | `/analytics/people` | `{ generatedAt, people }`: for each person the caller may read, open work, overdue work, what they accepted in the last 30 days, and the median days a thing waited. People are listed by name; nothing ranks or scores them. All three analytics routes answer 403 to a collaborator, and a viewer gets an empty `people` list |
-| GET | `/law-watch` | The firm's watched sources, changes waiting and lately decided, and what the caller may do. Firm members only; a collaborator gets 403 |
+| GET | `/setup` | Read-only. Everything that can be connected or scheduled, as it stands: `{ firm: SetupRow[], projects: [{ id, name, reference, rows: SetupRow[] }] }`, a row being `{ key, label, standing: 'working' \| 'not_set_up' \| 'failing' \| 'not_used', says, needs?, settings?, error?, open? }`. The firm's rows are mail, requests by email and by WhatsApp, Google Drive, the timer, the AI model and the law sources, and for a firm admin API keys and webhooks; a project's are its Drive folder and its report day. Firm members only; a collaborator gets 403 |
+| GET | `/law-watch` | The firm's watched sources, changes waiting and lately decided, the rule rows offered (`offeredRows`), and what the caller may do. Firm members only; a collaborator gets 403 |
 | POST, PUT, DELETE | `/law-watch/sources`, `/law-watch/sources/:sourceId` | Add, change or pause, and remove a source. Admin |
 | POST | `/law-watch/sources/:sourceId/look` | Read one source now. Admin |
 | GET | `/law-watch/changes/:changeId/pages` | The page's words before and after a change |
-| POST | `/law-watch/changes/:changeId/confirm` | Body `{ summary, projects: [{ projectId, actions: [{ department, title }] }] }`; puts the actions on those projects. A firm admin, or a department's lead for the departments they lead; 403 otherwise, 409 if already decided. A lead decides only for the projects they lead: the change waits for the rest until their leads decide or an admin closes it, and a project decided once is refused a second decision (409), for admins too |
+| POST | `/law-watch/changes/:changeId/confirm` | Body `{ fields, projects: [{ projectId, actions: [{ department, next, about? }] }] }`: `fields` is the change as fields (instrument, reference, dated, effective from, kind of change, the figure before and after, what it affects), `next` a step off a fixed list, `about` a field, an approval or a row of the rule table. There is no summary and no title to write. Puts the actions on those projects, and where the change moves a rate offers a new rule row, unverified. A firm admin, or a department's lead for the departments they lead; 403 otherwise, 409 if already decided. A lead decides only for the projects they lead: the change waits for the rest until their leads decide or an admin closes it, and a project decided once is refused a second decision (409), for admins too |
 | POST | `/law-watch/changes/:changeId/dismiss` | Body `{ why? }`; nothing reaches a project |
+| POST | `/law-watch/rule-rows/:offerId/verify` | Marks an offered rule row verified under the caller's name. Admin; 404 for no such offer, 409 once verified. From then the row is the firm's: every figure on its projects that reads the rule reads this row from the day it takes effect |
+| GET | `/law-watch/rule-rows` | `{ groups, total, verified, mayCheck }`: every rule row the firm's projects read, by the department whose fields read it, each with its citation, its source, the fields worked out from it and whether it is verified. The firm's own people only |
+| POST | `/law-watch/rule-rows/check` | `{ row, clause, readOn, page?, url? }`, `row` as the list gave it (`ref`). Marks the row checked against its instrument under the caller's name, as the firm's own row. Admin; 404 for no such row, 409 once verified |
+| GET, PUT | `/firm-fields` | GET, for anybody who can read: `{ pack, sets, mayManage, ruleRows }`, the firm's own fields, the built-in sets they may be added to, and the rule rows the firm has verified. PUT `{ optionSets, add, demote }`, a firm admin's: saved whole, or refused with every fault named |
+| GET, PUT | `/report-settings` | GET `{ modelWording, maySet }`. No model rewords a report: `modelWording` is true only for a firm that turned it on before, PUT `{ modelWording: true }` answers 400, and PUT `{ modelWording: false }` (admin) takes a model's earlier wording off every status report not yet issued |
 | GET | `/libraries` | The check library |
 | GET, POST, PUT, DELETE | `/libraries/review`, `/libraries/review/:itemId` | The workspace's saved asks and playbooks for the review table |
+
+## The model's tools for fields
+
+- `get_fields({ fn })` or one field set: each field with its address, kind, unit, choices and state, read through the firm's catalog. It also returns the five need counts (`decide`, `accept`, `failing`, `due_soon`, `missing`), `waitingOn`, and for each field its depth sheet, `notDueBefore` and `owedBy`. It covers every function that keeps sheets.
+- `propose_field_values({ values: [{ address, value, origin }] })`: a value with a paper's page and exact words, or a named public source and the day it was read. Refused without a source, for a choice not on the list, for a link to nothing on the project, and for a field that is worked out, a standing, a mirror or a person's words. On a check's field it makes one card for each check and source, none for a value already held, waiting or set aside, and takes a public source except where the field's proof is required.
+- `answer_with_fields`: the one way a model answers in the chat. It names fields, records, memory lines and passages, an outcome, and where to look when the record does not answer. It has nowhere to put a sentence.
+- `propose_update` kind `edit_report` carries only a source: what a section reads. A model writes no word of a report.

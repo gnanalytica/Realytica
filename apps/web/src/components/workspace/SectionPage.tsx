@@ -15,6 +15,11 @@ import { useEdges } from '../../lib/useEdges';
  *
  * It measures the nearest scrolling ancestor, so it works wherever it is
  * dropped: inside the project's work surface or the example's.
+ *
+ * A page given `only` draws that one part and nothing below it. The rail then
+ * switches parts in place of scrolling to them (`onPick`), so a function
+ * opens on the part that is its own and every other part is one press away,
+ * never stacked down the page.
  */
 
 export interface PageSection {
@@ -40,8 +45,14 @@ export function SectionPage({
   lead,
   jump,
   className,
+  only,
+  onPick,
 }: {
   sections: PageSection[];
+  /** The one part to draw, by id. Absent: every part, one under another. */
+  only?: string;
+  /** With `only`: a part picked on the rail. */
+  onPick?: (id: string) => void;
   /** What stands above the first section: how the function stands, a notice. */
   lead?: ReactNode;
   /** A section to bring into view from outside the page, such as an answer in the chat. `at` makes a repeat count. */
@@ -49,7 +60,8 @@ export function SectionPage({
   className?: string;
 }) {
   const root = useRef<HTMLDivElement>(null);
-  const [current, setCurrent] = useState<string | undefined>(sections[0]?.id);
+  const [spied, setCurrent] = useState<string | undefined>(sections[0]?.id);
+  const current = only ?? spied;
   /*
    * After a jump the section asked for stays marked until the page has come
    * to rest and the person scrolls for themselves. A short last section can
@@ -62,7 +74,8 @@ export function SectionPage({
   useEffect(() => {
     const el = root.current;
     const scroller = scrollParent(el);
-    if (!el || !scroller) return;
+    // One part drawn: there is nothing to tell apart by where the page is scrolled to.
+    if (!el || !scroller || only) return;
     const measure = () => {
       if (held.current) return;
       const top = scroller.getBoundingClientRect().top;
@@ -95,9 +108,13 @@ export function SectionPage({
       scroller.removeEventListener('scroll', measure);
       for (const type of lets) scroller.removeEventListener(type, release);
     };
-  }, [ids]);
+  }, [ids, only]);
 
   const go = useCallback((id: string, fromOutside = false) => {
+    if (only) {
+      if (!fromOutside) onPick?.(id);
+      return;
+    }
     // Matched on the attribute's value, not through a selector: the id can come from an address, and an address can hold anything.
     const part = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-section]') ?? []).find((el) => el.dataset.section === id);
     if (!part) return;
@@ -107,7 +124,16 @@ export function SectionPage({
     // A link that marked a row inside the part lands on the row. One that marked none, or a row that is not drawn, lands on the part.
     const row = fromOutside ? part.querySelector<HTMLElement>('[data-marked]') : null;
     (row ?? part).scrollIntoView({ block: row ? 'center' : 'start', behavior: calm ? 'auto' : 'smooth' });
-  }, []);
+  }, [only, onPick]);
+
+  // A part switched to starts at its top, unless a link marked a record inside it: then the record is what comes into view.
+  const jumped = jump?.at;
+  useEffect(() => {
+    if (!only) return;
+    const row = jumped !== undefined ? root.current?.querySelector<HTMLElement>('[data-marked]') : null;
+    if (row) row.scrollIntoView({ block: 'center' });
+    else scrollParent(root.current)?.scrollTo({ top: 0 });
+  }, [only, jumped]);
 
   useEffect(() => {
     if (jump) go(jump.id, true);
@@ -176,7 +202,7 @@ export function SectionPage({
       <div className="flex min-w-0 flex-col gap-3.5">
         {lead}
         {/* A section brought into view stops clear of what stays put above it: the row of icons where the page is narrow, nothing but a margin where the rail stands beside it. */}
-        {sections.map((section) => (
+        {(only ? sections.filter((section) => section.id === only) : sections).map((section) => (
           <section
             key={section.id}
             data-section={section.id}

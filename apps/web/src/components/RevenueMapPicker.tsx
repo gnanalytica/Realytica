@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Landmark, Square, Trash2, X } from 'lucide-react';
-import { revenueReads, surveyNumberLines, surveyPieces, type DdProject, type RevenueMapRead, type SurveyNumberLine } from '@realytica/shared';
+import { revenueReads, surveyNumberLines, surveyPieces, type DdProject, type RevenueMapRead, type SurveyNumberLine,
+  daySaid,
+} from '@realytica/shared';
 import { Button, Callout, Checkbox, Field, Input, Select, Spinner, cn } from './ui/kit';
 import { api } from '../lib/api';
 import { absentDetail, isTicked, lineDoubt, lineKey, lineSource, readInTurn, readsAgain, runPlan, settled, ticksAfter, type ReadState } from '../lib/revenue-run';
@@ -546,7 +548,7 @@ export function RevenueMapPicker({ project, onRead }: { project: DdProject; onRe
         {snapshotOn ? (
           <span className="text-[12px] text-ink-muted">
             {state === 'KA'
-              ? `Place names from the K-GIS village index captured on ${snapshotOn}.`
+              ? `Place names from the K-GIS village index captured on ${daySaid(snapshotOn)}.`
               : `Place names from the engine’s snapshot of ${snapshotOn}; the live map is down.`}
           </span>
         ) : null}

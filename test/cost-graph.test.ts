@@ -159,28 +159,28 @@ describe('the cost register in the graph', () => {
   it('says a work package by its code and name, with where its budget stands', () => {
     const { project, graph, packages } = drawn();
     const said = (g: Graph, id: string) => [nodeOf(g, id).label, nodeOf(g, id).detail, nodeOf(g, id).status];
-    assert.deepEqual(said(graph, packages.earthwork.id), ['A Earthwork', 'Budget ₹10,00,000 · claimed ₹5,00,000 · certified ₹4,00,000 · left of the budget ₹6,00,000', 'under_way']);
-    assert.deepEqual(said(graph, packages.structure.id), ['B Structure', 'Budget ₹50,00,000 · claimed ₹16,00,000 · certified ₹5,40,000 · left of the budget ₹44,60,000', 'under_way']);
-    assert.deepEqual(said(graph, packages.finishes.id), ['C Finishes', 'No budget set · claimed ₹2,00,000 · certified ₹0', 'under_way']);
+    assert.deepEqual(said(graph, packages.earthwork.id), ['A Earthwork', 'Budget ₹10 lakh · claimed ₹5 lakh · certified ₹4 lakh · left of the budget ₹6 lakh', 'under_way']);
+    assert.deepEqual(said(graph, packages.structure.id), ['B Structure', 'Budget ₹50 lakh · claimed ₹16 lakh · certified ₹5.4 lakh · left of the budget ₹44.6 lakh', 'under_way']);
+    assert.deepEqual(said(graph, packages.finishes.id), ['C Finishes', 'No budget set · claimed ₹2 lakh · certified ₹0', 'under_way']);
 
     // One nothing has been billed against, and one whose budget is cut below what is certified already.
     const [external] = addWorkPackages(project, [{ name: 'External works', budget: 500_000 }], COST_LEAD);
     updateWorkPackage(project, packages.earthwork.id, { budget: 300_000 }, COST_LEAD);
     const after = buildProjectGraph(project);
-    assert.deepEqual(said(after, external!.id), ['External works', 'Budget ₹5,00,000 · claimed ₹0 · certified ₹0 · left of the budget ₹5,00,000', 'not_started']);
-    assert.deepEqual(said(after, packages.earthwork.id), ['A Earthwork', 'Budget ₹3,00,000 · claimed ₹5,00,000 · certified ₹4,00,000 · over budget by ₹1,00,000', 'over_budget']);
+    assert.deepEqual(said(after, external!.id), ['External works', 'Budget ₹5 lakh · claimed ₹0 · certified ₹0 · left of the budget ₹5 lakh', 'not_started']);
+    assert.deepEqual(said(after, packages.earthwork.id), ['A Earthwork', 'Budget ₹3 lakh · claimed ₹5 lakh · certified ₹4 lakh · over budget by ₹1 lakh', 'over_budget']);
   });
 
   it('says a contract and a bill by the contractor, with what was certified and paid', () => {
     const { graph, contracts, bills } = drawn();
     const civil = nodeOf(graph, contracts.civil.id);
-    assert.deepEqual([civil.label, civil.detail, civil.status], ['Sharma Constructions: Civil works', 'Contract value ₹45,00,000 · certified ₹9,40,000 · paid ₹8,00,000 · left to certify ₹35,60,000 · ref. WO-CIV-014', undefined]);
-    assert.equal(nodeOf(graph, contracts.interiors.id).detail, 'Contract value ₹8,00,000 · certified ₹0 · paid ₹0 · left to certify ₹8,00,000');
+    assert.deepEqual([civil.label, civil.detail, civil.status], ['Sharma Constructions: Civil works', 'Contract value ₹45 lakh · certified ₹9.4 lakh · paid ₹8 lakh · left to certify ₹35.6 lakh · ref. WO-CIV-014', undefined]);
+    assert.equal(nodeOf(graph, contracts.interiors.id).detail, 'Contract value ₹8 lakh · certified ₹0 · paid ₹0 · left to certify ₹8 lakh');
 
     const said = (id: string) => [nodeOf(graph, id).label, nodeOf(graph, id).detail, nodeOf(graph, id).key, nodeOf(graph, id).status];
-    assert.deepEqual(said(bills.ra1.id), ['Sharma Constructions bill RA-1', '2026-08-31 · claimed ₹10,00,000 · certified ₹9,40,000 gross, ₹8,74,200 net · paid ₹8,00,000', 'RA-1', 'certified']);
-    assert.deepEqual(said(bills.ra2.id), ['Sharma Constructions bill RA-2', '2026-09-30 · claimed ₹11,50,000 · not certified · paid ₹0', 'RA-2', 'in_review']);
-    assert.deepEqual(said(bills.f1.id), ['Lakshmi Interiors bill F-1', '2026-10-02 · claimed ₹2,00,000 · not certified · paid ₹0', 'F-1', 'claimed']);
+    assert.deepEqual(said(bills.ra1.id), ['Sharma Constructions bill RA-1', '2026-08-31 · claimed ₹10 lakh · certified ₹9.4 lakh gross, ₹8,74,200 net · paid ₹8 lakh', 'RA-1', 'certified']);
+    assert.deepEqual(said(bills.ra2.id), ['Sharma Constructions bill RA-2', '2026-09-30 · claimed ₹11.5 lakh · not certified · paid ₹0', 'RA-2', 'in_review']);
+    assert.deepEqual(said(bills.f1.id), ['Lakshmi Interiors bill F-1', '2026-10-02 · claimed ₹2 lakh · not certified · paid ₹0', 'F-1', 'claimed']);
   });
 
   it('names who passed a line and who signed the certificate, each by what they did', () => {
@@ -190,13 +190,13 @@ describe('the cost register in the graph', () => {
     const bill = addBill(project, { contractId: contract.id, number: 'RA-1', date: '2026-08-31', lines: [{ item: '2.4', description: 'RCC M30 in raft foundation', amount: 200_000, readBy: 'person' }] }, COST_LEAD);
     certifyLine(project, bill.id, bill.lines[0]!.id, { amount: 200_000 }, 'junior@firm.in');
     const before = nodeOf(buildProjectGraph(project), bill.lines[0]!.id).detail;
-    assert.equal(before, 'Sharma Constructions bill RA-1 · claimed ₹2,00,000 · passed ₹2,00,000 by junior@firm.in, no certificate');
+    assert.equal(before, 'Sharma Constructions bill RA-1 · claimed ₹2 lakh · passed ₹2 lakh by junior@firm.in, no certificate');
     const certificate = certifyBill(project, bill.id, { signer: { email: COST_CERTIFIER, name: 'R. Menon', profession: 'Quantity Surveyor' }, certifiedOn: '2026-09-05' }, COST_CERTIFIER);
     const graph = buildProjectGraph(project);
     const said = nodeOf(graph, bill.lines[0]!.id).detail ?? '';
-    assert.equal(said, 'Sharma Constructions bill RA-1 · claimed ₹2,00,000 · certified ₹2,00,000, passed by junior@firm.in');
+    assert.equal(said, 'Sharma Constructions bill RA-1 · claimed ₹2 lakh · certified ₹2 lakh, passed by junior@firm.in');
     assert.doesNotMatch(said, /certified ₹[\d,]+ by /, 'the junior passed it, and certified nothing');
-    assert.equal(nodeOf(graph, certificate.id).detail, 'R. Menon, Quantity Surveyor · gross ₹2,00,000 · no deductions · net ₹2,00,000 · 2026-09-05');
+    assert.equal(nodeOf(graph, certificate.id).detail, 'R. Menon, Quantity Surveyor · gross ₹2 lakh · no deductions · net ₹2 lakh · 2026-09-05');
   });
 
   it('tells two contractors’ certificates apart when their bills share a number', () => {
@@ -229,9 +229,9 @@ describe('the cost register in the graph', () => {
     const graph = buildProjectGraph(project);
     assert.deepEqual(
       [nodeOf(graph, bills.ra1.id).detail, nodeOf(graph, bills.ra1.id).status],
-      ['2026-08-31 · claimed ₹10,00,000 · certified ₹9,40,000 gross, ₹8,74,200 net · paid ₹8,74,300 · overpaid by ₹100', 'paid'],
+      ['2026-08-31 · claimed ₹10 lakh · certified ₹9.4 lakh gross, ₹8,74,200 net · paid ₹8,74,300 · overpaid by ₹100', 'paid'],
     );
-    assert.equal(nodeOf(graph, contracts.interiors.id).detail, 'Contract value ₹8,00,000 · certified ₹9,00,000 · paid ₹0 · certified beyond the contract value by ₹1,00,000');
+    assert.equal(nodeOf(graph, contracts.interiors.id).detail, 'Contract value ₹8 lakh · certified ₹9 lakh · paid ₹0 · certified beyond the contract value by ₹1 lakh');
   });
 
   it('says a bill line by its item, with its amounts, what was passed for it and where it was read', () => {
@@ -239,19 +239,19 @@ describe('the cost register in the graph', () => {
     const said = (id: string) => [nodeOf(graph, id).label, nodeOf(graph, id).detail, nodeOf(graph, id).status];
     assert.deepEqual(said(lines.excavation.id), [
       '1.1 Excavation in ordinary soil',
-      'Sharma Constructions bill RA-1 · work package A Earthwork · claimed ₹4,00,000 · 1,000 cum to date at ₹400 per cum · amount to date ₹4,00,000 · previously ₹0 · certified ₹4,00,000, passed by qs@firm.in · sheet “RA 1”, cell H12',
+      'Sharma Constructions bill RA-1 · work package A Earthwork · claimed ₹4 lakh · 1,000 cum to date at ₹400 per cum · amount to date ₹4 lakh · previously ₹0 · certified ₹4 lakh, passed by qs@firm.in · sheet “RA 1”, cell H12',
       'certified',
     ]);
     assert.deepEqual(said(lines.raft.id), [
       '2.4 RCC M30 in raft foundation',
-      'Sharma Constructions bill RA-1 · work package B Structure · claimed ₹6,00,000 · 200 cum to date at ₹3,000 per cum · amount to date ₹6,00,000 · previously ₹0 · certified ₹5,40,000 for 180 cum, passed by qs@firm.in: 20 cum of the raft is not yet cast · sheet “RA 1”, cell H19',
+      'Sharma Constructions bill RA-1 · work package B Structure · claimed ₹6 lakh · 200 cum to date at ₹3,000 per cum · amount to date ₹6 lakh · previously ₹0 · certified ₹5.4 lakh for 180 cum, passed by qs@firm.in: 20 cum of the raft is not yet cast · sheet “RA 1”, cell H19',
       'adjusted',
     ]);
     // RA-2's certificate was withdrawn. What was passed on its lines is a decision and certifies nothing, and the line says so.
     // A page a model read says that it was, as a model's reading of a photograph does.
     assert.deepEqual(said(lines.columns.id), [
       '2.6 RCC M30 in columns, ground floor',
-      'Sharma Constructions bill RA-2 · work package B Structure · claimed ₹10,00,000 · 250 cum to date at ₹4,000 per cum · amount to date ₹10,00,000 · previously ₹0 · passed ₹10,00,000 by qs@firm.in, no certificate · p. 2, read by a model',
+      'Sharma Constructions bill RA-2 · work package B Structure · claimed ₹10 lakh · 250 cum to date at ₹4,000 per cum · amount to date ₹10 lakh · previously ₹0 · passed ₹10 lakh by qs@firm.in, no certificate · p. 2, read by a model',
       'decided',
     ]);
     // A variation prices no package, so it names none.
@@ -261,7 +261,7 @@ describe('the cost register in the graph', () => {
       'decided',
     ]);
     // A line a person typed, with neither a quantity nor a rate, and nobody has decided it.
-    assert.deepEqual(said(lines.painting.id), ['7.1 Internal painting, two coats', 'Lakshmi Interiors bill F-1 · work package C Finishes · claimed ₹2,00,000 · not yet decided', 'claimed']);
+    assert.deepEqual(said(lines.painting.id), ['7.1 Internal painting, two coats', 'Lakshmi Interiors bill F-1 · work package C Finishes · claimed ₹2 lakh · not yet decided', 'claimed']);
     for (const node of graph.nodes.filter((n) => n.kind === 'bill_line')) {
       assert.equal(/certified ₹/.test(node.detail ?? ''), node.status === 'certified' || node.status === 'adjusted', `${node.label} says certified, and is ${node.status}`);
     }
@@ -282,14 +282,14 @@ describe('the cost register in the graph', () => {
     const stands = nodeOf(graph, certificates.ra1.id);
     assert.deepEqual(
       [stands.label, stands.detail, stands.status],
-      ['Certificate for Sharma Constructions bill RA-1', 'R. Menon, Quantity Surveyor · gross ₹9,40,000 · less retention ₹47,000, TDS 2% ₹18,800 · net ₹8,74,200 · 2026-09-05', 'current'],
+      ['Certificate for Sharma Constructions bill RA-1', 'R. Menon, Quantity Surveyor · gross ₹9.4 lakh · less retention ₹47,000, TDS 2% ₹18,800 · net ₹8,74,200 · 2026-09-05', 'current'],
     );
     // The chat is handed the label and the detail, not the status. A certificate that certifies nothing has to say so in words.
     const gone = nodeOf(graph, certificates.ra2.id);
     assert.deepEqual([gone.label, gone.status], ['Certificate for Sharma Constructions bill RA-2', 'withdrawn']);
     assert.match(
       gone.detail ?? '',
-      /^Withdrawn \d{4}-\d{2}-\d{2}: The rate of item 2\.6 is to be checked · qs@firm\.in, Quantity Surveyor · gross ₹10,80,000 · less retention ₹54,000 · net ₹10,26,000 · 2026-10-03$/,
+      /^Withdrawn \d{4}-\d{2}-\d{2}: The rate of item 2\.6 is to be checked · qs@firm\.in, Quantity Surveyor · gross ₹10.8 lakh · less retention ₹54,000 · net ₹10.26 lakh · 2026-10-03$/,
       'the signer by their address, where no name was given',
     );
   });
@@ -438,7 +438,7 @@ describe('finding a cost record, and what the chat is handed', () => {
     const text = serializeProjectSubgraph(extractProjectSubgraph(graph, [lines.raft.id], 1));
     assert.ok(
       text.includes(
-        `[${lines.raft.id}] bill_line: 2.4 RCC M30 in raft foundation (Sharma Constructions bill RA-1 · work package B Structure · claimed ₹6,00,000 · 200 cum to date at ₹3,000 per cum · amount to date ₹6,00,000 · previously ₹0 · certified ₹5,40,000 for 180 cum, passed by qs@firm.in: 20 cum of the raft is not yet cast · sheet “RA 1”, cell H19)`,
+        `[${lines.raft.id}] bill_line: 2.4 RCC M30 in raft foundation (Sharma Constructions bill RA-1 · work package B Structure · claimed ₹6 lakh · 200 cum to date at ₹3,000 per cum · amount to date ₹6 lakh · previously ₹0 · certified ₹5.4 lakh for 180 cum, passed by qs@firm.in: 20 cum of the raft is not yet cast · sheet “RA 1”, cell H19)`,
       ),
       text,
     );
@@ -452,7 +452,7 @@ describe('finding a cost record, and what the chat is handed', () => {
     // The same by the question's own words, the way the chat asks: a line a model read off a page says its page.
     const asked = retrieveProjectNeighbourhood(project, 'columns, ground floor', 1);
     assert.deepEqual(asked.seeds.map((n) => n.id), [lines.columns.id]);
-    assert.match(serializeProjectSubgraph(asked.graph), /claimed ₹10,00,000 · .* · passed ₹10,00,000 by qs@firm\.in, no certificate · p\. 2, read by a model\)/);
+    assert.match(serializeProjectSubgraph(asked.graph), /claimed ₹10 lakh · .* · passed ₹10 lakh by qs@firm\.in, no certificate · p\. 2, read by a model\)/);
   });
 
   it('keeps two hops from a line small, on a register of twelve bills of 150 lines', () => {

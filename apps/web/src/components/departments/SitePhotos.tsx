@@ -6,6 +6,7 @@ import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, Textarea, cn, useToast } from '../ui/kit';
 import { CandidateThumb } from './ObservationsCard';
+import { daySaid } from '@realytica/shared';
 
 type Filter = 'all' | 'in' | 'out';
 
@@ -87,7 +88,7 @@ function PhotoCard({
       <Input value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={save} disabled={!mayEdit || busy !== null} placeholder="Caption" aria-label={`Caption for ${photo.title}`} />
       <Input value={area} onChange={(e) => setArea(e.target.value)} onBlur={save} disabled={!mayEdit || busy !== null} placeholder="Area" aria-label={`Area for ${photo.title}`} />
       <p className="flex flex-wrap items-center gap-x-2 text-micro text-ink-muted">
-        {photo.takenAt ? new Date(photo.takenAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not recorded'}
+        {photo.takenAt ? daySaid(photo.takenAt) : 'Date not recorded'}
         {photo.point ? (
           <span className="inline-flex items-center gap-0.5">
             <MapPin size={10} aria-hidden />

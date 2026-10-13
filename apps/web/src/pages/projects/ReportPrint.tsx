@@ -1,26 +1,33 @@
 import { useEffect } from 'react';
+import { ReportChartView, ReportFootnotes } from '../../components/report/ReportFieldBlock';
 import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
 import { TitleChainDiagram } from '../../components/charts';
 import { useParams } from 'react-router-dom';
 import {
   engagementForReport,
   REPORT_KIND_LABEL,
+  isFrozenFieldBlock,
   readReportBlock,
   titleGraphFromProject,
   reportIsFrozen,
-  reportSummaryLine,
   type DdProject,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
+import { daySaid } from '@realytica/shared';
+import { reportSummary } from '../../lib/report-summary';
 
 /**
  * The report as a printable document, for "Save as PDF".
  *
  * Its own page, outside the app shell, so what prints is the report and not
  * the navigation around it. The same blocks the editor shows, in the same
- * order; a draft says so at the top and in the page footer.
+ * order; a draft says so at the top and in the page footer. A section that
+ * reads fields prints its chart, its table and the footnotes saying where
+ * each value came from; a person's note prints with their name and the day.
  */
+
+const printedDay = (iso: string) => daySaid(iso);
 
 function TitleChainPrintBlock({
   project,
@@ -76,12 +83,8 @@ export default function ReportPrint() {
 
   const frozen = reportIsFrozen(report.status);
   const issued = report.status === 'issued';
-  const summary = frozen ? report.body.summary : reportSummaryLine(project);
-  const dated = new Date(issued && report.signedAt ? report.signedAt : Date.now()).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  const summary = reportSummary(project, report);
+  const dated = daySaid(issued && report.signedAt ? report.signedAt : new Date());
 
   return (
     <div className="min-h-screen bg-white text-[#111]">
@@ -121,15 +124,34 @@ export default function ReportPrint() {
 
         {report.body.blocks.map((block) => {
           const resolved = readReportBlock(project, block, frozen);
+          // A section frozen from fields prints as it read that day, and says which day.
+          const held = isFrozenFieldBlock(block);
           return (
             <section key={block.id} className={resolved.table ? 'mt-6' : 'mt-6 break-inside-avoid-page'}>
               <h2 className="text-[17px] font-semibold">{block.heading ?? 'Section'}</h2>
-              {block.origin === 'derived' ? (
+              {held ? <p className="text-[12px] italic text-neutral-600">As the fields read on {printedDay(block.detachedAt!)}. Not updated since.</p> : null}
+              {block.origin === 'derived' || held ? (
                 resolved.table ? (
                   <>
+                    {resolved.chart ? (
+                      <div className="mt-2">
+                        <ReportChartView chart={resolved.chart} print />
+                      </div>
+                    ) : null}
                     <ReportTableView table={resolved.table} print />
                     {resolved.note ? <p className="mt-1 italic text-neutral-600">{resolved.note}</p> : null}
+                    <ReportFootnotes footnotes={resolved.footnotes} print />
                     <ReportPhotos project={project} table={resolved.table} print />
+                  </>
+                ) : resolved.footnotes?.length ? (
+                  <>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                      {resolved.lines.map((line, i) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ul>
+                    {resolved.note ? <p className="mt-1 italic text-neutral-600">{resolved.note}</p> : null}
+                    <ReportFootnotes footnotes={resolved.footnotes} print />
                   </>
                 ) : (
                   <TitleChainPrintBlock
@@ -140,15 +162,23 @@ export default function ReportPrint() {
                   />
                 )
               ) : (
-                (block.text ?? '')
-                  .split(/\n+/)
-                  .map((p) => p.trim())
-                  .filter(Boolean)
-                  .map((p, i) => (
-                    <p key={i} className="mt-1">
-                      {p}
+                <>
+                  {(block.text ?? '')
+                    .split(/\n+/)
+                    .map((p) => p.trim())
+                    .filter(Boolean)
+                    .map((p, i) => (
+                      <p key={i} className="mt-1">
+                        {p}
+                      </p>
+                    ))}
+                  {/* A person's note says whose it is. A section detached from the registers already says when it stopped reading them. */}
+                  {block.editedBy && block.editedAt && !block.detachedAt && (block.text ?? '').trim() ? (
+                    <p className="mt-1 text-[12px] italic text-neutral-600">
+                      Written by {block.editedBy}, {printedDay(block.editedAt)}.
                     </p>
-                  ))
+                  ) : null}
+                </>
               )}
             </section>
           );

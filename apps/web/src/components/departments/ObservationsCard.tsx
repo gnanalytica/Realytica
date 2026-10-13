@@ -29,6 +29,7 @@ import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, Select, Textarea, cn, useToast, type Tone } from '../ui/kit';
+import { daySaid } from '@realytica/shared';
 
 const RISKS: readonly FindingSeverity[] = ['critical', 'high', 'medium', 'low'];
 const RISK_TONE: Record<FindingSeverity, Tone> = { critical: 'critical', high: 'serious', medium: 'warning', low: 'neutral' };
@@ -526,7 +527,7 @@ export function ObservationsCard({
                       {photo.title}
                     </p>
                     <p className="text-micro text-ink-muted">
-                      {photo.takenAt ? new Date(photo.takenAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not recorded'}
+                      {photo.takenAt ? daySaid(photo.takenAt) : 'Date not recorded'}
                       {photo.area ? ` · ${photo.area}` : ''}
                       {photo.siteLog ? ' · from the site log' : ''}
                     </p>

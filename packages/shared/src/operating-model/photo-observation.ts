@@ -84,6 +84,8 @@ export interface PhotoSuggestedFinding {
   whyItMayMatter: string;
   suggestedSeverity: 'low' | 'medium' | 'high' | 'critical';
   confidence: number;
+  /** The pick it was made from, where it was made from one: its words are then a list's and a table's. */
+  seen?: import('./photo-picks').PhotoSeen;
 }
 
 export interface PhotoObservation {
@@ -98,6 +100,15 @@ export interface PhotoObservation {
   limits?: string;
   model: string;
   at: string;
+  /**
+   * What a model picked off the lists: element, condition seen, location.
+   * Present on every observation made since observations were picks, and
+   * then `description`, `elements` and `suggestedFindings` are made from it
+   * by code. Absent on one kept before: its words are a model's own.
+   */
+  seen?: import('./photo-picks').PhotoSeen[];
+  /** A person's own note on the photograph, capped. The only free words about it. */
+  personNote?: { text: string; by: string; at: string };
 }
 
 /**

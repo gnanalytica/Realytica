@@ -278,25 +278,23 @@ describe('what a valuation run says', () => {
     assert.match(projectRegisterBriefing(p), /^The latest valuation run gave no figure\.$/m);
   });
 
-  it('says how many values wait to be accepted where the page shows a provisional figure', () => {
+  it('says how many values wait to be accepted, and works no figure out from them, in the chat or on the page', () => {
     const p = plot();
     for (const [n, price] of [58_000_000, 62_000_000, 60_500_000].entries()) addComparable(p, { title: `Plot, Sy. ${120 + n}`, price, areaSqm: 1200, kind: 'transaction', weight: 1 }, 'tester');
-    // The sales offer a rate nobody has accepted. The page counts it and shows a figure; the run does not.
+    // The sales offer a rate nobody has accepted. It is listed as waiting, and neither the page nor the run counts it.
     const page = quickAssessment(p, 'finance.valuation');
-    const figure = /^₹[\d.]+ Cr$/.exec(page.headline)?.[0];
-    assert.ok(figure, page.headline);
+    assert.equal(page.headline, 'No figure yet', 'a rate nobody has accepted gives the page no figure');
+    assert.ok(page.inputs.some((input) => input.label === 'Rate applied'), 'the offered rate is still shown as an input that waits');
     const out = applyProjectChat(p, 'Run the valuation');
-    // Was: "No figure yet. Comparable rate on saleable area needs rate applied. …" beside the page's figure.
-    assert.equal(out.assistantTurn.text, `No figure yet. 1 value waits on the Valuation page to be accepted. With it the page shows ${figure}, provisional.`);
+    assert.equal(out.assistantTurn.text, 'No figure yet. 1 value waits on the Valuation page to be accepted. Comparable rate on saleable area needs rate applied. Depreciated replacement cost needs land rate.');
     assert.deepEqual(out.assistantTurn.toolCalls, [{ name: 'run_valuation', summary: 'No figure yet · 1 to accept' }]);
     assert.match(projectRegisterBriefing(p), /^The latest valuation run gave no figure\.$/m);
 
-    // With no area on the file the offered rate gives no figure. An approach is said to need only what nothing offers, as on the page.
+    // With no area on the file either, an approach is said to need the area and the rate: the rate that waits is not counted as there.
     const bare = createProject({ name: 'Whitefield plot', type: 'residential', location: 'White Field', city: 'Bengaluru' }, 'RYT-VA2');
     for (const [n, price] of [58_000_000, 62_000_000, 60_500_000].entries()) addComparable(bare, { title: `Plot, Sy. ${120 + n}`, price, areaSqm: 1200, kind: 'transaction', weight: 1 }, 'tester');
-    assert.ok(quickAssessment(bare, 'finance.valuation').points.some((point) => point.text === 'Comparable rate on saleable area: needs area valued'));
-    // Was: "… needs area valued and rate applied."
-    assert.equal(applyProjectChat(bare, 'Run the valuation').assistantTurn.text, 'No figure yet. 1 value waits on the Valuation page to be accepted. Comparable rate on saleable area needs area valued. Depreciated replacement cost needs plot area and land rate.');
+    assert.ok(quickAssessment(bare, 'finance.valuation').points.some((point) => point.text === 'Comparable rate on saleable area: needs area valued, rate applied'));
+    assert.equal(applyProjectChat(bare, 'Run the valuation').assistantTurn.text, 'No figure yet. 1 value waits on the Valuation page to be accepted. Comparable rate on saleable area needs area valued and rate applied. Depreciated replacement cost needs plot area and land rate.');
   });
 
   it('names the approach the run used, and writes the amount as the Valuation page does', () => {

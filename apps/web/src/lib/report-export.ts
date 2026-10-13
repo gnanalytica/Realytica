@@ -1,15 +1,18 @@
 import {
   engagementForReport,
   REPORT_KIND_LABEL,
+  isFrozenFieldBlock,
   readReportBlock,
   reportIsFrozen,
-  reportSummaryLine,
   type DdProject,
   type GeneratedReport,
+  type ReportFootnote,
   type ReportTable,
 } from '@realytica/shared';
 import { evidenceFileUrl, fetchWithAuth } from './api';
 import { photosOfTable } from '../components/report/ReportTableView';
+import { daySaid } from '@realytica/shared';
+import { reportSummary } from './report-summary';
 
 /**
  * The report as a Word document, in a plain firm template.
@@ -18,7 +21,9 @@ import { photosOfTable } from '../components/report/ReportTableView';
  * exactly what the screen says: live sections as they read now (or as they
  * were frozen, once issued), a person's words as written. A draft says it is
  * a draft on its first page and in its footer; only an issued report carries
- * a signature.
+ * a signature. A section that reads fields carries its footnotes, each saying
+ * where a value came from, and a chart is given as the table of its figures.
+ * A person's note carries their name and the day.
  *
  * The library is loaded on the click, not with the app.
  */
@@ -43,12 +48,8 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
 
   const frozen = reportIsFrozen(report.status);
   const issued = report.status === 'issued';
-  const summary = frozen ? report.body.summary : reportSummaryLine(project);
-  const dated = new Date(issued && report.signedAt ? report.signedAt : Date.now()).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  const summary = reportSummary(project, report);
+  const dated = daySaid(issued && report.signedAt ? report.signedAt : new Date());
 
   /** A section's table, as a Word table with a shaded header row. */
   const tableOf = (table: ReportTable) =>
@@ -103,6 +104,11 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
     return out;
   };
 
+  /** Where each value of a section came from, numbered as the values mark them. */
+  const footnotesOf = (notes: ReportFootnote[] | undefined) =>
+    (notes ?? []).map((note) => new Paragraph({ spacing: { before: 40 }, children: [new TextRun({ text: `[${note.n}] ${note.text}`, size: 16, color: '555555' })] }));
+  const day = (iso: string) => daySaid(iso);
+
   const children: Array<InstanceType<typeof Paragraph> | InstanceType<typeof Table>> = [
     new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: report.title })] }),
     new Paragraph({
@@ -149,7 +155,11 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
     const resolved = readReportBlock(project, block, frozen);
     const heading = block.heading ?? 'Section';
     children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun(heading)] }));
-    if (block.origin === 'derived') {
+    const held = isFrozenFieldBlock(block);
+    if (held) {
+      children.push(new Paragraph({ children: [new TextRun({ text: `As the fields read on ${day(block.detachedAt!)}. Not updated since.`, italics: true, size: 18, color: '666666' })] }));
+    }
+    if (block.origin === 'derived' || held) {
       if (resolved.lines.length === 0) {
         children.push(
           new Paragraph({
@@ -167,6 +177,7 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
         if (resolved.note) {
           children.push(new Paragraph({ spacing: { before: 120, after: 160 }, children: [new TextRun({ text: resolved.note, italics: true, color: '666666' })] }));
         }
+        children.push(...footnotesOf(resolved.footnotes));
       } else {
         for (const line of resolved.lines) {
           children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun(line)] }));
@@ -174,6 +185,7 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
         if (resolved.note) {
           children.push(new Paragraph({ spacing: { after: 160 }, children: [new TextRun({ text: resolved.note, italics: true, color: '666666' })] }));
         }
+        children.push(...footnotesOf(resolved.footnotes));
       }
     } else {
       const paragraphs = (block.text ?? '').split(/\n{2,}|\n/).map((p) => p.trim()).filter(Boolean);
@@ -182,6 +194,9 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
       }
       for (const text of paragraphs) {
         children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun(text)] }));
+      }
+      if (paragraphs.length && block.editedBy && block.editedAt && !block.detachedAt) {
+        children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `Written by ${block.editedBy}, ${day(block.editedAt)}.`, italics: true, size: 18, color: '666666' })] }));
       }
     }
   }

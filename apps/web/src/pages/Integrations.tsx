@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { Copy, KeyRound, Plus, Send, Webhook } from 'lucide-react';
 import {
@@ -206,8 +207,11 @@ export default function Integrations() {
               </CardBody>
             ) : (
               <CardBody>
-                <Callout tone="warning" title="Webhooks are off">
-                  Set <span className="font-mono">{data.webhooks.needs}</span> on the deployment to keep signing secrets.
+                <Callout tone="warning" title="Webhooks are not set up">
+                  A key to keep signing secrets safely is needed first.{' '}
+                  <Link to="/setup" className="font-medium text-brand hover:underline">
+                    See Set up
+                  </Link>
                 </Callout>
               </CardBody>
             )}

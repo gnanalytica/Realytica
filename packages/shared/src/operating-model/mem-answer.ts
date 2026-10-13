@@ -24,6 +24,7 @@
  */
 
 import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, DECISION_STATUS_LABEL, DECISION_TYPE_LABEL } from './catalogs';
+import { rupeesSaid } from './units';
 import { chatPlaceLabel } from './chat-places';
 import { DEPARTMENT_SHORT, MENU_DEPARTMENTS, menuFunctions } from './departments';
 import { allChecks } from './engagements';
@@ -108,11 +109,7 @@ function dayOf(iso: string): string {
 
 const grouped = (n: number): string => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
-function rupees(n: number): string {
-  if (n >= 1e7) return `Rs ${grouped(n / 1e7)} Cr`;
-  if (n >= 1e5) return `Rs ${grouped(n / 1e5)} lakh`;
-  return `Rs ${grouped(n)}`;
-}
+const rupees = (n: number): string => rupeesSaid(n, '₹');
 
 /** A fact's value as a person reads it: the record's own way of writing it where it has one, else by the form its key takes. */
 function valueOf(fact: MemFact): string {
@@ -131,7 +128,8 @@ function valueOf(fact: MemFact): string {
   return form === 'lower' ? fact.value.replaceAll('_', ' ') : fact.value;
 }
 
-const HOW_READ: Record<string, string> = { rules: 'read by the rules', model: 'read by a model', card: 'raised on a card' };
+// Said to a partner: where the value came from, never which part of the product read it.
+const HOW_READ: Record<string, string> = { rules: 'read off its paper', model: 'read off its paper', card: 'raised in the chat' };
 const WHAT_HAPPENED: Record<string, string> = { accepted: 'accepted', corrected: 'corrected', set_aside: 'set aside', reopened: 'reopened', changed: 'changed' };
 
 /** One line of something said, and the fact whose tag it prints, with where in the line the tag stands. */

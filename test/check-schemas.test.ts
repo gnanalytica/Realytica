@@ -189,8 +189,11 @@ describe('every field is storable and legible', () => {
           assert.ok(keys.has(formula.left) && keys.has(formula.right), `${where} dates a span between fields this check does not record`);
           return;
         default:
-          walk(formula.left, keys, tables, where);
-          walk(formula.right, keys, tables, where);
+          // The two-sided operators. The wider ones (conditions, rule rows, records) are held by the catalog's own test (`test/field-catalog.test.ts`).
+          if ('left' in formula && typeof formula.left === 'object') {
+            walk(formula.left, keys, tables, where);
+            walk(formula.right as CheckFormula, keys, tables, where);
+          }
       }
     };
     for (const [checkId, fields] of Object.entries(CHECK_FIELDS)) {

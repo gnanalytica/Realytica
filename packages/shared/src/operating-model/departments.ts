@@ -22,6 +22,7 @@
  */
 
 import { LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { functionHasSheets } from './field-registry';
 import type { DdProject, LifecycleStage } from './types';
 
 /* ==================================================================== */
@@ -213,6 +214,8 @@ export interface WorkstreamDefinition {
   /** The professions that sign its certified reports. */
   signers: string[];
   status: BuildStatus;
+  /** The profession whose work it is, where a department's functions are listed under more than one: Design's. */
+  group?: string;
 }
 
 export interface DepartmentDefinition {
@@ -235,6 +238,63 @@ function ws(
   deliverables: Array<[StageKey, string]>,
 ): WorkstreamDefinition {
   return { key: `${department}.${slug}`, department, label, purpose, status, signers, stages, deliverables: deliverables.map(([stage, title]) => ({ stage, title })) };
+}
+
+/** The profession each of Design's functions is the work of: how its page lists them. */
+const DESIGN_GROUP: Record<string, string> = {
+  'design.brief': 'Architect',
+  'design.areas': 'Architect',
+  'design.compliance': 'Architect',
+  'design.drawings': 'Architect',
+  'design.rfis': 'Architect',
+  'design.sanction': 'Architect',
+  'design.certificates': 'Architect',
+  'design.coordination': 'Architect',
+  'design.finishes': 'Interiors and landscape',
+  'design.landscape': 'Interiors and landscape',
+  'design.samples': 'Interiors and landscape',
+  'design.changes': 'Interiors and landscape',
+  'design.soil': 'Structural engineer',
+  'design.structure': 'Structural engineer',
+  'design.proof': 'Structural engineer',
+  'design.structural_set': 'Structural engineer',
+  'design.electrical': 'Services engineer',
+  'design.hvac': 'Services engineer',
+  'design.water': 'Services engineer',
+  'design.sewage': 'Services engineer',
+  'design.fire': 'Services engineer',
+  'design.lifts': 'Services engineer',
+};
+
+/**
+ * Design's functions beyond the four it began with: one for each thing an
+ * architect, a designer, a structural engineer and a services engineer keeps
+ * (`field-sets/architect-design-engineer-mep.ts`). Each has work at the
+ * stages Design has work at.
+ */
+function designFunctions(): WorkstreamDefinition[] {
+  const at: StageKey[] = ['pre_development', 'design_tender', 'construction'];
+  const fn = (slug: string, label: string, purpose: string, signers: string[], delivers: [StageKey, string]) => ws('design', slug, label, purpose, 'coming_soon', signers, at, [delivers]);
+  return [
+    fn('brief', 'Brief & unit mix', 'What is to be designed: the use, the unit types and counts, and who is appointed.', ['Architect'], ['pre_development', 'Design brief']),
+    fn('areas', 'Area statement', 'The areas held once, floor by floor and unit by unit, for everyone who reads them.', ['Architect'], ['design_tender', 'Area statement']),
+    fn('sanction', 'Sanctioned set', 'The design against what the authority sanctioned: units, floors and drawings.', ['Architect'], ['design_tender', 'Design against the sanction']),
+    fn('certificates', 'Architect’s certificates', 'The architect’s certificate at registration and for each quarter.', ['Architect'], ['construction', 'Architect’s certificate']),
+    fn('finishes', 'Finishes schedule', 'What finish, fitting and make is specified, space by space.', ['Architect'], ['design_tender', 'Finishes schedule']),
+    fn('landscape', 'Landscape & external works', 'Landscape areas, trees, water for them and the works outside the buildings.', ['Architect'], ['design_tender', 'Landscape statement']),
+    fn('samples', 'Samples & mock-ups', 'Each material submittal and mock-up, and who decided it.', ['Architect'], ['construction', 'Material approval register']),
+    fn('changes', 'Design changes', 'Every change to the design, where it came from and what it touches.', ['Architect'], ['construction', 'Design change register']),
+    fn('soil', 'Soil investigation', 'What the ground is: boreholes, groundwater and the bearing capacity recommended.', ['Structural Engineer'], ['pre_development', 'Soil investigation summary']),
+    fn('structure', 'Structural design basis', 'The codes, loads, factors, materials and foundation the structure is designed to.', ['Structural Engineer'], ['design_tender', 'Design basis sheet']),
+    fn('proof', 'Peer review & stability', 'The independent review of the structure and the stability certificates.', ['Structural Engineer'], ['design_tender', 'Review comment tracker']),
+    fn('structural_set', 'Structural set & certificates', 'Bar schedules, site instructions and the engineer’s own certificates.', ['Structural Engineer'], ['construction', 'Engineer’s certificate']),
+    fn('electrical', 'Electrical load', 'Connected load and maximum demand against transformers, generators and the sanctioned load.', ['MEP Engineer'], ['design_tender', 'Electrical load calculation']),
+    fn('hvac', 'Cooling & ventilation', 'Cooling load, basement ventilation and smoke control.', ['MEP Engineer'], ['design_tender', 'Ventilation schedule']),
+    fn('water', 'Water', 'Water demand from the people housed, against sources and storage.', ['MEP Engineer'], ['design_tender', 'Water balance']),
+    fn('sewage', 'Sewage treatment', 'The treatment plant against the sewage generated, and where treated water goes.', ['MEP Engineer'], ['design_tender', 'Treatment plant sizing']),
+    fn('fire', 'Fire fighting', 'Fire water, pumps, installations and escape against the code.', ['MEP Engineer'], ['design_tender', 'Fire provisions against the code']),
+    fn('lifts', 'Lifts', 'Lifts against height and people, and each lift’s permission and licence.', ['MEP Engineer'], ['construction', 'Lift licence register']),
+  ];
 }
 
 export const DEPARTMENTS: readonly DepartmentDefinition[] = [
@@ -264,6 +324,8 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
         ['construction', 'Escrow utilisation statement'],
       ]),
       ws('finance', 'tax', 'Tax', 'GST and input tax credit.', 'coming_soon', ['Chartered Accountant'], ['pre_development', 'design_tender', 'construction', 'operations'], [['construction', 'GST reconciliation']]),
+      ws('finance', 'lenders', 'Lenders', 'What each lender sanctioned, holds as security, tests and is owed.', 'coming_soon', ['Chartered Accountant'], ['design_tender', 'construction', 'operations'], [['construction', 'Covenant compliance statement']]),
+      ws('finance', 'ledgers', 'Ledgers', 'What is owed and due by contractor and by unit, and whether it agrees with the books.', 'coming_soon', ['Chartered Accountant'], ['construction', 'operations'], [['construction', 'Monthly reconciliation statement']]),
     ],
   },
   {
@@ -286,8 +348,12 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
         ['design_tender', 'RERA registration'],
         ['construction', 'Quarterly progress report'],
       ]),
-      ws('legal', 'contracts', 'Contracts & disputes', 'JDAs, agreements for sale and litigation.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [['pre_development', 'Development agreement review']]),
+      ws('legal', 'contracts', 'Contracts', 'Land purchases, joint development agreements and the agreement for sale.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [['pre_development', 'Development agreement review']]),
       ws('legal', 'handover', 'Handover & society', 'Conveying common areas and the land to the owners’ society.', 'coming_soon', ['Advocate'], ['construction', 'operations'], [['operations', 'Deed of conveyance']]),
+      ws('legal', 'litigation', 'Litigation & notices', 'Every case, hearing, order and notice that names the land, a seller or the company, and the money at stake.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [
+        ['pre_development', 'Litigation search report'],
+        ['construction', 'Litigation register'],
+      ]),
     ],
   },
   {
@@ -301,7 +367,8 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
       ws('design', 'compliance', 'Design compliance', 'FAR, setbacks and height against the approvals.', 'coming_soon', ['Architect'], ['pre_development', 'design_tender', 'construction'], [['design_tender', 'FAR and setback compliance']]),
       ws('design', 'rfis', 'RFIs', 'Questions from site and their answers.', 'coming_soon', ['Architect', 'Structural Engineer'], ['pre_development', 'design_tender', 'construction'], [['construction', 'RFI log']]),
       ws('design', 'coordination', 'Coordination', 'Structure and services fitting together.', 'coming_soon', ['Structural Engineer', 'MEP Engineer'], ['pre_development', 'design_tender', 'construction'], [['design_tender', 'Clash log']]),
-    ],
+      ...designFunctions(),
+    ].map((w) => ({ ...w, group: DESIGN_GROUP[w.key]! })),
   },
   {
     key: 'construction',
@@ -344,6 +411,7 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     status: 'coming_soon',
     workstreams: [
       ws('commercial', 'market', 'Market & pricing', 'The micro-market, comparables and the price list.', 'coming_soon', ['Registered Valuer'], ['pre_development', 'design_tender', 'construction'], [['pre_development', 'Market and pricing benchmark']]),
+      ws('commercial', 'marketing', 'Marketing & launch', 'The launch, the campaigns and every advertisement checked before it is released.', 'coming_soon', [], ['design_tender', 'construction'], [['design_tender', 'Launch readiness sheet'], ['construction', 'Advertisement register']]),
       ws('commercial', 'inventory', 'Sales & leasing inventory', 'Every unit and where it stands.', 'coming_soon', [], ['design_tender', 'construction', 'operations'], [['construction', 'Inventory status']]),
       ws('commercial', 'buyers', 'Buyers & collections', 'Bookings, demands and what has been collected.', 'coming_soon', ['Chartered Accountant'], ['construction', 'operations'], [['construction', 'Collections ageing']]),
       ws('commercial', 'handover', 'Handover & defects', 'Walkthroughs, handover and the defect liability period.', 'coming_soon', [], ['construction', 'operations'], [['operations', 'Handover and defect log']]),
@@ -439,11 +507,14 @@ export const FUNCTION_SHORT: Record<string, string> = {
   'finance.budget': 'Budget',
   'finance.funding': 'Funding',
   'finance.tax': 'Tax',
+  'finance.lenders': 'Lenders',
+  'finance.ledgers': 'Ledgers',
   'legal.title': 'Title',
   'legal.approvals': 'Approvals',
   'legal.rera': 'RERA',
   'legal.contracts': 'Contracts',
   'legal.handover': 'Handover',
+  'legal.litigation': 'Litigation',
   'construction.progress': 'Progress',
   'construction.quality': 'Technical',
   'construction.site': 'Site',
@@ -453,6 +524,7 @@ export const FUNCTION_SHORT: Record<string, string> = {
   'procurement.vendors': 'Vendors',
   'procurement.deliveries': 'Deliveries',
   'commercial.market': 'Market',
+  'commercial.marketing': 'Marketing',
   'commercial.inventory': 'Sales',
   'commercial.buyers': 'Collections',
   'commercial.handover': 'Handover',
@@ -532,7 +604,8 @@ export function menuFunctions(menu: DepartmentKey, at?: MenuStage): MenuFunction
     purpose: w.purpose,
     department: w.department,
     workstreams: [w.key],
-    built: w.status === 'live',
+    // Built, or holding sheets of its own: a function with a field set has a page to open.
+    built: w.status === 'live' || functionHasSheets(w.key),
   }));
   if (under !== menuDepartment('design')) return shown(own);
   const design = departmentDefinition('design');
@@ -544,7 +617,7 @@ export function menuFunctions(menu: DepartmentKey, at?: MenuStage): MenuFunction
       purpose: design.purpose,
       department: design.key,
       workstreams: design.workstreams.map((w) => w.key),
-      built: design.workstreams.some((w) => w.status === 'live'),
+      built: design.workstreams.some((w) => w.status === 'live' || functionHasSheets(w.key)),
     },
     ...own,
   ]);

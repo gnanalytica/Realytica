@@ -620,7 +620,8 @@ describe('the graph, which draws the whole file', () => {
       });
       assert.equal(res.status, 200);
       const lines = (await res.text()).split('\n').filter(Boolean).map((line) => JSON.parse(line) as { type: string; assistantTurn?: { text: string } });
-      assert.equal(lines.find((line) => line.type === 'result')?.assistantTurn?.text, 'It is the first thing the builder is held to on that scope.', 'the model answered, having asked the graph');
+      // The model asked the graph and then wrote a sentence. The sentence is not the reply: it picked nothing, and the template says what the turn did.
+      assert.equal(lines.find((line) => line.type === 'result')?.assistantTurn?.text, 'Opened on the page.', 'the model answered, having asked the graph');
     } finally {
       globalThis.fetch = wired;
       for (const name of names) delete process.env[name];

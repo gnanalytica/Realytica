@@ -158,7 +158,7 @@ describe('project GraphRAG', () => {
         ),
       ) as { error?: string; queued?: boolean };
     const refused = await give('design');
-    assert.match(refused.error ?? '', /Design is not one key: give one of design\.drawings, design\.compliance, design\.rfis, design\.coordination\./);
+    assert.match(refused.error ?? '', /Design is not one key: give one of design\.drawings, design\.compliance, design\.rfis, design\.coordination, design\.brief, .*design\.lifts\./);
     const taken = await give('design.drawings');
     assert.equal(taken.error, undefined);
     assert.equal(taken.queued, true);

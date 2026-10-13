@@ -581,9 +581,9 @@ describe('a choice that is pressed', () => {
     assert.deepEqual(
       [all, date, extent].map((choice) => [choice.label, choice.detail, choice.send, choice.kind]),
       [
-        ['All 4 from the last reply', '1 on the Title documents, 1 on the Approvals documents, 1 on the Approvals checks and 1 on the Title checks', CHOICE_SENTENCE.all, 'accept'],
-        [DATE, 'Waiting on the Approvals checks, from Conversion order.pdf', CHOICE_SENTENCE.one, 'accept'],
-        [EXTENT, 'Waiting on the Title checks, from Khata.pdf', CHOICE_SENTENCE.one, 'accept'],
+        ['All 4 from the last reply', '1 on the Title papers, 1 on the Approvals papers, 1 on the Approvals checks and 1 on the Title checks', CHOICE_SENTENCE.all, 'accept'],
+        [DATE, 'To accept on the Approvals checks, from Conversion order.pdf', CHOICE_SENTENCE.one, 'accept'],
+        [EXTENT, 'To accept on the Title checks, from Khata.pdf', CHOICE_SENTENCE.one, 'accept'],
       ],
     );
     assert.deepEqual(all.sitting, {
@@ -597,7 +597,7 @@ describe('a choice that is pressed', () => {
 
   it('takes the one card it names', () => {
     const { p, extent } = offered();
-    assert.equal(press(p, extent).assistantTurn.text, 'Recorded values on 1 check. 2 more are waiting: 1 on the Approvals documents and 1 on the Approvals checks.');
+    assert.equal(press(p, extent).assistantTurn.text, 'Recorded values on 1 check. 2 more are waiting: 1 on the Approvals papers and 1 on the Approvals checks.');
     assert.equal(extentOnCheck(p), 1850);
     assert.equal(dateOnCheck(p), undefined);
   });
@@ -694,8 +694,8 @@ describe('a choice that is pressed', () => {
     drop(p, khata('Khata 2019.pdf'), paper('Khata 2024.pdf', 'khata', fact('extent_khata', 'Extent per khata', 1900, '1,900 sqm')));
     const choices = applyProjectChat(p, 'ok').assistantTurn.choices!.filter((choice) => choice.sitting?.proposalIds?.length === 1 && !choice.sitting.evidenceIds?.length);
     assert.deepEqual(choices.map((choice) => [choice.label, choice.detail]), [
-      [EXTENT, 'Waiting on the Title checks, from Khata 2019.pdf'],
-      [EXTENT, 'Waiting on the Title checks, from Khata 2024.pdf'],
+      [EXTENT, 'To accept on the Title checks, from Khata 2019.pdf'],
+      [EXTENT, 'To accept on the Title checks, from Khata 2024.pdf'],
     ]);
     assert.notDeepEqual(choices[0]!.sitting, choices[1]!.sitting);
 
@@ -856,7 +856,7 @@ describe('“approve all”, offered and then said', () => {
     const asked = applyProjectChat(p, 'ok');
     assert.equal(
       asked.assistantTurn.text,
-      'Nothing was accepted. 4 are waiting: 1 on the Title documents, 1 on the Approvals documents, 1 on the Approvals checks and 1 on the Title checks. Pick what to accept below, or accept each where it is shown.',
+      'Nothing was accepted. 4 are waiting: 1 on the Title papers, 1 on the Approvals papers, 1 on the Approvals checks and 1 on the Title checks. Pick what to accept below, or accept each where it is shown.',
     );
     assert.deepEqual(asked.assistantTurn.toolCalls, [{ name: NOTHING_ACCEPTED, summary: 'Nothing accepted' }]);
 
@@ -1095,7 +1095,7 @@ describe('an answer that cites papers', () => {
     assert.equal(waiting(), 4);
     assert.equal(
       say(p, 'approve all'),
-      'Nothing from the last reply is left to accept. 6 more are waiting: 3 on the Title documents, 1 on the Approvals documents, 1 on the Approvals checks and 1 on the Title checks. Each is accepted where it is shown.',
+      'Nothing from the last reply is left to accept. 6 more are waiting: 3 on the Title papers, 1 on the Approvals papers, 1 on the Approvals checks and 1 on the Title checks. Each is accepted where it is shown.',
     );
     assert.equal(waiting(), 4, 'an answer filed nothing, so "all" of it is nothing');
   });
@@ -1107,11 +1107,11 @@ describe('an answer that cites papers', () => {
 
     // The reply that read a paper has one for it, and the line that leads a new chat with what waits from earlier counts what it lists.
     const read = p.conversation.filter((t) => t.role === 'assistant').find((t) => t.toolCalls?.some((call) => call.name === 'ingest'))!;
-    assert.ok(turnChips(p, read, waitingOnCanvas(p), {}).some((chip) => chip.kind === 'waiting' && /documents$/.test(chip.words)));
+    assert.ok(turnChips(p, read, waitingOnCanvas(p), {}).some((chip) => chip.kind === 'waiting' && /papers$/.test(chip.words)));
     const lead = { citedEvidenceIds: p.evidence.filter((e) => proposedFacts(e).length).map((e) => e.id), proposalIds: [], toolCalls: [{ name: WAITING_FROM_EARLIER }] };
     assert.deepEqual(turnChips(p, lead, waitingOnCanvas(p), {}).map((chip) => [chip.words, chip.count]), [
-      ['waiting on the Title documents', 3],
-      ['waiting on the Approvals documents', 1],
+      ['to accept on the Title papers', 3],
+      ['to accept on the Approvals papers', 1],
     ]);
   });
 
@@ -1136,7 +1136,7 @@ describe('the last reply', () => {
     const later = drop(p, khata('Khata 2024.pdf', fact('pid', 'PID', '81-120-12')));
     assert.deepEqual(openCards(p).filter((c) => later.assistantTurn.proposalIds?.includes(c.id)), []);
 
-    assert.equal(say(p, 'approve all'), 'Accepted 2 values on 1 document. 2 more are waiting: 1 on the Title documents and 1 on the Title checks.');
+    assert.equal(say(p, 'approve all'), 'Accepted 2 values on 1 document. 2 more are waiting: 1 on the Title papers and 1 on the Title checks.');
     assert.equal(acceptedFacts(rowOf(p, 'Khata 2024.pdf')).length, 2);
     assert.equal(proposedFacts(rowOf(p, 'Khata 2019.pdf')).length, 1, 'the earlier paper’s value still waits');
     assert.equal(extentOnCheck(p), undefined, 'and so does its card: the check holds no extent yet');
@@ -1146,10 +1146,10 @@ describe('the last reply', () => {
     const p = seedBdaReferenceProject();
     drop(p, khataWithNoCard());
     const out = applyProjectChat(p, 'ok');
-    assert.equal(out.assistantTurn.text, 'Nothing was accepted. 1 is waiting: 1 on the Title documents. Accept it below, or where it is shown.');
+    assert.equal(out.assistantTurn.text, 'Nothing was accepted. 1 is waiting: 1 on the Title papers. Accept it below, or where it is shown.');
     assert.deepEqual(
       out.assistantTurn.choices!.map((choice) => [choice.label, choice.detail, choice.send, choice.sitting]),
-      [['The one from the last reply', '1 on the Title documents', CHOICE_SENTENCE.all, { decision: 'accept', proposalIds: [], evidenceIds: [rowOf(p, 'Khata.pdf').id] }]],
+      [['The one from the last reply', '1 on the Title papers', CHOICE_SENTENCE.all, { decision: 'accept', proposalIds: [], evidenceIds: [rowOf(p, 'Khata.pdf').id] }]],
     );
     assert.equal(press(p, out.assistantTurn.choices![0]!).assistantTurn.text, 'Accepted 1 value on 1 document.');
   });
@@ -1169,7 +1169,7 @@ describe('the last reply', () => {
     noteProjectEdit(moved, 'Filed the conversion order.', { citedEvidenceIds: [rowOf(moved, 'Conversion order.pdf').id] });
     assert.equal(
       say(moved, 'approve all'),
-      'Nothing from the last reply is left to accept. 2 more are waiting: 1 on the Approvals documents and 1 on the Approvals checks. Each is accepted where it is shown.',
+      'Nothing from the last reply is left to accept. 2 more are waiting: 1 on the Approvals papers and 1 on the Approvals checks. Each is accepted where it is shown.',
     );
     assert.equal(dateOnCheck(moved), undefined);
   });

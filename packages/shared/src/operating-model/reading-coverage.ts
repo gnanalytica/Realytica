@@ -122,7 +122,7 @@ export function sentToModelLine(given: ReadingCoverage | undefined): string {
   const reading = soundReading(given);
   const sent = reading?.modelPagesSent ?? [];
   if (!reading || !sent.length) return '';
-  return sent.length >= reading.pagesInFile ? `All ${reading.pagesInFile === 1 ? 'of its one page' : `${reading.pagesInFile} pages`} went to the model reader.` : `${capital(pagesNamed(sent))} of ${reading.pagesInFile} went to the model reader.`;
+  return sent.length >= reading.pagesInFile ? `All ${reading.pagesInFile === 1 ? 'of its one page was' : `${reading.pagesInFile} pages were`} read by the reader, not by the rules alone.` : `${capital(pagesNamed(sent))} of ${reading.pagesInFile} ${sent.length === 1 ? 'was' : 'were'} read by the reader, not by the rules alone.`;
 }
 
 /**

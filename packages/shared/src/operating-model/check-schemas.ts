@@ -94,8 +94,9 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
       columns: [
         { key: 'date', label: 'Date', kind: 'date' },
         { key: 'instrument', label: 'Instrument', kind: 'enum', options: ['sale deed', 'gift deed', 'partition', 'grant', 'release', 'JDA', 'will', 'decree'] },
-        { key: 'from_party', label: 'From', kind: 'text' },
-        { key: 'to_party', label: 'To', kind: 'text' },
+        // Completed from the project's parties, so a name is written one way throughout. Kept as the name: the chain is read by name.
+        { key: 'from_party', label: 'From', kind: 'text', suggest: 'party' },
+        { key: 'to_party', label: 'To', kind: 'text', suggest: 'party' },
         { key: 'extent', label: 'Extent', kind: 'area', unit: 'sqm', required: false },
         { key: 'registered', label: 'Registered', kind: 'boolean', control: 'checkbox' },
         { key: 'doc_no', label: 'Document no.', kind: 'text', required: false },
@@ -130,7 +131,9 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
   /* --- Approvals ---------------------------------------------------- */
   'regulatory.land_use': [
     { key: 'zoning', label: 'Zoning in the plan in force', kind: 'text', from: 'Zoning certificate' },
-    { key: 'conversion_status', label: 'DC conversion', kind: 'enum', options: ['converted', 'agricultural', 'not applicable', 'unknown'], from: 'DC conversion order' },
+    // "Not applicable" and "unknown" were choices here. The first is a state any field can be put in, with its reason; the
+    // second is the field left empty. A value saved under either still reads.
+    { key: 'conversion_status', label: 'DC conversion', kind: 'enum', options: ['converted', 'agricultural'], retiredOptions: ['not applicable', 'unknown'], from: 'DC conversion order' },
     { key: 'conversion_date', label: 'Date of the conversion order', kind: 'date', from: 'DC conversion order', required: false },
   ],
   'regulatory.sanction': [
@@ -219,7 +222,23 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
       ],
     },
     { key: 'noc_count', label: 'NOCs recorded', kind: 'computed', formula: { op: 'count', table: 'nocs' } },
-    { key: 'all_in_hand', label: 'All NOCs required at this stage are in hand', kind: 'boolean', control: 'switch' },
+    { key: 'nocs_outstanding', label: 'NOCs not in hand', kind: 'computed', formula: { op: 'count_if', over: { table: 'nocs' }, where: { column: 'status', is: 'in', value: ['applied', 'expired', 'refused'] } } },
+    /*
+     * Worked out from the register beside it. It was a switch a person set,
+     * next to a table that already knew the answer; a switch saved then is
+     * kept and no longer read.
+     */
+    {
+      key: 'all_in_hand',
+      label: 'NOCs required at this stage',
+      kind: 'status',
+      cases: [
+        { when: { kind: 'at_most', fields: ['nocs_outstanding'], against: 0, say: '{a} NOC(s) are applied for, expired or refused.', severity: 'high' }, label: 'Not all in hand', tone: 'critical' },
+        { when: { kind: 'row_expired', fields: ['nocs'], column: 'valid_to', gate: 'status', whenIn: ['in hand'], say: '{row} ran out on {a}.', severity: 'high' }, label: 'One in hand has run out', tone: 'critical' },
+        { when: { kind: 'row_missing', fields: ['nocs'], column: 'certificate', gate: 'status', whenIn: ['in hand'], say: '{row} has no certificate on file.', severity: 'medium' }, label: 'In hand, a certificate missing', tone: 'warning' },
+      ],
+      otherwise: { label: 'All in hand', tone: 'good' },
+    },
   ],
 
   /* --- Technical ---------------------------------------------------- */

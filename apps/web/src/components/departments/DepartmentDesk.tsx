@@ -22,8 +22,8 @@ import { api } from '../../lib/api';
 import { EvidenceDropZone } from '../EvidenceDropZone';
 import { useMe } from '../../lib/useMe';
 import { Button, Card, CardBody, CardHeader, StatTile, cn, useToast } from '../ui/kit';
-import { ChecklistCard } from './ChecklistCard';
-import { EngineeringDashboard, RequirementSheetCard, SupportingDocumentsCard } from './EngineeringDesk';
+import { PapersOwedCard } from '../papers/PapersOwedCard';
+import { EngineeringDashboard, SupportingDocumentsCard } from './EngineeringDesk';
 import { ObservationsCard } from './ObservationsCard';
 import { QuestionnaireCard } from './QuestionnaireCard';
 import { TemplateCard } from './TemplateCard';
@@ -175,7 +175,7 @@ export function DepartmentDesk({
 
       {step === 'documents' ? (
         <>
-          {/* Dropping a file anywhere on the step files it: read, typed, and matched to the line on the sheet it answers. */}
+          {/* Dropping a file anywhere on the step files it: read, typed, and matched to the line of Papers owed it answers. */}
           <EvidenceDropZone projectId={project.id} rows={project.evidence} onFiled={refresh}>
             {(pick) => (
               <div className="space-y-4">
@@ -186,8 +186,7 @@ export function DepartmentDesk({
                     Add documents
                   </Button>
                 </div>
-                <RequirementSheetCard project={project} department={department} startWorkstream={home} onChanged={refresh} onOpenDocument={nav.openDocument} onOpenCheck={nav.openCheck} />
-                <ChecklistCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} />
+                <PapersOwedCard project={project} department={department} startWorkstream={home} onChanged={setProject} onOpenDocument={nav.openDocument} onOpenCheck={nav.openCheck} />
                 {workstream ? <WorkstreamDocuments project={project} workstream={workstream} onOpenDocument={nav.openDocument} /> : <SupportingDocumentsCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} />}
               </div>
             )}
@@ -298,7 +297,7 @@ export function DepartmentDesk({
                 </li>
                 <li className="flex flex-wrap items-center gap-3 py-2">
                   <span className="min-w-0 flex-1 text-[13px] text-ink">
-                    Document requirement sheet
+                    Documents the checks expect
                     <span className="block text-micro text-ink-muted">{sheet.total ? `${sheet.received} of ${sheet.total} in hand` : 'Nothing expected yet'}</span>
                   </span>
                   <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!sheet.total} onClick={() => download(`${project.reference}-${department}-requirement-sheet.csv`, requirementSheetCsv(sheet))}>
@@ -307,8 +306,8 @@ export function DepartmentDesk({
                 </li>
                 <li className="flex flex-wrap items-center gap-3 py-2">
                   <span className="min-w-0 flex-1 text-[13px] text-ink">
-                    Checklist of papers owed
-                    <span className="block text-micro text-ink-muted">{checklist.total ? `${checklist.received} of ${checklist.total} in hand` : 'No checklist loaded'}</span>
+                    The list of papers that was loaded
+                    <span className="block text-micro text-ink-muted">{checklist.total ? `${checklist.received} of ${checklist.total} in hand` : 'No list loaded'}</span>
                   </span>
                   <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!checklist.total} onClick={() => download(`${project.reference}-${department}-checklist.csv`, checklistCsvFile(checklist))}>
                     Export

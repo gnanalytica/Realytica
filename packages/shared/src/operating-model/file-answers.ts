@@ -15,7 +15,7 @@
  */
 
 import type { DocumentFact } from './document-parse';
-import { factsOnFile, readingsWaitingOnFile } from './document-intake';
+import { factsAcceptedOnFile, readingsUnacceptedOnFile } from './document-intake';
 import { packCompleteness } from './operations';
 import { plural } from './text';
 import type { ChatChoice, DdProject, EvidenceRecord, FindingRecord, FindingSeverity } from './types';
@@ -271,16 +271,27 @@ export function factKeysAsked(question: string): string[] {
   return topic ? [...(TOPIC_KEYS[topic] ?? [])] : [];
 }
 
+/**
+ * Whether a paper is one a topic is about. A key is not enough where two
+ * kinds of paper share a word: a lender's sanction letter has a date of
+ * sanction too, and it is no answer to whether the building plan is
+ * sanctioned.
+ */
+function aboutTopic(topic: string, paper: Pick<EvidenceRecord, 'documentType' | 'title'>): boolean {
+  if (topic !== 'sanction') return true;
+  return !/\b(?:loan|lender|bank|facility)\b/i.test(`${paper.documentType ?? ''} ${paper.title}`);
+}
+
 /** What waits, in a line: the reading, where it is, and that it is not on file. */
 function waitingLine(rows: Sourced[]): string {
   const first = rows[0]!;
   const where = cite(first);
   if (rows.length === 1) {
     return first.fact.otherReading
-      ? `Two readers read the ${first.fact.label.toLowerCase()} differently: ${first.fact.display} and ${first.fact.otherReading.display}. Nobody has kept one, so it is not on file. ${where}`
-      : first.fact.source === 'model'
-        ? `A model read ${first.fact.label.toLowerCase()} ${first.fact.display}. Nobody has accepted it, so it is not on file. ${where}`
-        : `${first.fact.label} ${first.fact.display} was read on a paper that was hard to read here. Nobody has accepted it, so it is not on file. ${where}`;
+      ? `The ${first.fact.label.toLowerCase()} was read two ways: ${first.fact.display} and ${first.fact.otherReading.display}. Nobody has kept one, so it is not on file. ${where}`
+      : first.fact.unsure
+        ? `${first.fact.label} ${first.fact.display} was read off a paper that was hard to read. Nobody has accepted it, so it is not on file. ${where}`
+        : `${first.fact.label} ${first.fact.display} was read off the paper. Nobody has accepted it, so it is not on file. ${where}`;
   }
   const labels = [...new Set(rows.map((row) => row.fact.label.toLowerCase()))];
   return `${rows.length} readings are waiting to be accepted and are not on file: ${labels.slice(0, 4).join(', ')}${labels.length > 4 ? ` and ${labels.length - 4} more` : ''}.`;
@@ -289,7 +300,7 @@ function waitingLine(rows: Sourced[]): string {
 /** An answer with what waits for its topic said after it; or, where the answer was that nothing is on file, said in its place. */
 function withWaiting(project: DdProject, topic: string, answer: FileAnswer | null): FileAnswer | null {
   const keys = TOPIC_KEYS[topic];
-  const waiting = keys ? readingsWaitingOnFile(project).filter((row) => keys.includes(row.fact.key)) : [];
+  const waiting = keys ? readingsUnacceptedOnFile(project).filter((row) => keys.includes(row.fact.key) && aboutTopic(topic, row.evidence)) : [];
   if (!waiting.length) return answer;
   const line = waitingLine(waiting);
   const lead = waiting[0]!;
@@ -543,7 +554,7 @@ function answerValue(project: DdProject, facts: Sourced[]): FileAnswer | null {
     lines.push(`Indicative ${inr(run.indicatedValue, run.currency)} (range ${inr(run.low, run.currency)}–${inr(run.high, run.currency)}).`);
   }
   const hasValue = lines.length > 0;
-  if (!hasValue) lines.push('No indicative value yet — say “run the property screen” and I’ll work one out from what is on file.');
+  if (!hasValue) lines.push('No indicative value yet. Say “run the property screen” to work one out from what is on file.');
   if (paid) lines.push(`It last changed hands for ${paid.fact.display}. ${cite(paid)}`);
   if (hasValue) lines.push('Indicative only — not an IBBI-registered valuation.');
   return { text: lines.join('\n'), summary: 'Value', citedEvidenceIds: paid ? [paid.evidence.id] : [], citedNodeIds: [], navigate: { pane: 'valuation' } };
@@ -953,7 +964,8 @@ function answerFromFileUnfitted(project: DdProject, question: string, here: Chat
   if (top) return top;
   if (!looksLikeFileQuestion(q)) return null;
   const topics = topicsOf(q);
-  const facts = factsOnFile(project);
+  // Only what a person has accepted is told as a fact. What was read and waits is said to be waiting (`withWaiting`).
+  const facts = factsAcceptedOnFile(project);
   const scope = scopeOf(project, q, here);
   for (const topic of topics) {
     switch (topic) {
@@ -986,7 +998,7 @@ function answerFromFileUnfitted(project: DdProject, question: string, here: Chat
       case 'zoning':
         return withWaiting(project, topic, answerZoning(project, facts));
       case 'sanction':
-        return withWaiting(project, topic, answerSanction(project, facts));
+        return withWaiting(project, topic, answerSanction(project, facts.filter((row) => aboutTopic(topic, row.evidence))));
       case 'tax':
         return withWaiting(project, topic, answerTax(facts));
       case 'title':

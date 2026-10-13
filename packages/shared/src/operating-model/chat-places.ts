@@ -27,6 +27,7 @@
  */
 
 import type { ProjectCockpitPane } from './cockpit';
+import { functionHasSheets } from './field-registry';
 import {
   DEPARTMENT_SHORT,
   MENU_DEPARTMENTS,
@@ -50,6 +51,7 @@ import {
   type StageKey,
 } from './departments';
 import { APPROVAL_KINDS, approvalsRegister } from './approvals';
+import { checklistOwed } from './checklist';
 import { allChecks, workstreamChecks } from './engagements';
 import { CHECK_DEFINITIONS } from './libraries';
 import { fileIsBare, projectNextStep } from './next-step';
@@ -230,10 +232,12 @@ const CENTRE_SECTION: Record<string, string> = {
  * to land on.
  */
 export function functionSections(key: string): string[] {
-  if (workstreamDefinition(key)?.status !== 'live') return [];
+  const sheet = functionHasSheets(key) ? ['sheet'] : [];
+  // A function that is not built and has sheets of its own is those sheets and its documents.
+  if (workstreamDefinition(key)?.status !== 'live') return sheet.length && workstreamDefinition(key) ? [...sheet, 'documents'] : [];
   if (paneOfFunction(key) !== 'workstream' || key === 'construction.quality') return [];
   const centre = CENTRE_SECTION[key];
-  return ['standing', ...(centre ? [centre] : []), 'checks', 'documents', 'connections'];
+  return ['standing', ...sheet, ...(centre ? [centre] : []), 'checks', 'documents', 'connections'];
 }
 
 /**
@@ -243,6 +247,16 @@ export function functionSections(key: string): string[] {
  */
 export function checklistFunction(department: DepartmentKey): string | undefined {
   return departmentDefinition(department).workstreams.find((ws) => functionSections(ws.key).includes('documents'))?.key;
+}
+
+/**
+ * Where a department's papers owed are opened: the Documents part of the
+ * function its list is on, with a line of the list to open there. A
+ * department with no such function opens on its own page.
+ */
+export function papersOwedOpen(department: DepartmentKey, item?: string): PlaceOpen {
+  const fn = checklistFunction(department);
+  return fn ? { pane: 'workstream', extra: { workstream: fn, section: 'documents', ...(item ? { item } : {}) } } : { pane: 'department', extra: { department: menuDepartment(department) } };
 }
 
 /* ==================================================================== */
@@ -297,6 +311,24 @@ interface Target {
   section?: string;
   /** "Summary": the Summary of the department the person is in. */
   summary?: true;
+  /** "Papers owed", "the checklist": the list of the department the person is in, on its Documents. */
+  owed?: true;
+}
+
+/** The words people use for what a department is owed. The list is each department's own, so the words name a department's Documents and no page of the project's. */
+const OWED_NAMES = ['papers owed', 'what is owed', 'requirement sheet', 'checklist', 'requests', 'missing documents'];
+
+/**
+ * The papers owed a person means: those of the department they are in, on
+ * the Documents part of the function they are on or of the one the
+ * department's list is on. From Overview or a shared place it is the
+ * department whose loaded list has the most still owed. A copy handed to an
+ * outside collaborator holds no list, so from there the words name nothing.
+ */
+function owedHere(project: DdProject, here: ChatPlace): Target | undefined {
+  const most = here.fn || here.department ? undefined : checklistOwed(project).department;
+  const fn = here.fn && functionSections(here.fn).includes('documents') ? here.fn : here.department ? checklistFunction(here.department) : most ? checklistFunction(most) : undefined;
+  return fn ? { fn, section: 'documents' } : undefined;
 }
 
 /** The shared places, by the words on their tabs and the words people already use for them. */
@@ -323,6 +355,7 @@ const FUNCTION_ALSO: Record<string, string[]> = {
   'finance.valuation': ['value', 'valuations'],
   'legal.title': ['land records'],
   'legal.approvals': ['nocs'],
+  'legal.litigation': ['cases', 'court cases'],
   'construction.quality': ['technical dd', 'tdd'],
   'construction.site': ['visits', 'site visits'],
   'procurement.boq': ['tender', 'tendering'],
@@ -366,6 +399,7 @@ function vocabulary(): Map<string, Target[]> {
   };
   for (const [pane, words] of SHARED_NAMES) for (const word of words) add(word, { pane });
   add('summary', { summary: true });
+  for (const word of OWED_NAMES) add(word, { owed: true });
   for (const menu of MENU_DEPARTMENTS) {
     const short = DEPARTMENT_SHORT[menu];
     const said = [short, departmentDefinition(menu).label];
@@ -707,7 +741,10 @@ export function placeFromText(project: DdProject, text: string, here: ChatPlace 
 
   if (!targets.length) return lookAtStage(project, asked!, here);
 
-  const named = targets.map((t) => (t.summary ? (here.department ? { department: here.department } : { pane: 'overview' as const }) : t));
+  // Papers owed are a department's own. Where the words name no department's list they name no page, and are left to the reader of questions.
+  const owed = targets.some((t) => t.owed) ? owedHere(project, here) : undefined;
+  if (targets.some((t) => t.owed) && !owed) return null;
+  const named = targets.map((t) => (t.owed ? owed! : t.summary ? (here.department ? { department: here.department } : { pane: 'overview' as const }) : t));
   // "Commercial & Operations" is a department and "Commercial › Operations" one of its functions, and with the sign
   // between them gone the two are the same words. The sign says which was meant: a path names the function.
   const path = /[›>/]/.test(text);

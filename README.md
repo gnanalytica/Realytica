@@ -6,7 +6,7 @@ It takes in every document, in English or any other language. It reads the lates
 
 That is the product as it is defined. Not all of it is built: reading every language, watching the law (listed pages only, and a person confirms), filling a template (Word and Excel), connectors and voice (asking and hearing in the web chat) are partly built, and several parts do nothing until a setting is given. [What is built and what is not](docs/product.md#what-is-built-and-what-is-not) says which, line by line.
 
-A project moves through **four stages** (Land, Pre-construction, Under construction, Completed), its work is divided into **departments** (Legal, Finance, Engineering, Commercial, Procurement, with Design worked inside Engineering), and each department holds **functions** — Title, Approvals, Valuation, Budget, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
+A project moves through **four stages** (Land, Pre-construction, Under construction, Completed), its work is divided into **departments** (Legal, Finance, Engineering, Commercial, Procurement, with Design worked inside Engineering), and each department holds **functions** — Title, Approvals, Litigation, Valuation, Budget, Lenders, Progress, Sales, Marketing and forty more, Design's twenty-two among them. Every function but two keeps fixed, **typed fields** that a person fills or links and a paper or a named source offers values for; a model writes none of the words that are kept, and a value it offers counts for nothing until a person accepts it. Eight functions are built in full, with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents; the rest are field sheets and documents. [docs/departments.md](docs/departments.md) lists them all. One chat works across all of it; the links between departments live in a Neo4j graph.
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ A project moves through **four stages** (Land, Pre-construction, Under construct
 | Models | `packages/agents` — document reading, the chat, the project orchestrator, voice notes put into words |
 | Maps | `packages/site-intel` — public map layers, guidance values and place lookups |
 
-Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [how it looks and moves](docs/design.md) · [the API](docs/api.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md) · [integrations](docs/integrations.md)
+Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [how it looks and moves](docs/design.md) · [the API](docs/api.md) · [declaring a function's fields](docs/fields.md) · [every department's fields](docs/departments.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md) · [integrations](docs/integrations.md)
 
 ## Run it
 
@@ -53,7 +53,7 @@ Every variable is prefixed `REALYTICA_`, except the few a row marks as written i
 | `CREDENTIAL_KEY` | Seals stored secrets: flow credentials and webhook signing secrets. Without it no webhook endpoint can be registered. |
 | `RATE_LIMIT_KEY` | Requests a minute for one API key under `/api/v1`. 120 by default. See [docs/integrations.md](docs/integrations.md). |
 | `EXPO_ACCESS_TOKEN` | Optional: authenticates push sends to the site app. |
-| `CRON_SECRET` | The secret Vercel sends with the timers. The daily one brings alerts up to date, prepares reports on a project's report day, reads the law and policy pages that are due and runs the daily review of each file; notices and webhook retries also come round every ten minutes, and connected folders every hour. Written in full, with no prefix. Without it no timer does anything. |
+| `CRON_SECRET` | The secret Vercel sends with the timers. The daily one brings alerts up to date, prepares reports on a project's report day, reads the law and policy pages that are due and runs the daily review of each file (four of its six kinds are rules and need no model); notices and webhook retries also come round every ten minutes, and connected folders every hour. Written in full, with no prefix. Without it no timer does anything. |
 | `AUTOMATIONS` | `on` mounts `/api/flows` and lets saved flows fire. Off by default, and the web app has no screen for flows. |
 | `ALLOWED_ORIGINS`, `RATE_LIMIT_API`, `RATE_LIMIT_MODEL`, `RATE_LIMIT_UPLOAD`, `RATE_LIMIT_PAIRING`, `OPERATORS` | Hardening; see [docs/runbooks/deployment.md](docs/runbooks/deployment.md) and, for `OPERATORS`, [docs/auth.md](docs/auth.md). |
 | `VITE_GOOGLE_CLIENT_ID`, `VITE_GOOGLE_MAPS_BROWSER_KEY` | Read when the web app is built, and written in full: the sign-in client, and an optional browser key for the map. |

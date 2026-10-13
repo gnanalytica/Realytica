@@ -343,7 +343,7 @@ function ProgressPhotos({
 
   return (
     <Card>
-      <CardHeader title="Project progress pictures" subtitle="Photographs from the site log / vault for this period" />
+      <CardHeader title="Project progress pictures" subtitle="Photographs on file from the site log for this period" />
       <CardBody className="space-y-3">
         {mayEdit && candidates.length ? (
           <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -383,7 +383,7 @@ function ProgressPhotos({
           ) : (
             <p className="text-[13px] text-ink-muted">
               {candidates.length === 0
-                ? 'No site photographs on the vault yet — file them from Progress first.'
+                ? 'No site photographs on file yet. File them from Progress first.'
                 : 'No photographs selected for this Cost Report.'}
             </p>
           )

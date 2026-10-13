@@ -47,7 +47,7 @@ Rules:
 4. If none applies, give an empty list.
 Call ${PLAN_PROPOSAL_TOOL} once.`;
 
-function tool(): LlmSchemaTool {
+export function planProposalTool(): LlmSchemaTool {
   return {
     kind: 'schema',
     name: PLAN_PROPOSAL_TOOL,
@@ -93,7 +93,7 @@ export async function proposePlanByModel(input: { instruction: string; caseId?: 
       model: basicChatModel() ?? route.model,
       maxTokens: 800,
       system: [{ text: SYSTEM, cacheBreakpoint: true }],
-      tools: [tool()],
+      tools: [planProposalTool()],
       toolChoice: { type: 'tool', name: PLAN_PROPOSAL_TOOL },
       messages: [{ role: 'user', content: `The instruction:\n${instruction}` }],
       timeoutMs: input.timeoutMs ?? PLAN_PROPOSAL_LIMIT_MS,

@@ -1,10 +1,15 @@
-import type { CurrencyCode, ConfidenceBand, DocumentKind } from '@realytica/shared';
+import { daySaid, formatMoney, looksLikeDay, percentSaid, type CurrencyCode, type ConfidenceBand, type DocumentKind } from '@realytica/shared';
 
 // English-language UI, so euro figures use an English euro locale (en-IE) rather
 // than nl-NL — "€7.140/m²" in Dutch grouping reads as seven euros to everyone else.
 const LOCALE: Record<CurrencyCode, string> = { INR: 'en-IN', EUR: 'en-IE' };
 
-/** Compact money for headline figures: ₹2.4 Cr / €1.2M. */
+/**
+ * Money for a page. Rupees are written in the Indian system, in lakh and
+ * crore, by the one formatter every field, report and chat answer uses
+ * (`formatMoney`): ₹2.4 Cr, ₹45 lakh, ₹12,500. `compact: false` gives the
+ * figure in full, for a table where each rupee matters and for a hover.
+ */
 export function money(value: number | null | undefined, currency: CurrencyCode, opts?: { compact?: boolean }): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   const compact = opts?.compact ?? true;
@@ -18,12 +23,7 @@ export function money(value: number | null | undefined, currency: CurrencyCode, 
    */
   const sign = value < 0 ? '\u2212' : '';
   const abs = Math.abs(value);
-  if (currency === 'INR' && compact) {
-    if (abs >= 1e7) return `${sign}₹${trim(abs / 1e7)} Cr`;
-    if (abs >= 1e5) return `${sign}₹${trim(abs / 1e5)} L`;
-    if (abs >= 1e3) return `${sign}₹${trim(abs / 1e3)}K`;
-    return `${sign}₹${Math.round(abs).toLocaleString('en-IN')}`;
-  }
+  if (currency === 'INR' && compact) return formatMoney(Math.round(value), 'INR');
   if (compact) {
     if (abs >= 1e6) return `${sign}€${trim(abs / 1e6)}M`;
     if (abs >= 1e3) return `${sign}€${trim(abs / 1e3)}K`;
@@ -47,10 +47,11 @@ export function perSqm(value: number | null | undefined, currency: CurrencyCode)
   return `${symbol}${Math.round(value).toLocaleString(LOCALE[currency])}/m²`;
 }
 
+/** A percentage: at most two decimals, and its sign against the figure. */
 export function pct(value: number | null | undefined, digits = 1, signed = false): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   const sign = signed && value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(digits)}%`;
+  return `${sign}${percentSaid(value, Math.min(digits, 2))}`;
 }
 
 export function area(sqm: number | null | undefined): string {
@@ -82,9 +83,41 @@ export function date(iso: string | null | undefined, style: 'short' | 'long' = '
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   if (isAbsentTimestamp(d.getTime())) return 'Shipped with the build';
-  return d.toLocaleDateString('en-GB', style === 'short'
-    ? { day: '2-digit', month: 'short', year: 'numeric' }
-    : { day: 'numeric', month: 'long', year: 'numeric' });
+  // One way to write a day, wherever it is read: 13 Oct 2026.
+  void style;
+  return daySaid(d);
+}
+
+/**
+ * A value as a paper's reading wrote it, said the way every figure is.
+ *
+ * A reader hands back what it read with a display of its own making:
+ * "1215000 INR", "2026-10-09", "6070 sqm". Those are the same amounts, days
+ * and areas the fields print, so they are written the same way here: rupees
+ * in lakh and crore, a day as 9 Oct 2026, a figure grouped with its unit.
+ * Anything else is given back as it came, word for word.
+ */
+export function readingSaid(display: string): string {
+  const text = display.trim();
+  const figure = (digits: string) => Number(digits.replace(/,/g, ''));
+  const rupees = /^(?:INR|Rs\.?|₹)\s*(-?[\d,]+(?:\.\d+)?)$|^(-?[\d,]+(?:\.\d+)?)\s*(?:INR|Rs\.?|rupees)$/i.exec(text);
+  if (rupees) return formatMoney(figure(rupees[1] ?? rupees[2]!), 'INR');
+  if (looksLikeDay(text)) return daySaid(text);
+  const share = /^(-?\d+(?:\.\d+)?)\s*%$/.exec(text);
+  if (share) return percentSaid(Number(share[1]));
+  const measured = /^(\d{4,}(?:\.\d+)?)\s+([a-z][a-z .]*)$/i.exec(text);
+  if (measured) return `${figure(measured[1]!).toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${measured[2]}`;
+  return display;
+}
+
+/**
+ * Who did something, as a page says it. With sign-in off every request is
+ * the machine's own operator, whose address is not a person's and is not
+ * printed: it reads "the local operator".
+ */
+export function person(who: string | null | undefined): string {
+  if (!who) return '';
+  return /@localhost$/i.test(who.trim()) ? 'the local operator' : who;
 }
 
 export function relativeTime(iso: string | null | undefined): string {

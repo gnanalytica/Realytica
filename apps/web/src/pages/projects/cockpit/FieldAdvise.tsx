@@ -93,7 +93,7 @@ export function FieldAdvise({
           {lean === 'tick' ? 'Leans towards meeting it' : lean === 'cross' ? 'Leans towards proof missing' : 'Advise'}
         </p>
         <p className="mt-0.5 text-[12px] leading-relaxed text-ink">{advise.why}</p>
-        <p className="mt-1 text-[11px] text-ink-muted">You close the check. This is not a model verdict.</p>
+        <p className="mt-1 text-[11px] text-ink-muted">You close the check. Nothing here decides it for you.</p>
       </div>
       {pending && onTick && onCross ? (
         <div className="flex flex-wrap items-center gap-1.5">

@@ -15,7 +15,7 @@
 
 import type { DdProject } from './types';
 import { recordAuditEvent } from './operations';
-import { addMilestones, setMilestonePercent, type Milestone } from './progress';
+import { addMilestones, milestoneExtensions, plannedFinishAfterExtensions, setMilestonePercent, type Milestone, type MilestoneExtensions } from './progress';
 
 /** A milestone is looked at this many days before its planned finish. */
 export const DUE_SOON_DAYS = 14;
@@ -237,6 +237,18 @@ export function replanMilestone(milestone: Milestone, dates: { plannedStart?: st
 }
 
 /**
+ * A milestone the schedule brings in complete was not finished on the day of
+ * the import. Its done date is the finish the schedule gives it, where that
+ * day has come. A finish still ahead cannot be the day it was done, so the
+ * day of the import stands: it was complete by then.
+ */
+function completedPerSchedule(milestone: Milestone, row: ScheduleImportRow, at: string): void {
+  if (row.percent !== 100 || milestone.percent !== 100 || milestone.completedOn !== at.slice(0, 10)) return;
+  const finish = (row.plannedFinish ?? milestone.plannedFinish)?.slice(0, 10);
+  if (finish && finish < at.slice(0, 10)) milestone.completedOn = finish;
+}
+
+/**
  * Put a schedule's rows on the project. A row whose name a milestone already
  * has, however it is spaced or cased, moves that milestone's dates and weight.
  * Its recorded progress is never lowered: a percent higher than the one
@@ -261,6 +273,7 @@ export function importSchedule(project: DdProject, rows: readonly ScheduleImport
     }
     if (row.percent !== undefined && row.percent > milestone.percent) {
       setMilestonePercent(project, milestone.id, row.percent, actor, at);
+      completedPerSchedule(milestone, row, at);
       moved = true;
     }
     if (!moved) {
@@ -276,6 +289,7 @@ export function importSchedule(project: DdProject, rows: readonly ScheduleImport
     const row = fresh[i]!;
     if (row.plannedStart) milestone.plannedStart = row.plannedStart;
     if (row.percent) setMilestonePercent(project, milestone.id, row.percent, actor, at);
+    completedPerSchedule(milestone, row, at);
   });
   if (updated) recordAuditEvent(project, { actor, action: 'import_schedule', entityType: 'milestone', entityId: project.id, newValue: `${updated} milestone${updated === 1 ? '' : 's'} updated` });
   return { added: added.length, updated, unchanged };
@@ -292,7 +306,10 @@ export interface MilestoneWatch {
   id: string;
   name: string;
   percent: number;
+  /** The planned finish, as extensions of time granted have moved it. */
   plannedFinish?: string;
+  /** Days of extension granted that moved it, when any did. */
+  extensionDays?: number;
   /** Days from today to the planned finish; below zero once it has passed. */
   daysToFinish?: number;
   /** Where a straight line from planned start to planned finish puts it today. Only with both dates. */
@@ -342,12 +359,13 @@ export function projectedFinish(readings: ReadonlyArray<{ on: string; percent: n
 }
 
 /** One milestone against its dates, on the day given. */
-export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: Milestone, now: Date): MilestoneWatch {
+export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: Milestone, now: Date, extensions?: MilestoneExtensions): MilestoneWatch {
   const today = now.toISOString().slice(0, 10);
   const { id, name, percent } = milestone;
-  const plannedFinish = milestone.plannedFinish?.slice(0, 10);
+  const plannedFinish = extensions ? plannedFinishAfterExtensions(milestone, extensions) : milestone.plannedFinish?.slice(0, 10);
   const plannedStart = milestone.plannedStart?.slice(0, 10);
-  const out: MilestoneWatch = { id, name, percent, ...(plannedFinish ? { plannedFinish } : {}) };
+  const moved = extensions?.days.get(id);
+  const out: MilestoneWatch = { id, name, percent, ...(plannedFinish ? { plannedFinish } : {}), ...(moved ? { extensionDays: moved } : {}) };
   if (plannedFinish) out.daysToFinish = daysFrom(today, plannedFinish);
   if (plannedFinish && plannedStart && plannedStart <= plannedFinish) {
     const span = daysFrom(plannedStart, plannedFinish);
@@ -379,8 +397,14 @@ export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: M
 
 export interface ScheduleWatch {
   milestones: MilestoneWatch[];
-  /** The latest planned finish among the milestones. */
+  /** The latest planned finish among the milestones, as extensions of time granted have moved it. */
   plannedCompletion?: string;
+  /** The latest planned finish before any extension, where extensions moved it. */
+  completionBeforeExtensions?: string;
+  /** How many days the extensions granted moved planned completion by. */
+  extensionDays?: number;
+  /** Days granted on contracts whose packages serve no milestone, which therefore move nothing here. */
+  extensionUnplaced?: number;
   /** Where the readings so far put the last milestone's finish, at the current rate. Only when some milestone has a rate. */
   projectedCompletion?: string;
   /** How many days after planned completion that is, when it is after. */
@@ -392,13 +416,19 @@ export interface ScheduleWatch {
 }
 
 /** The whole schedule on the day given: each milestone, and when the work as a whole finishes. */
-export function scheduleWatch(project: Pick<DdProject, 'milestones' | 'siteLog'>, now: Date): ScheduleWatch {
+export function scheduleWatch(project: Pick<DdProject, 'milestones' | 'siteLog'> & Partial<Pick<DdProject, 'fieldSheets' | 'cost'>>, now: Date): ScheduleWatch {
   const today = now.toISOString().slice(0, 10);
-  const milestones = (project.milestones ?? []).map((m) => milestoneWatch(project, m, now));
+  const extensions = milestoneExtensions(project);
+  const milestones = (project.milestones ?? []).map((m) => milestoneWatch(project, m, now, extensions));
   const plannedCompletion = milestones.map((m) => m.plannedFinish).filter((day): day is string => Boolean(day)).sort().at(-1);
+  const before = (project.milestones ?? []).map((m) => m.plannedFinish?.slice(0, 10)).filter((day): day is string => Boolean(day)).sort().at(-1);
   const open = milestones.filter((m) => m.percent < 100);
-  const out: ScheduleWatch = { milestones, ...(plannedCompletion ? { plannedCompletion } : {}), extensionLikely: false };
+  const out: ScheduleWatch = { milestones, ...(plannedCompletion ? { plannedCompletion } : {}), extensionLikely: false, ...(extensions.unplaced ? { extensionUnplaced: extensions.unplaced } : {}) };
   if (!plannedCompletion) return out;
+  if (before && before < plannedCompletion) {
+    out.completionBeforeExtensions = before;
+    out.extensionDays = daysFrom(before, plannedCompletion);
+  }
 
   if (open.some((m) => m.projectedFinish)) {
     // A milestone with no rate is taken at its planned date, or at today once that has passed.
@@ -410,6 +440,7 @@ export function scheduleWatch(project: Pick<DdProject, 'milestones' | 'siteLog'>
   out.extensionLikely = Boolean(out.projectedDaysLate) || overrun;
   out.say = [
     `Planned completion ${plannedCompletion}.`,
+    out.extensionDays ? `Extensions of time granted moved it ${days(out.extensionDays)} from ${out.completionBeforeExtensions}.` : '',
     out.projectedDaysLate ? `At the current rate, about ${days(out.projectedDaysLate)} later.` : '',
     overrun ? 'That date has passed with work unfinished.' : '',
   ]

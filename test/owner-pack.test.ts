@@ -155,7 +155,7 @@ describe('an owner pack of a project with nothing on it', () => {
         [undefined, 0, 'Nothing on the record needs a decision from the owner.'],
         ['Decided', 0, "No meeting's notes are kept for September 2026."],
         ['Who owes what', 0, "No meeting's notes are kept for September 2026."],
-        [undefined, 0, 'No checklist is loaded, and the checks on the file expect no documents.'],
+        [undefined, 0, 'No list of papers is loaded, and the checks on the file expect no documents.'],
       ],
     );
     // Nothing disappears: a part with no lines always has its one line to say so.
@@ -444,13 +444,13 @@ describe('the papers owed, in an owner pack', () => {
         [
           'Northgate Builders · 3',
           [
-            ['Pour cards (Construction · Civil): not asked.', 'the checklist of Engineering'],
-            ['Cube test results: not asked.', 'the checklist of Engineering'],
-            ['Bank guarantee: not asked.', 'the checklist of Finance'],
+            ['Pour cards (Construction · Civil): not asked.', 'Papers owed, Engineering'],
+            ['Cube test results: not asked.', 'Papers owed, Engineering'],
+            ['Bank guarantee: not asked.', 'Papers owed, Finance'],
           ],
         ],
-        ['Lift vendor · 1', [['Lift shop drawings: asked for, due 6 Oct 2026 (overdue).', 'the checklist of Engineering']]],
-        ['Nobody named · 1', [['Temporary power sanction: not asked.', 'the checklist of Engineering']]],
+        ['Lift vendor · 1', [['Lift shop drawings: asked for, due 6 Oct 2026 (overdue).', 'Papers owed, Engineering']]],
+        ['Nobody named · 1', [['Temporary power sanction: not asked.', 'Papers owed, Engineering']]],
       ],
     );
   });
@@ -465,7 +465,7 @@ describe('the papers owed, in an owner pack', () => {
     assert.ok(sheet.total > OWNER_PACK_PAPERS_SHOWN + 1, 'the checks expect more papers than a party lists');
     assert.deepEqual(parts.map((part) => part.heading), ['The developer · 1', `Nobody named · ${sheet.total - 1}`]);
     assert.deepEqual(said(parts[0]!), [`${first.title}: asked for, due 1 Nov 2026.`]);
-    assert.match(parts[0]!.lines[0]!.source, /^the requirement sheet, expected by the check “/);
+    assert.match(parts[0]!.lines[0]!.source, /^Papers owed, expected by the check “/);
     assert.deepEqual([parts[1]!.lines.length, parts[1]!.note], [OWNER_PACK_PAPERS_SHOWN, `And ${sheet.total - 1 - OWNER_PACK_PAPERS_SHOWN} more.`]);
   });
 
@@ -473,7 +473,7 @@ describe('the papers owed, in an owner pack', () => {
     const p = project();
     addChecklistItems(p, 'legal', [{ title: 'Sale deed', owedBy: 'The owner' }], LEAD);
     p.checklist![0]!.received = { at: '2026-09-03T00:00:00.000Z', by: LEAD };
-    assert.deepEqual(partsOf(ownerPack(p, SEPTEMBER, NOW), 'papers'), [{ lines: [], empty: 'Every paper on the checklist and the requirement sheet is in hand.' }]);
+    assert.deepEqual(partsOf(ownerPack(p, SEPTEMBER, NOW), 'papers'), [{ lines: [], empty: 'Every paper owed is in hand.' }]);
   });
 });
 

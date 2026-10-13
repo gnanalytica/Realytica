@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Sparkles } from 'lucide-react';
 import { acceptedOneAtATime, factReview, paperCarries, type DocumentFact, type FactReview as Review } from '@realytica/shared';
 import { cn } from '../ui/kit';
+import { readingSaid } from '../../lib/format';
 import { AcceptAllButton, DecideButtons, DecidedMark } from '../review/Decide';
 import { OtherReading, useTyped } from './FactRow';
 import { pointsAt, type SeenAt } from './pointed';
@@ -67,7 +68,8 @@ function ReviewRow({
   onEditDone: () => void;
 }) {
   const delay = index * 170;
-  const value = useTyped(fact.display, delay + 120, revealing);
+  const said = readingSaid(fact.display);
+  const value = useTyped(said, delay + 120, revealing);
   const [draft, setDraft] = useState(fact.display);
   const input = useRef<HTMLInputElement>(null);
   const seenAt = useRef<SeenAt | null>(null);
@@ -152,21 +154,21 @@ function ReviewRow({
             className={cn(
               'min-h-[1.25em] break-words text-[14px] font-medium leading-snug',
               state === 'rejected' ? 'text-ink-muted line-through' : 'text-ink',
-              fact.display.length < 40 && 'font-mono text-[13px]',
+              said.length < 40 && 'font-mono text-[13px]',
             )}
           >
             {value}
-            {value.length < fact.display.length ? <span className="ml-px inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-provenance" aria-hidden /> : null}
+            {value.length < said.length ? <span className="ml-px inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-provenance" aria-hidden /> : null}
           </p>
         )}
         {onFile ? (
           <p className="text-micro text-ink-muted">
-            On file now: <span className="font-mono">{onFile.display}</span> — accepting this replaces it
+            On file now: <span className="font-mono">{readingSaid(onFile.display)}</span> — accepting this replaces it
           </p>
         ) : null}
         {fact.edited && fact.readAs ? (
           <p className="text-micro text-ink-muted">
-            Corrected · the page reads <span className="font-mono">{fact.readAs.display}</span>
+            Corrected · the page reads <span className="font-mono">{readingSaid(fact.readAs.display)}</span>
           </p>
         ) : null}
         {fact.originalValue ? (

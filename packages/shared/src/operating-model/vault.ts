@@ -9,6 +9,7 @@
  */
 
 import type { DdProject, EvidenceRecord } from './types';
+import { readDocumentTypes } from './document-parse';
 import { DEPARTMENT_SHORT, FUNCTION_SHORT, functionKey, withDepartment, workstreamOfCheck, workstreamDefinition } from './departments';
 import { allChecks } from './engagements';
 import { recordAuditEvent } from './operations';
@@ -45,7 +46,9 @@ const MODEL_KIND_TYPE: Readonly<Record<string, string>> = {
 
 /** The register's label for a kind the model read, if the register knows it. */
 export function documentTypeOfKind(kind: string | undefined): string | undefined {
-  return kind ? MODEL_KIND_TYPE[kind] : undefined;
+  if (!kind) return undefined;
+  // Or the rules' own name for a kind of paper, which a reader told the papers' names gives: a bank guarantee, a demand letter.
+  return MODEL_KIND_TYPE[kind] ?? readDocumentTypes().find(({ type }) => type === kind)?.label;
 }
 
 /** What each kind of document the reader recognises belongs to. */
@@ -75,6 +78,29 @@ export const DOCUMENT_WORKSTREAM: Readonly<Record<string, string>> = {
   'Valuation report': 'finance.valuation',
   'Progress certificate': 'construction.progress',
   'TDS certificate': 'finance.tax',
+  'Loan sanction letter': 'finance.lenders',
+  'Independent engineer report': 'finance.lenders',
+  'Bank statement': 'finance.funding',
+  'RERA withdrawal certificate': 'finance.funding',
+  'Revised plan sanction': 'legal.approvals',
+  'Power of attorney': 'legal.contracts',
+  'Disbursement advice': 'finance.lenders',
+  'Bank guarantee': 'procurement.vendors',
+  'Work order': 'procurement.orders',
+  'Running account bill': 'procurement.orders',
+  'Variation claim': 'procurement.orders',
+  'Extension of time claim': 'procurement.orders',
+  Bid: 'procurement.boq',
+  'Allotment letter': 'commercial.inventory',
+  'Agreement for sale': 'commercial.inventory',
+  'Demand letter': 'commercial.buyers',
+  'Payment receipt': 'commercial.buyers',
+  'Stage completion certificate': 'commercial.buyers',
+  'Cancellation letter': 'commercial.buyers',
+  'Price sheet': 'commercial.market',
+  'Brokerage invoice': 'commercial.inventory',
+  'RERA agent registration certificate': 'commercial.inventory',
+  'Empanelment letter': 'commercial.inventory',
 };
 
 /** The workstream a document belongs to, or undefined while nothing says. */

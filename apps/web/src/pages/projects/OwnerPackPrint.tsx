@@ -17,6 +17,8 @@ import { cockpitPath, isQuarter, meetingDay, ownerPack, ownerPackPeriod, ownerPa
 import { api, type ReportDayShown } from '../../lib/api';
 import { useMe } from '../../lib/useMe';
 import { useAsync } from '../../lib/useAsync';
+import { ReportFootnotes } from '../../components/report/ReportFieldBlock';
+import { ReportTableView } from '../../components/report/ReportTableView';
 import { Spinner } from '../../components/ui/kit';
 
 function Line({ line }: { line: OwnerPackLine }) {
@@ -182,6 +184,15 @@ export default function OwnerPackPrint() {
             {section.parts.map((part, n) => (
               <Part key={part.heading ?? n} part={part} />
             ))}
+            {/* What the functions' own fields record of this section, each value with where it stands and where it came from. */}
+            {section.fields?.table ? (
+              <div className="mt-3 break-inside-avoid">
+                <h3 className="break-after-avoid text-[12px] font-semibold uppercase tracking-[0.08em] text-black/60">As the fields record it</h3>
+                <ReportTableView table={section.fields.table} print />
+                {section.fields.note ? <p className="mt-1 text-[11px] text-black/60">{section.fields.note}</p> : null}
+                <ReportFootnotes footnotes={section.fields.footnotes} print />
+              </div>
+            ) : null}
           </section>
         ))}
       </article>

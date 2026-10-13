@@ -35,10 +35,11 @@ import { meetingCalled, meetingDay, meetingItemStands, meetingsHeld } from './me
 import { progressReadings, scheduleWatch, type MilestoneWatch, type ScheduleLevel } from './milestone-schedule';
 import { progressSummary } from './progress';
 import { quarterOfKey } from './quarters';
+import { ownerPackFields } from './report-fields';
 import { requirementSheet } from './requirement-sheet';
 import { recordBehind, statusPeriodSaid, type StatusPeriod } from './status-report';
 import { sameEmail } from './tenancy';
-import type { DdProject } from './types';
+import type { DdProject, ResolvedReportBlock } from './types';
 
 export type OwnerPackSectionKey = 'standing' | 'time' | 'cost' | 'decisions' | 'meetings' | 'papers';
 
@@ -68,6 +69,12 @@ export interface OwnerPackSection {
   key: OwnerPackSectionKey;
   title: string;
   parts: OwnerPackPart[];
+  /**
+   * What the functions' own fields record of this section, each value with
+   * where it stands and where it came from (`ownerPackFields`). Absent where
+   * the project keeps none of them.
+   */
+  fields?: ResolvedReportBlock;
 }
 
 export interface OwnerPack {
@@ -362,7 +369,7 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
         what: `${line.item.title}${where ? ` (${where})` : ''}: ${line.status === 'requested' ? asked(line.dueAt, line.overdue) : 'not asked'}.`,
         ...(line.dueAt ? { when: line.dueAt.slice(0, 10) } : {}),
         ...(line.overdue ? { overdue: true } : {}),
-        source: `the checklist of ${DEPARTMENT_SHORT[line.item.department]}`,
+        source: `Papers owed, ${DEPARTMENT_SHORT[line.item.department]}`,
         recordId: line.item.id,
       });
     }
@@ -374,12 +381,12 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
       what: `${item.title}: ${item.status === 'requested' ? asked(item.dueAt, item.overdue) : 'not asked'}.`,
       ...(item.dueAt ? { when: item.dueAt.slice(0, 10) } : {}),
       ...(item.overdue ? { overdue: true } : {}),
-      source: `the requirement sheet${item.checks[0] ? `, expected by the check ${titled(item.checks[0].title)}` : ''}`,
+      source: `Papers owed${item.checks[0] ? `, expected by the check ${titled(item.checks[0].title)}` : ''}`,
       ...(item.evidenceId ? { recordId: item.evidenceId } : {}),
     });
   }
   const groups = [...parties.values()].sort((a, b) => Number(!a.owedBy) - Number(!b.owedBy) || b.lines.length - a.lines.length);
-  const nothingOwed = checklist.total + sheet.total ? 'Every paper on the checklist and the requirement sheet is in hand.' : 'No checklist is loaded, and the checks on the file expect no documents.';
+  const nothingOwed = checklist.total + sheet.total ? 'Every paper owed is in hand.' : 'No list of papers is loaded, and the checks on the file expect no documents.';
   const papers: OwnerPackPart[] = groups.length
     ? groups.map((party) => {
         const first = [...party.lines].sort((a, b) => Number(!a.overdue) - Number(!b.overdue));
@@ -393,14 +400,16 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
       })
     : [{ lines: [], empty: nothingOwed }];
 
+  const timeFields = ownerPackFields(project, 'time', now);
+  const costFields = ownerPackFields(project, 'cost', now);
   return {
     period,
     periodSaid,
     asOf: today,
     sections: [
       { key: 'standing', title: 'Where the project stands', parts: [{ lines: standing, empty: '' }] },
-      { key: 'time', title: 'Time', parts: time },
-      { key: 'cost', title: 'Cost', parts: cost },
+      { key: 'time', title: 'Time', parts: time, ...(timeFields ? { fields: timeFields } : {}) },
+      { key: 'cost', title: 'Cost', parts: cost, ...(costFields ? { fields: costFields } : {}) },
       { key: 'decisions', title: 'Decisions needed from the owner', parts: [{ lines: decisions, empty: 'Nothing on the record needs a decision from the owner.' }] },
       { key: 'meetings', title: 'Decided in the period, and who owes what', parts: meetings },
       { key: 'papers', title: 'Papers owed', parts: papers },

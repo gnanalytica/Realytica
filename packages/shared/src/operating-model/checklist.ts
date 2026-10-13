@@ -106,7 +106,7 @@ function itemsOf(project: DdProject): ChecklistItem[] {
 
 function findItem(project: DdProject, itemId: string): ChecklistItem {
   const found = (project.checklist ?? []).find((i) => i.id === itemId);
-  if (!found) throw new Error('That line is not on the checklist.');
+  if (!found) throw new Error('That line is not on the list.');
   return found;
 }
 
@@ -425,7 +425,7 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
     });
   }
   // Counted before any line is put on the list: a list that does not fit leaves the project as it was.
-  if (items.length + added.length > CHECKLIST_LIMITS.items) throw new Error(`A checklist holds ${CHECKLIST_LIMITS.items} lines at most.`);
+  if (items.length + added.length > CHECKLIST_LIMITS.items) throw new Error(`The list holds ${CHECKLIST_LIMITS.items} lines at most.`);
   items.push(...added);
   if (added.length) audit(project, actor, 'checklist_added', added[0]!.id, added.length === 1 ? added[0]!.title : `${added.length} lines`);
   return { added, skipped };
@@ -434,7 +434,7 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
 export function addChecklistItem(project: DdProject, department: DepartmentKey, draft: ChecklistDraft, actor: string): ChecklistItem {
   if (!clean(draft.title, CHECKLIST_LIMITS.title)) throw new Error('Name the paper.');
   const { added } = addChecklistItems(project, department, [draft], actor);
-  if (!added[0]) throw new Error('That is already on the checklist.');
+  if (!added[0]) throw new Error('That is already on the list.');
   return added[0];
 }
 
@@ -454,7 +454,7 @@ export function patchChecklistItem(project: DdProject, itemId: string, patch: Ch
   if (patch.note !== undefined) next.note = clean(patch.note, CHECKLIST_LIMITS.note);
   const key = lineKey(next);
   if ((project.checklist ?? []).some((i) => i.id !== item.id && i.department === item.department && lineKey(i) === key)) {
-    throw new Error('That is already on the checklist.');
+    throw new Error('That is already on the list.');
   }
   Object.assign(item, next, { updatedAt: nowIso() });
   audit(project, actor, 'checklist_updated', item.id, item.title, before === item.title ? undefined : before);

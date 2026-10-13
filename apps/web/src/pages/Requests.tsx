@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { requestStanding } from '@realytica/shared';
 import { Plus } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
@@ -12,6 +13,8 @@ import { ToSortCard } from '../components/project/RequestOutside';
  * The morning list: who owes what, since when, and what is overdue. A request
  * is made on a project and answers itself when its document is filed.
  */
+const replied = (row: { request: Parameters<typeof requestStanding>[0] }): boolean => requestStanding(row.request) === 'replied';
+
 export default function Requests() {
   const { data, error, loading, refresh } = useAsync(() => api.portfolio(), []);
   const [creating, setCreating] = useState(false);
@@ -19,8 +22,10 @@ export default function Requests() {
   const groups = useMemo(() => {
     const rows = data?.requests ?? [];
     return {
-      overdue: rows.filter((r) => r.request.status === 'sent' && r.overdue),
-      open: rows.filter((r) => r.request.status === 'sent' && !r.overdue).sort((a, b) => b.ageDays - a.ageDays),
+      // Answered and waiting for a person here: no longer waiting on them, so neither overdue nor open.
+      toConfirm: rows.filter((r) => r.request.status === 'sent' && replied(r)),
+      overdue: rows.filter((r) => r.request.status === 'sent' && r.overdue && !replied(r)),
+      open: rows.filter((r) => r.request.status === 'sent' && !r.overdue && !replied(r)).sort((a, b) => b.ageDays - a.ageDays),
       drafts: rows.filter((r) => r.request.status === 'draft'),
       closed: rows.filter((r) => r.request.status === 'answered' || r.request.status === 'cancelled').slice(0, 20),
     };
@@ -33,7 +38,7 @@ export default function Requests() {
       <PageHeader
         eyebrow="Workspace"
         title="Requests"
-        subtitle="What the firm is waiting on from others, across every engagement"
+        subtitle="What the firm has asked others for, across every project"
         actions={
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => setCreating(true)} disabled={projects.length === 0}>
             New request
@@ -46,6 +51,16 @@ export default function Requests() {
 
       {data ? (
         <>
+          {/* What waits for a person here comes first: a reply to confirm, then mail nobody could place. */}
+          {groups.toConfirm.length ? (
+            <Card>
+              <CardHeader title="To confirm" subtitle={`${groups.toConfirm.length} answered, to confirm`} />
+              <CardBody>
+                <RequestList rows={groups.toConfirm} onChanged={refresh} showProject />
+              </CardBody>
+            </Card>
+          ) : null}
+          <ToSortCard projects={projects} requests={data.requests} onFiled={refresh} />
           {groups.overdue.length ? (
             <Card className="ring-2 ring-critical/30">
               <CardHeader title="Overdue" subtitle={`${groups.overdue.length} past their due date`} />
@@ -55,13 +70,13 @@ export default function Requests() {
             </Card>
           ) : null}
           <Card>
-            <CardHeader title="Waiting on others" subtitle={`${groups.open.length} open, oldest first`} />
+            <CardHeader title="Asked for" subtitle={`${groups.open.length} waiting on others, oldest first`} />
             <CardBody>
               <RequestList
                 rows={groups.open}
                 onChanged={refresh}
                 showProject
-                empty="Nothing outstanding. Record a request when you ask someone for a document or an answer."
+                empty="Nothing is waiting on others. Ask for a paper from a department’s Documents, or with New request."
               />
             </CardBody>
           </Card>
@@ -73,7 +88,6 @@ export default function Requests() {
               </CardBody>
             </Card>
           ) : null}
-          <ToSortCard projects={projects} requests={data.requests} onFiled={refresh} />
           {groups.closed.length ? (
             <Card>
               <CardHeader title="Closed recently" />

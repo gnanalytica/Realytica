@@ -28,9 +28,15 @@
  */
 
 import { alertsOfCopy } from './alerts';
+import { scopesOfWorkstreams, workstreamDefinition } from './departments';
+import { fieldCatalog, sharedSetsOf } from './field-registry';
+import { CUSTOMER_SETS } from './field-sets/sales-marketing';
+import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
+import { fieldReportsOfCopy } from './report-fields';
 import { reportsOfCopy } from './status-report';
 import type {
+  CheckFieldValue,
   ActionRecord,
   DdAssessment,
   DdProject,
@@ -90,6 +96,45 @@ export function fullView(project: DdProject): ProjectView {
   for (const a of project.assessments) for (const s of a.scopes) for (const c of s.checks) writable.add(c.id);
   return { project, complete: true, withheld: [], writableCheckIds: writable };
 }
+
+/** The functions whose sheets hold what an area of the grant hands over: the budget's figures and the valuation's. A scope alone does not open them. */
+const FUNCTION_AREA: Readonly<Record<string, GrantArea>> = {
+  'finance.budget': 'commercials',
+  'finance.valuation': 'valuation',
+};
+
+/**
+ * Whether a grant reaches a function's sheets: it names one of the scopes the
+ * function's checks sit in, and passes the gate the rest of the copy is cut
+ * by. A function with no checks is reached by no grant.
+ *
+ * Procurement's sheets hold the bids, the earnest money, the orders and the
+ * vendors: they go only to a grant that names Procurement, as the tenders do.
+ * Budget's and Valuation's sheets go only with the area that hands over the
+ * cost register and the valuation runs. This one test cuts the sheets, the
+ * records, a department's additions to a shared record, a report's field
+ * sections, the graph's field nodes and the write routes, so none of them
+ * opens what another keeps shut.
+ */
+export function fieldFunctionsInReach(grant: Pick<ProjectGrant, 'allScopes' | 'scopeKeys' | 'areas'>): (fn: string) => boolean {
+  return (fn) => {
+    const scopes = scopesOfWorkstreams([fn]);
+    if (!scopes.length || !(grant.allScopes || scopes.some((scope) => (grant.scopeKeys as string[]).includes(scope)))) return false;
+    if (workstreamDefinition(fn)?.department === 'procurement') return grantNamesProcurement(grant);
+    const area = FUNCTION_AREA[fn];
+    return !area || grant.areas.includes(area);
+  };
+}
+
+/**
+ * The links that name a buyer from outside the buyers' own sets: the buyer a
+ * tax deduction is for and the buyer a ledger is kept on. A party one of them
+ * names is a buyer, whether or not anybody marked the record a customer.
+ */
+const BUYER_LINKS: ReadonlyArray<{ set: string; field: string }> = [
+  { set: 'finance.tax.buyer_tds', field: 'buyer' },
+  { set: 'finance.ledgers.customer_ledgers', field: 'buyer' },
+];
 
 export function projectView(project: DdProject, access: ProjectAccess): ProjectView {
   if (access.kind === 'full') return fullView(project);
@@ -175,6 +220,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const valuationRuns = area('valuation') ? project.valuationRuns : [];
   if (!area('valuation')) withheld.push('valuation');
 
+  // What a report's sections say of fields is cut further down, once it is known which party records this copy is not handed.
   const reports = area('reports') ? reportsOfCopy(project.reports) : [];
   if (project.reports.length > 0 && !area('reports')) withheld.push('reports');
 
@@ -265,6 +311,120 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     // So does the last instruction somebody gave the chat, and only staff can take it back.
     lastUndo: undefined,
   };
+
+  /*
+   * A function's sheets go with the scopes the grant names: the sheets of a
+   * function are handed over where one of the scopes its checks sit in is.
+   * A shared record goes only where a function in reach links to it. A value
+   * keeps its citation only where the paper it cites is on this copy.
+   */
+  const inReach = fieldFunctionsInReach(grant);
+  const catalog = fieldCatalog();
+  const sharedInReach = new Set([...catalog.sheets.keys()].filter(inReach).flatMap((fn) => sharedSetsOf(fn, catalog).map((set) => set.id)));
+  const uncited = (value: CheckFieldValue): CheckFieldValue => {
+    const cited = value.origin?.kind === 'paper' ? value.origin.evidenceId : value.sourceEvidenceId;
+    const other = value.other?.filter((o) => o.origin.kind !== 'paper' || evidenceIds.has(o.origin.evidenceId));
+    const kept = other ? { ...value, other } : value;
+    if (!cited || evidenceIds.has(cited)) return kept;
+    const { origin: _origin, sourceEvidenceId: _source, page: _page, quote: _quote, ...rest } = kept;
+    return rest;
+  };
+  const copied = (values: Record<string, CheckFieldValue>) => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, uncited(value)]));
+  const buyerNames: string[] = [];
+  // What a function out of reach added to a record, by the record's set: its own fields and those of its depth sheets, which are kept on the same record.
+  const added = new Map<string, Set<string>>();
+  for (const [id, set] of catalog.sets) {
+    for (const def of set.fields) {
+      if (!def.addedBy || inReach(def.addedBy)) continue;
+      added.set(id, (added.get(id) ?? new Set<string>()).add(def.key));
+    }
+  }
+  if (project.fieldSheets) {
+    /*
+     * A buyer is never an outside collaborator's to see. The sets that hold
+     * buyers are kept back whatever the grant names, and so is every party
+     * record one of them links to, or that is marked a customer.
+     *
+     * What a department adds to a shared record goes only where that
+     * department's function is in reach: a unit's sale is Sales' own,
+     * whoever else may see the unit.
+     */
+    const buyers = new Set<string>();
+    for (const id of CUSTOMER_SETS) {
+      const defs = catalog.sets.get(id)?.fields ?? [];
+      for (const record of project.fieldSheets[id]?.records ?? []) {
+        for (const def of defs) {
+          const held = record.values[def.key]?.value;
+          if (def.kind === 'ref' && def.target === 'party' && typeof held === 'string') buyers.add(held);
+          for (const column of def.columns ?? []) {
+            if (column.kind !== 'ref' || column.target !== 'party' || !Array.isArray(held)) continue;
+            for (const row of held) if (typeof row === 'object' && row !== null && typeof row[column.key] === 'string') buyers.add(row[column.key] as string);
+          }
+        }
+      }
+    }
+    for (const link of BUYER_LINKS) {
+      for (const record of project.fieldSheets[link.set]?.records ?? []) {
+        const held = record.values[link.field]?.value;
+        if (typeof held === 'string') buyers.add(held);
+      }
+    }
+    const isBuyer = (record:{ id: string; values: Record<string, CheckFieldValue> }): boolean => {
+      const roles = record.values.roles?.value;
+      return buyers.has(record.id) || (Array.isArray(roles) && (roles as unknown[]).includes('customer'));
+    };
+    for (const record of project.fieldSheets[SHARED_RECORD_SETS.party]?.records ?? []) {
+      const name = record.values.name?.value;
+      if (isBuyer(record) && typeof name === 'string') buyerNames.push(name);
+    }
+    const without = (id: string,values: Record<string, CheckFieldValue>) => Object.fromEntries(Object.entries(values).filter(([key]) => !added.get(id)?.has(key)));
+
+    const kept = Object.entries(project.fieldSheets).filter(([id]) => {
+      const set = catalog.sets.get(id);
+      if (CUSTOMER_SETS.includes(id)) return false;
+      return set ? (set.fn === SHARED_FN ? sharedInReach.has(id) : inReach(set.fn)) : false;
+    });
+    view.fieldSheets = Object.fromEntries(
+      kept.map(([id, sheet]) => [
+        id,
+        {
+          ...sheet,
+          values: copied(without(id, sheet.values)),
+          ...(sheet.records ? { records: sheet.records.filter((record) => id !== SHARED_RECORD_SETS.party || !isBuyer(record)).map((record) => ({ ...record, values: copied(without(id, record.values)) })) } : {}),
+        },
+      ]),
+    );
+    if (kept.length < Object.keys(project.fieldSheets).length) withheld.push('assessments');
+    // Sheets kept back by a gate are named as what the gate keeps back, so a question about the bids or the budget is told they are withheld, never that there are none.
+    const holds = (test: (fn: string) => boolean): boolean => Object.keys(project.fieldSheets!).some((id) => test(catalog.sets.get(id)?.fn ?? ''));
+    if (!commercial && holds((fn) => FUNCTION_AREA[fn] === 'commercials')) withheld.push('commercials');
+    if (!tenders && holds((fn) => workstreamDefinition(fn)?.department === 'procurement')) withheld.push('procurement');
+  }
+  view.reports = fieldReportsOfCopy(reports, inReach, buyerNames);
+  if (project.situations) {
+    // A situation is said only where a function in reach answers to it, and never with the paper that suggested it where that paper is not here.
+    const told = new Set<string>();
+    for (const fn of catalog.sheets.keys()) if (inReach(fn)) for (const set of catalog.sheets.get(fn) ?? []) for (const situation of set.situations ?? []) told.add(situation.scope === 'function' ? `${fn}:${situation.key}` : situation.key);
+    view.situations = Object.fromEntries(
+      Object.entries(project.situations)
+        .filter(([key]) => told.has(key))
+        .map(([key, state]) => [key, state.suggestedBy && !evidenceIds.has(state.suggestedBy.evidenceId) ? { state: state.state, by: state.by, at: state.at } : state]),
+    );
+  }
+  if (project.fieldSnoozes) {
+    // A line put off is kept under its line's key, which opens with the set it is on, the record and the field.
+    // It goes only where that line can be drawn from this copy: a key alone says a withheld record is there and has a day coming.
+    const onCopy = new Set(assessments.flatMap((assessment) => assessment.scopes.flatMap((scope) => scope.checks.map((check) => check.definitionId))));
+    view.fieldSnoozes = Object.fromEntries(
+      Object.entries(project.fieldSnoozes).filter(([key]) => {
+        const [setId = '', recordId = '', field = ''] = key.split('::');
+        if (catalog.checks.has(setId)) return onCopy.has(setId);
+        const sheet = view.fieldSheets?.[setId];
+        if (!sheet || added.get(setId)?.has(field)) return false;
+        return !recordId || (sheet.records ?? []).some((record) => record.id === recordId);
+      }),
+    );
+  }
 
   // An alert is written from the whole file: an overdue action's says what the action is and the meeting it came from.
   // This copy keeps the alerts its own records raise, in its own words (`alertsOfCopy`), so none tells of what was taken out above.

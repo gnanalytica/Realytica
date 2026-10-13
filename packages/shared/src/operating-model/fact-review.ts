@@ -7,7 +7,9 @@
  * (`stands`). Whatever puts a value on a check card, counts it for a lender,
  * offers it to a valuation, dates an approval by it or says it in the chat as
  * on file reads a paper's values through `standingFacts`, or a reading not yet
- * on a row through `standingAsRead`. `liveFacts` is for a screen that shows
+ * on a row through `standingAsRead`. What is told as a fact with no further
+ * acceptance to come (an approval's date, a sentence in the chat) reads the
+ * narrower `acceptedStanding`. `liveFacts` is for a screen that shows
  * what waits, and labels it as waiting. A test reads the source and fails on
  * any other reader of a paper's values (`test/standing-readers.test.ts`).
  */
@@ -87,6 +89,34 @@ export function stands(fact: DocumentFact, row: Pick<EvidenceRecord, 'documentTy
 /** What a document states that something may rest on. See `stands`. */
 export function standingFacts(evidence: Paper): DocumentFact[] {
   return (evidence.facts ?? []).filter((f) => stands(f, evidence));
+}
+
+/**
+ * What a person has accepted on a document, and that may be shown as a fact
+ * or feed a figure: the date an approval is said to be issued on, what the
+ * chat says the land last changed hands for.
+ *
+ * Narrower than `standingFacts` on purpose. The rules' own sure reading of a
+ * clean page stands far enough to be offered to a check or a field, where a
+ * person accepts it. It does not stand far enough to be told as a fact with
+ * nobody having looked: for that a person has to have accepted it on its
+ * paper, or on a field or a check it was offered to (which accepts it on the
+ * paper too). A value on file from before decisions were kept came with a
+ * card a person approved, and counts.
+ */
+export function acceptedStanding(evidence: Paper): DocumentFact[] {
+  return standingFacts(evidence).filter((f) => factReview(f) === 'accepted');
+}
+
+/**
+ * Everything read on a document that nobody has decided and that would be a
+ * fact of it once accepted: a model's reading, an unsure one, one two readers
+ * differ on, and the rules' own sure reading alike. What a screen or an
+ * answer that tells only accepted facts says is waiting.
+ */
+export function unacceptedReadings(evidence: Paper): DocumentFact[] {
+  const carried = (key: string) => paperCarries(evidence.documentType, key) || (evidence.proposedDocumentType !== undefined && paperCarries(evidence.proposedDocumentType, key));
+  return proposedFacts(evidence).filter((f) => carried(f.key));
 }
 
 /**

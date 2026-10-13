@@ -20,15 +20,23 @@
  *   because a paragraph that reads like a register summary and silently
  *   stopped being one is the failure this whole design exists to avoid.
  *
+ * A live block reads the registers or the fields (`report-fields.ts`). One
+ * that reads fields prints each value with where it stands and a footnote
+ * saying where it came from, and detached it is frozen as it read that day:
+ * its values are not retyped. A person's own words are a note, capped, with
+ * their name and the day under it.
+ *
  * An issued report stops moving entirely and grows a "what changed since"
  * panel instead. That falls out of the freeze almost free and is the question
  * a person actually has three weeks after sending a pack.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMe } from '../../lib/useMe';
+import { FieldBlockDialog, ReportChartView, ReportFootnotes } from '../../components/report/ReportFieldBlock';
 import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
 import { TitleChainDiagram } from '../../components/charts';
-import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, Trash2 } from 'lucide-react';
+import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, SlidersHorizontal, Trash2 } from 'lucide-react';
 import {
   engagementForReport,
   REPORT_BOUND_SOURCES,
@@ -36,11 +44,13 @@ import {
   REPORT_SECTION_STATE_LABEL,
   REPORT_SOURCE_LABEL,
   REPORT_SOURCE_READS,
+  isFieldSource,
+  isFrozenFieldBlock,
   isLiveBlock,
   isStatusSource,
   readReportBlock,
   reportIsFrozen,
-  reportSummaryLine,
+  reportNoteCap,
   titleGraphFromProject,
   type DdProject,
   type GeneratedReport,
@@ -51,7 +61,10 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { exportReportDocx } from '../../lib/report-export';
-import { Badge, Button, Callout, Field, InfoTip, Input, Modal, Select, SubmitButton, cn, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Field, INTERACTIVE, InfoTip, Input, Modal, Select, SubmitButton, cn, useToast } from '../../components/ui/kit';
+import { daySaid } from '@realytica/shared';
+import { reportSummary } from '../../lib/report-summary';
+import { countSaid } from '@realytica/shared';
 
 interface Props {
   project: DdProject;
@@ -62,11 +75,14 @@ interface Props {
 }
 
 export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props) {
+  // Somebody working from a grant edits a report within their reach, and neither freezes a section nor issues it: those are the firm's.
+  const outside = useMe()?.role === 'collaborator';
   const toast = useToast();
   const frozen = reportIsFrozen(report.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [drift, setDrift] = useState<ReportDriftRow[] | null>(null);
   const [issuing, setIssuing] = useState(false);
+  const [addingFields, setAddingFields] = useState(false);
   const [signerName, setSignerName] = useState(engagementForReport(project, report.id)?.lead ?? '');
   const [signerRole, setSignerRole] = useState('');
   const approved = report.body.blocks.filter((b) => b.state === 'approved').length;
@@ -75,7 +91,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
   // The summary is recomputed on every render rather than read off the stored
   // report: it is the document's own reading of itself, and a stale one at the
   // top would undermine every live block below it.
-  const summary = frozen ? report.body.summary : reportSummaryLine(project);
+  const summary = reportSummary(project, report);
 
   useEffect(() => {
     if (!frozen) {
@@ -110,11 +126,11 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-hairline pb-3">
         <div className="min-w-0">
           <h2 className="text-[16px] font-semibold tracking-tight text-ink">{report.title}</h2>
-          <p className="mt-1 max-w-[70ch] text-[13px] text-ink-secondary">{summary}</p>
+          {summary ? <p className="mt-1 max-w-[70ch] text-[13px] text-ink-secondary">{summary}</p> : null}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
           <Badge tone={frozen ? 'neutral' : 'good'}>{frozen ? report.status : 'live'}</Badge>
-          <InfoTip label="Sections with a coloured rail read the registers and update as the project does. The rest are your words. Detaching a live section stops it updating, and the report says so." />
+          <InfoTip label="Sections with a coloured rail read the registers or the fields and update as the project does. The rest are your notes. Detaching a live section stops it updating, and the report says so." />
           <Button
             variant="ghost"
             icon={<FileDown size={13} />}
@@ -125,14 +141,18 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
           >
             Word
           </Button>
-          <Button
-            variant="ghost"
-            icon={<Printer size={13} />}
-            onClick={() => window.open(`/projects/${project.id}/reports/${report.id}/print`, '_blank', 'noopener')}
+          {/* A link, not a script that opens a window: a press always opens the print page, where a pop-up blocker would have eaten the window. */}
+          <a
+            href={`/projects/${project.id}/reports/${report.id}/print`}
+            target="_blank"
+            rel="noopener"
+            className={cn('inline-flex h-9 select-none items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11', INTERACTIVE)}
           >
-            PDF
-          </Button>
-          {!frozen ? (
+            <Printer size={13} aria-hidden />
+            Print or save as PDF
+          </a>
+          {/* Issuing a report is the firm's: somebody working from a grant is not shown a button the server refuses. */}
+          {!frozen && !outside ? (
             <Button variant="primary" icon={<Lock size={13} />} disabled={busy !== null} onClick={() => setIssuing(true)}>
               Issue
             </Button>
@@ -151,17 +171,17 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
         <p className="text-[12px] text-ink-secondary">
           Signed by <span className="font-medium text-ink">{report.signedBy}</span>
           {report.signedRole ? `, ${report.signedRole}` : ''}
-          {report.signedAt ? ` on ${new Date(report.signedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}.
+          {report.signedAt ? ` on ${daySaid(report.signedAt)}` : ''}.
         </p>
       ) : null}
 
       {frozen ? (
-        <Callout tone="neutral" title={`Issued ${new Date(report.signedAt ?? report.generatedAt).toLocaleDateString()}`}>
+        <Callout tone="neutral" title={`Issued ${daySaid(report.signedAt ?? report.generatedAt)}`}>
           This is the report as issued. It will not change.
           {drift === null ? null : drift.length === 0 ? (
             <> Nothing in the registers has moved since.</>
           ) : (
-            <> {drift.length} section(s) would read differently now:</>
+            <> {countSaid(drift.length, 'section')} would read differently now:</>
           )}
         </Callout>
       ) : null}
@@ -203,13 +223,36 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
       </div>
 
       {!frozen ? (
-        <Button
-          variant="ghost"
-          disabled={busy !== null}
-          onClick={() => void run('add', () => api.insertReportBlock(project.id, report.id, { heading: 'New section', text: '' }))}
-        >
-          <Plus size={13} /> Add a paragraph
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" disabled={busy !== null} onClick={() => setAddingFields(true)}>
+            <Plus size={13} /> Add fields
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={busy !== null}
+            onClick={() => void run('add', () => api.insertReportBlock(project.id, report.id, { heading: 'Note', text: '' }))}
+          >
+            <Plus size={13} /> Add a note
+          </Button>
+        </div>
+      ) : null}
+
+      {addingFields ? (
+        <FieldBlockDialog
+          open
+          busy={busy !== null}
+          onClose={() => setAddingFields(false)}
+          onDone={(source, heading) =>
+            void run(
+              'add',
+              async () => {
+                await api.insertReportBlock(project.id, report.id, { heading, source });
+                setAddingFields(false);
+              },
+              'Added. It reads the fields from now on.',
+            )
+          }
+        />
       ) : null}
 
       <Modal
@@ -281,7 +324,7 @@ function SectionState({
 }) {
   const current: ReportSectionState = block.state ?? 'drafted';
   const who = block.stateBy && block.state && block.state !== 'drafted'
-    ? `${REPORT_SECTION_STATE_LABEL[current]} by ${block.stateBy}${block.stateAt ? ` on ${new Date(block.stateAt).toLocaleDateString()}` : ''}`
+    ? `${REPORT_SECTION_STATE_LABEL[current]} by ${block.stateBy}${block.stateAt ? ` on ${daySaid(block.stateAt)}` : ''}`
     : undefined;
   if (frozen) {
     return (
@@ -331,7 +374,12 @@ interface RowProps {
 }
 
 function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRecord, onRun }: RowProps) {
+  const outside = useMe()?.role === 'collaborator';
   const live = isLiveBlock(block);
+  const reads = isFieldSource(block.source?.kind);
+  // A block detached from fields keeps its table as it stood, and is shown, not typed into.
+  const held = isFrozenFieldBlock(block);
+  const [choosing, setChoosing] = useState(false);
   const resolved = useMemo(() => readReportBlock(project, block, frozen), [project, block, frozen]);
   const titleGraph = useMemo(
     () => (live && block.source?.kind === 'title_chain' ? titleGraphFromProject(project) : null),
@@ -363,11 +411,11 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
           </span>
         ) : block.detachedAt ? (
           <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">
-            detached from {block.detachedFrom ? REPORT_SOURCE_LABEL[block.detachedFrom] : 'the registers'} on{' '}
-            {new Date(block.detachedAt).toLocaleDateString()} — no longer updates
+            {held ? 'frozen' : 'detached'} from {block.detachedFrom ? REPORT_SOURCE_LABEL[block.detachedFrom].toLowerCase() : 'the registers'} on{' '}
+            {daySaid(block.detachedAt)}, no longer updates
           </span>
         ) : (
-          <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">your words</span>
+          <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">a note</span>
         )}
         <SectionState
           block={block}
@@ -388,22 +436,22 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
                 <GripVertical size={13} className="rotate-90" />
               </IconBtn>
             ) : null}
-            {live ? (
+            {live && !outside ? (
               <IconBtn
-                title="Detach: keep what it says now and edit it. It stops updating."
+                title={reads ? 'Freeze: keep what the fields say today. It stops updating, and is marked with the day.' : 'Detach: keep what it says now and edit it. It stops updating.'}
                 disabled={busy}
-                onClick={() => onRun(() => api.detachReportBlock(project.id, report.id, block.id), 'Detached — this section is yours now')}
+                onClick={() => onRun(() => api.detachReportBlock(project.id, report.id, block.id), reads ? 'Frozen as it reads today' : 'Detached — this section is yours now')}
               >
                 <Link2Off size={13} />
               </IconBtn>
             ) : null}
             {block.detachedFrom ? (
               <IconBtn
-                title="Put it back on the registers. What you typed here is discarded."
+                title={held ? 'Put it back on the fields. It reads them as they are now.' : 'Put it back on the registers. What you typed here is discarded.'}
                 disabled={busy}
                 onClick={() => {
-                  if (!confirm('Reattach this section? What you typed here is discarded and it reads the registers again.')) return;
-                  onRun(() => api.reattachReportBlock(project.id, report.id, block.id), 'Reading the registers again');
+                  if (!confirm(held ? 'Put this section back on the fields? It will read them as they are now.' : 'Reattach this section? What you typed here is discarded and it reads the registers again.')) return;
+                  onRun(() => api.reattachReportBlock(project.id, report.id, block.id), held ? 'Reading the fields again' : 'Reading the registers again');
                 }}
               >
                 <Link2 size={13} />
@@ -427,6 +475,11 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
         <>
           {!frozen ? (
             <div className="mb-2 flex flex-wrap items-center gap-2">
+              {reads ? (
+                <Button variant="ghost" icon={<SlidersHorizontal size={13} />} disabled={busy} onClick={() => setChoosing(true)}>
+                  Choose fields
+                </Button>
+              ) : (
               <Select
                 aria-label="What this section reads"
                 className="!py-1 text-[12px]"
@@ -441,13 +494,15 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
                   )
                 }
               >
-                {REPORT_BOUND_SOURCES.map((kind) => (
+                {/* A section that reads fields is given its fields in the dialog, not by this list. */}
+                {REPORT_BOUND_SOURCES.filter((kind) => !isFieldSource(kind)).map((kind) => (
                   <option key={kind} value={kind}>
                     {REPORT_SOURCE_LABEL[kind]}
                   </option>
                 ))}
               </Select>
-              {isStatusSource(block.source!.kind) ? (
+              )}
+              {reads ? null : isStatusSource(block.source!.kind) ? (
                 // A status section has nothing to narrow. What it can be is plain: as code wrote it, with no model's wording over it.
                 block.wording?.length ? (
                   <label className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
@@ -487,7 +542,10 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
             </p>
           ) : resolved.table ? (
             <>
+              {resolved.chart ? <ReportChartView chart={resolved.chart} /> : null}
               <ReportTableView table={resolved.table} onOpenRecord={onOpenRecord} />
+              {reads && resolved.note ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null}
+              <ReportFootnotes footnotes={resolved.footnotes} />
               <ReportPhotos project={project} table={resolved.table} />
             </>
           ) : (
@@ -509,13 +567,48 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
                 })}
               </ul>
               {resolved.note ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null}
+              <ReportFootnotes footnotes={resolved.footnotes} />
             </>
           )}
+          {choosing ? (
+            <FieldBlockDialog
+              open
+              initial={block.source}
+              busy={busy}
+              onClose={() => setChoosing(false)}
+              onDone={(source) => {
+                setChoosing(false);
+                onRun(() => api.retuneReportBlock(project.id, report.id, block.id, source), 'Changed what it reads');
+              }}
+            />
+          ) : null}
+        </>
+      ) : held ? (
+        <>
+          {resolved.chart ? <ReportChartView chart={resolved.chart} /> : null}
+          {resolved.table ? (
+            <ReportTableView table={resolved.table} />
+          ) : (
+            <ul className="space-y-1">
+              {resolved.lines.map((line, i) => (
+                <li key={`${block.id}-${i}`} className="text-[13px] text-ink-secondary">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          )}
+          {resolved.note ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null}
+          <ReportFootnotes footnotes={resolved.footnotes} />
         </>
       ) : (
         <ProseField
           value={block.text ?? ''}
           disabled={frozen || busy}
+          // A note is capped; what the registers said the day a section was detached is as long as it was.
+          cap={block.detachedAt ? undefined : reportNoteCap(block)}
+          hint={block.hint}
+          by={block.detachedAt ? undefined : block.editedBy}
+          at={block.detachedAt ? undefined : block.editedAt}
           onCommit={(text) => {
             if (text === (block.text ?? '')) return;
             onRun(() => api.editReportBlock(project.id, report.id, block.id, { text }));
@@ -595,7 +688,26 @@ function HeadingField({ value, disabled, onCommit }: { value: string; disabled?:
   );
 }
 
-function ProseField({ value, disabled, onCommit }: { value: string; disabled?: boolean; onCommit: (v: string) => void }) {
+function ProseField({
+  value,
+  disabled,
+  cap,
+  hint,
+  by,
+  at,
+  onCommit,
+}: {
+  value: string;
+  disabled?: boolean;
+  /** The most characters the note may hold. */
+  cap?: number;
+  /** What the note is for, as the template that placed it says. */
+  hint?: string;
+  /** Who last wrote it, and when. */
+  by?: string;
+  at?: string;
+  onCommit: (v: string) => void;
+}) {
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useDraft(value, focused);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -610,20 +722,34 @@ function ProseField({ value, disabled, onCommit }: { value: string; disabled?: b
   }, [draft]);
 
   return (
-    <textarea
-      ref={ref}
-      value={draft}
-      disabled={disabled}
-      rows={1}
-      placeholder={disabled ? '' : 'Your words. Nothing regenerates this.'}
-      onChange={(e) => setDraft(e.target.value)}
-      onFocus={() => setFocused(true)}
-      onBlur={() => {
-        setFocused(false);
-        onCommit(draft);
-      }}
-      className="w-full resize-none rounded bg-transparent px-1 py-0.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-muted hover:bg-sunken focus:bg-sunken disabled:hover:bg-transparent"
-    />
+    <>
+      <textarea
+        ref={ref}
+        value={draft}
+        disabled={disabled}
+        rows={1}
+        maxLength={cap}
+        aria-label="Note"
+        placeholder={disabled ? '' : (hint ?? 'Your words. Nothing regenerates this.')}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          onCommit(draft);
+        }}
+        className="w-full resize-none rounded bg-transparent px-1 py-0.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-muted hover:bg-sunken focus:bg-sunken disabled:hover:bg-transparent"
+      />
+      {(by && value.trim()) || (cap && focused) ? (
+        <p className="mt-1 flex flex-wrap justify-between gap-x-3 px-1 text-[11px] text-ink-muted">
+          <span>{by && value.trim() ? `Written by ${by}${at ? ` on ${daySaid(at)}` : ''}` : ''}</span>
+          {cap && focused ? (
+            <span className="font-mono tabular-nums">
+              {draft.length.toLocaleString('en-IN')} of {cap.toLocaleString('en-IN')}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
+    </>
   );
 }
 

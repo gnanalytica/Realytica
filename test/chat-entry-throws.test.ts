@@ -156,7 +156,7 @@ describe('a throw in the chat’s rules', () => {
     const reply = await say(project, { question: 'Take these', sitting: { decision: 'accept', proposalIds: ['prop_a', 'prop_gone', 'prop_b'] }, sessionId: 'sit_part' });
     assert.equal(reply.error, undefined);
     const text = reply.result?.assistantTurn.text ?? '';
-    assert.equal(text, `Updated the project record. ${STAYS} 1 more is waiting: 1 on the documents.`, 'what was taken is told of, and the one that could not be stays waiting, with why');
+    assert.equal(text, `Updated the project record. ${STAYS} 1 more is waiting: 1 on the papers.`, 'what was taken is told of, and the one that could not be stays waiting, with why');
     assert.ok(reply.result?.commands?.includes('Accepted 2 suggestions'));
     assert.deepEqual([stands(project), project.landAreaSqm, project.builtUpAreaSqm], [['committed', 'proposed', 'committed'], 1300, 900]);
     // Saved with the reply that tells of it, so nothing is on the record that no turn says.

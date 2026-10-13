@@ -21,7 +21,7 @@ import {
   projectFor,
   viewFor,
 } from '../auth/access';
-import { actorOf as principalActor, reachesEveryProject } from '@realytica/shared';
+import { RECORD_AS_OFFERED, actorOf as principalActor, reachesEveryProject, readDocumentTypes } from '@realytica/shared';
 import multer from 'multer';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -76,8 +76,34 @@ import {
   recordCheckResult,
   refreshProjectDerived,
   checkFieldReading,
+  checkFieldsShown,
+  fieldCatalogFor,
+  snoozeNeed,
   findCheck,
   recordCheckFields,
+  SHARED_FN,
+  FieldRefused,
+  checkHolding,
+  acceptAllFromPaper,
+  addFieldRecord,
+  decideField,
+  departmentRole,
+  fieldFunctionsInReach,
+  fieldSourceInReach,
+  functionReportTemplate,
+  projectView,
+  reportTemplateInReach,
+  type GeneratedReport,
+  type ReportBoundSource,
+  fieldSet,
+  removeFieldRecord,
+  roleCanEdit,
+  setFieldValues,
+  setSectionNotApplicable,
+  setSituation,
+  type FieldValueDecision,
+  type FieldWriteOptions,
+  type NaReason,
   detachReportBlock,
   editReportBlock,
   insertReportBlock,
@@ -113,6 +139,8 @@ import {
   setAsideWaiting,
   assignOwner,
   applyProjectAgentTurn,
+  PHOTO_NOTE_MOST,
+  setPhotoNote,
   chatPlaceFrom,
   CHOICE_SENTENCE,
   NOTHING_ACCEPTED,
@@ -135,10 +163,7 @@ import {
   clearProjectConversation,
   renameChatSession,
   extractReadableExcerpt,
-  findingEvidenceBriefing,
-  projectRegisterBriefing,
   projectToIdentity,
-  renderProjectGuide,
   screenProject,
   acceptValueOffers,
   ensureValueChecks,
@@ -194,11 +219,8 @@ import {
   extractFactsFromProject,
   recallForProject,
   renderMemoryForPrompt,
-  basicChatModel,
-  resolveRoute,
   runProjectChat,
   runProjectOrchestratorAgent,
-  textOf,
 } from '@realytica/agents';
 import { readExifCapture } from '../exif';
 import { reviewCard } from '../proposal-review';
@@ -249,7 +271,6 @@ import { MEMORY_LINT_WAIT_MS, inTime, memoryAnswer, memoryContext, memoryUnder }
 import { readLint } from '../graph/mem/read';
 import { keepThought } from '../graph/mem/thought';
 import { CHAT_MESSAGE_AT_MOST, heldFile, meetingAsk, meetingTurn, meetingWords, readDroppedNotes } from '../meetings';
-import { wordStatusReport } from '../status-report';
 import { planTurnFor, runPlan, stopPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
 import { runPlanStep, type PlanSetting, type StepDone } from '../runs/plan-steps';
 import { planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
@@ -279,6 +300,13 @@ import {
   editReportBlockBodySchema,
   generateReportBodySchema,
   recordCheckFieldsBodySchema,
+  setFieldValuesBodySchema,
+  decideFieldBodySchema,
+  acceptPaperFieldsBodySchema,
+  fieldRecordBodySchema,
+  situationBodySchema,
+  sectionNaBodySchema,
+  snoozeNeedBodySchema,
   insertReportBlockBodySchema,
   moveReportBlockBodySchema,
   retuneReportBlockBodySchema,
@@ -580,7 +608,8 @@ projectsRouter.get('/:projectId/dashboard', (req, res) => {
     return;
   }
   refreshProjectDerived(project);
-  res.json(toDashboard(project));
+  // Counted on the caller's copy: how many checks an assessment has, and how many actions are open, are the whole file's to nobody working from a grant.
+  res.json(toDashboard(projectFor(req, project)));
 });
 
 projectsRouter.get('/:projectId/runs', async (req, res) => {
@@ -1080,51 +1109,6 @@ projectsRouter.patch('/:projectId/ai/drafts/:draftId', async (req, res) => {
     fail(res, err);
   }
 });
-
-function skipLlmForChat(result: ProjectChatResult): boolean {
-  if (result.commands.length > 0 || result.proposals.length > 0) return true;
-  const names = new Set(result.assistantTurn.toolCalls?.map((t) => t.name) ?? []);
-  return (
-    names.has('wizard')
-    || names.has('next_step')
-    || names.has('briefing')
-    || names.has('ingest')
-    || names.has('approve')
-    || names.has('start_dd')
-    || names.has('advise')
-    || names.has('apply')
-    || names.has('places')
-    || names.has('web_search')
-    || names.has('connectors')
-    || names.has('locality')
-    || names.has('capabilities')
-    || names.has('commit_draft')
-    || names.has('screen')
-    || names.has('orchestrate')
-    || names.has('project_copilot')
-    || names.has('critic')
-    || names.has(MEMORY_LINT)
-    || names.has(MEMORY_ANSWER)
-    // What was kept of a meeting's notes, and the meetings on the file: said from the record, with the marks that open the notes.
-    || names.has(MEETING_NOTES)
-    || names.has(MEETINGS_LISTED)
-    // A status report is written by code and said short: a model that reworded the reply could add to it.
-    || names.has(STATUS_REPORT)
-    /*
-     * Answers already exact: read off the documents with their pages, a
-     * question asked back, a pane opened. Rewriting them paid a model to lose
-     * the page references the answer was built from.
-     */
-    || names.has('answer_from_file')
-    // An instruction that took nothing: what waits, where, and the choices to press.
-    || names.has(NOTHING_ACCEPTED)
-    || names.has(NOTHING_SET_ASIDE)
-    || names.has(NOTHING_TO_READ)
-    || names.has('clarify')
-    || names.has('navigate')
-    || names.has('open_sitting')
-  );
-}
 
 function beginNdjson(res: import('express').Response): {
   line: (payload: unknown) => void;
@@ -1763,6 +1747,8 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
         place,
         history: canvas.conversation,
         memory: [unseen, memoryText, remembered ? memContextText(remembered) : ''].filter(Boolean).join('\n\n') || undefined,
+        // The lines by their marks: an answer picks marks, and code prints the lines.
+        remembered,
         sitting,
         graphRag: {
           kind: graphAdapter.kind,
@@ -1818,19 +1804,6 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
          * of those surfaces is a fix missing from the others.
          */
         agent.text = linkRecordIds(canvas, agent.text);
-        /*
-         * Which rung answered, said beside the answer: a free model's reply
-         * and the senior model's read the same, and while the ladder is being
-         * tried out a person should be able to tell them apart.
-         */
-        agent.toolCalls = [
-          ...agent.toolCalls,
-          agent.handedOverBecause
-            ? { name: 'senior_model', summary: `Senior model — ${agent.handedOverBecause}` }
-            : basicChatModel()
-              ? { name: 'basic_model', summary: 'Free model' }
-              : null,
-        ].filter((t): t is { name: string; summary: string } => Boolean(t));
         const result = applyProjectAgentTurn(canvas, question, agent);
         sayWhatIsMissing(seen, question, result);
         /*
@@ -1985,60 +1958,11 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
     result.highlightIds.push(...fromPaper.citedEvidenceIds);
   }
 
-  /*
-   * A status report just written is put in plainer words where a model is
-   * set up. The model is sent the report's lines and nothing else, and its
-   * wording is kept only where it holds to the line it was made for: see
-   * `wordStatusReport`. The reply in the chat is code's own either way.
-   */
-  const wrote = result.commands.includes('Wrote a status report') ? result.navigations.find((go) => go.target === 'reports')?.item : undefined;
-  if (wrote && capability.available && canvas === project) {
-    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: 'Putting the report in plain words' } satisfies AgentStep });
-    await wordStatusReport(project, wrote);
-  }
   // A letter, a reply, a request for information or minutes the rules just made: its body is written and the reply says how it stands. See `routes/outgoing.ts`.
   if (canvas === project) await outgoingAskedWritten(project, result, line);
 
-  // A paper's own words are said as they are: no model puts them in others.
-  if (capability.available && !fromPaper && !skipLlmForChat(result)) {
-    try {
-      const { provider, route } = resolveRoute('analyst_copilot');
-      const guide = renderProjectGuide(canvas);
-      const restsOn = findingEvidenceBriefing(canvas);
-      const llm = await provider.complete({
-        agent: 'analyst_copilot',
-        // Rewording a briefing is the free model's work when there is one.
-        model: basicChatModel() ?? route.model,
-        maxTokens: 1800,
-        system: [
-          {
-            text:
-              'You are the project DD copilot. Answer only from the register briefing, what the findings rest on, and today\'s next step. Name one move. If they do not support an answer, say so. Do not invent findings, values, evidence, or sign-off. Do not list the evidence library. Do not file documents or start DDs — those are person-approved cards. Keep under 280 words. Cite titles, not truncated ids. When asked which document says something, name it and quote its words with the page exactly as given.',
-          },
-          ...(unseen ? [{ text: unseen }] : []),
-        ],
-        messages: [
-          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext, place)}` },
-          ...(restsOn ? [{ role: 'user' as const, content: `What the material findings rest on:\n${restsOn}` }] : []),
-          { role: 'user', content: `Today's next step:\n${guide.text}` },
-          { role: 'user', content: question },
-        ],
-      });
-      // This answer was given no lines from memory, so it rests on none: anything in it that reads as a tag is a model's word, and is taken out.
-      const text = linkRecordIds(canvas, memTagsPrinted(textOf(llm).trim(), undefined).text);
-      if (text) {
-        result.assistantTurn.text = text;
-        result.assistantTurn.toolCalls = [{ name: 'analyst_copilot', summary: 'Answered from project registers' }];
-        const last = canvas.conversation[canvas.conversation.length - 1];
-        if (last?.id === result.assistantTurn.id) {
-          last.text = text;
-          last.toolCalls = result.assistantTurn.toolCalls;
-        }
-      }
-    } catch {
-      /* deterministic briefing already stored — a model failure must not block chat */
-    }
-  }
+  // An answer the rules gave stands as they gave it: no model puts it in other words. (A model once reworded the
+  // briefing here, and what it wrote was stored as the turn. A turn kept from then reads as it was stored.)
 
   /*
    * The page may have gone by now, and the rules above have already changed
@@ -2740,6 +2664,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
           const [answer] = await enrichIngestWithDocumentIntelligence({
             project: canvas,
             files: [{ ...paper, read: undefined }],
+            // The local reading is not handed over, so what it took the paper for is: the reader answers in that kind's keys.
+            papers: [paper.read?.type],
             buffers: [file.buffer],
             // What this server already read, so a quote found in its page's own
             // words is placed there without another model call.
@@ -3394,7 +3320,7 @@ projectsRouter.get('/:projectId/assessments/:ddId/changes', (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  res.json(changesSincePrevious(project, req.params.ddId));
+  res.json(changesSincePrevious(projectFor(req, project), req.params.ddId));
 });
 
 projectsRouter.post('/:projectId/checks/:checkId', async (req, res) => {
@@ -3427,8 +3353,10 @@ projectsRouter.get('/:projectId/checks/:checkId/fields', (req, res) => {
     return;
   }
   try {
-    const { check } = findCheck(project, req.params.checkId);
-    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check) });
+    // Read off the caller's copy: a check outside a grant is not found, and what its fields wait on is judged by what they are handed.
+    const seen = projectFor(req, project);
+    const { check } = findCheck(seen, req.params.checkId);
+    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check), ...checkFieldsShown(seen, check) });
   } catch (err) {
     fail(res, err);
   }
@@ -3472,6 +3400,214 @@ projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
     res.json({ checkId: outcome.check.id, ...outcome.reading, project });
   } catch (err) {
     fail(res, err);
+  }
+});
+
+/* ==================================================================== */
+/* Field sets: a function's sheets                                       */
+/* ==================================================================== */
+
+/**
+ * What every route below asks first: the project, whether this caller's
+ * reach takes in the function, and what their role there lets them do.
+ *
+ * A collaborator reaches a function's sheets where their grant names one of
+ * the scopes its checks sit in, the same test their copy of the project is
+ * cut by; outside it the sheet is not there to be written to. Who may change
+ * a value is the department role: a lead, contributor or signer edits, and
+ * only a lead or signer makes a value count.
+ *
+ * Every one of these routes writes, and each saves the whole project. So the
+ * project is read afresh from storage first, past the throttle a plain read
+ * is allowed: two people deciding different fields within that window would
+ * otherwise each save a copy that had not heard of the other's decision.
+ * This narrows that window to the length of one request; it does not close it.
+ */
+async function fieldSeat(req: Request, res: Response, fn: string | undefined): Promise<{ project: DdProject; options: FieldWriteOptions } | undefined> {
+  await store.syncProject(req.params.projectId!, { force: true }).catch(() => undefined);
+  const project = findProject(req.params.projectId!);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return undefined;
+  }
+  const access = accessTo(req, project);
+  const reached = access.ok && (access.access.kind === 'full' || (fn !== undefined && fn !== SHARED_FN && fieldFunctionsInReach(access.access.grant)(fn)));
+  if (!reached) {
+    res.status(404).json({ error: 'Not found' });
+    return undefined;
+  }
+  const me = principalOf(req);
+  const person = { email: me.email, workspaceRole: me.role };
+  return { project, options: { mayDecide: decidesFor(req, project), mayEdit: (department) => roleCanEdit(departmentRole(project, person, department)) } };
+}
+
+function failField(res: Response, err: unknown): void {
+  if (err instanceof FieldRefused) res.status(400).json({ error: err.message });
+  else fail(res, err);
+}
+
+/** What a person types into a sheet. All or nothing. */
+projectsRouter.put('/:projectId/fields/values', async (req, res) => {
+  const parsed = setFieldValuesBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  const seat = await fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    const outcome = setFieldValues(seat.project, { set: set.id, record: parsed.data.record }, parsed.data.values, actorOf(req), seat.options);
+    if (outcome.rejected.length) {
+      res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
+      return;
+    }
+    await persistPaneWrite(req, seat.project, `Recorded ${outcome.written.length} value${outcome.written.length === 1 ? '' : 's'} on ${set.title}.`);
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** A person's decision on one field: accept, keep, set aside, dispute, not applicable, reopen. */
+projectsRouter.post('/:projectId/fields/decide', async (req, res) => {
+  const parsed = decideFieldBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  // A mirror holds nothing of its own. A decision sent to one is a decision on the field it reads, and is made there:
+  // in that field's function, by that function's lead or signer, within that function's reach.
+  const named = fieldSet(parsed.data.address.set);
+  const mirrored = named?.fields.find((field) => field.key === parsed.data.address.field)?.sameAs;
+  const set = mirrored ? fieldSet(mirrored.set) : named;
+  const seat = await fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    const { decision, ...input } = parsed.data;
+    const address = mirrored ? { set: mirrored.set, field: mirrored.field, ...(mirrored.record ? { record: mirrored.record } : {}) } : parsed.data.address;
+    // A check's field is decided on its check. A collaborator whose grant leaves that check out does not decide it, whichever assessment holds it.
+    if (fieldCatalogFor(seat.project).checks.has(set.id)) assertMayWrite(req, seat.project, [checkHolding(seat.project, set.id)?.id]);
+    decideField(seat.project, { ...address, fn: set.fn }, decision, actorOf(req), { value: input.value, pick: input.pick, reason: input.reason, note: input.note }, seat.options);
+    const label = fieldSet(set.id, fieldCatalogFor(seat.project))?.fields.find((field) => field.key === address.field)?.label ?? address.field;
+    // A record taken or left as a paper offered it is said as what it is: "Accepted a new purchase on Land purchases."
+    const said = address.field === RECORD_AS_OFFERED ? `${FIELD_DECISION_SAID[decision]} a new ${set.records?.of ?? 'record'} on ${set.title}, as its paper offered it.` : `${FIELD_DECISION_SAID[decision]} “${label}” on ${set.title}.`;
+    await persistPaneWrite(req, seat.project, said);
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+const FIELD_DECISION_SAID: Record<FieldValueDecision, string> = {
+  accept: 'Accepted',
+  keep: 'Kept',
+  set_aside: 'Set aside',
+  dispute: 'Disputed',
+  not_applicable: 'Marked not applicable',
+  reopen: 'Reopened',
+};
+
+/** Accept every value one paper offered to a function's sheets, but for the ones a person has to name. */
+projectsRouter.post('/:projectId/fields/accept-paper', async (req, res) => {
+  const parsed = acceptPaperFieldsBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const seat = await fieldSeat(req, res, parsed.data.fn);
+  if (!seat) return;
+  try {
+    const out = acceptAllFromPaper(seat.project, parsed.data.fn, parsed.data.evidenceId, actorOf(req), seat.options);
+    if (out.accepted.length) await persistPaneWrite(req, seat.project, `Accepted ${out.accepted.length} value${out.accepted.length === 1 ? '' : 's'} from one paper.`, { citedEvidenceIds: [parsed.data.evidenceId] });
+    res.json({ project: seat.project, accepted: out.accepted.length, left: out.left.length });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Add a record to a set that repeats, or with `remove` take one off its list. */
+projectsRouter.post('/:projectId/fields/records', async (req, res) => {
+  const parsed = fieldRecordBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  // A shared record is the project's own: staff add one from whichever function they are on.
+  const seat = await fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    if (parsed.data.remove) {
+      removeFieldRecord(seat.project, set.id, parsed.data.remove, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, `Took a record off ${set.title}.`);
+      res.json({ project: seat.project });
+      return;
+    }
+    const out = addFieldRecord(seat.project, set.id, parsed.data.values, actorOf(req), seat.options);
+    if (out.rejected.length) {
+      res.status(400).json({ error: out.rejected.map((r) => r.error).join(' '), rejected: out.rejected });
+      return;
+    }
+    await persistPaneWrite(req, seat.project, `Added a record to ${set.title}.`);
+    res.json({ project: seat.project, recordId: out.record?.id });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Put a situation in play or take it out. Taking it out deletes nothing. */
+projectsRouter.put('/:projectId/fields/situation', async (req, res) => {
+  const parsed = situationBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const seat = await fieldSeat(req, res, parsed.data.fn);
+  if (!seat) return;
+  try {
+    setSituation(seat.project, parsed.data.fn, parsed.data.key, parsed.data.on, actorOf(req), seat.options);
+    await persistPaneWrite(req, seat.project, parsed.data.on ? 'Put a situation in play.' : 'Took a situation out of play.');
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Mark a section of a sheet not applicable with one of the five reasons, or with `null` ask it again. */
+projectsRouter.put('/:projectId/fields/section', async (req, res) => {
+  const parsed = sectionNaBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  const seat = await fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    setSectionNotApplicable(seat.project, set.id, parsed.data.section, parsed.data.reason as NaReason | null, actorOf(req), { ...seat.options, note: parsed.data.note });
+    await persistPaneWrite(req, seat.project, parsed.data.reason === null ? `Reopened a section of ${set.title}.` : `Marked a section of ${set.title} not applicable.`);
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Put a line under Due soon off until a day a person names, or with `null` bring it back. A lead's or signer's. */
+projectsRouter.put('/:projectId/fields/snooze', async (req, res) => {
+  const parsed = snoozeNeedBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const seat = await fieldSeat(req, res, parsed.data.fn);
+  if (!seat) return;
+  try {
+    snoozeNeed(seat.project, parsed.data.fn, parsed.data.key, parsed.data.until, actorOf(req), seat.options);
+    await persistPaneWrite(req, seat.project, parsed.data.until ? `Put a line off until ${parsed.data.until}.` : 'Brought a line back.');
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
   }
 });
 
@@ -4268,6 +4404,8 @@ projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
           },
         ],
         buffers: [Buffer.from(bytes)],
+        // A paper read again from its row is told as the kind the row is typed as.
+        papers: [readDocumentTypes().find(({ label }) => label === project.evidence.find((e) => e.id === target.evidenceId)?.documentType)?.type],
       });
       const row = project.evidence.find((e) => e.id === target.evidenceId);
       if (row && enriched[0]?.extractionNotes) row.extractionNotes = enriched[0].extractionNotes;
@@ -4286,6 +4424,35 @@ projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
     citedEvidenceIds: [...new Set(targets.map((t) => t.evidenceId))],
   });
   res.json({ read: targets.length, drafts, documents, results });
+});
+
+/**
+ * A person's own note on a photograph: one line, capped, and the only free
+ * words about it. What a model says of a photograph is picks off lists. An
+ * empty note takes the note away.
+ */
+projectsRouter.put('/:projectId/photographs/note', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const sent = (req.body ?? {}) as { evidenceId?: unknown; fileId?: unknown; text?: unknown };
+  const text = typeof sent.text === 'string' && sent.text.length <= PHOTO_NOTE_MOST * 2 ? sent.text : undefined;
+  const attachment = project.evidence.find((e) => e.id === sent.evidenceId)?.attachments.find((a) => a.id === sent.fileId);
+  if (text === undefined || !attachment?.observation) {
+    res.status(400).json({ error: 'Name a photograph that has been read, and send the note.' });
+    return;
+  }
+  try {
+    setPhotoNote(attachment.observation, text, actorOf(req), new Date().toISOString());
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+    return;
+  }
+  project.updatedAt = new Date().toISOString();
+  await store.save();
+  res.json(project);
 });
 
 projectsRouter.get('/:projectId/sheets', (req, res) => {
@@ -4366,18 +4533,78 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const report = generateReport(
-    project,
-    { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req), period: parsed.data.period, audience: parsed.data.audience },
-    actorOf(req),
-  );
+  // A function's report opens with a section for each field it names: for somebody working from a grant, every one has to be theirs to read.
+  const reach = grantedReach(req, project);
+  const template = parsed.data.kind === 'function' ? functionReportTemplate(parsed.data.template) : undefined;
+  if (reach && template && !reportTemplateInReach(template, reach)) {
+    res.status(404).json({ error: 'Not found on this project' });
+    return;
+  }
+  let report: ReturnType<typeof generateReport>;
+  try {
+    report = generateReport(
+      project,
+      { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req), period: parsed.data.period, audience: parsed.data.audience, template: parsed.data.template },
+      actorOf(req),
+    );
+  } catch (err) {
+    // A function's report names its template; one that is not declared is said, not written as an empty paper.
+    res.status(400).json({ error: err instanceof Error ? err.message : 'That report could not be written.' });
+    return;
+  }
   await persistPaneWrite(req, project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
-  res.status(201).json(report);
+  res.status(201).json(reportSeen(req, project, report.id) ?? { id: report.id });
 });
 
 /* ==================================================================== */
 /* Editing a report                                                      */
 /* ==================================================================== */
+
+/** The test a grant's copy of the sheets is cut by, for somebody working from one. Nothing for the firm's own people, who read every field. */
+function grantedReach(req: Request, project: DdProject): ((fn: string) => boolean) | undefined {
+  const access = accessTo(req, project);
+  return access.ok && access.access.kind === 'granted' ? fieldFunctionsInReach(access.access.grant) : undefined;
+}
+
+/**
+ * A report as this caller reads it once a write has landed.
+ *
+ * Every report route answers with this and never with the report on the real
+ * project: a section that reads another department's fields, a frozen row
+ * and a paper the timer prepared are cut on a copy, and a route that answered
+ * with the stored report would hand them back. The copy is made afresh, since
+ * the one made for the request was made before the write.
+ */
+function reportSeen(req: Request, project: DdProject, reportId: string): GeneratedReport | undefined {
+  const access = accessTo(req, project);
+  const seen = access.ok && access.access.kind === 'granted' ? projectView(project, access.access).project : project;
+  return seen.reports.find((report) => report.id === reportId);
+}
+
+/** Refuses a section whose source reads fields out of a grant's reach, before anything is written. True when it refused. */
+function sourceOutOfReach(req: Request, res: Response, source: ReportBoundSource | undefined): boolean {
+  const project = findProject(req.params.projectId!);
+  const reach = project ? grantedReach(req, project) : undefined;
+  if (!reach || !source || fieldSourceInReach(source, reach)) return false;
+  res.status(404).json({ error: 'Not found on this project' });
+  return true;
+}
+
+/**
+ * Freezing what a report reads is the firm's.
+ *
+ * A frozen section says what the registers and the fields said on a day, and
+ * an issued report is signed. Both are read off the whole file, so somebody
+ * working from a grant would be freezing, under the firm's name, what they
+ * may not read. They write sections and edit them; the firm's own people
+ * detach and issue. True when it refused.
+ */
+function freezeRefused(req: Request, res: Response): boolean {
+  const project = findProject(req.params.projectId!);
+  if (!project || !grantedReach(req, project)) return false;
+  res.status(403).json({ error: 'Freezing what a report reads, and issuing it, are for the firm’s own people.' });
+  return true;
+}
 
 /**
  * One handler for every block operation.
@@ -4391,7 +4618,7 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
 async function reportEdit(
   req: Parameters<Parameters<typeof projectsRouter.post>[1]>[0],
   res: Parameters<Parameters<typeof projectsRouter.post>[1]>[1],
-  work: (project: DdProject, actor: string) => { note: string; cited?: string[]; body?: unknown },
+  work: (project: DdProject, actor: string) => { note: string; cited?: string[] },
 ): Promise<void> {
   const project = findProject(req.params.projectId as string);
   if (!project) {
@@ -4399,7 +4626,7 @@ async function reportEdit(
     return;
   }
   const actor = actorOf(req);
-  let outcome: { note: string; cited?: string[]; body?: unknown };
+  let outcome: { note: string; cited?: string[] };
   try {
     outcome = work(project, actor);
   } catch (err) {
@@ -4407,7 +4634,7 @@ async function reportEdit(
     return;
   }
   await persistPaneWrite(req, project, outcome.note, { citedNodeIds: outcome.cited });
-  res.json(outcome.body ?? project.reports.find((r) => r.id === req.params.reportId));
+  res.json(reportSeen(req, project, req.params.reportId as string) ?? { id: req.params.reportId });
 }
 
 projectsRouter.post('/:projectId/reports/:reportId/blocks', async (req, res) => {
@@ -4416,6 +4643,7 @@ projectsRouter.post('/:projectId/reports/:reportId/blocks', async (req, res) => 
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  if (sourceOutOfReach(req, res, parsed.data.source)) return;
   await reportEdit(req, res, (project, actor) => {
     const block = insertReportBlock(project, req.params.reportId, parsed.data, actor);
     return { note: parsed.data.source ? 'Added a live section to the report.' : 'Added a section to the report.', cited: [block.id] };
@@ -4440,6 +4668,7 @@ projectsRouter.put('/:projectId/reports/:reportId/blocks/:blockId/source', async
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  if (sourceOutOfReach(req, res, parsed.data.source)) return;
   await reportEdit(req, res, (project, actor) => {
     retuneReportBlock(project, req.params.reportId, req.params.blockId, parsed.data.source, actor);
     return { note: 'Changed what that section reads.', cited: [req.params.blockId] };
@@ -4447,6 +4676,7 @@ projectsRouter.put('/:projectId/reports/:reportId/blocks/:blockId/source', async
 });
 
 projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/detach', async (req, res) => {
+  if (freezeRefused(req, res)) return;
   await reportEdit(req, res, (project, actor) => {
     const block = detachReportBlock(project, req.params.reportId, req.params.blockId, actor);
     return { note: `“${block.heading ?? 'A section'}” is no longer reading the registers.`, cited: [block.id] };
@@ -4492,9 +4722,10 @@ projectsRouter.post('/:projectId/reports/:reportId/issue', async (req, res) => {
     name: typeof body.signerName === 'string' ? body.signerName.slice(0, 120) : undefined,
     role: typeof body.signerRole === 'string' ? body.signerRole.slice(0, 120) : undefined,
   };
+  if (freezeRefused(req, res)) return;
   await reportEdit(req, res, (project, actor) => {
     const report = issueReport(project, req.params.reportId, actor, signOff);
-    return { note: `Issued “${report.title}”, signed by ${report.signedBy}. It is frozen at what it said just now.`, cited: [report.id], body: report };
+    return { note: `Issued “${report.title}”, signed by ${report.signedBy}. It is frozen at what it said just now.`, cited: [report.id] };
   });
 });
 
@@ -4518,10 +4749,12 @@ projectsRouter.get('/:projectId/reports/:reportId/drift', (req, res) => {
     return;
   }
   refreshProjectDerived(project);
-  const report = project.reports.find((r) => r.id === req.params.reportId);
+  // Both sides of the comparison are the caller's own: the report as their copy holds it, against the registers their copy holds.
+  const seen = projectFor(req, project);
+  const report = seen.reports.find((r) => r.id === req.params.reportId);
   if (!report) {
     res.status(404).json({ error: 'Report not found' });
     return;
   }
-  res.json({ reportId: report.id, status: report.status, rows: reportDrift(project, report.body.blocks) });
+  res.json({ reportId: report.id, status: report.status, rows: reportDrift(seen, report.body.blocks) });
 });

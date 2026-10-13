@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Link, Navigate, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Scale, Stamp, Wallet, Waypoints } from 'lucide-react';
+import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Scale, Stamp, Table2, Wallet, Waypoints } from 'lucide-react';
 import {
   STAGES,
   cockpitPath,
   departmentDefinition,
+  functionHasSheets,
+  functionSections,
   quotesForEvidence,
   stageOf,
   titleGraphFromProject,
@@ -23,7 +25,8 @@ import { CertifiedPanel } from '../../../components/departments/CertifiedPanel';
 import { Connections } from '../../../components/departments/Connections';
 import { WorkstreamChecks, WorkstreamDocuments, WorkstreamEngagements } from '../../../components/departments/WorkstreamRecords';
 import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegister';
-import { ChecklistCard } from '../../../components/departments/ChecklistCard';
+import { FieldSheets } from '../../../components/fields/FieldSheets';
+import { PapersOwedCard } from '../../../components/papers/PapersOwedCard';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
 import { BudgetDesk } from '../../../components/budget/BudgetDesk';
 import { TenderDesk } from '../../../components/procurement/TenderDesk';
@@ -47,8 +50,14 @@ export function useWorkstreamNav(project: DdProject) {
   return {
     openWorkstream: (key: string) =>
       navigate(key === 'design' ? cockpitPath(project.id, 'department', { department: 'design' }) : cockpitPath(project.id, WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })),
+    /** A place on a function's sheets (`set::record::field`), on the page of the function that keeps it. */
+    openSheet: (key: string, item: string) => navigate(cockpitPath(project.id, WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key, section: 'sheet', item })),
     openDocument: (evidenceId: string) => navigate(cockpitPath(project.id, 'evidence', { evidenceId })),
-    openCheck: (where: { ddId: string; scopeId: string; checkId: string }) => navigate(cockpitPath(project.id, 'scope', where)),
+    /** A check, and the field of it a line was about where it names one: the check's screen brings that field into view. */
+    openCheck: (where: { ddId: string; scopeId: string; checkId: string; field?: string }) => {
+      const path = cockpitPath(project.id, 'scope', where);
+      navigate(where.field ? `${path}${path.includes('?') ? '&' : '?'}field=${encodeURIComponent(where.field)}` : path);
+    },
     pairPhone: () => navigate(`${cockpitPath(project.id, 'people')}#pair`),
     openFindings: () => navigate(cockpitPath(project.id, 'findings')),
     openActions: () => navigate(cockpitPath(project.id, 'actions')),
@@ -66,10 +75,13 @@ export function useWorkstreamNav(project: DdProject) {
 export function WorkstreamFrame({ project, workstream, setProject, compact = false }: { project: DdProject; workstream: string; setProject: (p: DdProject) => void; compact?: boolean }) {
   const assessment = useQuickAssessment(project, workstream);
   const nav = useWorkstreamNav(project);
+  // The quick assessment is worked out from findings and checks, and knows nothing of the sheets. Where a function
+  // keeps sheets, how it stands is what their own standings say, on Needs you: a "Clear" above failing lines is not drawn.
+  const sheets = functionHasSheets(workstream);
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-        <QuickAssessmentCard assessment={assessment} compact={compact} />
+      <div className={sheets ? undefined : 'grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]'}>
+        {sheets ? null : <QuickAssessmentCard assessment={assessment} compact={compact} />}
         <CertifiedPanel project={project} workstream={workstream} onChanged={setProject} />
       </div>
       {compact ? null : <Connections project={project} workstream={workstream} onOpenWorkstream={nav.openWorkstream} />}
@@ -149,6 +161,7 @@ export default function WorkstreamPage() {
   if (WORKSTREAM_PANE[ws.key]) return <Navigate to={cockpitPath(project.id, WORKSTREAM_PANE[ws.key]!)} replace />;
   const dept = departmentDefinition(ws.department);
   const DeptIcon = DEPARTMENT_ICON[ws.department];
+  const onSite = stage === 'construction' || stage === 'operations';
 
   return (
     <div className="space-y-4">
@@ -160,23 +173,31 @@ export default function WorkstreamPage() {
           <div className="min-w-0">
             <p className="text-[12px] font-medium text-ink-muted">{dept.label}</p>
             <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{ws.label}</h2>
-            <p className="mt-0.5 text-[13px] text-ink-secondary">{ws.purpose}</p>
+            {/* On a phone the page's own sentence gives way: what needs the reader is the first thing on the screen. */}
+            <p className="mt-0.5 hidden text-[13px] text-ink-secondary sm:block">{ws.purpose}</p>
           </div>
         </div>
       </Reveal>
-      {ws.status === 'coming_soon' ? (
+      {ws.status === 'coming_soon' && functionHasSheets(ws.key) ? (
+        // Not built beyond its sheets: the sheets and its documents are the page.
+        <FunctionSections project={project} ws={ws} setProject={setProject} highlightIds={highlightIds} sheetsOnly />
+      ) : ws.status === 'coming_soon' ? (
         <ComingSoon project={project} workstream={ws.key} stage={stage} />
       ) : ws.key === 'construction.quality' ? (
-        // The technical due diligence is five steps, not one long page.
-        <DepartmentDesk
-          project={project}
-          department="construction"
-          workstream={ws.key}
-          setProject={setProject}
-          refresh={refresh}
-          nav={{ ...nav, openSite: () => nav.openWorkstream('construction.site') }}
-          frame={<WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />}
-        />
+        // The technical due diligence is five steps, not one long page. Its sheets (pours, tests, non-conformances, snags) lead once the work is on site, and follow before that.
+        <div className="space-y-4">
+          {onSite && functionHasSheets(ws.key) ? <FieldSheets project={project} fn={ws.key} onChanged={setProject} onOpenPaper={nav.openDocument} onOpenCheck={nav.openCheck} onOpenFunction={nav.openSheet} /> : null}
+          <DepartmentDesk
+            project={project}
+            department="construction"
+            workstream={ws.key}
+            setProject={setProject}
+            refresh={refresh}
+            nav={{ ...nav, openSite: () => nav.openWorkstream('construction.site') }}
+            frame={<WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />}
+          />
+          {!onSite && functionHasSheets(ws.key) ? <FieldSheets project={project} fn={ws.key} onChanged={setProject} onOpenPaper={nav.openDocument} onOpenCheck={nav.openCheck} onOpenFunction={nav.openSheet} /> : null}
+        </div>
       ) : (
         <FunctionSections project={project} ws={ws} setProject={setProject} highlightIds={highlightIds} />
       )}
@@ -192,12 +213,15 @@ function visitOf(key: string): number {
 }
 
 /**
- * A built function as one page with a rail: how it stands, the work that is
- * its own, then its checks, its documents and what it is joined to.
+ * A built function as one page with a rail. It opens on what needs a person
+ * and the list of its sheets, and on nothing else. Its certified reports, the
+ * work that is its own, its checks, its documents and what it is joined to
+ * are parts reached from the rail, one at a time, never stacked below.
  *
  * The same parts in the same order for every function, with the centrepiece
  * differing: the approvals register, the progress board, the chain of title.
- * The rail names them, so a long page is one press from any of its parts.
+ * The rail names them, so every part is one press away. The part in view is
+ * in the address (`part`), so a reload and a link land where the person was.
  *
  * A link can land on one of them, and on one record inside it. The address
  * says which: `part` names the part, `item` a check, an approval, a milestone
@@ -211,7 +235,7 @@ function visitOf(key: string): number {
  * the same address. Closing it goes back to the address it was opened from,
  * with the page where the person had it.
  */
-function FunctionSections({ project, ws, setProject, highlightIds }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void; highlightIds?: string[] }) {
+function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = false }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void; highlightIds?: string[]; sheetsOnly?: boolean }) {
   const nav = useWorkstreamNav(project);
   const navigate = useNavigate();
   const location = useLocation();
@@ -252,7 +276,8 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
    */
   const openHere = (evidenceId: string) => {
     const next = new URLSearchParams(query);
-    next.set('part', 'documents');
+    // The paper opens over the part the person is on: a paper cited on a sheet does not take them off the sheet.
+    next.set('part', shownPart);
     next.delete('item');
     next.set('evidence', evidenceId);
     next.delete('page');
@@ -287,6 +312,17 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
     );
   };
 
+  const hasSheets = functionHasSheets(ws.key);
+  // The part in view: the one the address names, else the one the page opens on. Needs you and the sheets where the function keeps any.
+  const partIds = sheetsOnly ? ['sheet', 'documents'] : functionSections(ws.key);
+  const shownPart = part && partIds.includes(part) ? part : hasSheets ? 'sheet' : (partIds[0] ?? 'standing');
+  const pickPart = (id: string) => {
+    const next = new URLSearchParams(query);
+    next.set('part', id);
+    for (const key of ['item', 'evidence', 'page']) next.delete(key);
+    setQuery(next);
+  };
+
   const centre: PageSection | null =
     ws.key === 'legal.approvals'
       ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={openHere} marked={item} /> }
@@ -306,23 +342,47 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
       id: 'standing',
       name: 'Estimate and certified',
       icon: Gauge,
-      body: (
+      body: hasSheets ? (
+        // The quick assessment knows nothing of the sheets, so it is not drawn over them: a "Clear" may never sit above failing lines.
+        <CertifiedPanel project={project} workstream={ws.key} onChanged={setProject} marked={part === 'standing' ? item : null} />
+      ) : (
         <div className="grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
           <QuickAssessmentCard assessment={assessment} />
           <CertifiedPanel project={project} workstream={ws.key} onChanged={setProject} marked={part === 'standing' ? item : null} />
         </div>
       ),
     },
+    // What the function's sheets need of a person, then the sheets, each a line: the part the page opens on.
+    ...(hasSheets
+      ? [
+          {
+            id: 'sheet',
+            name: 'Needs you and sheets',
+            icon: Table2,
+            body: (
+              <FieldSheets
+                project={project}
+                fn={ws.key}
+                onChanged={setProject}
+                onOpenPaper={(evidenceId: string) => openHere(evidenceId)}
+                onOpenCheck={nav.openCheck}
+                onOpenFunction={nav.openSheet}
+                marked={part === 'sheet' && item && landing ? { item, at: visit } : null}
+              />
+            ),
+          },
+        ]
+      : []),
     ...(centre ? [centre] : []),
     { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} marked={part === 'checks' ? item : null} /> },
     {
       id: 'documents',
-      name: 'Documents',
+      name: 'Papers',
       icon: FileStack,
       body: (
         <div className="space-y-4">
-          {/* The department's checklist of papers owed: one list, on the Documents part of each of its functions. */}
-          <ChecklistCard project={project} department={ws.department} onChanged={setProject} onOpenDocument={openHere} />
+          {/* The department's papers owed: one list, on the Documents part of each of its functions. */}
+          <PapersOwedCard project={project} department={ws.department} marked={part === 'documents' ? item : null} onChanged={setProject} onOpenDocument={openHere} onOpenCheck={nav.openCheck} />
           <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={openHere} marked={lit} landed={(part === 'documents' || openId) && landing ? visit : null} />
         </div>
       ),
@@ -342,7 +402,14 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
 
   return (
     <>
-      <SectionPage sections={sections} jump={jump} />
+      <SectionPage
+        // Where the function keeps sheets, the first part says what it is: its certified reports, with no estimate beside them.
+        sections={(sheetsOnly ? sections.filter((section) => section.id === 'sheet' || section.id === 'documents') : sections).map((section) => (section.id === 'standing' && hasSheets ? { ...section, name: 'Certified reports' } : section))}
+        jump={jump}
+        // One part at a time. Needs you is the opening of the function's page: the first screen on a phone, the first card on a laptop.
+        only={shownPart}
+        onPick={pickPart}
+      />
       {/* A document a link named opens over the page it belongs to, at the page cited, as it does on the register. */}
       {proof ? (
         <EvidenceProof
