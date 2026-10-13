@@ -28,7 +28,7 @@ pnpm dev
 
 The web app is on http://localhost:5173 and the API on http://localhost:5174 (`PORT` moves the API). Node 20.10 or later and pnpm 10; CI runs Node 22 and pnpm 10.33.
 
-With nothing configured, sign-in is off (every request is a local operator), data lives in `apps/api/data/v2/`, the graph is a local journal file, and document reading uses a file's text layer and the bundled OCR (English and Kannada). The chat then answers by rule. Add a model key to have a model read what those could not and to run the chat on a model; see below.
+With nothing configured, sign-in is off (every request is a local operator), data lives in `apps/api/data/v2/`, the graph is a local journal file, and document reading uses a file's text layer and the bundled OCR (English and Kannada). The chat then answers by rule: what is pending from a party, what changed in cost since the last report, what is running late, what needs you, what is due, a cost figure by name, and opening a report by its month. With no model a cost report with a text layer still offers its package rows to the Cost Report, a technical report its observations, and a tracked list or a tender form loads as it was sent; a scanned cost report's tables are read only as far as the bundled OCR manages, which on the invented scans measured was every row of one and no usable row of another, and the table is then pasted. Add a model key to have a model read what those could not and to run the chat on a model; see below.
 
 ### Settings
 
