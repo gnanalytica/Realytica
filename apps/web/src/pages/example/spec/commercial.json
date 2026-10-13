@@ -607,6 +607,288 @@
    ]
   },
   {
+   "name": "Marketing",
+   "stages": [
+    "pre",
+    "build"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "3 campaigns, 4 advertisements checked"
+   },
+   "sections": [
+    {
+     "id": "launch",
+     "name": "Launch",
+     "icon": "calendar",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Launch plan",
+       "items": [
+        {
+         "l": "Kind of launch",
+         "v": "Launch",
+         "state": "set"
+        },
+        {
+         "l": "Launch date",
+         "v": "15 Nov 2026",
+         "state": "set"
+        },
+        {
+         "l": "Units released",
+         "v": "64 of 112",
+         "state": "calc"
+        },
+        {
+         "l": "Value released at list price",
+         "v": "₹ 98.4 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Marketing budget",
+         "v": "₹ 3.2 Cr",
+         "state": "set"
+        },
+        {
+         "l": "Budget, of the development value",
+         "v": "1.8%",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "table",
+       "title": "Monthly targets",
+       "cols": [
+        "Month",
+        "Units",
+        "Value",
+        "Collections"
+       ],
+       "rows": [
+        [
+         "Nov 2026",
+         "8",
+         "₹ 12.4 Cr",
+         "₹ 1.2 Cr"
+        ],
+        [
+         "Dec 2026",
+         "6",
+         "₹ 9.3 Cr",
+         "₹ 1.9 Cr"
+        ],
+        [
+         "Jan 2027",
+         "6",
+         "₹ 9.3 Cr",
+         "₹ 2.4 Cr"
+        ]
+       ],
+       "status": null,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add a month"
+      }
+     ]
+    },
+    {
+     "id": "campaigns",
+     "name": "Campaigns",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Campaigns",
+       "cols": [
+        "Campaign",
+        "Channel",
+        "Budget",
+        "Spent",
+        "Leads",
+        "Standing"
+       ],
+       "rows": [
+        [
+         "Portal listing, launch",
+         "Property portal",
+         "₹ 18.0 L",
+         "₹ 11.5 L",
+         "412",
+         "Within budget"
+        ],
+        [
+         "Search, 2 and 3 BHK",
+         "Search advertising",
+         "₹ 24.0 L",
+         "₹ 20.4 L",
+         "655",
+         "Most spent"
+        ],
+        [
+         "Hoardings, ring road",
+         "Outdoor",
+         "₹ 30.0 L",
+         "₹ 31.5 L",
+         "96",
+         "Over budget"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": true,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add a campaign"
+      },
+      {
+       "type": "fields",
+       "title": "What the spend brought",
+       "items": [
+        {
+         "l": "Spent across campaigns",
+         "v": "₹ 63.4 L",
+         "state": "calc"
+        },
+        {
+         "l": "Cost of a lead",
+         "v": "₹ 5,451",
+         "state": "calc"
+        },
+        {
+         "l": "Cost of a sale",
+         "v": "₹ 3.0 L",
+         "state": "calc"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "advertisements",
+     "name": "Advertisements",
+     "icon": "shield",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Advertisement register",
+       "cols": [
+        "Reference",
+        "Medium",
+        "Measured checks",
+        "Verdict"
+       ],
+       "rows": [
+        [
+         "AD-001 launch brochure",
+         "Brochure",
+         "No measured check fails",
+         "Pass"
+        ],
+        [
+         "AD-002 ring road hoarding",
+         "Outdoor hoarding",
+         "Lettering too small",
+         "Change needed"
+        ],
+        [
+         "AD-003 portal listing",
+         "Property portal listing",
+         "No measured check fails",
+         "Pass"
+        ],
+        [
+         "AD-004 newspaper, launch day",
+         "Newspaper",
+         "A claim is backed by nothing",
+         "Change needed"
+        ]
+       ],
+       "status": 3,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add an advertisement"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "The ring road hoardings have spent 105% of their budget",
+     "rests": []
+    },
+    {
+     "t": "Two advertisements are to change before they run again",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Registration number’s lettering on the hoarding is under half the project name’s",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "The newspaper advertisement claims a clubhouse the agreement’s schedules do not list",
+     "by": "rule",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Cost of a lead, a site visit and a sale by campaign",
+     "Measured checks on each advertisement against the unit register and the price list"
+    ],
+    "certified": [],
+    "reports": [
+     "Launch readiness sheet",
+     "Marketing spend report",
+     "Advertisement register",
+     "Claims register"
+    ],
+    "sent": []
+   },
+   "mustHave": [
+    "Nothing is advertised, marketed or booked before the project is registered.",
+    "Every advertisement carries the registration number and the Authority’s website.",
+    "Every claim in an advertisement rests on the agreement’s schedules, the sanctioned plan or a filed paper.",
+    "Marketing spend is held against the budget the appraisal allows."
+   ],
+   "standards": [
+    {
+     "name": "RERA Act 2016: s.3(1), s.11(2), s.12",
+     "why": "No advertising before registration; the number and website on every advertisement; liability for a false statement",
+     "url": "https://rera.karnataka.gov.in/resources/staticpage/Real_Estate_Act.pdf"
+    },
+    {
+     "name": "K-RERA Circular RERA/ADM/CR-4/2019-20",
+     "why": "Where the registration number sits and how large it is",
+     "url": "https://rera.karnataka.gov.in/resources/circulars/circular2.pdf"
+    }
+   ]
+  },
+  {
    "name": "Sales",
    "stages": [
     "pre",

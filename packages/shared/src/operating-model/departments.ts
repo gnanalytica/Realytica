@@ -411,6 +411,7 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     status: 'coming_soon',
     workstreams: [
       ws('commercial', 'market', 'Market & pricing', 'The micro-market, comparables and the price list.', 'coming_soon', ['Registered Valuer'], ['pre_development', 'design_tender', 'construction'], [['pre_development', 'Market and pricing benchmark']]),
+      ws('commercial', 'marketing', 'Marketing & launch', 'The launch, the campaigns and every advertisement checked before it is released.', 'coming_soon', [], ['design_tender', 'construction'], [['design_tender', 'Launch readiness sheet'], ['construction', 'Advertisement register']]),
       ws('commercial', 'inventory', 'Sales & leasing inventory', 'Every unit and where it stands.', 'coming_soon', [], ['design_tender', 'construction', 'operations'], [['construction', 'Inventory status']]),
       ws('commercial', 'buyers', 'Buyers & collections', 'Bookings, demands and what has been collected.', 'coming_soon', ['Chartered Accountant'], ['construction', 'operations'], [['construction', 'Collections ageing']]),
       ws('commercial', 'handover', 'Handover & defects', 'Walkthroughs, handover and the defect liability period.', 'coming_soon', [], ['construction', 'operations'], [['operations', 'Handover and defect log']]),
@@ -523,6 +524,7 @@ export const FUNCTION_SHORT: Record<string, string> = {
   'procurement.vendors': 'Vendors',
   'procurement.deliveries': 'Deliveries',
   'commercial.market': 'Market',
+  'commercial.marketing': 'Marketing',
   'commercial.inventory': 'Sales',
   'commercial.buyers': 'Collections',
   'commercial.handover': 'Handover',

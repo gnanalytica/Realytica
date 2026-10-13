@@ -444,7 +444,7 @@ describe('the frame is the one the menu shows', () => {
       'the name in full leads the detail',
     );
     assert.ok(departments.every((n) => (n.detail ?? '').split(' · ').length === 2), 'and the purpose is kept after it');
-    assert.deepEqual(departments.map((n) => n.status), ['live', 'live', 'live', 'coming_soon', 'live']);
+    assert.deepEqual(departments.map((n) => n.status), ['live', 'live', 'live', 'live', 'live']);
     assert.ok(!graph.nodes.some((n) => n.id === `${project.id}::dept::design`), 'Design is not a department here');
     assert.equal(graph.edges.filter((e) => e.rel === 'has_department' && e.from === project.id).length, 5);
   });

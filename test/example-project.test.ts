@@ -62,7 +62,7 @@ const EXPECTED: Record<string, string[]> = {
   legal: ['Title', 'Approvals', 'RERA', 'Contracts', 'Handover', 'Litigation'],
   finance: ['Valuation', 'Feasibility', 'Budget', 'Funding', 'Tax', 'Lenders', 'Ledgers'],
   engineering: ['Design', 'Progress', 'Technical', 'Site', 'Safety'],
-  commercial: ['Market', 'Sales', 'Collections', 'Handover', 'Operations'],
+  commercial: ['Market', 'Marketing', 'Sales', 'Collections', 'Handover', 'Operations'],
   procurement: ['Tenders', 'Orders', 'Vendors', 'Deliveries'],
 };
 

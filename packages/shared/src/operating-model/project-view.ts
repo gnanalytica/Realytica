@@ -30,7 +30,9 @@
 import { alertsOfCopy } from './alerts';
 import { scopesOfWorkstreams } from './departments';
 import { fieldCatalog, sharedSetsOf } from './field-registry';
-import { SHARED_FN } from './field-sets/shared-records';
+import { FIELD_SETS } from './field-sets';
+import { CUSTOMER_SETS } from './field-sets/sales-marketing';
+import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
 import { fieldReportsOfCopy } from './report-fields';
 import { reportsOfCopy } from './status-report';
@@ -298,11 +300,57 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   };
   const copied = (values: Record<string, CheckFieldValue>) => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, uncited(value)]));
   if (project.fieldSheets) {
+    /*
+     * A buyer is never an outside collaborator's to see. The sets that hold
+     * buyers are kept back whatever the grant names, and so is every party
+     * record one of them links to, or that is marked a customer.
+     *
+     * What a department adds to a shared record goes only where that
+     * department's function is in reach: a unit's sale is Sales' own,
+     * whoever else may see the unit.
+     */
+    const buyers = new Set<string>();
+    for (const id of CUSTOMER_SETS) {
+      const defs = catalog.sets.get(id)?.fields ?? [];
+      for (const record of project.fieldSheets[id]?.records ?? []) {
+        for (const def of defs) {
+          const held = record.values[def.key]?.value;
+          if (def.kind === 'ref' && def.target === 'party' && typeof held === 'string') buyers.add(held);
+          for (const column of def.columns ?? []) {
+            if (column.kind !== 'ref' || column.target !== 'party' || !Array.isArray(held)) continue;
+            for (const row of held) if (typeof row === 'object' && row !== null && typeof row[column.key] === 'string') buyers.add(row[column.key] as string);
+          }
+        }
+      }
+    }
+    const isBuyer = (record: { id: string; values: Record<string, CheckFieldValue> }): boolean => {
+      const roles = record.values.roles?.value;
+      return buyers.has(record.id) || (Array.isArray(roles) && (roles as unknown[]).includes('customer'));
+    };
+    const added = new Map<string, Set<string>>();
+    for (const set of FIELD_SETS) {
+      if (!set.extends || inReach(set.fn)) continue;
+      const keys = added.get(set.extends) ?? new Set<string>();
+      for (const def of set.fields) keys.add(def.key);
+      added.set(set.extends, keys);
+    }
+    const without = (id: string, values: Record<string, CheckFieldValue>) => Object.fromEntries(Object.entries(values).filter(([key]) => !added.get(id)?.has(key)));
+
     const kept = Object.entries(project.fieldSheets).filter(([id]) => {
       const set = catalog.sets.get(id);
+      if (CUSTOMER_SETS.includes(id)) return false;
       return set ? (set.fn === SHARED_FN ? sharedInReach.has(id) : inReach(set.fn)) : false;
     });
-    view.fieldSheets = Object.fromEntries(kept.map(([id, sheet]) => [id, { ...sheet, values: copied(sheet.values), ...(sheet.records ? { records: sheet.records.map((record) => ({ ...record, values: copied(record.values) })) } : {}) }]));
+    view.fieldSheets = Object.fromEntries(
+      kept.map(([id, sheet]) => [
+        id,
+        {
+          ...sheet,
+          values: copied(without(id, sheet.values)),
+          ...(sheet.records ? { records: sheet.records.filter((record) => id !== SHARED_RECORD_SETS.party || !isBuyer(record)).map((record) => ({ ...record, values: copied(without(id, record.values)) })) } : {}),
+        },
+      ]),
+    );
     if (kept.length < Object.keys(project.fieldSheets).length) withheld.push('assessments');
   }
   if (project.situations) {

@@ -176,7 +176,7 @@ describe('the menu at a stage', () => {
         ['Title', 'Approvals', 'RERA', 'Contracts', 'Handover', 'Litigation'],
         ['Valuation', 'Feasibility', 'Budget', 'Funding', 'Tax', 'Lenders', 'Ledgers'],
         ['Design', 'Progress', 'Technical', 'Site', 'Safety'],
-        ['Market', 'Sales', 'Collections', 'Handover', 'Operations'],
+        ['Market', 'Marketing', 'Sales', 'Collections', 'Handover', 'Operations'],
         ['Tenders', 'Orders', 'Vendors', 'Deliveries'],
       ],
     );

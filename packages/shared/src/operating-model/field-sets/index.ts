@@ -16,8 +16,10 @@ import { FINANCE_RULE_ROWS, FINANCE_TAX_LENDERS_FIELD_SETS } from './finance-tax
 import { LAW_LIAISON_FIELD_SETS } from './law-liaison';
 import { BASE_RULE_ROWS } from './rule-rows';
 import { LAW_LIAISON_RULE_ROWS } from './rules/law-liaison';
+import { SALES_MARKETING_RULE_ROWS } from './rules/sales-marketing';
 import { TITLES_LITIGATION_RULE_ROWS } from './rules/titles-litigation';
 import { VALUATION_FEASIBILITY_BUDGET_RULE_ROWS } from './rules/valuation-feasibility-budget';
+import { SALES_MARKETING_FIELD_SETS } from './sales-marketing';
 import { SHARED_RECORDS } from './shared-records';
 import { TITLES_LITIGATION_FIELD_SETS } from './titles-litigation';
 import { VALUATION_FEASIBILITY_BUDGET_FIELD_SETS } from './valuation-feasibility-budget';
@@ -31,6 +33,7 @@ export const FIELD_SETS: readonly FieldSet[] = [
   ...FINANCE_TAX_LENDERS_FIELD_SETS,
   ...DESIGN_FIELD_SETS,
   ...CONSTRUCTION_PROCUREMENT_FIELD_SETS,
+  ...SALES_MARKETING_FIELD_SETS,
 ];
 
 export const RULE_ROWS: readonly RuleRow[] = [
@@ -41,6 +44,7 @@ export const RULE_ROWS: readonly RuleRow[] = [
   ...FINANCE_RULE_ROWS,
   ...DESIGN_RULE_ROWS,
   ...CONSTRUCTION_PROCUREMENT_RULE_ROWS,
+  ...SALES_MARKETING_RULE_ROWS,
 ];
 
 /** Rules a formula may read whose figures are not loaded yet (see `RuleShape`). Registered as rule rows are. */
