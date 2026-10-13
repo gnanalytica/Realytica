@@ -109,6 +109,27 @@ export default function ScopeWorkspace() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // A link that names a field of the check (a line under Needs you that opened it) brings that field into view once it is drawn.
+  const requestedField = searchParams.get('field');
+  useEffect(() => {
+    if (!requestedField || !requestedCheck) return;
+    let tries = 0;
+    let timer = 0;
+    const look = () => {
+      const at = Array.from(document.querySelectorAll<HTMLElement>('[data-field]')).find((el) => el.dataset.field === requestedField);
+      if (!at) {
+        tries += 1;
+        if (tries < 15) timer = window.setTimeout(look, 100);
+        return;
+      }
+      for (let fold = at.closest('details'); fold; fold = fold.parentElement?.closest('details') ?? null) fold.open = true;
+      at.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      at.animate([{ boxShadow: '0 0 0 3px var(--brand)' }, { boxShadow: '0 0 0 3px transparent' }], { duration: 1800, easing: 'ease-out' });
+    };
+    timer = window.setTimeout(look, 60);
+    return () => window.clearTimeout(timer);
+  }, [requestedField, requestedCheck]);
+
   function openCheck(ch: { id: string; result: CheckResult; comments: string; evidenceIds: string[] }) {
     setCheckId(ch.id);
     setResult(ch.result === 'pending' ? 'compliant' : ch.result);

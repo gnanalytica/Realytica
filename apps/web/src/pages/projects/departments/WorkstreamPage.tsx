@@ -53,7 +53,11 @@ export function useWorkstreamNav(project: DdProject) {
     /** A place on a function's sheets (`set::record::field`), on the page of the function that keeps it. */
     openSheet: (key: string, item: string) => navigate(cockpitPath(project.id, WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key, section: 'sheet', item })),
     openDocument: (evidenceId: string) => navigate(cockpitPath(project.id, 'evidence', { evidenceId })),
-    openCheck: (where: { ddId: string; scopeId: string; checkId: string }) => navigate(cockpitPath(project.id, 'scope', where)),
+    /** A check, and the field of it a line was about where it names one: the check's screen brings that field into view. */
+    openCheck: (where: { ddId: string; scopeId: string; checkId: string; field?: string }) => {
+      const path = cockpitPath(project.id, 'scope', where);
+      navigate(where.field ? `${path}${path.includes('?') ? '&' : '?'}field=${encodeURIComponent(where.field)}` : path);
+    },
     pairPhone: () => navigate(`${cockpitPath(project.id, 'people')}#pair`),
     openFindings: () => navigate(cockpitPath(project.id, 'findings')),
     openActions: () => navigate(cockpitPath(project.id, 'actions')),

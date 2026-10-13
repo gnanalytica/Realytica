@@ -31,6 +31,8 @@ import { confirmProposedType } from '../apps/api/src/documents/register-read';
 import { enrichIngestWithDocumentIntelligence } from '../packages/agents/src/project/ingest-intelligence';
 import {
   acceptAllFromPaper,
+  refChoices,
+  resolveFields,
   addEvidence,
   addFieldRecord,
   classifyIngestFile,
@@ -410,6 +412,16 @@ describe('a paper dropped in the chat reaches the fields that wait for it', () =
     assert.match(lines[0]!.text, /^Document number 2317\/2019-20 · Sub-registrar office Mysuru West · /);
     assert.equal(readSheet(p, 'legal.contracts.land')!.fields.find((f) => f.def.key === 'purchases_count')!.held?.value, 0, 'which is no purchase until a person accepts it');
 
+    // The owner the deed proposes, and the purchase, ask nothing while nobody has accepted them: no Missing line, no rule line,
+    // no owner counted, and no name in a list of links. Each is one Accept line and nothing else.
+    for (const fn of ['legal.title', 'legal.contracts']) {
+      const offered = new Set(fieldRecords(p, fn === 'legal.title' ? 'legal.title.owners' : 'legal.contracts.purchases').map((record) => record.id));
+      const about = readFunctionFields(p, fn).exceptions.filter((line) => line.record && offered.has(line.record));
+      assert.deepEqual(about.map((line) => [line.need, line.label]), [['accept', fn === 'legal.title' ? 'New owner' : 'New purchase']], fn);
+    }
+    assert.deepEqual(resolveFields(p).records('legal.title.owners'), [], 'an owner nobody accepted is not an owner to any formula');
+    assert.deepEqual(refChoices(p, { set: 'legal.title.owners' }), [], 'and nothing links to one');
+
     // Accepted once, by whoever may decide for Legal.
     const viewer = { mayDecide: () => false };
     assert.throws(() => decideField(p, lines[0]!.address!, 'accept', 'viewer', {}, viewer), /lead|signer|decide/i);
@@ -570,7 +582,9 @@ describe('a paper dropped in the chat reaches the fields that wait for it', () =
       'procurement.orders.time_claims/days_claimed': 45,
       'procurement.orders.time_claims/cost_claimed': 3150000,
     });
-    assert.deepEqual(accepts(p, 'procurement.orders').map((line) => line.label), ['New variation', 'New time claim']);
+    // What the work order states of the contract is Procurement's to accept: the contract is a shared record, and the paper is filed under Orders.
+    assert.deepEqual(accepts(p, 'procurement.orders').map((line) => line.label), ['New variation', 'New time claim', 'Commencement date', 'Completion date', 'Defect liability period']);
+    assert.deepEqual(accepts(p, 'procurement.vendors').map((line) => line.label), ['New security'], 'and nothing of the contract is listed under a function its paper is not filed in');
     assert.deepEqual(await read('bid'), {
       'procurement.boq.earnest_money/amount': 300000,
       'procurement.boq.earnest_money/reference': 'BG/EMD/771',

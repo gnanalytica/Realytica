@@ -521,3 +521,89 @@ describe('whose decision it is', () => {
     assert.deepEqual(readFunctionFields(p, FN).needs.accept, []);
   });
 });
+
+describe('Needs you, where the value or its cause sits somewhere else', () => {
+  const paper = (p: DdProject, title: string, documentType: string) => {
+    const row = deed(p, title);
+    row.documentType = documentType;
+    return row;
+  };
+
+  it('lists a value offered for a check’s field on the sheet that reads it, and accepts it on the check in one decision', () => {
+    const p = project();
+    const row = deed(p);
+    // Nothing is held on the check yet: the value only waits there.
+    proposeFieldValues(p, [{ address: { fn: 'legal.title', set: PARCEL, field: 'extent_title' }, value: 6000, origin: read(row.id, 'measuring 6000 square metres') }], 'parser');
+    const lines = readFunctionFields(p, FN).needs.accept.filter((line) => line.shownAt?.field === 'extent_on_check');
+    assert.equal(lines.length, 1, 'one line, on the field that reads the check');
+    const line = lines[0]!;
+    assert.deepEqual([line.address!.set, line.address!.field], [PARCEL, 'extent_title'], 'its address is the check’s own field, where the server accepts');
+    assert.throws(() => decideField(p, at('extent_on_check'), 'accept', LEAD, {}, seat(p, LEAD)), /worked out, and nobody decides it/);
+    decideField(p, line.address!, 'accept', LEAD, {}, seat(p, LEAD));
+    assert.equal(readSheet(p, HOLDING)!.fields.find((f) => f.def.key === 'extent_on_check')!.held?.value, 6000);
+    assert.deepEqual(readFunctionFields(p, FN).needs.accept.filter((other) => other.shownAt), []);
+  });
+
+  it('never lists under Accept a value the server would refuse: every Accept line of every function is taken by a lead in one decision', () => {
+    const p = project();
+    setTeamMember(p, { email: LEAD, departments: { legal: 'lead', finance: 'lead', procurement: 'lead', commercial: 'lead', design: 'lead', construction: 'lead' } }, 'owner');
+    const row = deed(p);
+    const contract = addFieldRecord(p, 'shared.contracts', { reference: 'WO/2026/014' }, LEAD).record!;
+    const order = paper(p, 'Work order WO/2026/014', 'Work order');
+    proposeFieldValues(
+      p,
+      [
+        { address: { fn: 'legal.title', set: PARCEL, field: 'extent_title' }, value: 6000, origin: read(row.id, 'measuring 6000 square metres') },
+        { address: at('conversion_order_no'), value: 'ALN/SR/118', origin: read(row.id, 'order no. ALN/SR/118') },
+        { address: { fn: 'shared', set: 'shared.contracts', record: contract.id, field: 'start_on' }, value: '2026-04-15', origin: read(order.id, 'commence on 15 April 2026') },
+      ],
+      'parser',
+    );
+    let taken = 0;
+    for (const fn of new Set(FIELD_SETS.map((set) => set.fn))) {
+      for (const line of readFunctionFields(p, fn).needs.accept) {
+        const copy = structuredClone(p);
+        assert.doesNotThrow(() => decideField(copy, line.address!, 'accept', LEAD, line.pick !== undefined ? { pick: line.pick } : {}, seat(copy, LEAD)), `${fn}: ${line.label}`);
+        taken += 1;
+      }
+    }
+    assert.ok(taken >= 3, 'the check’s value, the sheet’s and the contract’s were each offered somewhere');
+  });
+
+  it('lists a value offered to a shared record under the function its paper is filed in, and nowhere else', () => {
+    const p = project();
+    const contract = addFieldRecord(p, 'shared.contracts', { reference: 'WO/2026/014' }, LEAD).record!;
+    const order = paper(p, 'Work order WO/2026/014', 'Work order');
+    proposeFieldValues(p, [{ address: { fn: 'shared', set: 'shared.contracts', record: contract.id, field: 'start_on' }, value: '2026-04-15', origin: read(order.id, 'commence on 15 April 2026') }], 'parser');
+    const under = (fn: string) => readFunctionFields(p, fn).needs.accept.filter((line) => line.address?.set === 'shared.contracts').map((line) => line.label);
+    assert.deepEqual(under('procurement.orders'), ['Commencement date']);
+    for (const fn of ['procurement.vendors', 'procurement.boq', 'finance.budget', 'legal.contracts', 'construction.progress']) assert.deepEqual(under(fn), [], fn);
+  });
+
+  it('says of a line caused by another function’s record where that record is, and of a rule line which rule rows it read', () => {
+    const p = project();
+    // A sheet of Contracts that counts the things Title keeps, and fails while it holds none.
+    const READER: FieldSet = {
+      id: 'legal.contracts.zz_reader',
+      fn: 'legal.contracts',
+      title: 'Things, as Title keeps them',
+      v: 1,
+      fields: [{ key: 'things_held', label: 'Things held', kind: 'computed', precision: 0, formula: { op: 'records', set: ZR, reduce: 'count' } }],
+      rules: [{ kind: 'at_least', fields: ['things_held'], against: 1, say: 'No thing is held.', severity: 'high' }],
+    };
+    const catalog = buildFieldCatalog([...FIELD_SETS, ...OWN, READER]);
+    const lineOf = () => readFunctionFields(p, 'legal.contracts', new Date(), catalog).exceptions.find((line) => line.text === 'No thing is held.');
+    assert.deepEqual(lineOf()?.target, { fn: FN, set: ZR, field: '' }, 'with nothing there, it opens the list');
+    // A thing a paper offered waits on Title's list: until somebody accepts it, Contracts holds none, and the line opens that record.
+    const row = deed(p);
+    const [offer] = proposeFieldValues(p, [{ address: { fn: FN, set: ZR, field: 'name' }, value: 'A name off a paper', origin: read(row.id, 'A name off a paper') }], 'parser', catalog);
+    const offered = offer!.address.record!;
+    assert.deepEqual(lineOf()?.target, { fn: FN, set: ZR, field: '', record: offered });
+    decideField(p, { fn: FN, set: ZR, record: offered, field: 'name' }, 'accept', LEAD, {}, seat(p, LEAD), catalog);
+    assert.equal(lineOf(), undefined, 'accepted, the line is gone');
+
+    // A rule line that rests on a rule row carries the row, with whether anybody has verified it.
+    const cited = [...new Set(FIELD_SETS.map((set) => set.fn))].flatMap((fn) => readFunctionFields(p, fn).exceptions).filter((line) => line.ruleUnchecked);
+    for (const line of cited) assert.ok(line.cites?.some((cite) => !cite.verified), `${line.label}: ${line.text}`);
+  });
+});

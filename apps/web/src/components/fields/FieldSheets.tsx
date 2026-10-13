@@ -26,6 +26,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, ListChecks, Plus } from 'lucide-react';
 import {
+  DEPARTMENT_KEYS,
   FIELD_SETS,
   NA_REASONS,
   NA_REASON_LABEL,
@@ -59,7 +60,7 @@ import { useFirmCatalog } from '../../lib/firmFields';
 import { useMe } from '../../lib/useMe';
 import { CheckFields } from '../CheckFields';
 import { StackPlan, drawsAsStackPlan } from './StackPlan';
-import { NEEDS_SHOWN, needAction, needChips, needLines, needRuleUnchecked, needSource, needWhere, sheetItem, sheetItemOf, type NeedAction, type NeedTarget } from './needs';
+import { NEEDS_SHOWN, needAction, needAssumes, needChips, needLines, needRuleRows, needRuleUnchecked, needSource, needUnverified, needWhere, sheetItem, sheetItemOf, type NeedAction, type NeedTarget } from './needs';
 import { AiMark, Badge, Button, Card, CardBody, CardHeader, Modal, cn, useToast } from '../ui/kit';
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
@@ -74,7 +75,7 @@ interface Props {
   /** A place on the sheets a link names (`set::record::field`), brought into view. `at` makes a repeat count. */
   marked?: { item: string; at: number } | null;
   /** Opens the check that holds a value this page only reads. */
-  onOpenCheck?: (where: { ddId: string; scopeId: string; checkId: string }) => void;
+  onOpenCheck?: (where: { ddId: string; scopeId: string; checkId: string; field?: string }) => void;
   /** Opens another function's sheets at a place on them. */
   onOpenFunction?: (fn: string, item: string) => void;
 }
@@ -86,12 +87,22 @@ interface Opened {
   depth?: string;
 }
 
-/** What the person on this page may do in the function's department. */
-function useSeat(project: DdProject, fn: string): { mayEdit: boolean; mayDecide: boolean } {
+/**
+ * What the person on this page may do in the function's department, and
+ * whether they may decide a value held somewhere else: in another function,
+ * or on a shared record, which any department's lead may decide. The server
+ * asks the same of the address a decision is sent to.
+ */
+function useSeat(project: DdProject, fn: string): { mayEdit: boolean; mayDecide: boolean; mayDecideAt: (at: string | undefined) => boolean } {
   const me = useMe();
-  const department = workstreamDefinition(fn)?.department as DepartmentKey | undefined;
-  const role = me && department ? departmentRole(project, { email: me.email, workspaceRole: me.role }, department) : undefined;
-  return { mayEdit: roleCanEdit(role), mayDecide: roleCanDecide(role) };
+  const roleIn = (department: DepartmentKey | undefined) => (me && department ? departmentRole(project, { email: me.email, workspaceRole: me.role }, department) : undefined);
+  const role = roleIn(workstreamDefinition(fn)?.department as DepartmentKey | undefined);
+  const mayDecideAt = (at: string | undefined): boolean => {
+    if (!at || at === fn) return roleCanDecide(role);
+    if (at === 'shared') return DEPARTMENT_KEYS.some((department) => roleCanDecide(roleIn(department)));
+    return roleCanDecide(roleIn(workstreamDefinition(at)?.department as DepartmentKey | undefined));
+  };
+  return { mayEdit: roleCanEdit(role), mayDecide: roleCanDecide(role), mayDecideAt };
 }
 
 /** The element a holder's fields are drawn in: a sheet's card on the page, or a record's sheet over it. The last drawn is the one on top. */
@@ -210,7 +221,7 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
         <NeedsYou
           page={page}
           mayDecide={seat.mayDecide}
-          actionOf={(exception) => needAction(page, exception, seat.mayDecide, project, catalog)}
+          actionOf={(exception) => needAction(page, exception, seat.mayDecideAt(exception.address?.fn), project, catalog)}
           onAccept={(exception) => run(() => api.decideField(project.id, { address: exception.address!, decision: 'accept', ...(exception.pick !== undefined ? { pick: exception.pick } : {}) }), 'That could not be accepted')}
           onSetAside={(exception) => run(() => api.decideField(project.id, { address: exception.address!, decision: exception.pick !== undefined ? 'keep' : 'set_aside' }), 'That could not be set aside')}
           onAcceptPaper={(evidenceId) => run(() => api.acceptPaperFields(project.id, fn, evidenceId), 'Those could not be accepted')}
@@ -432,7 +443,16 @@ function NeedsYou({
                         <span className={cn('mr-2 text-[11px] font-semibold uppercase tracking-[0.06em]', NEED_TONE[exception.need])}>{NEED_LABEL[exception.need]}</span>
                         {exception.label}
                         {valued ? <span className="font-mono text-ink-secondary"> {exception.text}</span> : null}
-                        {needRuleUnchecked(page, exception) ? <span className="ml-2 whitespace-nowrap text-[11px] text-[var(--status-warning-text)]">rule not checked</span> : null}
+                        {needRuleUnchecked(page, exception) ? (
+                          <span className="ml-2 whitespace-nowrap text-[11px] text-[var(--status-warning-text)]" title={needRuleRows(page, exception) || undefined}>
+                            rule not checked
+                          </span>
+                        ) : null}
+                        {needAssumes(page, exception).length ? (
+                          <span className="ml-2 whitespace-nowrap text-[11px] text-ink-muted" title={`Nobody entered: ${needAssumes(page, exception).join(', ')}`}>
+                            on an assumed value
+                          </span>
+                        ) : null}
                       </p>
                       {under || source ? (
                         <p className="text-[12px] leading-snug text-ink-muted">
@@ -452,6 +472,7 @@ function NeedsYou({
                         </p>
                       ) : null}
                       {exception.source?.quote && exception.kind === 'proposed' ? <p className="text-[12px] leading-snug text-ink-muted">“{exception.source.quote}”</p> : null}
+                      {needUnverified(exception) ? <p className="text-[12px] leading-snug text-[var(--status-warning-text)]">These words were not found on that page. Accepted one at a time, after a look at the paper.</p> : null}
                     </div>
                     {exception.need === 'due_soon' && mayDecide ? (
                       putOff?.key === exception.key ? (
@@ -904,8 +925,15 @@ function Records({
   /** Draw the records as a stack plan above their rows. */
   plan?: boolean;
 }) {
-  const waiting = records.reduce((n, record) => n + record.fields.filter((view) => view.state === 'proposed').length, 0);
-  const said = records.length ? `${records.length}${waiting ? ` · ${waiting} to accept` : ''}` : quiet ? 'None yet' : `No ${set.records!.of} yet`;
+  // A record nobody has accepted anything on is not one yet: it is counted apart, and its row says only that it waits.
+  const standing = records.filter((record) => !record.pending);
+  const offered = records.length - standing.length;
+  const waiting = standing.reduce((n, record) => n + record.fields.filter((view) => view.state === 'proposed').length, 0);
+  const said = records.length
+    ? [standing.length ? String(standing.length) : '', waiting ? `${waiting} to accept` : '', offered ? `${offered} offered by a paper, to accept` : ''].filter(Boolean).join(' · ')
+    : quiet
+      ? 'None yet'
+      : `No ${set.records!.of} yet`;
   return (
     <div data-holder={`${set.id}::`} className="scroll-mt-16">
       <Card>
@@ -932,15 +960,15 @@ function Records({
           <CardBody className="border-t border-hairline p-0">
             {plan ? (
               <div className="p-4">
-                <StackPlan records={records} onOpen={onOpen} />
+                <StackPlan records={standing} onOpen={onOpen} />
               </div>
             ) : null}
             <ul className="divide-y divide-hairline">
               {records.map((record) => (
                 <li key={record.recordId}>
                   <button type="button" onClick={() => onOpen(record.recordId!)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left hover:bg-sunken coarse:min-h-11">
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{record.title}</span>
-                    {record.chips.map((chip) => (
+                    <span className={cn('min-w-0 flex-1 truncate text-[13px]', record.pending ? 'text-ink-muted' : 'font-medium text-ink')}>{record.pending ? `${record.title}, offered by a paper and not accepted yet` : record.title}</span>
+                    {(record.pending ? [] : record.chips).map((chip) => (
                       <span key={chip} className="rounded-md bg-sunken px-1.5 py-0.5 text-[11px] text-ink-secondary">
                         {chip}
                       </span>

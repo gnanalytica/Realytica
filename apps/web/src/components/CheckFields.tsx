@@ -1227,6 +1227,7 @@ function FieldMarks({
             <span className="text-ink-muted">· {open(view.source)}</span>
           </p>
           {view.source?.quote ? <p className="mt-0.5">“{view.source.quote}”</p> : null}
+          {view.source?.proof === 'unverified' ? <p className="mt-0.5 text-[var(--status-warning-text)]">These words were not found on that page. Look at the paper before accepting.</p> : null}
           {may ? (
             <p className="mt-0.5 flex gap-1">
               <button type="button" className={cn(act, 'text-ink')} onClick={() => onDecide!(def, 'accept')}>
@@ -1263,6 +1264,7 @@ function FieldMarks({
             <p className="text-[12px] text-ink">
               Also offered: {other.text} <span className="text-ink-muted">· {open(other.source)}</span>
             </p>
+            {other.source?.proof === 'unverified' ? <p className="mt-0.5 text-[var(--status-warning-text)]">These words were not found on that page. Look at the paper before accepting.</p> : null}
             {may ? (
               <p className="mt-0.5 flex gap-1">
                 <button type="button" className={cn(act, 'text-ink')} onClick={() => onDecide!(def, 'accept', { pick: other.index })}>
@@ -1286,6 +1288,8 @@ function FieldMarks({
             .join('; ')}
         </p>
       ) : null}
+      {view.assumes?.length && view.held && view.held.value !== null && view.held.value !== '' ? <p>On an assumed value: nobody entered {view.assumes.join(', ')}.</p> : null}
+      {view.removedLink ? <p className="text-critical">Links to a record taken off its list. Link another, or clear it.</p> : null}
       {view.notInPlay ? <p>Filled in earlier, not needed now</p> : null}
       {view.state === 'not_applicable' && may ? (
         <button type="button" className={cn(act, 'px-0 text-brand')} onClick={() => onDecide!(def, 'reopen')}>

@@ -39,6 +39,7 @@ import { ruleCitation, ruleRow } from './rule-tables';
 import { recordAuditEvent } from './operations';
 import { decisionRefused } from './review';
 import type { MayDecide } from './team';
+import { documentWorkstream } from './vault';
 import type {
   ChatProposal,
   CheckFieldDef,
@@ -57,6 +58,7 @@ import type {
   FieldState,
   MatchList,
   RefTarget,
+  RowWhere,
   RuleCitation,
   RuleRow,
   ShowWhen,
@@ -620,7 +622,7 @@ export interface SheetReading {
   /** What the holder's own rules say. A depth sheet's are on it. */
   insights: CheckInsight[];
   /** Every rule that fired, with which rule of the set it was and the depth sheet it belongs to. */
-  findings: Array<{ insight: CheckInsight; rule: number; sheet?: string; ruleUnchecked?: boolean; assumes?: string[] }>;
+  findings: Array<{ insight: CheckInsight; rule: number; sheet?: string; ruleUnchecked?: boolean; assumes?: string[]; cites?: RuleCitation[] }>;
   /** The hard cases this holder can open, each a small sheet of its own. */
   depth: DepthReading[];
   /** Values kept under a key nothing declares any more: shown as no longer asked, and never lost. */
@@ -855,9 +857,10 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     const abroad = ruleAbroad(rule, resolved, catalog);
     const read = { ...acting, ...abroad.values };
     // What the line rests on that nobody checked or entered: a rule row not verified, a usual value standing in.
-    const unchecked = rule.fields.some((key) => read[key]?.cites?.some((cite) => !cite.verified));
+    const cites = uniqueCites(rule.fields.flatMap((key) => read[key]?.cites ?? []));
+    const unchecked = cites.some((cite) => !cite.verified);
     const assumes = [...new Set(rule.fields.flatMap((key) => [...(read[key]?.state === 'assumed' ? [(set.fields.find((f) => f.key === key) ?? abroad.defs.find((f) => f.key === key))?.label ?? key] : []), ...(read[key]?.assumes ?? [])]))];
-    return checkInsights([...set.fields, ...abroad.defs], read, [rule], at).map((insight) => ({ insight, rule: index, ...(rule.sheet ? { sheet: rule.sheet } : {}), ...(unchecked ? { ruleUnchecked: true } : {}), ...(assumes.length ? { assumes } : {}) }));
+    return checkInsights([...set.fields, ...abroad.defs], read, [rule], at).map((insight) => ({ insight, rule: index, ...(rule.sheet ? { sheet: rule.sheet } : {}), ...(unchecked ? { ruleUnchecked: true } : {}), ...(assumes.length ? { assumes } : {}), ...(cites.length ? { cites } : {}) }));
   });
   const insights = findings.filter((found) => !found.sheet).map((found) => found.insight);
   const recorded = (view: FieldView) => (fieldStands(view.held) && !isBlank(view.held)) || view.state === 'not_applicable';
@@ -978,6 +981,13 @@ export interface FieldException {
   assumes?: string[];
   /** For a value waiting beside a mirror: the mirror's own field, where the line is drawn. `address` is the field that holds the value, where it is accepted. */
   shownAt?: FieldAddress;
+  /** The rule rows the line's figures were read from, each with whether a person has verified it. */
+  cites?: RuleCitation[];
+  /**
+   * What the line is caused by, where that is on another function's sheets: a record that function keeps and this
+   * one's rule reads (the bank guarantee waiting in Vendors behind a line on Orders). Open goes there.
+   */
+  target?: FieldAddress;
   /** For a record a paper offered and nobody has accepted a value of: where each of its values waits. The line is the record, and its address ends in `RECORD_AS_OFFERED`. */
   whole?: FieldAddress[];
 }
@@ -1022,6 +1032,16 @@ export interface OwedGroup {
   role?: OwedRole;
   partyId?: string;
   fields: Array<{ address: FieldAddress; label: string; sheet: string }>;
+}
+
+/** The sets of records a formula counts or sums over, each with the condition it puts on them, wherever in the formula they sit. */
+function formulaRecordReads(node: unknown): Array<{ set: string; where?: RowWhere }> {
+  if (!node || typeof node !== 'object') return [];
+  const held = node as { op?: unknown; set?: unknown; over?: { records?: unknown }; where?: unknown };
+  const here: Array<{ set: string; where?: RowWhere }> = [];
+  if (held.op === 'records' && typeof held.set === 'string') here.push({ set: held.set, ...(held.where ? { where: held.where as RowWhere } : {}) });
+  else if ((held.op === 'count_if' || held.op === 'sum_if' || held.op === 'span_days') && typeof held.over?.records === 'string') here.push({ set: held.over.records, ...(held.where ? { where: held.where as RowWhere } : {}) });
+  return [...here, ...Object.values(node).flatMap((part) => (Array.isArray(part) ? part.flatMap(formulaRecordReads) : formulaRecordReads(part)))];
 }
 
 const SEVERITY_TONE: Record<string, Tone> = { critical: 'critical', high: 'critical', medium: 'warning', low: 'neutral' };
@@ -1069,6 +1089,35 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
     if (situation.state === 'proposed') all.push({ kind: 'situation', need: 'decide', key: `situation::${situation.at}`, sheet: '', label: situation.situation.label, text: situation.situation.hint ?? '', source: situation.suggestedBy, situation: situation.at });
   }
   const today = dayNumber(indiaToday(at))!;
+  const lists = (id: string) => optionSetById(id, catalog);
+  // Values offered where this function only reads them: listed once the function's own lines are, and only where no line of its own says the same.
+  const beside: FieldException[] = [];
+  /** What a line's rule reads on another function's sheets: the record there that is the cause, where one can be named. */
+  const causeOf = (set: FieldSet, recordId: string | undefined, rule: Pick<CheckInsightRule, 'fields' | 'at'>): FieldAddress | undefined => {
+    for (const name of rule.fields) {
+      const abroad = rule.at?.[name];
+      const def = abroad ? undefined : set.fields.find((field) => field.key === name);
+      const far = abroad ?? def?.sameAs;
+      if (far) {
+        const farFn = catalog.sets.get(far.set)?.fn;
+        if (farFn && farFn !== fn && farFn !== SHARED_FN) return { ...far, fn: farFn };
+        continue;
+      }
+      for (const read of def?.formula ? formulaRecordReads(def.formula) : []) {
+        const far = catalog.sets.get(read.set);
+        if (!far?.records || far.fn === fn || far.fn === SHARED_FN) continue;
+        const records = fieldRecords(project, far.id);
+        // A record somebody offered there and nobody has accepted is the likeliest cause: it counts for nothing until it is.
+        const waiting = records.filter((record) => !recordStands(record));
+        const own = new Proxy({} as Record<string, CheckFieldValue>, { get: (_, key) => (typeof key === 'string' ? resolution.read({ fn: set.fn, set: set.id, field: key, ...(recordId ? { record: recordId } : {}) }) : undefined) });
+        const asked = read.where ? ownRows(read.where, own, recordId) : undefined;
+        const meeting = asked === null ? [] : records.filter(recordStands).filter((record) => !asked || rowMeets(resolution.holder(far.id, record.id), asked));
+        const one = waiting.length === 1 ? waiting[0] : meeting.length === 1 ? meeting[0] : undefined;
+        return { fn: far.fn, set: far.id, field: '', ...(one ? { record: one.id } : {}) };
+      }
+    }
+    return undefined;
+  };
   for (const read of readings) {
     const where = { sheet: read.set.records ? `${read.set.title} · ${read.title}` : read.set.title, ...(read.recordId ? { record: read.recordId } : {}) };
     for (const view of read.fields) {
@@ -1078,6 +1127,18 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
       const on = { ...where, address: view.address, label: view.def.label, ...(view.def.sheet ? { depth: view.def.sheet } : {}) };
       if (view.state === 'proposed') all.push({ kind: 'proposed', need: 'accept', key: `${key}::proposed`, ...on, text: view.text, source: view.source, oneAtATime: view.oneAtATime });
       else if (view.state === 'disputed') all.push({ kind: 'disputed', need: 'decide', key: `${key}::disputed`, ...on, text: [view.text, ...view.waiting.map((w) => w.text)].join(' / '), source: view.source, tone: 'critical' });
+      // A value offered for a check's field this one only reads, with nothing held there yet: a check has no page of sheets of
+      // its own, so the line is drawn here, where a person looks for it, and accepted on the check that holds it. A reading is
+      // never offered as something to decide. A value offered to another function's sheet is listed on that function's page.
+      if (view.heldAt && catalog.checks.has(view.heldAt.set)) {
+        const holds = view.heldAt;
+        const holderDef = catalog.sets.get(holds.set)?.fields.find((field) => field.key === holds.field);
+        const offered = holderDef && !fieldIsDerived(holderDef) && (!catalog.sets.get(holds.set)?.records || holds.record) ? stored(project, catalog, holds.set, holds.record)[holds.field] : undefined;
+        if (holderDef && offered && fieldState(offered) === 'proposed' && !isBlank(offered)) {
+          const oneAtATime = acceptedOneAtATime(asFact(holderDef, offered)) || (offered.origin?.kind === 'paper' && offered.proposedBy === 'model' && offered.origin.proof === 'unverified');
+          beside.push({ kind: 'proposed', need: 'accept', key: `${addressKey(holds)}::proposed`, ...on, address: holds, shownAt: view.address, text: formatFieldValue(holderDef, offered, lists), source: sourceOf(project, catalog, offered, offered.origin), oneAtATime });
+        }
+      }
       if (view.state !== 'disputed') {
         // A value waiting beside a mirror waits on the field the mirror reads: the line is drawn here and accepted there, in one tap.
         // One line for one value, however many mirrors of the field the page holds.
@@ -1118,7 +1179,8 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
       const firing = view.def.kind === 'status' ? view.def.cases?.find((option) => option.label === view.held?.value)?.when : undefined;
       const saidByRule = firing && read.set.rules.some((rule) => rule.kind === firing.kind && rule.fields.join() === firing.fields.join());
       if (view.def.kind === 'status' && !saidByRule && (view.tone === 'critical' || view.tone === 'warning')) {
-        all.push({ kind: 'rule', need: view.tone === 'critical' ? 'failing' : 'due_soon', key: `${key}::status`, ...on, text: view.text, tone: view.tone, ...(view.ruleUnchecked ? { ruleUnchecked: true } : {}), ...(view.assumes?.length ? { assumes: view.assumes } : {}) });
+        const cause = firing ? causeOf(read.set, read.recordId, firing) : undefined;
+        all.push({ kind: 'rule', need: view.tone === 'critical' ? 'failing' : 'due_soon', key: `${key}::status`, ...on, text: view.text, tone: view.tone, ...(view.ruleUnchecked ? { ruleUnchecked: true } : {}), ...(view.assumes?.length ? { assumes: view.assumes } : {}), ...(view.cites?.length ? { cites: view.cites } : {}), ...(cause ? { target: cause } : {}) });
       }
     }
     for (const found of read.findings) {
@@ -1126,14 +1188,42 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
       if (found.insight.severity === 'low') continue;
       const failing = found.insight.severity === 'critical' || found.insight.severity === 'high';
       const depth = depthSheet(read.set, found.sheet);
-      all.push({ kind: 'rule', need: failing ? 'failing' : 'due_soon', key: `${read.set.id}::${read.recordId ?? ''}::rule::${found.rule}`, ...where, label: depth?.title ?? read.set.title, ...(depth ? { depth: depth.id } : {}), text: found.insight.text, tone: SEVERITY_TONE[found.insight.severity] ?? 'neutral', ...(found.ruleUnchecked ? { ruleUnchecked: true } : {}), ...(found.assumes?.length ? { assumes: found.assumes } : {}) });
+      const cause = causeOf(read.set, read.recordId, read.set.rules[found.rule]!);
+      all.push({ kind: 'rule', need: failing ? 'failing' : 'due_soon', key: `${read.set.id}::${read.recordId ?? ''}::rule::${found.rule}`, ...where, label: depth?.title ?? read.set.title, ...(depth ? { depth: depth.id } : {}), text: found.insight.text, tone: SEVERITY_TONE[found.insight.severity] ?? 'neutral', ...(found.ruleUnchecked ? { ruleUnchecked: true } : {}), ...(found.assumes?.length ? { assumes: found.assumes } : {}), ...(found.cites?.length ? { cites: found.cites } : {}), ...(cause ? { target: cause } : {}) });
     }
   }
+  // A shared record (a unit, a contract, a parcel, an account, a party) is the project's, and asks nothing of a function. A value
+  // offered to one is still somebody's to accept: the function that adds that fact to the record, or, for a fact of the record
+  // itself, the function the paper it came off is filed under. It is listed there, and accepted on the record.
+  const sharedRead = fn === SHARED_FN ? [] : sharedSetsOf(fn, catalog).map((set) => ({ set, records: fieldRecords(project, set.id).flatMap((record) => readSheet(project, set.id, record.id, resolution, catalog, at) ?? []) }));
+  const filedUnder = new Map<string, string | undefined>();
+  const paperFn = (evidenceId: string | undefined): string | undefined => {
+    if (!evidenceId) return undefined;
+    if (!filedUnder.has(evidenceId)) {
+      const row = project.evidence.find((held) => held.id === evidenceId);
+      filedUnder.set(evidenceId, row ? documentWorkstream(project, row) : undefined);
+    }
+    return filedUnder.get(evidenceId);
+  };
+  for (const read of sharedRead.flatMap((held) => held.records)) {
+    const where = { sheet: `${read.set.title} · ${read.title}`, record: read.recordId! };
+    for (const view of read.fields) {
+      if (view.shown === 'hidden' || view.state === 'disputed' || fieldIsDerived(view.def)) continue;
+      const key = addressKey(view.address);
+      const on = { ...where, address: view.address, label: view.def.label, ...(view.def.sheet ? { depth: view.def.sheet } : {}) };
+      const mine = (source: FieldSource | undefined) => (view.def.addedBy ?? paperFn(source?.evidenceId)) === fn;
+      if (view.state === 'proposed' && mine(view.source)) all.push({ kind: 'proposed', need: 'accept', key: `${key}::proposed`, ...on, text: view.text, source: view.source, oneAtATime: view.oneAtATime });
+      for (const waiting of view.waiting) {
+        if (mine(waiting.source)) all.push({ kind: 'proposed', need: 'accept', key: `${key}::proposed::${waiting.index}`, ...on, text: waiting.text, source: waiting.source, pick: waiting.index, oneAtATime: true });
+      }
+    }
+  }
+  for (const line of beside) if (!all.some((other) => other.key === line.key)) all.push(line);
   // A line under Due soon a person put off stays off the page until its day, or until it starts failing.
   const day = indiaToday(at);
   const snoozed: FieldException[] = [];
   const exceptions: FieldException[] = [];
-  for (const exception of offeredRecordsAsOneLine(all, readings)) {
+  for (const exception of offeredRecordsAsOneLine(all, [...readings, ...sharedRead.flatMap((held) => held.records)])) {
     const until = exception.need === 'due_soon' ? project.fieldSnoozes?.[exception.key]?.until : undefined;
     if (until && until > day) snoozed.push({ ...exception, snoozedUntil: until });
     else exceptions.push(exception);
@@ -1146,7 +1236,7 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
     counts.total += 1;
     needs[exception.need].push(exception);
   }
-  const shared = fn === SHARED_FN ? [] : sharedSetsOf(fn, catalog).map((set) => ({ set, records: fieldRecords(project, set.id).flatMap((record) => readSheet(project, set.id, record.id, resolution, catalog, at) ?? []).map((reading) => sheetSeenFrom(reading, fn)) }));
+  const shared = sharedRead.map((held) => ({ set: held.set, records: held.records.map((reading) => sheetSeenFrom(reading, fn)) }));
   const views = readings.flatMap((read) => read.fields);
   return {
     fn,
