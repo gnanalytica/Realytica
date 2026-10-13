@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Rule8Item, Rule8Summary, ValuationRun } from '@realytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, cn, type Tone } from '../ui/kit';
+import { countSaid } from '@realytica/shared';
 
 const TONE: Record<'stated' | 'partial' | 'missing', Tone> = {
   stated: 'good',
@@ -203,7 +204,7 @@ export function ValueRule8({
             <span>
               <span className="font-medium text-ink">{held.name}</span>
               {held.registrationNumber ? ` · ${held.registrationNumber}` : ''}
-              {conflict ? (conflict.declared ? ` · ${conflict.interests.length} interest(s)` : ' · no interest declared') : ''}
+              {conflict ? (conflict.declared ? ` · ${countSaid(conflict.interests.length, 'interest')}` : ' · no interest declared') : ''}
             </span>
             <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
               Edit

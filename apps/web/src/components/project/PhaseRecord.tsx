@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { CHECK_RESULT_LABEL, phaseCount, phaseRecord, type DdProject, type PhaseItem, type PhaseRef } from '@realytica/shared';
 import { Card, CardBody, CardHeader, cn } from '../ui/kit';
+import { daySaid } from '@realytica/shared';
 
 function monthDay(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return daySaid(iso);
 }
 
 export type PhaseOpen = (kind: 'document' | 'assessment' | 'check' | 'finding' | 'risk' | 'action' | 'decision' | 'report', id: string) => void;
@@ -105,7 +106,7 @@ export function PhaseRecordCard({
         ) : (
           <div className={cn('grid gap-x-6 gap-y-4 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]')}>
             <Section title="Documents filed" items={record.documents} kind="document" onOpen={onOpen} />
-            <Section title="DDs started" items={record.assessments} kind="assessment" onOpen={onOpen} />
+            <Section title="Due diligence started" items={record.assessments} kind="assessment" onOpen={onOpen} />
             <Section
               title="Checks recorded"
               items={record.checks}

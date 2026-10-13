@@ -1214,13 +1214,13 @@ const POSSESSION_SET: FieldSet = {
       kind: 'status',
       section: 'defects',
       cases: [
-        { when: above('requests_overdue', 0, '{a} defect(s) are past the time the Act gives to rectify them.', 'critical'), label: 'A defect is past its time', tone: 'critical' },
+        { when: above('requests_overdue', 0, 'Defects past the time the Act gives to rectify them: {a}.', 'critical'), label: 'A defect is past its time', tone: 'critical' },
         { when: above('units_to_offer', 0, 'Possession is still to be offered on {a} unit(s) sold.', 'medium'), label: 'Possession still to be offered', tone: 'warning' },
       ],
     },
   ],
   rules: [
-    above('requests_overdue', 0, '{a} defect(s) are past the time the Act gives to rectify them.', 'critical'),
+    above('requests_overdue', 0, 'Defects past the time the Act gives to rectify them: {a}.', 'critical'),
     above('units_to_offer', 0, 'Possession is still to be offered on {a} unit(s) sold.', 'medium'),
   ],
 };
@@ -1594,7 +1594,7 @@ const ADVERTISEMENTS_SET: FieldSet = {
   rules: [
     { kind: 'at_least', fields: ['lettering_ratio', 'lettering_least'], say: 'The registration number’s lettering is {a} of the project name’s; the circular asks for at least {b}.', severity: 'high' },
     { kind: 'at_least', fields: ['block_pct', 'block_least'], say: 'The registered block measures {a}; the circular asks for at least {b}.', severity: 'high' },
-    above('claims_unbacked', 0, '{a} claim(s) in the advertisement are backed by neither the agreement’s schedules, the sanctioned plan nor a filed paper.', 'high'),
+    above('claims_unbacked', 0, 'Claims in the advertisement backed by neither the agreement’s schedules, the sanctioned plan nor a filed paper: {a}.', 'high'),
     { kind: 'at_least', fields: ['lowest_price_stated', 'lowest_list_price'], at: { lowest_list_price: at(SALES, STOCK, 'lowest_list_price') }, say: 'The lowest price stated is {a}; the lowest on the price list is {b}.', severity: 'high' },
     { kind: 'require_if', fields: ['released_on', 'verdict'], say: 'Released on {a} with no verdict recorded.', severity: 'high' },
     { kind: 'require_if', fields: ['verdict', 'checked_by'], say: 'A verdict of {a} is recorded and not who checked it.', severity: 'medium' },
@@ -1633,7 +1633,7 @@ const ADVERTISING_SET: FieldSet = {
   ],
   rules: [
     above('to_change', 0, '{a} advertisement(s) are marked to change or failed.', 'high'),
-    above('unchecked', 0, '{a} advertisement(s) on the register have no verdict.', 'medium'),
+    above('unchecked', 0, 'Advertisements on the register with no verdict: {a}.', 'medium'),
   ],
 };
 
@@ -1729,7 +1729,7 @@ const LINKS: SetLinks[] = [
         formula: { op: 'sum_if', over: { records: ORDER_COVER }, column: 'restrains_sale', where: { column: 'unit', is: 'own' } },
       },
     ],
-    rules: [{ kind: 'at_most', fields: ['sale_orders_in_force'], against: 0, say: '{a} order(s) in force restrain the sale of this unit.', severity: 'critical' }],
+    rules: [{ kind: 'at_most', fields: ['sale_orders_in_force'], against: 0, say: 'Orders in force that restrain the sale of this unit: {a}.', severity: 'critical' }],
   },
   {
     set: STOCK,
@@ -1743,9 +1743,9 @@ const LINKS: SetLinks[] = [
     ],
     rules: [
       { kind: 'at_most', fields: ['units_total', 'units_sanctioned'], at: { units_sanctioned: { fn: 'legal.approvals', set: 'legal.approvals.sanction', field: 'units_in_force' } }, when: { situation: 'revised_sanction' }, say: 'The register holds {a} units and the sanction, as last revised, allows {b}.', severity: 'high' },
-      { kind: 'at_most', fields: ['units_restrained'], against: 0, say: '{a} unit(s) are covered by an order in force that restrains a sale: each says so on its own record.', severity: 'critical' },
-      { kind: 'at_most', fields: ['land_restraints'], against: 0, say: '{a} order(s) in force restrain a sale over a parcel of the land, and so every unit on it.', severity: 'critical' },
-      { kind: 'at_most', fields: ['sale_restraints'], against: 0, say: '{a} order(s) in force restrain a sale or its registration.', severity: 'critical' },
+      { kind: 'at_most', fields: ['units_restrained'], against: 0, say: 'Units covered by an order in force that restrains a sale: {a}. Each says so on its own record.', severity: 'critical' },
+      { kind: 'at_most', fields: ['land_restraints'], against: 0, say: 'Orders in force that restrain a sale over a parcel of the land, and so every unit on it: {a}.', severity: 'critical' },
+      { kind: 'at_most', fields: ['sale_restraints'], against: 0, say: 'Orders in force that restrain a sale or its registration: {a}.', severity: 'critical' },
       { kind: 'compare', fields: ['units_total', 'units_designed'], at: { units_designed: { fn: 'design.brief', set: 'design.brief.sheet', field: 'units_total' } }, when: { records: 'design.brief.unit_types', is: 'any' }, tolerance: 0.001, say: 'The register holds {a} units and the Architect’s unit mix comes to {b}.', severity: 'medium' },
     ],
   },

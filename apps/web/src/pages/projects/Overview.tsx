@@ -147,7 +147,7 @@ function StandingFigures({ project }: { project: DdProject }) {
       <Figure label="Health" value={PROJECT_HEALTH_LABEL[project.health]} tone={health === 'critical' ? 'critical' : health === 'warning' ? 'warning' : health === 'good' ? 'good' : undefined} hint={stageAndStep(project.currentStage)} />
       <Figure label="Approvals in force" value={inForce} of={due.length} tone={inForce < due.length ? 'warning' : undefined} hint={`${due.length - inForce} lapsed or missing`} />
       <Figure label="Open alerts" value={alerts.length} tone={critical ? 'critical' : undefined} hint={critical ? `${critical} critical` : 'Nothing critical'} />
-      <Figure label="Documents filed" value={documents} hint="In the vault" />
+      <Figure label="Papers filed" value={documents} hint="On file" />
       <Figure label="Progress" value={progress === null ? '—' : `${Math.round(progress)}%`} hint={progress === null ? 'No milestones yet' : 'Weighted milestones'} />
     </div>
   );

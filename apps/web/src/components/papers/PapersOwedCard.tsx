@@ -27,6 +27,7 @@ import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, Modal, Select, Textarea, cn, useToast, type Tone } from '../ui/kit';
 import { RequestActions } from '../project/RequestsPanel';
 import { RequestReplies } from '../project/RequestOutside';
+import { daySaid } from '@realytica/shared';
 
 const STANDING_TONE: Record<PaperStanding, Tone> = { not_asked: 'neutral', asked: 'warning', answered: 'info', in_hand: 'good' };
 
@@ -37,7 +38,7 @@ function StandingMark({ line }: { line: PaperLine }) {
   return <Circle size={16} className="shrink-0 text-ink-muted" aria-hidden />;
 }
 
-const day = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+const day = (iso: string) => daySaid(iso);
 
 function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));

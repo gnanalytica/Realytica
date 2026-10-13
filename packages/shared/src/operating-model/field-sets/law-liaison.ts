@@ -771,7 +771,7 @@ const RERA_SETS: FieldSet[] = [
           { key: 'share', label: 'Share', kind: 'percent', required: false },
         ],
       },
-      mirror('land_area', 'Extent per title, on the parcel check', 'area', EXTENT_TITLE, { unit: 'sqm', section: 'need' }),
+      mirror('land_area', 'Land area in the title deeds', 'area', EXTENT_TITLE, { unit: 'sqm', section: 'need' }),
       mirror('units_total', 'Units in the scheme', 'number', at('commercial.market', 'commercial_market.absorption', 'units_total'), { section: 'need' }),
       {
         key: 'units_over_floor',
@@ -1044,8 +1044,8 @@ const REGISTER_SETS: FieldSet[] = [
         kind: 'status',
         section: 'register',
         cases: [
-          { when: { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: '{a} stop-work order(s) are in force.', severity: 'critical' }, label: 'Work is ordered to stop', tone: 'critical' },
-          { when: { kind: 'at_most', fields: ['run_out'], against: 0, say: '{a} approval(s) are past their validity.', severity: 'high' }, label: 'An approval has run out', tone: 'critical' },
+          { when: { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: 'Stop-work orders in force: {a}.', severity: 'critical' }, label: 'Work is ordered to stop', tone: 'critical' },
+          { when: { kind: 'at_most', fields: ['run_out'], against: 0, say: 'Approvals past their validity: {a}.', severity: 'high' }, label: 'An approval has run out', tone: 'critical' },
           // A register nobody has started is not in order: it is said to be empty.
           { when: { kind: 'at_least', fields: ['approvals_recorded'], against: 1, say: 'No approval is recorded.', severity: 'low' }, label: 'No approval recorded', tone: 'neutral' },
         ],
@@ -1054,8 +1054,8 @@ const REGISTER_SETS: FieldSet[] = [
       { key: 'consultant', label: 'Liaison consultant', kind: 'ref', target: 'party', section: 'more', required: false },
     ],
     rules: [
-      { kind: 'at_most', fields: ['run_out'], against: 0, say: '{a} approval(s) are past their validity.', severity: 'high' },
-      { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: '{a} stop-work order(s) are in force.', severity: 'critical' },
+      { kind: 'at_most', fields: ['run_out'], against: 0, say: 'Approvals past their validity: {a}.', severity: 'high' },
+      { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: 'Stop-work orders in force: {a}.', severity: 'critical' },
     ],
   },
   {

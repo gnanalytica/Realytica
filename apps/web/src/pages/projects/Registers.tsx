@@ -47,6 +47,7 @@ import {
   readingLine,
   quotesForEvidence,
   ricsConditionRating,
+  countSaid,
   type CapturePurpose,
   type DepartmentKey,
   type EnvironmentalCondition,
@@ -784,7 +785,7 @@ export function FindingRegister() {
                   meta={
                     <>
                       <span>
-                        {SCOPE_LABEL[f.discipline]} · {f.assessmentIds.length} DD link(s) · {f.evidenceIds.length} evidence ·{' '}
+                        {SCOPE_LABEL[f.discipline]} · {countSaid(f.assessmentIds.length, 'due diligence link')} · {f.evidenceIds.length} evidence ·{' '}
                         {f.riskIds.length} risks · {f.actionIds.length} actions
                       </span>
                       {/*

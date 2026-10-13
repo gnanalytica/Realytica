@@ -633,7 +633,7 @@ describe('Procurement: a variation with a time claim', () => {
     // Past the deviation the contract allows, the position turns and names both figures.
     write(p, TERMS, { deviation_limit_pct: 0.5 }, terms);
     assert.equal(sheet(p, TERMS, terms).value('position'), 'Past the deviation limit');
-    assert.ok(sheet(p, TERMS, terms).says().includes('Approved variations are 0.61 % of the contract value, past the 0.5% the contract allows.'));
+    assert.ok(sheet(p, TERMS, terms).says().includes('Approved variations are 0.61% of the contract value, past the 0.5% the contract allows.'));
   });
 
   it('pairs packages with contracts and leaves over the package nobody has contracted', () => {

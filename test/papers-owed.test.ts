@@ -281,18 +281,24 @@ describe('the four lines Overview opens with', () => {
     assert.deepEqual(slipping!.parts.map((part) => [part.text, part.tone]), [['1 late', 'critical']]);
     assert.equal(at(slipping!.parts[0]!.open), '/projects/prj_1/w/construction.progress?part=progress');
     assert.equal(owed!.label, PAPERS_OWED);
-    // Each count and each party opens the department holding most of those papers; a request made by hand, which no department holds, opens Requests.
+    // Owed is what somebody was asked for. The four lines of the list asked of nobody are not counted, and no party is named for them.
     assert.deepEqual(owed!.parts.map((part) => [part.text, at(part.open)]), [
-      ['7 owed', ENGINEERING],
+      ['3 owed', ENGINEERING],
       ['1 overdue', ENGINEERING],
-      ['4 not asked', ENGINEERING],
-      ['Hill Builders 4', ENGINEERING],
+      ['Hill Builders 2', ENGINEERING],
       ['Lift vendor 1', ENGINEERING],
-      ['Fire consultant 1', '/requests'],
-      ['1 more', ENGINEERING],
     ]);
+    assert.ok(!owed!.parts.some((part) => /not asked|Nobody named/.test(part.text)));
     // The line's own arrow goes to the department holding the most owed.
     assert.equal(at(owed!.open), ENGINEERING);
+  });
+
+  it('calls no paper owed that nobody has been asked for', () => {
+    const p = project();
+    addChecklistItems(p, 'construction', [{ title: 'Soil report' }, { title: 'Structural drawings' }, { title: 'Pour register' }], LEAD);
+    const owed = projectBrief(p, new Date(NOW)).find((line) => line.key === 'owed')!;
+    assert.deepEqual(owed.parts, []);
+    assert.equal(owed.quiet, 'Nothing owed. 3 papers on the list, not asked for yet.');
   });
 
   it('names where each reply waits when they wait in more than one place', () => {

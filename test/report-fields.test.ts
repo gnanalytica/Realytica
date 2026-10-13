@@ -151,7 +151,7 @@ describe('a block of named fields', () => {
     assert.ok(!JSON.stringify(resolved).includes('5,123') && !JSON.stringify(resolved).includes('5123'), 'the figure offered is nowhere in the block');
     assert.match(resolved.footnotes![0]!.text, /waits for a person/);
     assert.match(resolved.note!, /^1 value waits for a person and is not printed\.$/);
-    assert.equal(cell(resolved, 'Extent at the rate applied in Valuation').standing, 'not recorded', 'and nothing is worked out from it');
+    assert.equal(cell(resolved, 'Value of the land at Valuation’s rate').standing, 'not recorded', 'and nothing is worked out from it');
 
     // Two values stated and neither kept: still not a fact.
     decideField(p, at('extent'), 'accept', LEAD);
@@ -219,7 +219,7 @@ describe('a table of fields', () => {
     const { p } = recorded();
     const resolved = resolveFieldBlock(p, { kind: 'field_table', address: at('chain'), columns: ['on', 'event', 'to'] });
     assert.deepEqual(resolved.table!.columns, ['Date', 'Event', 'To']);
-    assert.deepEqual(resolved.table!.rows.map((row) => row.cells), [['2004-03-11', 'Sale', 'M. Rao'], ['2019-06-20', 'Sale', 'A. Rao']]);
+    assert.deepEqual(resolved.table!.rows.map((row) => row.cells), [['11 Mar 2004', 'Sale', 'M. Rao'], ['20 Jun 2019', 'Sale', 'A. Rao']]);
     assert.match(resolved.note!, /^2 rows, entered \[1\]\.$/);
     assert.match(resolved.footnotes![0]!.text, /^Entered by lead@firm\.example on /);
     assert.equal(resolveFieldBlock(project(), { kind: 'field_table', address: at('chain') }).note, 'Chain of title: no row is recorded yet.');
@@ -295,9 +295,9 @@ describe('a function’s report template', () => {
     assert.deepEqual(holding!.table!.rows.map((row) => [row.cells[0], row.cells[1], row.cells[2]]), [
       ['Tenure', '—', 'not recorded'],
       ['Extent held', '—', 'not recorded'],
-      ['Extent per title, on the parcel check', '—', 'not recorded'],
+      ['Land area in the title deeds', '—', 'not recorded'],
       ['Owners', '0', 'worked out'],
-      ['Extent at the rate applied in Valuation', '—', 'not recorded'],
+      ['Value of the land at Valuation’s rate', '—', 'not recorded'],
       ['Holding record', '—', 'not recorded'],
       ['Seller', '—', 'not recorded'],
       ['Possession verified on site', '—', 'not recorded'],
@@ -319,7 +319,7 @@ describe('a function’s report template', () => {
     assert.equal(links!.table!.rows.length, 2);
     assert.match(check!.lines.join('\n'), /Extent per title: 6,273 sqm/);
     // The mirror of the check's extent says where it is read from.
-    const mirror = held!.table!.rows.find((row) => row.cells[0] === 'Extent per title, on the parcel check')!;
+    const mirror = held!.table!.rows.find((row) => row.cells[0] === 'Land area in the title deeds')!;
     assert.match(held!.footnotes!.find((note) => mirror.cells[1]!.includes(`[${note.n}]`))!.text, /^Read from Parcel identification matches title and survey\.$/);
 
     assert.throws(() => generateReport(p, { kind: 'function', template: 'no.such.report', generatedBy: LEAD }), /no template by that name/);

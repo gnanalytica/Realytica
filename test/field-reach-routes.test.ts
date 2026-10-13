@@ -134,9 +134,17 @@ function handed(who: Held, mark: Marked): boolean {
   return who.reach.includes(mark.fn);
 }
 
+/** Whether an answer carries a value: the form whole, not as the tail of a longer figure ("3 Feb 2090" is not in "13 Feb 2090"). */
+function carries(text: string, form: string): boolean {
+  for (let from = text.indexOf(form); from !== -1; from = text.indexOf(form, from + 1)) {
+    if (!(/^\d/.test(form) && /\d/.test(text[from - 1] ?? '')) && !(/\d$/.test(form) && /\d/.test(text[from + form.length] ?? ''))) return true;
+  }
+  return false;
+}
+
 /** The marked values of functions out of a grant's reach that an answer carries. */
 function leaked(who: Held, text: string): string[] {
-  return marked.filter((mark) => !handed(who, mark) && mark.forms.some((form) => text.includes(form))).map((mark) => `${mark.set} (${mark.forms.find((form) => text.includes(form))})`);
+  return marked.filter((mark) => !handed(who, mark) && mark.forms.some((form) => carries(text, form))).map((mark) => `${mark.set} (${mark.forms.find((form) => carries(text, form))})`);
 }
 
 /** Puts a marked value in every field set that has a field a line, a figure or a day can go in. */

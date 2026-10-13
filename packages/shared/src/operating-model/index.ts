@@ -64,6 +64,7 @@ export * from './outside-replies';
 export * from './portfolio';
 export * from './fact-review';
 export * from './units';
+export * from './said';
 export * from './field-figures';
 export * from './field-registry';
 export * from './field-figures';

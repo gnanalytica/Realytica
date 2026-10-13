@@ -102,7 +102,7 @@ export function ValueMustSettle({
         <div className="flex items-center gap-2 px-1">
           <AlertTriangle size={13} className="shrink-0 text-critical" aria-hidden />
           <p className="text-[12px] font-semibold text-ink">
-            Must settle
+            Needs you
             <span className="ml-1 font-mono text-mini tabular-nums font-normal text-ink-muted">{items.length}</span>
           </p>
         </div>

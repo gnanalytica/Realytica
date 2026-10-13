@@ -11,6 +11,7 @@ import {
 import { Badge, InfoTip, TONE_FILL, cn, toneChip, type Tone } from '../ui/kit';
 import { EASE_ENTER, Stagger, StaggerItem, motion } from '../../lib/motion';
 import { MARKED_ROW, useMarkedRow } from '../workspace/marked';
+import { daySaid } from '@realytica/shared';
 
 /** 2397 days → "6 years": a lapse reads in the unit it is felt in. */
 function since(days: number): string {
@@ -40,7 +41,7 @@ const STATUS_ICON: Record<ApprovalStatus, typeof CheckCircle2> = {
 };
 
 function day(iso?: string): string {
-  return iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  return iso ? daySaid(iso) : '';
 }
 
 /**

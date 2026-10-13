@@ -89,8 +89,8 @@ const LINKS: SetLinks[] = [
     ],
     rules: [
       { kind: 'before', fields: ['completion_now', 'rera_completion'], say: 'Completion is forecast for {a}, after the {b} declared to RERA.', severity: 'critical' },
-      { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: '{a} stop-work order(s) are in force.', severity: 'critical' },
-      { kind: 'at_most', fields: ['court_restraints'], against: 0, say: '{a} court order(s) in force restrain construction.', severity: 'critical' },
+      { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: 'Stop-work orders in force: {a}.', severity: 'critical' },
+      { kind: 'at_most', fields: ['court_restraints'], against: 0, say: 'Court orders in force that restrain construction: {a}.', severity: 'critical' },
     ],
   },
   {

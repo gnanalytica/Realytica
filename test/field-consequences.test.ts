@@ -331,10 +331,10 @@ describe('a court’s order says what it covers, and Sales says which units it h
     record(p, 'legal.litigation.order_cover', { order, unit: units[0] });
     record(p, 'legal.litigation.order_cover', { order, unit: units[2] });
     assert.deepEqual(units.map((unit) => sheet(p, 'shared.units', unit).value('sale_orders_in_force')), [1, 0, 1]);
-    assert.ok(sheet(p, 'shared.units', units[0]).says().includes('1 order(s) in force restrain the sale of this unit.'));
+    assert.ok(sheet(p, 'shared.units', units[0]).says().includes('Orders in force that restrain the sale of this unit: 1.'));
     assert.deepEqual(sheet(p, 'shared.units', units[1]).says().filter((say) => /restrain/.test(say)), []);
     assert.equal(sheet(p, 'commercial.inventory.stock').value('units_restrained'), 2);
-    assert.ok(lines(p, 'commercial.inventory').some((say) => /2 unit\(s\) are covered by an order in force that restrains a sale/.test(say)), lines(p, 'commercial.inventory').join(' | '));
+    assert.ok(lines(p, 'commercial.inventory').some((say) => /Units covered by an order in force that restrains a sale: 2\./.test(say)), lines(p, 'commercial.inventory').join(' | '));
     assert.equal(needs(p, 'legal.litigation').exceptions.filter((e) => /no parcel or unit is recorded as covered/.test(e.text)).length, 0);
 
     // The order is vacated: no unit is held any more, and what it covered is still on the record.
@@ -347,7 +347,7 @@ describe('a court’s order says what it covers, and Sales says which units it h
     const { p, order, parcel } = sued();
     record(p, 'legal.litigation.order_cover', { order, parcel });
     assert.equal(sheet(p, 'commercial.inventory.stock').value('land_restraints'), 1);
-    assert.ok(lines(p, 'commercial.inventory').some((say) => /1 order\(s\) in force restrain a sale over a parcel of the land, and so every unit on it/.test(say)));
+    assert.ok(lines(p, 'commercial.inventory').some((say) => /Orders in force that restrain a sale over a parcel of the land, and so every unit on it: 1\./.test(say)));
   });
 
   it('counts nothing for an order whose effect a paper offered and nobody accepted', () => {
@@ -529,7 +529,7 @@ describe('a hard case opens as a small sheet from the row that has it', () => {
     assert.deepEqual(sheet(p, 'commercial.buyers.cancellations', early).reading.depth.map((depth) => depth.shown), [false]);
     const late = record(p, 'commercial.buyers.cancellations', { unit, cancelled_by: 'allottee', requested_on: '2026-08-01', stage: 'after_agreement', refunded_on: '2026-09-15', buyer_has_loan: true });
     const said = needs(p, 'commercial.buyers').exceptions.filter((e) => e.depth === 'after_agreement' && e.record === late).map((e) => e.text);
-    assert.ok(said.includes('The refund was paid on 2026-09-15 and no deed of cancellation is recorded as registered.'), said.join(' | '));
+    assert.ok(said.includes('The refund was paid on 15 Sep 2026 and no deed of cancellation is recorded as registered.'), said.join(' | '));
     assert.ok(said.includes('The buyer took a home loan on the unit and no release from the lender is on file.'), said.join(' | '));
   });
 });

@@ -145,7 +145,7 @@ export function QuickAssessmentCard({ assessment, compact = false }: { assessmen
         ) : null}
         {a.gaps.length ? (
           <div className="rounded-xl bg-brand-soft/60 px-3 py-2.5 ring-1 ring-inset ring-brand/15">
-            <p className="text-[12px] font-semibold text-brand">What would firm it up</p>
+            <p className="text-[12px] font-semibold text-brand">To make this estimate firmer</p>
             <ul className="mt-1.5 space-y-1">
               {a.gaps.slice(0, compact ? 2 : 6).map((g, i) => (
                 <li key={i} className="flex items-start gap-2 text-[13px] text-ink">

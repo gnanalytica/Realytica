@@ -64,11 +64,11 @@ describe('the chat’s card over the whole catalog', () => {
       ]),
     );
     const [rate, number, price] = card.rows;
-    assert.deepEqual([rate!.label, rate!.value, rate!.standing], ['GST rate on the consideration (Units · A-101)', '5 %', 'worked_out']);
+    assert.deepEqual([rate!.label, rate!.value, rate!.standing], ['GST rate on the consideration (Units · A-101)', '5%', 'worked_out']);
     assert.ok(rate!.rules!.some((rule) => /^GST on any other residential unit/.test(rule.said) && rule.verified === false));
     assert.deepEqual([number!.standing, number!.rules], ['typed', undefined], 'a value a person entered is said to be entered, and reads no rule');
     assert.equal(price!.label, 'Consideration, for GST (Units · A-101)', 'a field Tax adds to the unit is on the unit');
-    assert.match(chatAnswerText(card), /GST rate on the consideration \(Units · A-101\): 5 % \(Worked out; .*not verified/);
+    assert.match(chatAnswerText(card), /GST rate on the consideration \(Units · A-101\): 5% \(Worked out; .*not verified/);
   });
 
   it('names nothing that is not there: an address of no set, no field or no record is left out', () => {

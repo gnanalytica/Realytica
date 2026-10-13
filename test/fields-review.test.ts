@@ -363,7 +363,7 @@ describe('a standing', () => {
     addFieldRecord(p, ZR, { name: 'First tranche', amount: '10 lakh' }, LEAD, seat(p, LEAD), CATALOG);
     const some = sheet(p);
     assert.deepEqual([some.value('paid_share'), some.value('paid_standing')], [10, 'Short of the minimum']);
-    assert.deepEqual(some.reading.insights.map((insight) => insight.text), ['10 % is paid in and 30% is asked.']);
+    assert.deepEqual(some.reading.insights.map((insight) => insight.text), ['10% is paid in and 30% is asked.']);
   });
 
   it('carries "rule not checked" where it rests on a rule row nobody has verified, and says what was assumed', () => {
@@ -453,7 +453,7 @@ describe('what is typed', () => {
     assert.equal(formatMoney(12345.678, 'INR', 0), '₹12,346');
     const plain: CheckFieldDef = { key: 'm', label: 'Amount', kind: 'money' };
     assert.equal(formatFieldValue(plain, { value: 42_000_000, at: '', by: '' }), '₹4.2 Cr');
-    assert.equal(formatFieldValue({ ...plain, unit: 'INR/sqm' }, { value: 45_000, at: '', by: '' }), '45,000 INR/sqm', 'a rate is not an amount');
+    assert.equal(formatFieldValue({ ...plain, unit: 'INR/sqm' }, { value: 45_000, at: '', by: '' }), '₹45,000/sqm', 'a rate in rupees carries the rupee sign and its measure');
     const defs: CheckFieldDef[] = [{ key: 'sources', label: 'Sources', kind: 'money', currency: 'INR' }, { key: 'need', label: 'Need', kind: 'money', currency: 'INR' }];
     const values = { sources: { value: 42_290_000, at: '', by: '' }, need: { value: 42_345_678, at: '', by: '' } };
     const [said] = checkInsights(defs, values, [{ kind: 'at_least', fields: ['sources', 'need'], say: 'Sources of {a} are planned and the appraisal needs {b}.', severity: 'high' }]);

@@ -274,7 +274,7 @@ export default function NewProject() {
             rest of the product can work on and one it cannot.
           */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Survey number(s)" hint="As the deed writes them. The encumbrance search and the revenue map both key on this.">
+            <Field label="Survey numbers" hint="As the deed writes them. The encumbrance search and the revenue map both key on this.">
               <Input value={parcelId} onChange={(e) => setParcelId(e.target.value)} placeholder="e.g. Sy. No. 12/3, 14" />
             </Field>
             <Field label="Tenure" hint="Leasehold changes what the property is worth and what can be built on it.">

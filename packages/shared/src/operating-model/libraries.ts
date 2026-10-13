@@ -499,7 +499,7 @@ export const CHECK_DEFINITIONS: CheckDefinition[] = [
       section: 'Architecture',
       title: 'Latest drawings are identified and coordinated',
       purpose: 'Site work against a superseded revision is a finding, not a debate.',
-      evidence: ['Drawing register', 'Latest IFC set', 'RFI log'],
+      evidence: ['Drawing register', 'Latest drawings issued for construction', 'RFI log'],
       criteria: 'A current revision is named per discipline; superseded sheets are marked.',
     },
     {

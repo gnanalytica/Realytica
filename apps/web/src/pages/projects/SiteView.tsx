@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardBody, CardHeader, Skeleton, useToast } from '.
 import SiteRecord from './SiteRecord';
 import type { ProjectOutlet } from './ProjectLayout';
 import { WorkstreamFrame } from './departments/WorkstreamPage';
+import { daySaid } from '@realytica/shared';
 
 /*
  * Both cards carry Leaflet or a map provider; lazy so the visit record paints
@@ -60,7 +61,7 @@ function RevenueReadCard() {
     <Card>
       <CardHeader
         title={`State map read · Sy. ${read.surveyNo}`}
-        subtitle={`${place || read.sourceLabel} · read ${new Date(read.readAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}${several ? ` · the first of ${reads.length} parcels` : ''}`}
+        subtitle={`${place || read.sourceLabel} · read ${daySaid(read.readAt)}${several ? ` · the first of ${reads.length} parcels` : ''}`}
         info={REVENUE_MAP_CAVEAT}
         action={
           filed ? (

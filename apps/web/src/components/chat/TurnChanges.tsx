@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { ChevronRight, Undo2 } from 'lucide-react';
 import type { TurnChanged } from '@realytica/shared';
 import { Button, cn } from '../ui/kit';
+import { daySaid } from '@realytica/shared';
 
 /**
  * What a reply changed on the record, under the reply.
@@ -28,7 +29,7 @@ export function TurnChanges({ changed, busy, onUndo }: { changed: TurnChanged; b
   const apart = changed.meanwhile;
   const m = apart ? apart.lines.length + (apart.more ?? 0) : 0;
   const undone = changed.undone;
-  const day = undone ? new Date(undone.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+  const day = undone ? daySaid(undone.at) : '';
   const summary = undone
     ? undone.back < undone.of
       ? `Partly undone on ${day}: ${undone.back} of ${undone.of}`

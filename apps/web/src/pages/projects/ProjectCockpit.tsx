@@ -60,6 +60,8 @@ import {
 } from '../../lib/reading';
 import { mustFitOneMessage, readyToSend } from '../../lib/site-capture';
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
+import { ReadingContinues } from '../../components/reading/ReadingContinues';
+import { forgetReading, rememberReading } from '../../lib/reading-pending';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Spinner, cn, useToast } from '../../components/ui/kit';
 import { SPRING, ScreenEnter, motion } from '../../lib/motion';
@@ -600,7 +602,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     return {
       id: 'waiting-from-earlier',
       role: 'assistant',
-      text: `${count === 1 ? 'One thing is' : `${count} things are`} still waiting for you from earlier.`,
+      text: `${count === 1 ? 'One thing still needs' : `${count} things still need`} you from earlier.`,
       at: sessionStartedAt,
       citedEvidenceIds: earlier.map((e) => e.evidenceId).filter((id): id is string => Boolean(id)),
       proposalIds: earlier.map((e) => e.proposalId).filter((id): id is string => Boolean(id)),
@@ -631,6 +633,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       setAskError(null);
       const mine = { text: question.trim(), files: (files ?? []).map((f) => f.name) };
       setSending((was) => [...was, mine]);
+      // What was dropped is remembered past a reload: the server reads on when this page stops listening, and the page that comes back says so.
+      if (mine.files.length) rememberReading(project.id, mine.files);
       setMobileSurface('chat');
       /*
        * One send at a time. Stop frees the chat at once, while the send it
@@ -720,6 +724,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         // The id these turns were kept under is the sitting's from here on, so what was just said stays on screen.
         setHeld((was) => sittingKept(was, response));
         applyResult(response, !fresh);
+        // Every paper of this drop has been read and is on the page: there is nothing left to wait for.
+        if (mine.files.length) forgetReading(project.id);
       } catch (e) {
         // Ended by a later send, or by leaving the project: there is nothing to hand back and nobody to tell.
         if (left()) return;
@@ -1238,10 +1244,13 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
          */
         <div ref={workScrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
           {/* Summary is analytics only — decide waiting on the function tabs. */}
+          {/* Papers dropped before a reload, still being read: said here, each as it lands. */}
+          <ReadingContinues project={project} refresh={refresh} live={sending.some((message) => message.files.length > 0)} onOpenPaper={(evidenceId) => goPane('evidence', { evidenceId })} />
           {pane === 'department' ? null : (
             <WaitingHere
               project={project}
               pane={pane}
+              workstream={params.workstream}
               waiting={waiting}
               sittingCheckId={searchParams.get('check')}
               busy={deciding || asking || sending.length > 0}

@@ -108,7 +108,7 @@ const BOQ_SETS: FieldSet[] = [
       { key: 'tender_weeks', label: 'Weeks a tender takes', kind: 'duration', unit: 'weeks', min: 0, defaults: [{ value: 6, from: 'firm' }] },
     ],
     rules: [
-      { kind: 'at_most', fields: ['stages_late'], against: 0, say: '{a} tender stages are past their date.', severity: 'medium' },
+      { kind: 'at_most', fields: ['stages_late'], against: 0, say: 'Tender stages past their date: {a}.', severity: 'medium' },
       { kind: 'at_least', fields: ['plans', 'packages'], say: '{a} of {b} work packages have a plan.', severity: 'low' },
       { kind: 'compare', fields: ['packages_awarded', 'on_check'], at: { on_check: at(ORDERS, 'procurement.award_completeness', 'packages_awarded') }, tolerance: 0, say: 'The tenders show {a} packages awarded and the Award check records {b}.', severity: 'low' },
     ],

@@ -95,7 +95,7 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
       },
       {
         key: 'extent_on_check',
-        label: 'Extent per title, on the parcel check',
+        label: 'Land area in the title deeds',
         kind: 'area',
         unit: 'sqm',
         section: 'holding',
@@ -111,7 +111,7 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
       },
       {
         key: 'value_at_rate',
-        label: 'Extent at the rate applied in Valuation',
+        label: 'Value of the land at Valuation’s rate',
         kind: 'computed',
         dimension: 'money',
         currency: 'INR',
@@ -278,7 +278,7 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
         ],
         rules: [
           { kind: 'at_most', fields: ['heirs_wanting'], against: 0, say: 'This owner has died and no heir is recorded.', severity: 'high' },
-          { kind: 'at_most', fields: ['heirs_not_joining'], against: 0, say: '{a} heir(s) neither join the deed nor have released their share.', severity: 'high' },
+          { kind: 'at_most', fields: ['heirs_not_joining'], against: 0, say: 'Heirs who neither join the deed nor have released their share: {a}.', severity: 'high' },
           { kind: 'at_most', fields: ['heirs_minor'], against: 0, say: '{a} heir(s) are minors: a guardian sells a minor’s share only with the court’s leave.', severity: 'medium' },
           { kind: 'compare', fields: ['heirs_share_total'], against: 100, tolerance: 0, when: { field: { fn: FN, set: OWNERS, field: 'heirs_share_total' }, is: 'gt', value: 0 }, say: 'The heirs’ shares add up to {a}, not {b}.', severity: 'medium' },
         ],

@@ -6,7 +6,7 @@
  * what a search finds.
  */
 
-import { PLAN_SAID, PLAN_STEP, can, chatPlaceWords, filedByReply, reachesEveryProject, type ChatSession, type ProjectChatTurn, type WaitingEntry, type WorkspaceRole } from '@realytica/shared';
+import { PLAN_SAID, PLAN_STEP, can, chatPlaceWords, daySaid, filedByReply, reachesEveryProject, type ChatSession, type ProjectChatTurn, type WaitingEntry, type WorkspaceRole } from '@realytica/shared';
 
 export interface ChatRow {
   id: string;
@@ -22,11 +22,11 @@ export interface ChatRow {
   current: boolean;
 }
 
-/** A chat's day as a list says it: "2 Oct", with the year once it is another one. */
-export function chatDay(iso: string, now = new Date()): string {
+/** A chat's day as a list says it, written as every day is: "2 Oct 2026". */
+export function chatDay(iso: string): string {
   const day = new Date(iso);
   if (Number.isNaN(day.getTime())) return '';
-  return day.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(day.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) });
+  return daySaid(day);
 }
 
 // Which turns are the chat on screen is asked of the same reading the chat itself uses, so the two cannot differ.
@@ -72,7 +72,7 @@ export function searchChats(rows: readonly ChatRow[], query: string, now = new D
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [...rows];
   return rows.filter((row) => {
-    const text = `${row.title} ${row.place ?? ''} ${chatDay(row.at, now)}`.toLowerCase();
+    const text = `${row.title} ${row.place ?? ''} ${chatDay(row.at)}`.toLowerCase();
     return words.every((word) => text.includes(word));
   });
 }
