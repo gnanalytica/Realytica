@@ -512,7 +512,9 @@ describe('a paper put on file', () => {
     const p = project();
     const facts = [fact('extent_title', 6273), fact('purchaser', 'A. Rao'), fact('consideration', 42_000_000)];
     const row = deed(p, 'Sale deed', facts);
-    const outcomes = offerPaperToSheets(p, row.id, facts);
+    // Every set that reads a sale deed is offered it. This asks after the worked example's two; a department's own are its test's to ask after.
+    const here = (o: { address: { set: string } }) => o.address.set === HOLDING || o.address.set === OWNERS;
+    const outcomes = offerPaperToSheets(p, row.id, facts).filter(here);
     assert.deepEqual(outcomes.map((o) => `${o.address.set}/${o.address.field}:${o.outcome}`), [`${HOLDING}/extent:waiting`, `${OWNERS}/name:waiting`]);
     const held = p.fieldSheets![HOLDING]!.values.extent!;
     assert.equal(fieldState(held), 'proposed');
@@ -520,7 +522,7 @@ describe('a paper put on file', () => {
     // A new owner, who is nobody until the name is accepted.
     assert.equal(fieldRecords(p, OWNERS).length, 1);
     assert.equal(readSheet(p, HOLDING)!.fields.find((f) => f.def.key === 'owners_count')!.held?.value, 0);
-    assert.deepEqual(offerPaperToSheets(p, row.id, facts).map((o) => o.outcome), ['held']);
+    assert.deepEqual(offerPaperToSheets(p, row.id, facts).filter(here).map((o) => o.outcome), ['held']);
     assert.equal(fieldRecords(p, OWNERS).length, 1);
   });
 

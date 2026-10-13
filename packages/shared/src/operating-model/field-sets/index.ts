@@ -10,8 +10,10 @@
 
 import type { FieldSet, RuleRow } from '../types';
 import { EXAMPLE_LAND_HOLDING } from './example-land-holding';
+import { LAW_LIAISON_FIELD_SETS } from './law-liaison';
 import { BASE_RULE_ROWS } from './rule-rows';
 import { TITLES_LITIGATION_RULE_ROWS } from './rules/titles-litigation';
+import { LAW_LIAISON_RULE_ROWS } from './rules/law-liaison';
 import { SHARED_RECORDS } from './shared-records';
 import { TITLES_LITIGATION_FIELD_SETS } from './titles-litigation';
 
@@ -19,9 +21,11 @@ export const FIELD_SETS: readonly FieldSet[] = [
   ...SHARED_RECORDS,
   ...EXAMPLE_LAND_HOLDING,
   ...TITLES_LITIGATION_FIELD_SETS,
+  ...LAW_LIAISON_FIELD_SETS,
 ];
 
 export const RULE_ROWS: readonly RuleRow[] = [
   ...BASE_RULE_ROWS,
   ...TITLES_LITIGATION_RULE_ROWS,
+  ...LAW_LIAISON_RULE_ROWS,
 ];

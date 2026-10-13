@@ -27,6 +27,7 @@ export interface FieldStatePack {
 const KRERA = 'Karnataka Real Estate Regulatory Authority (General) Regulations, 2022';
 const REVENUE_FORMS = 'Karnataka Land Revenue Rules, as the record of rights is issued on Bhoomi. The form was not read';
 const REGISTRATION_FORMS = 'Karnataka Registration Rules, as the certificate is issued on Kaveri. The form was not read';
+const KRERA_RULES = 'Karnataka Real Estate (Regulation and Development) Rules, 2017';
 
 export const FIELD_STATE_PACKS: Record<string, FieldStatePack> = {
   karnataka: {
@@ -42,6 +43,10 @@ export const FIELD_STATE_PACKS: Record<string, FieldStatePack> = {
       record_of_rights: { number: 'Form 16', signedBy: 'Revenue office', when: 'On request', source: REVENUE_FORMS, verified: false },
       encumbrance_with_entries: { number: 'Form 15', signedBy: 'Sub-registrar', when: 'On search', source: REGISTRATION_FORMS, verified: false },
       encumbrance_nil: { number: 'Form 16', signedBy: 'Sub-registrar', when: 'On search', source: REGISTRATION_FORMS, verified: false },
+      rera_application: { number: 'Form A', signedBy: 'Promoter', when: 'Registration', source: KRERA_RULES, verified: false },
+      rera_declaration: { number: 'Form B', signedBy: 'Promoter', when: 'Registration', source: KRERA_RULES, verified: false },
+      rera_alteration_consent: { number: 'Form M', signedBy: 'Allottee', when: 'A change to the sanctioned plan', source: KRERA, verified: false },
+      rera_account_change: { number: 'Forms B1 to B4', signedBy: 'Promoter', when: 'A change of the designated account', source: KRERA, verified: false },
     },
   },
   'tamil nadu': { state: 'Tamil Nadu', groundSqft: 2400, forms: {} },
