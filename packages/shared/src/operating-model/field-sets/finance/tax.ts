@@ -64,6 +64,8 @@ import {
 } from './kit';
 
 const KIND_OF_PAYMENT = at(TAX, SET.jdaPayments, 'kind');
+/** The welfare cess has been assessed: a cost of construction is recorded for it. */
+const ASSESSED = { field: at(TAX, SET.welfareCess, 'cost_assessed'), is: 'set' } as const;
 
 export const TAX_SETS: FieldSet[] = [
   {
@@ -725,5 +727,36 @@ export const TAX_SETS: FieldSet[] = [
       rule('compare', ['tax_deducted', 'tax_due'], '{a} was deducted and {b} is due.', 'high', { tolerance: 0.001 }),
       rule('require_if', ['kind', 'accountant_view'], 'Paid as {a}: the accountant has not said whether tax is deducted.', 'medium', { whenIn: ['refundable_deposit', 'adjustable_advance'] }),
     ],
+  },
+  /* ================================================================== */
+  /* The construction workers' welfare cess                              */
+  /* ================================================================== */
+  // Assessed on the cost of construction and paid by the employer. The site's establishment sheet reads what is unpaid from here.
+  {
+    id: SET.welfareCess,
+    fn: TAX,
+    title: 'Construction workers’ welfare cess',
+    v: 1,
+    fields: [
+      money('cost_assessed', 'Cost of construction the cess is assessed on', { dueFrom: 'construction', from: 'Assessment order' }),
+      // The rest follows the assessment, and stays out of sight until there is one.
+      only(ASSESSED, share('cess_rate', 'Rate of cess', rate('bocw_welfare_cess_pct'))),
+      only(ASSESSED, rupees('payable', 'Cess payable', pctOf(f('cost_assessed'), f('cess_rate')))),
+      only(ASSESSED, money('cess_paid', 'Cess paid', { required: false, from: 'Challan' })),
+      only(ASSESSED, day('paid_on', 'Paid on', { required: false, from: 'Challan' })),
+      only(ASSESSED, rupees('unpaid', 'Assessed and not paid', minus(f('payable'), orZero('cess_paid')))),
+      only(ASSESSED, paper('assessment_order', 'Assessment order')),
+      only(ASSESSED, paper('challan', 'Challan')),
+      only(
+        ASSESSED,
+        standing(
+          'cess_standing',
+          'Welfare cess',
+          [{ when: rule('at_most', ['unpaid'], '{a} of welfare cess is assessed and not paid.', 'medium', { against: 0 }), label: 'Cess unpaid', tone: 'warning' }],
+          { label: 'Paid', tone: 'good' },
+        ),
+      ),
+    ],
+    rules: [rule('at_most', ['unpaid'], '{a} of welfare cess is assessed and not paid.', 'medium', { against: 0 })],
   },
 ];

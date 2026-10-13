@@ -110,6 +110,8 @@ const PROGRESS_SETS: FieldSet[] = [
     ],
     fields: [
       text('programme_rev', 'Programme revision in force', { section: 'baseline', from: 'Programme' }),
+      // The day work began on site is Construction's to say. Liaison holds the commencement certificate to it.
+      date('started_on', 'Work began on site on', { section: 'baseline', tier: 'situational', showWhen: { field: at(PROGRESS, SET.programme, 'actual_percent'), is: 'set' }, required: false, from: 'Site log' }),
       mirror('baseline_approved', 'Baseline approved', 'boolean', CHECK('schedule_progress.baseline', 'baseline_approved'), { section: 'baseline' }),
       mirror('baseline_date', 'Baseline dated', 'date', CHECK('schedule_progress.baseline', 'baseline_date'), { section: 'baseline' }),
       mirror('planned_percent', 'Planned progress to date', 'percent', CHECK('schedule_progress.planned_vs_actual', 'planned_percent'), { section: 'progress' }),

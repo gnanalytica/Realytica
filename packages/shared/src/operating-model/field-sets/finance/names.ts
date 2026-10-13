@@ -68,6 +68,8 @@ export const SET = {
   reconciliation: 'finance.ledgers.reconciliation',
   reconciliationLines: 'finance.ledgers.reconciliation_lines',
   ledgerMap: 'finance.ledgers.ledger_map',
+  provisions: 'finance.ledgers.provisions',
+  welfareCess: 'finance.tax.welfare_cess',
 } as const;
 
 /** The kinds of paper these sets read, as the register names them (`document-parse.ts`). */

@@ -551,7 +551,7 @@ describe('Procurement: a variation with a time claim', () => {
     const { p, contract } = contracted();
     const variation = record(p, VARIATIONS, { ref: 'VO-09', contract, kind: 'extra item', origin: 'design change', notified_on: '2026-09-05', claimed: 1_820_000, stage: 'claimed', built: false, time_effect: false });
     let read = sheet(p, VARIATIONS, variation);
-    assert.deepEqual(read.shown(), ['ref', 'contract', 'kind', 'origin', 'notified_on', 'instruction', 'time_effect', 'claimed', 'assessed', 'rate_basis', 'stage', 'approved_on', 'built', 'standing']);
+    assert.deepEqual(read.shown(), ['ref', 'contract', 'kind', 'origin', 'design_change', 'notified_on', 'instruction', 'time_effect', 'claimed', 'assessed', 'rate_basis', 'stage', 'approved_on', 'built', 'standing']);
     assert.deepEqual(read.missing(), [], 'the time claim is not asked for');
     assert.equal(read.value('standing'), 'In order');
 

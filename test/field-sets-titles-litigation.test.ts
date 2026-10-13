@@ -288,7 +288,7 @@ describe('Titles: a chain with an unregistered partition and a deed signed by an
     // The 2019 deed was signed by an attorney, after the principal had died.
     write(p, 'legal.title.instruments', { signed_through: 'attorney' }, sale);
     assert.deepEqual(situations(p, TITLE), ['sale_through_attorney']);
-    assert.deepEqual(showing(p, 'legal.title.instruments', sale).slice(12), ['attorney', 'poa_registered', 'principal_alive_on_deed', 'poa']);
+    assert.deepEqual(showing(p, 'legal.title.instruments', sale).slice(12), ['attorney', 'poa_registered', 'principal_alive_on_deed', 'poa', 'poa_executed_on', 'poa_doc_no', 'poa_for_consideration', 'poa_revoked']);
     assert.equal(view(p, 'legal.title.instruments', 'attorney', root).shown, 'hidden');
     assert.equal(view(p, 'legal.title.instruments', 'attorney', root).missing, false);
     write(p, 'legal.title.instruments', { attorney: 'stk_adv', poa_registered: true, principal_alive_on_deed: false }, sale);

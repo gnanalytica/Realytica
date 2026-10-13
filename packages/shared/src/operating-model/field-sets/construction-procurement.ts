@@ -110,6 +110,12 @@ const LINKS: SetLinks[] = [
     fields: [{ key: 'dues_outstanding', label: 'Demands outstanding on this unit, per Collections', kind: 'computed', dimension: 'money', currency: 'INR', tier: 'expert', formula: { op: 'sum_if', over: { records: DEMANDS }, column: 'outstanding', where: { column: 'unit', is: 'own' } } }],
     rules: [{ kind: 'at_most', fields: ['dues_outstanding'], against: 0, when: { field: at('shared', 'shared.units', 'site_handed_on'), is: 'set' }, say: 'The site has handed this unit over with {a} of demands outstanding.', severity: 'medium' }],
   },
+  {
+    set: 'construction.safety.establishment',
+    // The welfare cess is assessed and paid by Finance; the site reads what is still unpaid.
+    fields: [mirror('welfare_cess_unpaid', 'Welfare cess assessed and not paid, per Tax', 'money', at('finance.tax', 'finance.tax.welfare_cess', 'unpaid'), { dimension: 'money', currency: 'INR', section: 'registration', showWhen: { field: at('finance.tax', 'finance.tax.welfare_cess', 'cost_assessed'), is: 'set' } })],
+    rules: [{ kind: 'at_most', fields: ['welfare_cess_unpaid'], against: 0, say: '{a} of welfare cess is assessed and not paid.', severity: 'medium' }],
+  },
   { set: 'procurement.orders.position', reports: [CONTRACTS_REPORT] },
   { set: 'procurement.boq.plan', reports: [PROCUREMENT_PLAN_REPORT] },
   {

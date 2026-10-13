@@ -94,7 +94,7 @@ describe('the Finance, Tax, Lenders and Ledgers catalog', () => {
 
   it('gives each of the four functions a page of small sheets and records', () => {
     for (const fn of FNS) assert.ok(workstreamDefinition(fn), `${fn} is a function`);
-    assert.deepEqual(FNS.map((fn) => fieldSetsOf(fn).length), [11, 15, 20, 7], 'sheets and record sets of each, the three that extend a shared record aside');
+    assert.deepEqual(FNS.map((fn) => fieldSetsOf(fn).length), [11, 16, 20, 8], 'sheets and record sets of each, the three that extend a shared record aside');
     assert.deepEqual(mine.filter((set) => set.extends).map((set) => [set.id, set.extends]), [
       ['finance.funding.account_facts', 'shared.accounts'],
       ['finance.tax.party_registrations', 'shared.parties'],
@@ -138,7 +138,7 @@ describe('the Finance, Tax, Lenders and Ledgers catalog', () => {
       }),
     );
     // Shown, then asked for. Funding and Lenders show nothing until an account, a source or a facility is recorded.
-    assert.deepEqual(asked, { 'finance.funding': [0, 0], 'finance.tax': [12, 3], 'finance.lenders': [0, 0], 'finance.ledgers': [11, 2] });
+    assert.deepEqual(asked, { 'finance.funding': [0, 0], 'finance.tax': [13, 3], 'finance.lenders': [0, 0], 'finance.ledgers': [11, 2] });
   });
 });
 

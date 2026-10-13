@@ -377,9 +377,11 @@ describe('RERA: a registration and its filing calendar', () => {
   it('reads what the next filing will say from Sales, Finance and Construction, and cites the deposit share', () => {
     const p = project();
     write(p, REG, { registration_no: 'PRM/KA/RERA/1251/308/PR/150324/006712' });
+    // The units are counted from the unit register: a figure typed on the absorption check is not what RERA is told.
     write(p, 'commercial_market.absorption', { units_total: 96 });
+    for (const number of ['A-101', 'A-102', 'A-103']) add(p, 'shared.units', { number, tower: 'A', floor: 1 });
     const position = sheet(p, 'legal.rera.compliance');
-    assert.equal(position.value('units_total'), 96);
+    assert.equal(position.value('units_total'), 3);
     assert.equal(position.view('units_total').source?.kind, 'field');
     assert.equal(position.value('deposit_share'), 70);
     assert.equal(position.view('deposit_share').cites?.[0]?.source.clause, 'section 4(2)(l)(D)');

@@ -221,6 +221,12 @@ const LINKS: SetLinks[] = [
     fields: [mirror('brokerage_unpaid', 'Brokerage invoiced and not paid, per Sales', 'money', at('commercial.inventory', 'commercial.inventory.brokerage', 'unpaid'), { ...INR, tier: 'situational', showWhen: { records: 'commercial.inventory.brokerage_invoices', is: 'any' } })],
   },
   {
+    set: 'finance.ledgers.collections',
+    // A receipt is entered once, against its demand, by Collections. The books' total is held to those receipts here, beside the register's.
+    fields: [{ key: 'received_per_collections', label: 'Received, per Collections’ receipts', kind: 'computed', dimension: 'money', currency: 'INR', section: 'totals', tier: 'situational', showWhen: SALES_KEEPS_DEMANDS, formula: { op: 'records', set: DEMANDS, reduce: 'sum', field: 'received' } }],
+    rules: [{ kind: 'compare', fields: ['received_per_books', 'received_per_collections'], when: SALES_KEEPS_DEMANDS, tolerance: 0.0005, say: 'The books show {a} received from customers and Collections’ receipts come to {b}.', severity: 'medium' }],
+  },
+  {
     set: 'finance.ledgers.customer_ledgers',
     fields: [working('received_per_collections', 'Received on this unit, per Collections', sumForOwn(DEMANDS, 'received', 'unit', 'unit'), INR)],
     rules: [{ kind: 'compare', fields: ['received_per_register', 'received_per_collections'], when: SALES_KEEPS_DEMANDS, say: 'The ledger takes {a} from the sales register and Collections’ receipts on this unit come to {b}.', severity: 'medium' }],

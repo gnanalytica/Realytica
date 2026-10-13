@@ -1078,6 +1078,30 @@ const CANCELLATIONS_SET: FieldSet = {
     { key: 'deduction', label: 'What may be deducted' },
     { key: 'refund', label: 'Refund' },
   ],
+  // Once the agreement is registered, a letter does not undo it: the cancellation is a registered deed, with the buyer's lender and the tax on what was billed to settle. A sheet of that cancellation alone.
+  sheets: [
+    {
+      id: 'after_agreement',
+      title: 'Undoing the registered agreement',
+      showWhen: { field: at(BUYERS, CANCELLATIONS, 'stage'), is: 'equals', value: 'after_agreement' },
+      fields: [
+        { key: 'cancellation_deed_registered', label: 'Deed of cancellation registered', kind: 'boolean', control: 'switch' },
+        { key: 'cancellation_deed_no', label: 'Deed of cancellation, document number', kind: 'text', required: false, from: 'Deed of cancellation' },
+        { key: 'cancellation_deed_on', label: 'Registered on', kind: 'date', required: false, from: 'Deed of cancellation' },
+        { key: 'cancellation_deed', label: 'Deed of cancellation', kind: 'evidence', accepts: 'document', viewer: 'deed', required: false },
+        { key: 'buyer_has_loan', label: 'The buyer took a home loan on the unit', kind: 'boolean', control: 'switch', required: false },
+        { key: 'buyer_lender_release', label: 'Release from the buyer’s lender', kind: 'evidence', accepts: 'document', viewer: 'pdf', required: false, tier: 'situational', showWhen: { field: at(BUYERS, CANCELLATIONS, 'buyer_has_loan'), is: 'true' } },
+        { key: 'refund_to_lender', label: 'Refund paid to the buyer’s lender', kind: 'money', dimension: 'money', currency: 'INR', required: false, tier: 'situational', showWhen: { field: at(BUYERS, CANCELLATIONS, 'buyer_has_loan'), is: 'true' }, from: 'Bank statement' },
+        { key: 'credit_note_on', label: 'Tax credit note issued on', kind: 'date', required: false, from: 'Credit note' },
+        { key: 'unit_released_on', label: 'Unit put back on sale on', kind: 'date', required: false },
+      ],
+      rules: [
+        { kind: 'require_if', fields: ['refunded_on', 'cancellation_deed_on'], say: 'The refund was paid on {a} and no deed of cancellation is recorded as registered.', severity: 'high' },
+        { kind: 'before', fields: ['cancellation_deed_on', 'unit_released_on'], say: 'The unit was put back on sale on {b}, before the deed of cancellation was registered on {a}.', severity: 'high' },
+        { kind: 'require', fields: ['buyer_lender_release'], when: { field: at(BUYERS, CANCELLATIONS, 'buyer_has_loan'), is: 'true' }, say: 'The buyer took a home loan on the unit and no release from the lender is on file.', severity: 'medium' },
+      ],
+    },
+  ],
   fields: [
     { key: 'unit', label: 'Unit', kind: 'ref', target: 'unit', section: 'request' },
     { key: 'cancelled_by', label: 'Cancelled by', kind: 'enum', control: 'segmented', options: ['allottee', 'promoter'], section: 'request', from: 'Cancellation letter' },
@@ -1660,6 +1684,8 @@ const LINKS: SetLinks[] = [
   {
     set: UNIT_AGREEMENT,
     rules: [
+      // The carpet area an agreement states is held to what the Architect certifies the unit measures once built.
+      { kind: 'compare', fields: ['sale_carpet_in_agreement', 'carpet_area_as_built'], tolerance: 0, say: 'The agreement states {a} of carpet area and the unit measures {b} as built: {divergence} apart.', severity: 'medium' },
       { kind: 'before', fields: ['registered_on', 'sale_allotted_on'], at: { registered_on: RERA('registered_on') }, say: 'Allotted on {b}, before the RERA registration of {a}.', severity: 'critical' },
       { kind: 'before', fields: ['sale_possession_promised', 'declared_completion'], at: { declared_completion: RERA('declared_completion') }, when: REGISTERED, say: 'Possession is promised for {a}, after the completion of {b} declared to RERA.', severity: 'high' },
     ],
@@ -1708,6 +1734,7 @@ const LINKS: SetLinks[] = [
       { key: 'land_restraints', label: 'Orders in force restraining a sale over a parcel of the land', kind: 'computed', precision: 0, section: 'stock', tier: 'situational', showWhen: { records: ORDER_COVER, is: 'any' }, formula: { op: 'records', set: ORDER_COVER, reduce: 'sum', field: 'land_sale_restraint' } },
     ],
     rules: [
+      { kind: 'at_most', fields: ['units_total', 'units_sanctioned'], at: { units_sanctioned: { fn: 'legal.approvals', set: 'legal.approvals.sanction', field: 'units_in_force' } }, when: { situation: 'revised_sanction' }, say: 'The register holds {a} units and the sanction, as last revised, allows {b}.', severity: 'high' },
       { kind: 'at_most', fields: ['units_restrained'], against: 0, say: '{a} unit(s) are covered by an order in force that restrains a sale: each says so on its own record.', severity: 'critical' },
       { kind: 'at_most', fields: ['land_restraints'], against: 0, say: '{a} order(s) in force restrain a sale over a parcel of the land, and so every unit on it.', severity: 'critical' },
       { kind: 'at_most', fields: ['sale_restraints'], against: 0, say: '{a} order(s) in force restrain a sale or its registration.', severity: 'critical' },

@@ -34,7 +34,7 @@ import { findingIsOpen } from './engineering';
 import { scheduleWatch } from './milestone-schedule';
 import { allChecks } from './engagements';
 import { milestoneExtensions, progressSummary } from './progress';
-import { standingRecords, standingText } from './standing-records';
+import { standingNumber, standingRecords, standingText } from './standing-records';
 import { tenderComparison, tenderStagesPastDue, tendersOf, variationOffersWaiting, type Tender } from './tenders';
 import { approachIsUsable } from './valuation-model';
 import { runValuationApproaches } from './valuation-run';
@@ -122,6 +122,35 @@ function appraisalCashFlow(project: DdProject): CashFlowPosition | null {
   return cashFlowPosition(rows);
 }
 
+/* --- The plan sanction as last revised ---------------------------------- */
+
+/** Liaison's plan revisions: what each changes, once it is sanctioned. */
+export const PLAN_REVISIONS_SET = 'legal.approvals.revisions';
+
+/**
+ * A figure of the sanction as the last sanctioned revision leaves it: the
+ * value that revision states for `field`. A revision counts once its standing
+ * is recorded as sanctioned by a person; of several, the one sanctioned last
+ * that states the figure. Null where no sanctioned revision states it, so
+ * the reader falls back on the sanction as first granted. `field` null asks
+ * for the day of the last sanctioned revision.
+ */
+function sanctionedRevisions(project: DdProject) {
+  return standingRecords(project, PLAN_REVISIONS_SET)
+    .filter((revision) => standingText(revision, 'standing') === 'sanctioned')
+    .map((revision) => ({ revision, on: standingText(revision, 'sanctioned_on') ?? standingText(revision, 'applied_on') ?? '' }))
+    .sort((a, b) => b.on.localeCompare(a.on));
+}
+
+function lastSanctionedRevision(project: DdProject, field: string | null): number | null {
+  const sanctioned = sanctionedRevisions(project);
+  if (field === null) return dayNumber(sanctioned[0]?.on);
+  return sanctioned.map(({ revision }) => standingNumber(revision, field)).find((value) => value !== undefined) ?? null;
+}
+
+/** How many sanctioned revisions state a figure: nought is a count, and tells a reader to fall back on the sanction as first granted. */
+const revisionsStating = (project: DdProject, field: string): number => sanctionedRevisions(project).filter(({ revision }) => standingNumber(revision, field) !== undefined).length;
+
 /* --- The period an encumbrance search leaves uncovered ------------------ */
 
 /** The check that states the period searched, and the certificates held for it. */
@@ -207,6 +236,15 @@ export const PROJECT_FIGURES: Readonly<Record<string, ProjectFigure>> = {
   'schedule.completion_before_extensions': { label: 'Planned completion before the extensions granted', from: 'Schedule', read: (project, at) => day(scheduleWatch(project, at).completionBeforeExtensions) },
   'schedule.extension_unplaced': { label: 'Days granted on contracts whose package serves no milestone', from: 'Schedule', read: (project, at) => scheduleWatch(project, at).extensionUnplaced ?? 0 },
   'schedule.extension_most': { label: 'Most days of extension granted on one contract', from: 'Time claims', read: (project) => milestoneExtensions(project).most },
+
+  /* --- Liaison: the plan sanction as last revised --------------------- */
+  'sanction.revised_built_up': { label: 'Built-up area after the last sanctioned revision', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, 'built_up_area_after') },
+  'sanction.revised_units': { label: 'Units after the last sanctioned revision', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, 'units_after') },
+  'sanction.revised_height': { label: 'Height after the last sanctioned revision', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, 'height_after') },
+  'sanction.revisions_stating_built_up': { label: 'Sanctioned revisions that state a built-up area', from: 'Plan revisions', read: (project) => revisionsStating(project, 'built_up_area_after') },
+  'sanction.revisions_stating_units': { label: 'Sanctioned revisions that state a count of units', from: 'Plan revisions', read: (project) => revisionsStating(project, 'units_after') },
+  'sanction.revisions_stating_height': { label: 'Sanctioned revisions that state a height', from: 'Plan revisions', read: (project) => revisionsStating(project, 'height_after') },
+  'sanction.revised_day': { label: 'Last revision sanctioned on', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, null) },
 
   /* --- Title: the encumbrance search --------------------------------- */
   'title.ec_uncovered_days': { label: 'Days of the search period no encumbrance certificate covers', from: 'Encumbrance certificates', read: (project) => encumbranceGap(project) },
