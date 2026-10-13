@@ -8,7 +8,7 @@
  * one file for the group.
  */
 
-import type { CheckFieldDef, FieldAddress, FieldSet, ShowWhen } from '../types';
+import type { CheckFieldDef, FieldAddress, FieldReportTemplate, FieldSet, ShowWhen } from '../types';
 import { withLinks, type SetLinks } from './builders';
 import { ARCHITECT_FIELD_SETS } from './design/architect';
 import { INTERIOR_FIELD_SETS } from './design/interiors';
@@ -25,7 +25,45 @@ const APPROVALS = 'legal.approvals';
 const held = (address: FieldAddress): ShowWhen => ({ field: address, is: 'set' });
 const VARIATIONS = 'procurement.orders.variations';
 
+const each = (fn: string, set: string, fields: string[]): FieldAddress[] => fields.map((field) => at(fn, set, field));
+
+/** The area statement with the limits it is held to: what is designed, what is sold, and where the design stands against the code. */
+const AREA_REPORT: FieldReportTemplate = {
+  id: 'design.areas.report',
+  title: 'Area statement and code compliance',
+  sections: [
+    { heading: 'Built-up area', fields: ['statement_revision', 'total_built_up', 'far_area_total', 'far_exemptions', 'sanctioned_area', 'area_standing'] },
+    { heading: 'Floors', records: 'design.areas.floors', columns: ['level', 'building', 'use', 'built_up', 'far_area'] },
+    { heading: 'Unit mix', records: 'design.brief.unit_types', columns: ['name', 'kind', 'count', 'carpet_area', 'saleable_area'] },
+    { heading: 'Units by type', chart: { of: { records: 'design.brief.unit_types' }, x: 'name', y: 'count' } },
+    { heading: 'Area sold', fields: ['carpet_total', 'saleable_total', 'efficiency', 'target_efficiency', 'efficiency_standing', 'loading'] },
+    { heading: 'Plot, zone and FAR', fields: each('design.compliance', 'design.compliance.far', ['plot_extent', 'clear_extent', 'zone', 'road_width', 'far_allowed', 'far_ceiling', 'far_achieved', 'far_standing']) },
+    { heading: 'Ground coverage', fields: each('design.compliance', 'design.compliance.coverage', ['footprint_area', 'coverage_achieved', 'coverage_allowed', 'coverage_standing']) },
+    { heading: 'Height and setbacks', fields: each('design.compliance', 'design.compliance.height', ['building_height', 'height_class', 'height_allowed', 'airport_height_allowed', 'height_standing', 'setbacks_short']) },
+    { heading: 'Parking', fields: each('design.compliance', 'design.compliance.parking', ['parking_required', 'parking_provided', 'parking_standing']) },
+    { heading: 'Deviations sought', records: 'design.compliance.deviations', columns: ['limit', 'required', 'provided', 'standing'] },
+    { heading: 'Architect’s remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+/** The drawing and query position: what is issued for construction, what is open, and what has changed. */
+const DESIGN_STATUS_REPORT: FieldReportTemplate = {
+  id: 'design.drawings.report',
+  title: 'Design status report',
+  sections: [
+    { heading: 'Drawings', fields: ['drawings', 'at_construction_issue', 'construction_issue_share', 'revisions', 'transmittals', 'transmittals_open'] },
+    { heading: 'Requests for information', fields: each('design.rfis', 'design.rfis.log', ['raised', 'open', 'overdue', 'with_cost_effect', 'with_time_effect', 'log_standing']) },
+    { heading: 'Requests open', records: 'design.rfis.requests', columns: ['number', 'raised_on', 'discipline', 'needed_by', 'answered_on', 'standing'] },
+    { heading: 'Design changes', fields: each('design.changes', 'design.changes.summary', ['raised', 'open', 'approved_cost', 'approved_days', 'needing_sanction', 'altering_promise', 'built_first']) },
+    { heading: 'Changes, one by one', records: 'design.changes.register', columns: ['number', 'raised_on', 'origin', 'stage', 'cost_estimate', 'time_effect'] },
+    { heading: 'Samples and mock-ups', fields: each('design.samples', 'design.samples.standing', ['submitted', 'pending', 'overdue', 'to_resubmit', 'deviating']) },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
 const LINKS: SetLinks[] = [
+  { set: 'design.areas.statement', reports: [AREA_REPORT] },
+  { set: 'design.drawings.register', reports: [DESIGN_STATUS_REPORT] },
   {
     set: 'design.compliance.far',
     // The land that can be built on is what Title finds clear of restriction: the plot the design takes is held to it.

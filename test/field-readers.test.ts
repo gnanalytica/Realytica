@@ -51,6 +51,9 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   // Another thing called fields: the columns a checklist line asks for, not a check's stored values.
   { file: 'packages/shared/src/operating-model/document-intake.ts', has: 'for (const field of check.fields ?? []) if (keys.has(field.key))', why: 'a requirement’s list of field definitions, which holds no value' },
 
+  { file: 'packages/shared/src/operating-model/sweep-rules.ts', has: 'Object.keys(project.fieldSheets ?? {}).length', why: 'whether the project keeps any sheet at all, before the daily review reads any: a count, never a value' },
+  { file: 'packages/shared/src/operating-model/sweep-rules.ts', has: 'project.fieldSheets?.[set.id] ? [undefined] : []', why: 'whether this sheet has been started, so the review reads only sheets that hold something; what it then reads comes through `readSheet` and `resolveFields`' },
+
   // The appraisal's months, added up for three figures: each value is asked `fieldStands` before it is counted.
   { file: 'packages/shared/src/operating-model/field-figures.ts', has: 'project.fieldSheets?.[CASH_FLOW_SET]?.records', why: 'the cash-flow months behind the peak-funding figures: a record taken off its list is left out, and each value is counted only where `fieldStands` says it stands' },
   { file: 'packages/shared/src/operating-model/field-figures.ts', has: 'record.values[CASH_FLOW_MONTH]', why: 'the month of one of those records, asked `fieldStands` on the next line' },

@@ -40,6 +40,8 @@ import {
   lawBearsOn,
   lawDepartmentsOn,
   lawPageText,
+  RULE_ROWS,
+  firmRuleRows,
   lawLists,
   lawProposalHeld,
   lawSourceDue,
@@ -288,7 +290,8 @@ export async function lookAtLawSource(tenantId: string, state: LawWatchState, so
     const bootstrap = store.data.tenants?.[0]?.id;
     const projects = (store.data.projects ?? []).filter((project) => (project.tenantId ?? bootstrap) === tenantId && lawBearsOn(source, project));
     // The lists a model picks what is affected from. The same lists hold its answer to what exists.
-    const lists = lawLists(source, at.slice(0, 10));
+    // Any field of the departments it is for can be named: the changed lines choose which are listed. The rows are the firm's table, its own verified rows among them.
+    const lists = lawLists({ ...source, about: [...diff.added, ...diff.removed] }, at.slice(0, 10), undefined, firmRuleRows(state.offeredRows) ?? RULE_ROWS);
     const said = await deps.propose({ title: source.title, governs: source.governs, jurisdiction: source.jurisdiction, added: diff.added, removed: diff.removed, projects: projects.map((project) => told(project, source)), lists });
     const proposal = lawProposalHeld(said, diff, source, projects, at, lists);
     if (proposal) change.proposal = proposal;

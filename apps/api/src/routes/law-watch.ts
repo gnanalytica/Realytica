@@ -40,7 +40,9 @@ import {
   STAGES,
   addLawSource,
   can,
+  RULE_ROWS,
   confirmLawChange,
+  firmRuleRows,
   dismissLawChange,
   editLawSource,
   lawBearsOn,
@@ -57,6 +59,7 @@ import {
   type LawWatchState,
 } from '@realytica/shared';
 import { lawWatchModelSetUp } from '@realytica/agents';
+import { installLawRuleRows } from '../firm-fields';
 import { needs, principalOf } from '../auth/middleware';
 import { forgetLawSource, lawChangePages, loadLawWatch, lookAtLawSources, saveLawWatch } from '../law-watch';
 import { store } from '../store';
@@ -262,7 +265,8 @@ lawWatchRouter.post('/changes/:changeId/confirm', needs('write'), async (req, re
   for (const row of parsed.data.projects) if (projects.some((project) => project.id === row.projectId)) await store.pullFresh(row.projectId).catch(() => undefined);
   const state = await loadLawWatch(me.tenantId);
   try {
-    confirmLawChange(state, req.params.changeId ?? '', parsed.data as Parameters<typeof confirmLawChange>[2], reviewer(req), firmProjects(me.tenantId), new Date().toISOString());
+    // A change may supersede a row the firm verified earlier: it is confirmed against the firm's table, not only the built-in one.
+    confirmLawChange(state, req.params.changeId ?? '', parsed.data as Parameters<typeof confirmLawChange>[2], reviewer(req), firmProjects(me.tenantId), new Date().toISOString(), undefined, firmRuleRows(state.offeredRows) ?? RULE_ROWS);
   } catch (err) {
     refuse(res, err);
     return;
@@ -311,5 +315,7 @@ lawWatchRouter.post('/rule-rows/:offerId/verify', needs('admin'), async (req, re
     return;
   }
   await saveLawWatch(me.tenantId, state);
+  // Verified, it is the firm's row from now: every formula on its projects reads it.
+  installLawRuleRows(me.tenantId, state.offeredRows);
   res.json(shown(req, state));
 });

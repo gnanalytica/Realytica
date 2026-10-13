@@ -26,7 +26,10 @@
  */
 
 import { ACTION_STATUS_LABEL, CHECK_RESULT_LABEL, DECISION_STATUS_LABEL, EVIDENCE_STATUS_LABEL, FINDING_STATUS_LABEL, RISK_STATUS_LABEL, SEVERITY_LABEL } from './catalogs';
-import { fieldCatalog, type FieldCatalog } from './field-registry';
+import type { FieldCatalog } from './field-registry';
+import { fieldCatalogFor } from './firm-fields';
+import { ruleSourceSaid } from './rule-tables';
+import { isBlank } from './check-fields';
 import { fieldRecords, readSheet, resolveFields, type FieldSource, type FieldView } from './field-sheets';
 import type { MemContext } from './mem-context';
 import { scriptOf } from '../script';
@@ -112,7 +115,7 @@ export function chatPicksFrom(said: unknown): ChatAnswerPicks {
 /* The card                                                              */
 /* ==================================================================== */
 
-export type ChatStanding = FieldState | 'on_record' | 'paper_words' | 'memory_approved' | 'memory_proposed' | 'memory_note';
+export type ChatStanding = FieldState | 'worked_out' | 'on_record' | 'paper_words' | 'memory_approved' | 'memory_proposed' | 'memory_note';
 
 export const CHAT_STANDING_LABEL: Record<ChatStanding, string> = {
   empty: 'Not filled',
@@ -122,6 +125,8 @@ export const CHAT_STANDING_LABEL: Record<ChatStanding, string> = {
   disputed: 'Disputed',
   not_applicable: 'Not applicable',
   assumed: 'Assumed',
+  // Nobody accepted a figure that is worked out: it follows from what stands, and says which rule rows it read.
+  worked_out: 'Worked out',
   on_record: 'On the record',
   paper_words: 'The paper’s own words',
   memory_approved: 'Accepted',
@@ -140,6 +145,8 @@ export interface ChatAnswerRow {
   recordId?: string;
   /** For a memory line: the mark its tag is printed from. */
   mark?: string;
+  /** For a figure worked out from the rule table: each row it read, as the instrument is cited, and whether a person has verified it. */
+  rules?: Array<{ said: string; verified: boolean }>;
 }
 
 export interface ChatAnswerCard {
@@ -175,7 +182,9 @@ function fieldRow(view: FieldView, where: string): ChatAnswerRow {
     kind: 'field',
     label: `${view.def.label} (${where})`,
     value: waiting ? waiting.text : view.text,
-    standing: waiting ? 'proposed' : view.state,
+    // A worked-out figure or a standing is nobody's acceptance: it is said to be worked out, with the rule rows it read.
+    standing: waiting ? 'proposed' : (view.def.kind === 'computed' || view.def.kind === 'status') && !isBlank(view.held) ? 'worked_out' : view.state,
+    ...(view.cites?.length ? { rules: view.cites.map((cite) => ({ said: `${cite.label}: ${ruleSourceSaid(cite.source)}`, verified: cite.verified })) } : {}),
     ...(sourceRow(waiting ? waiting.source : view.source) ? { source: sourceRow(waiting ? waiting.source : view.source) } : {}),
     address: view.address,
   };
@@ -211,7 +220,7 @@ function recordRow(project: DdProject, id: string): ChatAnswerRow | undefined {
  * nothing there is left out and not guessed at. An answer that picked
  * nothing that exists is one the record does not hold.
  */
-export function chatAnswerCard(project: DdProject, picks: ChatAnswerPicks, given: { remembered?: Pick<MemContext, 'lines'>; passages?: readonly ChatPassage[]; at?: Date } = {}, catalog: FieldCatalog = fieldCatalog()): ChatAnswerCard {
+export function chatAnswerCard(project: DdProject, picks: ChatAnswerPicks, given: { remembered?: Pick<MemContext, 'lines'>; passages?: readonly ChatPassage[]; at?: Date } = {}, catalog: FieldCatalog = fieldCatalogFor(project)): ChatAnswerCard {
   const rows: ChatAnswerRow[] = [];
   const resolution = resolveFields(project, given.at ?? new Date(), catalog);
   const viewAt = (address: FieldAddress): { view: FieldView; where: string } | undefined => {
@@ -318,7 +327,7 @@ export function chatAnswerText(card: ChatAnswerCard, given: { question?: string;
   for (const row of card.rows) {
     if (row.kind === 'fact') lines.push(`- ${row.value} [${row.mark}]${row.source ? ` (${row.source.label})` : ''}`);
     else if (row.kind === 'passage') lines.push(`- ${row.label}, page ${row.source?.page}: “${row.value}” [ev:${row.source?.evidenceId}:p${row.source?.page}]`);
-    else lines.push(`- ${row.label}: ${row.value} (${[CHAT_STANDING_LABEL[row.standing], sourceSaid(row)].filter(Boolean).join('; ')})`);
+    else lines.push(`- ${row.label}: ${row.value} (${[CHAT_STANDING_LABEL[row.standing], sourceSaid(row), ...(row.rules ?? []).map((rule) => `${rule.said}${rule.verified ? '' : ', not verified'}`)].filter(Boolean).join('; ')})`);
   }
   if (said.proposed) lines.push(said.proposed);
   if (said.lookAt) {
@@ -345,7 +354,7 @@ export function chatAnswerSaid(card: Pick<ChatAnswerCard, 'outcome' | 'rows' | '
  * what it is about is not on the record. The line is a template's and the
  * record's words; no model wrote it.
  */
-export function memMarkSaid(project: DdProject, mark: MemMark | undefined, catalog: FieldCatalog = fieldCatalog()): { note: string; about?: string } | undefined {
+export function memMarkSaid(project: DdProject, mark: MemMark | undefined, catalog: FieldCatalog = fieldCatalogFor(project)): { note: string; about?: string } | undefined {
   if (!mark) return undefined;
   if ('record' in mark.about) {
     const row = recordRow(project, mark.about.record);

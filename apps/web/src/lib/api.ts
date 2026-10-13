@@ -106,7 +106,7 @@ import type {
   FlowRunSummary,
   FlowNodeType,
 } from '@realytica/shared';
-import type { CheckFieldsShown, FirmFieldPack } from '@realytica/shared';
+import type { CheckFieldsShown, FirmFieldPack, LawRuleRowOffer } from '@realytica/shared';
 import { authHeader, renewToken, signOut } from './auth';
 import type { RevenueReadResult } from './revenue-run';
 
@@ -517,6 +517,8 @@ export interface FirmFieldsShown {
   pack: FirmFieldPack;
   sets: FirmFieldSet[];
   mayManage: boolean;
+  /** The rule rows the firm's law watch offered and a named person verified: what its projects' formulas read in place of the rows they supersede. */
+  ruleRows?: LawRuleRowOffer[];
 }
 
 export const api = {

@@ -32,8 +32,10 @@ import { fieldIsDerived, fieldNumber, formatFieldValue, isBlank, tableRows } fro
 import { workstreamDefinition } from './departments';
 import { fieldCatalog, optionSetById, sharedSetsOf, type FieldCatalog } from './field-registry';
 import { FIELD_SETS } from './field-sets';
-import { SHARED_FN } from './field-sets/shared-records';
+import { CUSTOMER_SETS } from './field-sets/sales-marketing';
+import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { fieldRecords, readSheet, refChoices, resolveFields, type FieldResolution, type FieldView } from './field-sheets';
+import { fieldCatalogFor } from './firm-fields';
 import { meetingDay } from './meetings';
 import { departmentReportKind } from './report-blocks';
 import { ruleSourceSaid } from './rule-tables';
@@ -404,7 +406,7 @@ function resolveFieldChart(project: DdProject, source: ReportBoundSource, at: Da
 }
 
 /** One block that reads fields, resolved from what the project holds now. */
-export function resolveFieldBlock(project: DdProject, source: ReportBoundSource, at: Date = new Date(), catalog: FieldCatalog = fieldCatalog()): ResolvedReportBlock {
+export function resolveFieldBlock(project: DdProject, source: ReportBoundSource, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project)): ResolvedReportBlock {
   if (source.kind === 'field_table') return resolveFieldTable(project, source, at, catalog);
   if (source.kind === 'field_chart') return resolveFieldChart(project, source, at, catalog);
   return resolveFieldsBlock(project, source, at, catalog);
@@ -674,9 +676,30 @@ export function ownerPackFields(project: DdProject, section: 'time' | 'cost', at
 export function fieldReportsOfCopy(reports: readonly GeneratedReport[], inReach: (fn: string) => boolean): GeneratedReport[] {
   const catalog = fieldCatalog();
   const shared = new Set([...catalog.sheets.keys()].filter(inReach).flatMap((fn) => sharedSetsOf(fn, catalog).map((set) => set.id)));
-  const reached = (address: Pick<FieldAddress, 'set'>): boolean => {
+  /*
+   * The same rule the copy of the sheets is cut by (`project-view.ts`): a
+   * buyers' set is nobody's outside the firm, whatever the grant names; a
+   * shared record is theirs where a function in reach links to it; and what
+   * a department added to a shared record goes only where that department's
+   * function is in reach. A unit's sale is not read off a report by somebody
+   * who may not read it off the unit.
+   */
+  const reached = (address: Pick<FieldAddress, 'set'> & { field?: string }): boolean => {
     const set = catalog.sets.get(address.set);
-    return set ? (set.fn === SHARED_FN ? shared.has(set.id) : inReach(set.fn)) : false;
+    if (!set || CUSTOMER_SETS.includes(set.id)) return false;
+    if (set.fn !== SHARED_FN) return inReach(set.fn);
+    if (!shared.has(set.id)) return false;
+    const addedBy = address.field ? set.fields.find((def) => def.key === address.field)?.addedBy : undefined;
+    return !addedBy || inReach(addedBy);
+  };
+  /** The records of a set, printed as a table: every column it prints has to be theirs, and a list of parties kept as it read one day may name a buyer. */
+  const recordsReached = (setId: string, columns: readonly string[] | undefined, frozen: boolean): boolean => {
+    const set = catalog.sets.get(setId);
+    if (!set || !reached({ set: setId })) return false;
+    if (set.fn !== SHARED_FN) return true;
+    if (frozen && setId === SHARED_RECORD_SETS.party) return false;
+    const printed = columns?.length ? columns : set.fields.map((def) => def.key);
+    return printed.every((key) => reached({ set: setId, field: key }));
   };
   return reports.map((report) => {
     let changed = false;
@@ -684,8 +707,8 @@ export function fieldReportsOfCopy(reports: readonly GeneratedReport[], inReach:
       const source = block.source ?? block.detachedSource;
       const kind = block.source?.kind ?? block.detachedFrom;
       if (!isFieldSource(kind)) return [block];
-      const named = [...(source?.addresses ?? []), ...(source?.address ? [source.address] : []), ...(source?.records ? [{ set: source.records }] : [])];
-      if (named.some((address) => !reached(address))) {
+      const named = [...(source?.addresses ?? []), ...(source?.address ? [source.address] : [])];
+      if (named.some((address) => !reached(address)) || (source?.records && !recordsReached(source.records, source.columns, !block.source))) {
         changed = true;
         return [];
       }

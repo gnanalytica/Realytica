@@ -2,7 +2,7 @@
  * Shapes a catalog declares often, written once.
  */
 
-import type { CheckFieldDef, CheckInsightRule, FieldAddress, FieldSection, FieldSet, RefTarget, Tone } from '../types';
+import type { CheckFieldDef, CheckInsightRule, FieldAddress, FieldReportTemplate, FieldSection, FieldSet, RefTarget, Tone } from '../types';
 
 /**
  * One figure stated by several people, side by side: cost to complete by the
@@ -105,6 +105,8 @@ export interface SetLinks {
   repoint?: Record<string, FieldAddress>;
   /** Rules that hold a figure of this set to another department's (`at`). */
   rules?: CheckInsightRule[];
+  /** Reports the set's function hands over that are put together from several sets, its own and others'. */
+  reports?: FieldReportTemplate[];
 }
 
 /** A file's sets with its links to other departments laid in. A link that names a set or a field that is not there stops the build. */
@@ -124,6 +126,7 @@ export function withLinks(sets: readonly FieldSet[], links: readonly SetLinks[])
     set.fields = [...set.fields.map((def) => replaced.get(def.key) ?? (link.repoint?.[def.key] ? { ...def, sameAs: link.repoint[def.key] } : def)), ...(link.fields ?? [])];
     if (link.sections?.length) set.sections = [...(set.sections ?? []), ...link.sections];
     if (link.rules?.length) set.rules = [...set.rules, ...link.rules];
+    if (link.reports?.length) set.reports = [...(set.reports ?? []), ...link.reports];
   }
   return out;
 }

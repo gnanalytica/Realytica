@@ -14,8 +14,9 @@
  * instance reaches the others without a deploy.
  */
 
-import { EMPTY_FIRM_FIELDS, firmFieldsHeld, installFirmFields, type FirmFieldPack } from '@realytica/shared';
+import { EMPTY_FIRM_FIELDS, firmFieldsHeld, firmRuleRows, installFirmFields, installFirmRuleRows, type FirmFieldPack, type LawRuleRowOffer } from '@realytica/shared';
 import type { NextFunction, Request, Response } from 'express';
+import { loadLawWatch } from './law-watch';
 import { storageAdapter } from './storage';
 import { store } from './store';
 
@@ -49,11 +50,24 @@ export async function saveFirmFields(tenantId: string, pack: FirmFieldPack): Pro
   install(tenantId, pack);
 }
 
-/** Makes sure the firm's pack is in force here, reading it again where it was last read a while ago. */
+/**
+ * Puts a firm's own rule rows in force for its projects on this instance:
+ * the rows its law watch offered and a named person verified. With none
+ * verified, the built-in table stands.
+ */
+export function installLawRuleRows(tenantId: string, offers: readonly LawRuleRowOffer[] | undefined): void {
+  const rows = firmRuleRows(offers);
+  installFirmRuleRows(tenantId, rows);
+  if (store.data.tenants?.[0]?.id === tenantId) installFirmRuleRows(undefined, rows);
+}
+
+/** Makes sure the firm's pack and its rule rows are in force here, reading them again where they were last read a while ago. */
 export async function ensureFirmFields(tenantId: string): Promise<void> {
   const at = read.get(tenantId);
   if (at !== undefined && Date.now() - at < FRESH_MS) return;
-  install(tenantId, await loadFirmFields(tenantId));
+  const [pack, offers] = await Promise.all([loadFirmFields(tenantId), loadLawWatch(tenantId).then((state) => state.offeredRows ?? [], () => [])]);
+  install(tenantId, pack);
+  installLawRuleRows(tenantId, offers);
 }
 
 /**

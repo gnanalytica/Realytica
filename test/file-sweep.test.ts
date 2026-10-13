@@ -47,6 +47,9 @@ import {
   sweepFingerprint,
   sweepNominationsHeld,
   sweepRuleFindings,
+  setFieldValues,
+  proposeFieldValues,
+  decideField,
   sweepSaid,
   sweepRaise,
   sweepStateOf,
@@ -267,6 +270,26 @@ describe('what the rules find, with no model', () => {
       'Plinth: planned start (2026-11-15) is after its planned finish (2026-10-31), by 15 days.',
       'Commencement certificate: issued (2026-10-20) is after the first work logged on site (2026-10-08), by 12 days.',
     ]);
+  });
+
+  it('runs every date rule a department’s field set declares, wherever a paper states one of the two dates', () => {
+    const p = built();
+    const paper = addEvidence(p, { title: 'Commencement certificate', kind: 'document', status: 'received' }, LEAD);
+    const OCCUPANCY = 'legal.approvals.occupancy';
+    const at = (field: string) => ({ fn: 'legal.approvals', set: OCCUPANCY, field });
+    const mine = (held: { subjects?: Array<{ set: string }> }) => Boolean(held.subjects?.some((subject) => subject.set === OCCUPANCY));
+    // Liaison's own rule, on a sheet the review was never told about: the architect certified completion before work was allowed to begin.
+    assert.deepEqual(setFieldValues(p, { set: OCCUPANCY }, { completion_certificate_on: '2026-06-01' }, LEAD).rejected, []);
+    const offered = proposeFieldValues(p, [{ address: at('commencement_on'), value: '2026-08-01', origin: { kind: 'paper', evidenceId: paper.id, page: 1, quote: 'Commencement certificate issued on 1 August 2026', reader: 'parser' } }], 'parser');
+    assert.deepEqual(offered.map((held) => held.outcome), ['waiting']);
+    assert.equal(sweepRuleFindings(p, day('2026-10-12')).filter(mine).length, 0, 'a date that waits on a person breaks no rule');
+
+    decideField(p, at('commencement_on'), 'accept', LEAD);
+    const [matter] = sweepRuleFindings(p, day('2026-10-12')).filter(mine);
+    assert.ok(matter, 'once it stands, the review raises it');
+    assert.deepEqual([matter!.kind, matter!.by, matter!.department], ['date_impossible', 'rule', 'legal']);
+    assert.equal(sweepSaid(matter!).line, 'Commencement and occupancy: Commencement certificate on (2026-08-01) is after Architect’s completion certificate on (2026-06-01), by 61 days.');
+    assert.deepEqual(matter!.sources.map((source) => source.evidenceId), [paper.id]);
   });
 
   it('finds an approval work depends on that is missing or lapsed, and not one that is merely due', () => {

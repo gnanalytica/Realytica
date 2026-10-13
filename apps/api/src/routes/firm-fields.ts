@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { FIELD_SETS, FIRM_FIELD_KINDS, can, firmFieldFaults, firmFieldsHeld, firmSets, workstreamDefinition, type FirmFieldPack } from '@realytica/shared';
 import { needs, principalOf } from '../auth/middleware';
 import { loadFirmFields, saveFirmFields } from '../firm-fields';
+import { loadLawWatch } from '../law-watch';
 
 export const firmFieldsRouter = Router();
 
@@ -63,7 +64,9 @@ function setsShown() {
 firmFieldsRouter.get('/', needs('read'), async (req, res, next) => {
   try {
     const me = principalOf(req);
-    res.json({ pack: await loadFirmFields(me.tenantId), sets: setsShown(), mayManage: can(me.role, 'admin') });
+    // With the firm's fields go the rule rows it has verified: both are what its projects are read by, here and on the page that draws them.
+    const offers = await loadLawWatch(me.tenantId).then((state) => state.offeredRows ?? [], () => []);
+    res.json({ pack: await loadFirmFields(me.tenantId), sets: setsShown(), mayManage: can(me.role, 'admin'), ruleRows: offers.filter((offer) => offer.row.verified) });
   } catch (err) {
     next(err);
   }

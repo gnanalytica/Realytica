@@ -18,6 +18,7 @@ const STANDING_TONE: Record<ChatStanding, string> = {
   disputed: 'text-critical',
   not_applicable: 'text-ink-muted',
   assumed: 'text-warning',
+  worked_out: 'text-ink-secondary',
   on_record: 'text-ink-secondary',
   paper_words: 'text-ink-secondary',
   memory_approved: 'text-good',
@@ -44,6 +45,13 @@ function Row({ row, onOpenEvidence }: { row: ChatAnswerRow; onOpenEvidence?: (id
           )
         ) : null}
       </p>
+      {/* A figure worked out from the rule table says which rows it read, and which of them nobody has verified. */}
+      {row.rules?.map((rule, at) => (
+        <p key={at} className="text-[11px] leading-4 text-ink-muted">
+          {rule.said}
+          {rule.verified ? null : <span className="text-warning"> · not verified</span>}
+        </p>
+      ))}
     </li>
   );
 }

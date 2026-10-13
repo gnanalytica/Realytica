@@ -13,11 +13,16 @@
  */
 
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
 import {
+  LAW_LIST_FIELDS_AT_MOST,
   RULE_ROWS,
+  addFieldRecord,
   confirmLawChange,
   createProject,
+  fieldCatalog,
+  firmRuleRows,
+  installFirmRuleRows,
   lawActionSaid,
   lawChangeSaid,
   lawDayOnPage,
@@ -28,7 +33,9 @@ import {
   lawProposalHeld,
   lawRuleRowRef,
   lawWatchHeld,
+  readSheet,
   ruleRow,
+  ruleRowsFor,
   ruleRowsWithOffers,
   verifyLawRuleRow,
   type LawChange,
@@ -168,6 +175,76 @@ describe('a confirmed change of a rate', () => {
       const state = waiting();
       assert.equal(confirmLawChange(state, 'chg1', { fields, projects: [] }, admin, [], '2026-10-13T09:00:00.000Z').offered, undefined);
       assert.equal(state.offeredRows, undefined);
+    }
+  });
+});
+
+describe('a firm’s own rule rows', () => {
+  const admin = { email: 'dev@builders.example', name: 'Dev', role: 'owner' as const };
+  const waiting = (): LawWatchState => ({ v: 1, sources: [SOURCE], changes: [{ id: 'chg1', sourceId: SOURCE.id, sourceTitle: SOURCE.title, url: SOURCE.url, seenAt: '2026-10-12T01:30:00.000Z', diff: DIFF, state: 'waiting' }] });
+  afterEach(() => installFirmRuleRows('firm_rows', undefined));
+
+  it('change no figure while offered, and are what the firm’s projects read once a person has verified them', () => {
+    const state = waiting();
+    confirmLawChange(state, 'chg1', { fields: lawFieldsHeld(said(), DIFF, LISTS), projects: [] }, admin, [], '2026-10-13T09:00:00.000Z');
+    const p = createProject({ name: 'Lakeside Residences', type: 'residential', location: 'Lake Road', city: 'Bengaluru' }, 'RYT-LRR');
+    p.tenantId = 'firm_rows';
+    p.jurisdiction = 'Karnataka';
+    const unit = addFieldRecord(p, 'shared.units', { number: 'A-101', carpet_area: '120 sqm', price_for_tax: 9_000_000 }, 'Dev').record!;
+    const rate = (on: string) => readSheet(p, 'shared.units', unit.id, undefined, undefined, new Date(on))!.fields.find((f) => f.def.key === 'gst_rate')!;
+
+    // Offered and not verified: nothing is installed, and the built-in row stands on every day.
+    assert.equal(firmRuleRows(state.offeredRows), undefined);
+    installFirmRuleRows('firm_rows', firmRuleRows(state.offeredRows));
+    assert.equal(ruleRowsFor(p), RULE_ROWS);
+    assert.equal(rate('2026-12-01T00:00:00Z').held?.value, 5);
+
+    verifyLawRuleRow(state.offeredRows!, 'lrr_chg1', 'Dev (dev@builders.example)', '2026-10-14T09:00:00.000Z');
+    installFirmRuleRows('firm_rows', firmRuleRows(state.offeredRows));
+    assert.equal(rate('2026-10-20T00:00:00Z').held?.value, 5, 'before it takes effect, the row it supersedes');
+    const after = rate('2026-12-01T00:00:00Z');
+    assert.equal(after.held?.value, 6);
+    assert.deepEqual(after.cites?.filter((cite) => cite.key === 'gst_flat_other').map((cite) => [cite.value, cite.verified]), [[6, true]], 'and the value says which row it read, verified');
+
+    // Another firm's project reads the built-in table.
+    const other = createProject({ name: 'Hillview', type: 'residential', location: 'Hill Road', city: 'Bengaluru' }, 'RYT-OTH');
+    other.tenantId = 'firm_other';
+    assert.equal(ruleRowsFor(other), RULE_ROWS);
+  });
+
+  it('can supersede any row of the table, and a later change supersedes the firm’s own row', () => {
+    // Every row in force is on the list a change picks from, whichever department declared it.
+    const all = lawLists({ departments: ['legal', 'finance', 'design', 'construction', 'commercial', 'procurement'], jurisdiction: 'Karnataka' }, '2026-10-12');
+    const inForce = RULE_ROWS.filter((row) => row.from <= '2026-10-12' && (row.to === undefined || row.to >= '2026-10-12') && (!row.jurisdiction.state || row.jurisdiction.state === 'Karnataka'));
+    assert.equal(all.rows.length, inForce.length);
+    assert.ok(inForce.length > 100 && new Set(inForce.map((row) => row.key)).size > 80, 'the merged table, not one department’s');
+    for (const key of ['rera_delay_interest_spread', 'cube_test_age_days', 'tds_property_purchase', 'high_rise_height_m', 'title_search_years']) assert.ok(all.rows.some((held) => held.row.key === key), key);
+
+    const state = waiting();
+    confirmLawChange(state, 'chg1', { fields: lawFieldsHeld(said(), DIFF, LISTS), projects: [] }, admin, [], '2026-10-13T09:00:00.000Z');
+    verifyLawRuleRow(state.offeredRows!, 'lrr_chg1', 'Dev', '2026-10-14T09:00:00.000Z');
+    const firm = firmRuleRows(state.offeredRows)!;
+    const later = lawLists(SOURCE, '2026-12-01', undefined, firm);
+    assert.ok(later.rows.some((held) => held.row.key === 'gst_flat_other' && held.row.value === 6), 'the firm’s row is the one a later change names');
+    assert.ok(!later.rows.some((held) => held.row.key === 'gst_flat_other' && held.row.value === 5), 'the row it ended is no longer in force');
+  });
+});
+
+describe('what a change may be said to affect', () => {
+  it('is any field the departments keep: the page’s own words choose which are listed', () => {
+    const plain = lawLists({ departments: ['finance'], jurisdiction: 'Karnataka' }, '2026-10-12');
+    assert.equal(plain.fields.length, LAW_LIST_FIELDS_AT_MOST);
+    const named = (lists: typeof plain, set: string, field: string) => lists.fields.some((held) => held.address.set === set && held.address.field === field);
+    assert.equal(named(plain, 'finance.lenders.facilities', 'min_promoter_share'), false, 'far down the catalog, past what is listed with nothing to go on');
+    const about = lawLists({ departments: ['finance'], jurisdiction: 'Karnataka', about: ['The minimum promoter’s share in the facilities a lender sanctions is revised.'] }, '2026-10-12');
+    assert.equal(about.fields.length, LAW_LIST_FIELDS_AT_MOST);
+    assert.equal(named(about, 'finance.lenders.facilities', 'min_promoter_share'), true);
+    assert.deepEqual(about.fields.map((held) => held.mark), about.fields.map((_, at) => `f${at + 1}`));
+    // No worked-out figure, standing, mirror or person's words is ever listed: a law changes what somebody records.
+    const catalog = fieldCatalog();
+    for (const held of about.fields) {
+      const def = catalog.sets.get(held.address.set)!.fields.find((f) => f.key === held.address.field)!;
+      assert.ok(def.kind !== 'computed' && def.kind !== 'status' && def.kind !== 'longtext' && !def.sameAs, `${held.address.set}/${held.address.field}`);
     }
   });
 });

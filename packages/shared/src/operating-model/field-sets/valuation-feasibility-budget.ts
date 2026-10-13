@@ -21,7 +21,7 @@
  * stamp value and tax (Tax), the loan (Lenders).
  */
 
-import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldSet, FormulaCondition, Situation } from '../types';
+import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldReportTemplate, FieldSet, FormulaCondition, Situation } from '../types';
 import { statedBySeveral, withLinks, type SetLinks } from './builders';
 
 const VAL = 'finance.valuation';
@@ -1589,6 +1589,56 @@ const ORDERS = (field: string) => at('procurement.orders', 'procurement.orders.p
 const WITH_LENDER = { situation: 'lender_funded' } as const;
 const ANY_VARIATION = { records: VARIATIONS, is: 'any' } as const;
 
+const each = (fn: string, set: string, fields: string[]): FieldAddress[] => fields.map((field) => at(fn, set, field));
+
+/** The valuation summary: the instruction, the land, the value and, for a lender, its values and the cover. */
+const VALUATION_REPORT: FieldReportTemplate = {
+  id: 'finance.valuation.report',
+  title: 'Valuation summary',
+  sections: [
+    { heading: 'Instruction', fields: each(VAL, V_INSTRUCTION, ['purpose', 'intended_user', 'basis', 'premise', 'valuer', 'valuation_date', 'report_date', 'inspection_date', 'instruction_standing']) },
+    { heading: 'The land', fields: each(VAL, V_LAND, ['plot_area', 'extent_title', 'guideline_rate', 'guideline_value', 'land_rate', 'land_value', 'vs_guideline', 'title_standing', 'title_verdict', 'land_standing']) },
+    { heading: 'Value', fields: ['approaches_run', 'fair_market_value', 'value_low', 'value_high', 'rate_per_sqm', 'guideline_value', 'vs_guideline', 'outcome'] },
+    { heading: 'For the lender', fields: ['realisable_share', 'realisable_value', 'distress_share', 'distress_value', 'guideline_gap', 'guideline_standing'] },
+    { heading: 'Valuations on file', records: V_REPORTS, columns: ['reference', 'valued_on', 'valuer', 'fair_market_value', 'realisable_value'] },
+    { heading: 'Revaluation', fields: each(VAL, V_REGISTER, ['valuation_age_days', 'register_standing', 'loan_outstanding', 'loan_to_value_pct', 'revaluation_due']) },
+    { heading: 'Valuer’s remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds, in the valuer’s own words.' } },
+  ],
+};
+
+/** The appraisal: areas, revenue, cost, the cash flow and what it returns, and the decision taken on it. */
+const APPRAISAL_REPORT: FieldReportTemplate = {
+  id: 'finance.feasibility.report',
+  title: 'Development appraisal',
+  sections: [
+    { heading: 'Areas', fields: each(FEA, F_AREAS, ['plot_area', 'proposed_built_up', 'saleable_area', 'units_total', 'far_allowed', 'far_proposed', 'area_standing']) },
+    { heading: 'Revenue', fields: each(FEA, F_REVENUE, ['base_rate', 'comparable_rate', 'rate_over_comparables', 'gdv', 'developer_revenue', 'launch_date', 'sell_out_months', 'revenue_standing']) },
+    { heading: 'Costs', fields: each(FEA, F_COSTS, ['land_cost', 'approval_costs', 'construction_cost', 'construction_rate', 'finance_charge', 'total_cost', 'cost_standing']) },
+    { heading: 'Cash flow by month', chart: { of: { records: F_PERIODS }, x: 'month', y: 'net', mark: 'line' } },
+    { heading: 'Returns', fields: each(FEA, F_RETURNS, ['collections_total', 'outflow_total', 'peak_funding', 'peak_month', 'profit', 'margin_pct', 'project_irr', 'npv', 'returns_standing']) },
+    { heading: 'Sensitivity', fields: each(FEA, F_SENSITIVITY, ['margin_price_down_2', 'margin_price_down_1', 'margin_price_up_1', 'margin_cost_up_1', 'margin_cost_up_2', 'breakeven_price_fall_pct', 'breakeven_cost_rise_pct', 'sensitivity_standing']) },
+    { heading: 'Residual land value and decision', fields: ['residual_land_value', 'residual_per_sqm', 'asking_price', 'headroom', 'price_standing', 'decision', 'decided_by', 'decided_on', 'conditions_set', 'conditions_met'] },
+    { heading: 'Conditions of the decision', records: F_CONDITIONS, columns: ['condition', 'met', 'met_on'] },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+/** The cost-to-complete report: the budget, what is committed, the contingency left and the forecast to the end. */
+const COST_TO_COMPLETE_REPORT: FieldReportTemplate = {
+  id: 'finance.budget.report',
+  title: 'Cost to complete report',
+  sections: [
+    { heading: 'Budget', fields: each(BUD, B_APPROVED, ['budget_total', 'packages', 'packages_unbudgeted', 'cost_per_sqm', 'budget_standing']) },
+    { heading: 'Commitments', fields: each(BUD, B_COMMITMENTS, ['contracts', 'committed', 'uncommitted', 'committed_pct', 'variations_on_check', 'committed_with_variations', 'commitment_standing']) },
+    { heading: 'Contingency', fields: each(BUD, B_CONTINGENCY, ['contingency_original', 'contingency_drawn', 'contingency_left', 'contingency_left_pct', 'contingency_standing']) },
+    { heading: 'Cost to complete', fields: ['forecast_final_cost', 'forecast_dated', 'certified_to_date', 'paid_to_date', 'cost_to_complete', 'cash_to_complete', 'overrun', 'overrun_pct', 'overrun_standing', 'variations_pending', 'built_unapproved'] },
+    { heading: 'What the overrun is made of', chart: { of: 'overrun_causes', x: 'cause', y: 'amount' } },
+    { heading: 'Cost to complete, as each party states it', records: 'finance.budget.cost_to_complete_stated', columns: ['source', 'figure', 'stated_on'] },
+    { heading: 'Against progress', fields: ['physical_progress_pct', 'cost_progress_pct', 'progress_gap', 'progress_standing'] },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
 const LINKS: SetLinks[] = [
   {
     set: V_LAND,
@@ -1643,8 +1693,11 @@ const LINKS: SetLinks[] = [
       ),
     ],
   },
+  { set: V_CONCLUSION, reports: [VALUATION_REPORT] },
+  { set: F_DECISION, reports: [APPRAISAL_REPORT] },
   {
     set: B_TO_COMPLETE,
+    reports: [COST_TO_COMPLETE_REPORT],
     fields: [
       mirror('variations_pending', 'Variations pending, per Procurement', 'money', ORDERS('variations_pending'), { ...INR, section: 'forecast', tier: 'situational', showWhen: ANY_VARIATION }),
       mirror('built_unapproved', 'Built and not approved, per Procurement', 'money', ORDERS('built_unapproved'), { ...INR, section: 'forecast', tier: 'situational', showWhen: ANY_VARIATION }),

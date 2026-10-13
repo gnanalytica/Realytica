@@ -31,7 +31,7 @@ import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, settled, standingFacts } from './fact-review';
 import { projectFigure } from './field-figures';
 import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
-import { fieldCatalogFor } from './firm-fields';
+import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { RULE_ROWS } from './field-sets';
 import { SHARED_FN } from './field-sets/shared-records';
 import { ruleCitation, ruleRow } from './rule-tables';
@@ -185,7 +185,7 @@ export interface FieldResolution {
  * A ring cannot be resolved; the catalog's own test refuses one, and here a
  * field met again while it is being worked out reads as nothing.
  */
-export function resolveFields(project: DdProject, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project), rules: readonly RuleRow[] = RULE_ROWS): FieldResolution {
+export function resolveFields(project: DdProject, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project), rules: readonly RuleRow[] = ruleRowsFor(project)): FieldResolution {
   const memo = new Map<string, CheckFieldValue | undefined>();
   const open = new Set<string>();
   // What each holder stores, found once: a check's holder is a walk of every check on the project.

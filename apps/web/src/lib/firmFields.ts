@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { fieldCatalogFor, installFirmFields, type DdProject, type FieldCatalog, type FirmFieldPack } from '@realytica/shared';
+import { fieldCatalogFor, firmRuleRows, installFirmFields, installFirmRuleRows, type DdProject, type FieldCatalog, type FirmFieldPack, type LawRuleRowOffer } from '@realytica/shared';
 import { api } from './api';
 import { onAuthChange } from './auth';
 
@@ -18,31 +18,43 @@ let inFlight: Promise<void> | null = null;
 const firms = new Set<string | undefined>();
 const listeners = new Set<() => void>();
 
+/** The rule rows the firm has verified, read with its fields: a figure worked out on this page reads the firm's table, as the server's does. */
+let ruleRows: LawRuleRowOffer[] = [];
+
 function installFor(firm: string | undefined): void {
   if (!pack) return;
   firms.add(firm);
   installFirmFields(firm, pack);
+  installFirmRuleRows(firm, firmRuleRows(ruleRows));
 }
 
 /** Puts a pack in force for every firm a project has named so far, and tells the screens that read it. */
-export function setFirmFields(next: FirmFieldPack): void {
+export function setFirmFields(next: FirmFieldPack, rows?: LawRuleRowOffer[]): void {
   pack = next;
-  for (const firm of firms) installFirmFields(firm, next);
+  if (rows) ruleRows = rows;
+  for (const firm of firms) {
+    installFirmFields(firm, next);
+    installFirmRuleRows(firm, firmRuleRows(ruleRows));
+  }
   listeners.forEach((fn) => fn());
 }
 
 function load(): Promise<void> {
   inFlight ??= api
     .firmFields()
-    .then((shown) => setFirmFields(shown.pack))
+    .then((shown) => setFirmFields(shown.pack, shown.ruleRows ?? []))
     // With no pack to read the built-in catalog stands, and every built-in field still draws.
     .catch(() => undefined);
   return inFlight;
 }
 
 onAuthChange(() => {
-  for (const firm of firms) installFirmFields(firm, undefined);
+  for (const firm of firms) {
+    installFirmFields(firm, undefined);
+    installFirmRuleRows(firm, undefined);
+  }
   pack = null;
+  ruleRows = [];
   inFlight = null;
   firms.clear();
   listeners.forEach((fn) => fn());

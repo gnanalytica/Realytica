@@ -6,7 +6,7 @@
  * rule rows beside them; this file is the one the index registers.
  */
 
-import type { CheckFieldDef, CheckFormula, FieldAddress, FieldSet, ShowWhen } from '../types';
+import type { CheckFieldDef, CheckFormula, FieldAddress, FieldReportTemplate, FieldSet, ShowWhen } from '../types';
 import { withLinks, type SetLinks } from './builders';
 import { FUNDING_SETS } from './finance/funding';
 import { LEDGER_SETS } from './finance/ledgers';
@@ -36,8 +36,76 @@ const UNIT = (field: string) => at('shared', 'shared.units', field);
 const JDA = (field: string) => at('legal.contracts', 'legal.contracts.jda', field);
 const WITH_JDA: ShowWhen = { situation: 'joint_development' };
 
+const each = (fn: string, set: string, fields: string[]): FieldAddress[] => fields.map((field) => at(fn, set, field));
+const FUNDING = 'finance.funding';
+const LENDERS = 'finance.lenders';
+const TAX = 'finance.tax';
+
+/** The quarter's statement of the designated account: cost, what may be withdrawn, what was deposited, and the certificates behind it. */
+const RERA_ACCOUNT_REPORT: FieldReportTemplate = {
+  id: 'finance.funding.rera_account.report',
+  title: 'Designated account, the quarter',
+  sections: [
+    { heading: 'Project cost', fields: ['quarter_end', 'construction_estimated', 'construction_per_engineer', 'construction_per_books', 'construction_counted', 'total_estimated', 'total_incurred', 'balance_cost', 'cost_standing'] },
+    { heading: 'Land and other development cost, by head', table: 'cost_rows' },
+    { heading: 'Withdrawal', fields: each(FUNDING, 'finance.funding.rera_withdrawal', ['completion_by_cost', 'completion_by_architect', 'completion_gap', 'by_cost', 'withdrawable_certified', 'withdrawn_to_date', 'net_withdrawable', 'withdrawal_standing']) },
+    { heading: 'Deposit', fields: each(FUNDING, 'finance.funding.rera_deposit', ['realised', 'deposited', 'deposit_share', 'required_share', 'receivable_sold', 'unsold_carpet', 'estimated_receivables', 'deposit_standing']) },
+    { heading: 'Certificates', records: 'finance.funding.rera_certificates', columns: ['kind', 'period_end', 'signed_by', 'signed_on'] },
+    { heading: 'Accountant’s remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+/** Funding and cash: the plan, where cash stands month by month, and what customers owe. */
+const FUNDING_REPORT: FieldReportTemplate = {
+  id: 'finance.funding.report',
+  title: 'Funding and cash report',
+  sections: [
+    { heading: 'Funding plan', fields: each(FUNDING, 'finance.funding.plan', ['project_cost', 'planned_total', 'uncovered', 'brought_in_total', 'equity_planned', 'debt_planned', 'advances_planned', 'peak_funding', 'plan_standing']) },
+    { heading: 'Sources of funds', records: 'finance.funding.sources', columns: ['kind', 'party', 'planned', 'brought_in'] },
+    { heading: 'Cash', fields: ['as_at', 'opening_balance', 'net_to_date', 'bank_total', 'collections_to_date', 'net_against_plan', 'lowest_forecast', 'buyers_due_within_month', 'buyers_overdue', 'cash_standing'] },
+    { heading: 'Net cash by month', chart: { of: { records: 'finance.funding.cash_months' }, x: 'month', y: 'net', mark: 'line' } },
+    { heading: 'Receivables', fields: each(FUNDING, 'finance.funding.receivables', ['as_at', 'agreement_value', 'demanded', 'collected', 'outstanding', 'collection_efficiency', 'receivables_standing']) },
+    { heading: 'Outstanding by age', chart: { of: at(FUNDING, 'finance.funding.receivables', 'ageing'), x: 'bucket', y: 'amount' } },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+/** The lender's pack: the loan, what is drawn against what is eligible, the covenants and the dates committed. */
+const LENDER_REPORT: FieldReportTemplate = {
+  id: 'finance.lenders.report',
+  title: 'Lender’s pack',
+  sections: [
+    { heading: 'Facilities', records: 'finance.lenders.facilities', columns: ['name', 'lender', 'sanctioned_amount', 'rate_now', 'availability_end'] },
+    { heading: 'Loan position', fields: ['drawn', 'repaid', 'outstanding', 'interest_paid', 'days_past_due', 'position_standing'] },
+    { heading: 'Drawn against eligible', fields: each(LENDERS, 'finance.lenders.drawdown', ['sanctioned', 'drawn', 'undrawn', 'eligible', 'headroom', 'headroom_standing']) },
+    { heading: 'Drawdowns', records: 'finance.lenders.drawdowns', columns: ['tranche', 'planned_on', 'requested_amount', 'disbursed_on', 'disbursed_amount'] },
+    { heading: 'Security', fields: each(LENDERS, 'finance.lenders.security', ['security_value', 'outstanding', 'cover', 'value_per_valuation']) },
+    { heading: 'Conditions and covenants', fields: each(LENDERS, 'finance.lenders.compliance', ['conditions_holding_drawdown', 'conditions_overdue', 'covenants_breached', 'covenant_standing']) },
+    { heading: 'Covenants', records: 'finance.lenders.covenants', columns: ['covenant', 'threshold', 'actual', 'tested_on', 'covenant_standing'] },
+    { heading: 'Completion and cost', fields: each(LENDERS, 'finance.lenders.limits', ['completion_committed', 'completion_forecast', 'deferment', 'completion_standing', 'overrun', 'overrun_standing']) },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+/** The tax position: GST charged against expected, tax deducted and deposited, and duty paid against duty worked out. A record for the accountant, not advice. */
+const TAX_REPORT: FieldReportTemplate = {
+  id: 'finance.tax.report',
+  title: 'Tax position',
+  sections: [
+    { heading: 'GST on units sold', fields: ['scheme_generation', 'project_class', 'gst_expected', 'gst_charged', 'gst_unpaid', 'charge_standing'] },
+    { heading: 'GST by month', records: 'finance.tax.gst_months', columns: ['month', 'tax_payable', 'tax_paid', 'paid_on', 'month_standing'] },
+    { heading: 'Tax deducted at source', fields: each(TAX, 'finance.tax.tds', ['deducted', 'undeposited', 'months_late', 'deposit_standing', 'buyers_expected', 'buyers_deducted', 'credit_standing']) },
+    { heading: 'Stamp duty and registration', fields: each(TAX, 'finance.tax.duty', ['worked_out', 'paid', 'paid_less_worked_out', 'duty_standing']) },
+    { heading: 'Duty by instrument', records: 'finance.tax.instruments', columns: ['instrument', 'executed_on', 'consideration', 'total_duty', 'paid', 'duty_standing'] },
+    { heading: 'Accountant’s remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds. This is a record, not advice.' } },
+  ],
+};
+
 const LINKS: SetLinks[] = [
   /* --- Funding --------------------------------------------------------- */
+  { set: 'finance.funding.rera_cost', reports: [RERA_ACCOUNT_REPORT] },
+  { set: 'finance.tax.gst', reports: [TAX_REPORT] },
+  { set: 'finance.lenders.position', reports: [LENDER_REPORT] },
   {
     set: 'finance.funding.plan',
     // The most the scheme is out of pocket is the appraisal's figure: the sources planned are held to it.
@@ -46,6 +114,7 @@ const LINKS: SetLinks[] = [
   },
   {
     set: 'finance.funding.cash',
+    reports: [FUNDING_REPORT],
     fields: [
       mirror('buyers_due_within_month', 'Falling due from buyers within a month, per Collections', 'money', at('commercial.buyers', 'commercial.buyers.dues', 'due_within_month'), { ...INR, tier: 'situational', showWhen: SALES_KEEPS_DEMANDS }),
       mirror('buyers_overdue', 'Overdue from buyers, per Collections', 'money', at('commercial.buyers', 'commercial.buyers.dues', 'overdue'), { ...INR, tier: 'situational', showWhen: SALES_KEEPS_DEMANDS }),

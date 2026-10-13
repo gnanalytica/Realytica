@@ -21,6 +21,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  workstreamDefinition,
   FIELD_SETS,
   REPORT_NOTE_MOST,
   addEvidence,
@@ -257,6 +258,13 @@ describe('a function’s report template', () => {
     const template = functionReportTemplate(TEMPLATE)!;
     assert.deepEqual([template.fn, template.set, template.title], [FN, HOLDING, 'Land holding report']);
     assert.deepEqual(reportTemplateFaults(), []);
+    // Every department hands over at least one report its own file declares, and each is fields, tables, charts and capped notes: no section holds prose.
+    const declared = functionReportTemplates().filter((template) => !template.id.endsWith('.checks'));
+    assert.deepEqual([...new Set(declared.map((template) => workstreamDefinition(template.fn)!.department))].sort(), ['commercial', 'construction', 'design', 'finance', 'legal', 'procurement']);
+    for (const template of declared) {
+      assert.ok(template.sections.every((section) => 'fields' in section || 'table' in section || 'records' in section || 'chart' in section || 'note' in section), template.id);
+      assert.ok(template.sections.filter((section) => 'note' in section).length <= 1, `${template.id} has one note at most`);
+    }
     // The functions that keep their fields on checks, in the departments that hand over a report, each have one.
     const ids = functionReportTemplates().map((held) => held.id);
     for (const id of ['legal.title.checks', 'legal.approvals.checks', 'finance.valuation.checks', 'finance.budget.checks', 'construction.progress.checks', 'construction.quality.checks']) assert.ok(ids.includes(id), id);
@@ -504,5 +512,34 @@ describe('somebody working from a grant', () => {
     assert.equal(inside.reports[0]!.body.blocks.length, 7);
     assert.ok(inside.reports[2]!.body.blocks[3]!.frozenTable!.rows.length > 0);
     assert.equal(p.reports[0]!.body.blocks.length, 7, 'the project itself is not changed');
+  });
+
+  it('is handed no buyer and no sale off a report: a block is cut by the rule the sheets are cut by', () => {
+    const { p } = recorded();
+    const unit = addFieldRecord(p, 'shared.units', { number: 'A-501', carpet_area: '100 sqm', sale_released: true, sale_agreed_value: 8_000_000, handover_offered_on: '2026-10-01' }, LEAD).record!;
+    const buyer = addFieldRecord(p, 'shared.parties', { name: 'A. Buyer', kind: 'individual', roles: ['customer'] }, LEAD).record!;
+    addFieldRecord(p, 'commercial.inventory.buyers', { party: buyer.id, unit: unit.id }, LEAD);
+    const report = generateReport(p, { kind: 'function', template: TEMPLATE, generatedBy: LEAD });
+    const add = (heading: string, source: Parameters<typeof insertReportBlock>[2]['source']) => insertReportBlock(p, report.id, { heading, source }, LEAD);
+    add('Buyers', { kind: 'field_table', records: 'commercial.inventory.buyers' });
+    add('Sale of a unit', { kind: 'fields', addresses: [{ fn: 'shared', set: 'shared.units', field: 'sale_agreed_value', record: unit.id }] });
+    add('Units and their sale', { kind: 'field_table', records: 'shared.units', columns: ['number', 'sale_agreed_value'] });
+    add('Units', { kind: 'field_table', records: 'shared.units', columns: ['number', 'carpet_area'] });
+    add('Possession', { kind: 'field_table', records: 'shared.units', columns: ['number', 'handover_offered_on'] });
+    const parties = add('Parties', { kind: 'field_table', records: 'shared.parties', columns: ['name', 'roles'] });
+
+    // A surveyor on Handover reads the unit and its possession. The sale and the buyers are Sales' own, whoever else may see the unit.
+    const handover = projectView(p, { kind: 'granted', grant: grant(['condition_operations']), email: 'sam@site.example' }).project;
+    const headings = handover.reports.at(-1)!.body.blocks.map((block) => block.heading);
+    for (const kept of ['Units', 'Possession']) assert.ok(headings.includes(kept), kept);
+    for (const cut of ['Buyers', 'Sale of a unit', 'Units and their sale']) assert.ok(!headings.includes(cut), cut);
+    assert.ok(!JSON.stringify(handover.reports).includes('A. Buyer'), 'a live list of parties is read from their own copy, which holds no buyer');
+
+    // Kept as it read one day, a list of parties carries its names with it: it is not handed over at all.
+    detachReportBlock(p, report.id, parties.id, LEAD);
+    assert.ok(JSON.stringify(p.reports.at(-1)).includes('A. Buyer'));
+    const after = projectView(p, { kind: 'granted', grant: grant(['condition_operations']), email: 'sam@site.example' }).project;
+    assert.ok(!after.reports.at(-1)!.body.blocks.some((block) => block.heading === 'Parties'));
+    assert.ok(!JSON.stringify(after.reports).includes('A. Buyer'));
   });
 });

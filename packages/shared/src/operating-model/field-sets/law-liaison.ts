@@ -14,7 +14,7 @@
  * the screen says so beside the standing that read it.
  */
 
-import type { CheckFieldDef, CheckFormula, FieldAddress, FieldSet, OptionDef, OptionSet, ShowWhen, Tone } from '../types';
+import type { CheckFieldDef, CheckFormula, FieldAddress, FieldReportTemplate, FieldSet, OptionDef, OptionSet, ShowWhen, Tone } from '../types';
 import { withLinks, type SetLinks } from './builders';
 
 const CONTRACTS = 'legal.contracts';
@@ -1652,6 +1652,34 @@ const ACCOUNT_KEPT: ShowWhen = { situation: 'designated_account_kept' };
 const SALES_STOCK = (field: string) => at('commercial.inventory', 'commercial.inventory.bookings', field);
 const RERA_ACCOUNT = (set: string, field: string) => at('finance.funding', `finance.funding.${set}`, field);
 
+/** The approvals report: where every approval stands, what has run out, and what the plan sanction allows. */
+const APPROVALS_REPORT: FieldReportTemplate = {
+  id: 'legal.approvals.report',
+  title: 'Approvals status report',
+  sections: [
+    { heading: 'Register', fields: ['approvals_recorded', 'in_hand', 'with_authority', 'run_out', 'fees_demanded', 'stop_orders_in_force', 'register_standing'] },
+    { heading: 'Approvals', records: 'shared.approvals', columns: ['reference', 'kind', 'authority', 'standing', 'applied_on', 'issued_on', 'valid_until'] },
+    { heading: 'Plan sanction', fields: ['sanction', 'sanction_date', 'sanction_valid_to', 'sanction_days_left', 'sanctioned_area', 'sanctioned_far', 'units_sanctioned', 'sanction_standing'].map((field) => at(APPROVALS, SANCTION, field)) },
+    { heading: 'Land use and conversion', fields: ['zoning', 'conversion_status', 'converted_extent', 'unconverted_extent', 'land_use_standing'].map((field) => at(APPROVALS, LAND_USE, field)) },
+    { heading: 'Commencement and occupancy', fields: ['commencement_on', 'occupancy_applied_on', 'oc_issued', 'oc_date', 'handed_before_certificate'].map((field) => at(APPROVALS, OCCUPANCY, field)) },
+    { heading: 'Stop-work orders', records: STOP_ORDERS, columns: ['issued_by', 'order_date', 'scope', 'reason', 'force', 'lifted_on'] },
+    { heading: 'Liaison’s remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+/** The RERA report: the registration, the filings made and owed, and the figures the next filing will carry. */
+const RERA_REPORT: FieldReportTemplate = {
+  id: 'legal.rera.report',
+  title: 'RERA compliance report',
+  sections: [
+    { heading: 'Registration', fields: ['registration_no', 'registered_on', 'registration_valid_to', 'declared_completion', 'validity_days_left', 'registration_standing'].map((field) => at(RERA, REGISTRATION, field)) },
+    { heading: 'Filings', fields: ['filings_made', 'filings_open', 'filings_overdue'] },
+    { heading: 'Filings, one by one', records: FILINGS, columns: ['period_end', 'kind', 'filing_due', 'filed_on', 'standing'] },
+    { heading: 'What the next filing will say', fields: ['units_total', 'units_booked', 'construction_complete', 'cost_incurred', 'realised_in_quarter', 'deposited_in_quarter', 'deposit_share', 'withdrawn_to_date', 'net_withdrawable'] },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
 const LAW_LINKS: SetLinks[] = [
   {
     set: LAND,
@@ -1750,6 +1778,8 @@ const LAW_LINKS: SetLinks[] = [
   // A lift is designed once, by Services. Its permission and licence are kept here, linked to that lift.
   { set: LIFTS, fields: [{ key: 'designed_as', label: 'Lift, as designed', kind: 'ref', target: { set: 'design.lifts.schedule' }, required: false }] },
   { set: SANCTION, replace: [clearLand('sanction')] },
+  { set: REGISTER, reports: [APPROVALS_REPORT] },
+  { set: COMPLIANCE, reports: [RERA_REPORT] },
   { set: LAND_USE, replace: [clearLand('conversion', { tier: 'situational' })] },
 ];
 

@@ -23,8 +23,8 @@
  */
 
 import { buildFieldCatalog, fieldCatalog, type FieldCatalog } from './field-registry';
-import { FIELD_SETS } from './field-sets';
-import type { CheckFieldDef, CheckFieldKind, DdProject, FieldSet, FieldTier, OptionSet } from './types';
+import { FIELD_SETS, RULE_ROWS } from './field-sets';
+import type { CheckFieldDef, CheckFieldKind, DdProject, FieldSet, FieldTier, OptionSet, RuleRow } from './types';
 
 /** One field a firm adds to a built-in set. */
 export interface FirmField {
@@ -257,4 +257,41 @@ export function fieldCatalogFor(project?: Pick<DdProject, 'tenantId'>): FieldCat
   if (!slot) return fieldCatalog();
   slot.catalog ??= buildFieldCatalog(applyFirmFields(FIELD_SETS, slot.pack));
   return slot.catalog;
+}
+
+/* ==================================================================== */
+/* A firm's rule rows                                                    */
+/* ==================================================================== */
+
+/**
+ * The rule table a firm's projects are read by.
+ *
+ * The built-in table is the product's. A firm's law watch may offer a row
+ * that supersedes one of them (`law-change.ts`), and once a named person has
+ * verified it against the instrument it is that firm's row: every formula
+ * that reads the rule on one of its projects reads the firm's table. An
+ * offered row nobody has verified is not installed, so it changes no figure.
+ * Installed as the firm's fields are, for the firm a project names.
+ */
+const firmRows = new Map<string, readonly RuleRow[]>();
+
+/** Installs the rule table a firm reads, or takes it away with none. One firm's table is never another's. */
+export function installFirmRuleRows(firm: string | undefined, rows: readonly RuleRow[] | undefined): void {
+  const slot = firm ?? ANY_FIRM;
+  const held = firmRows.get(slot);
+  if (!rows?.length) {
+    if (held) {
+      firmRows.delete(slot);
+      version += 1;
+    }
+    return;
+  }
+  if (held && JSON.stringify(held) === JSON.stringify(rows)) return;
+  firmRows.set(slot, rows);
+  version += 1;
+}
+
+/** The rule table a project's formulas read: its firm's where the firm has verified rows of its own, the built-in one otherwise. */
+export function ruleRowsFor(project?: Pick<DdProject, 'tenantId'>): readonly RuleRow[] {
+  return firmRows.get(project?.tenantId ?? ANY_FIRM) ?? RULE_ROWS;
 }

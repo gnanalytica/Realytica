@@ -30,7 +30,8 @@
  * Owners are the worked example's set (`legal.title.owners`), extended here.
  */
 
-import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldSet, OptionSet, RowCondition, ShowWhen, Tone } from '../types';
+import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldReportTemplate, FieldSet, OptionSet, RowCondition, ShowWhen, Tone } from '../types';
+import { withLinks, type SetLinks } from './builders';
 
 const TITLE = 'legal.title';
 const LITIGATION = 'legal.litigation';
@@ -1601,7 +1602,54 @@ const NOTICES: FieldSet = {
  * In the order a page lists them: each sheet, then the records it is worked
  * out from.
  */
-export const TITLES_LITIGATION_FIELD_SETS: FieldSet[] = [
+/* ==================================================================== */
+/* Reports                                                               */
+/* ==================================================================== */
+
+const titleAt = (set: string, fields: string[]): FieldAddress[] => fields.map((field) => title(set, field));
+
+/** The title report: every sheet's standing and the lists behind it, with one bounded note for the advocate. */
+const TITLE_REPORT: FieldReportTemplate = {
+  id: 'legal.title.report',
+  title: 'Title report',
+  sections: [
+    { heading: 'Opinion', fields: ['title_standing', 'verdict', 'opinion_for', 'opinion_by', 'opinion_date', 'search_years', 'defects_open', 'requisitions_open', 'waived'] },
+    { heading: 'Land records', fields: titleAt(T.records, ['extent_title', 'extent_survey', 'extent_khata', 'extent_rtc', 'extent_net', 'parcels', 'mutations_open', 'records_standing']) },
+    { heading: 'Owners', records: 'legal.title.owners', columns: ['name', 'share_pct', 'capacity', 'joins_as'] },
+    { heading: 'Shares held', chart: { of: { records: 'legal.title.owners' }, x: 'name', y: 'share_pct' } },
+    { heading: 'Ownership', fields: titleAt(T.ownership, ['shares_total', 'not_joining', 'confirming', 'heirs', 'minors', 'ownership_standing']) },
+    { heading: 'Chain of title', fields: titleAt(T.chain, ['root_date', 'root_kind', 'years_required', 'years_established', 'instruments', 'unregistered', 'without_conveyance', 'chain_standing']) },
+    { heading: 'Instruments', records: T.instruments, columns: ['name', 'kind', 'executed_on', 'doc_no', 'registered_on'] },
+    { heading: 'Encumbrance', fields: titleAt(T.encumbrance, ['ec_from', 'ec_to', 'years_covered', 'gap_days', 'charges_open', 'encumbrance_standing']) },
+    { heading: 'Charges on the land', records: T.charges, columns: ['holder', 'kind', 'amount', 'created_on', 'released'] },
+    { heading: 'Land character', fields: titleAt(T.character, ['origin', 'restrictions', 'restricted_extent', 'clear_extent', 'restriction_standing']) },
+    { heading: 'Requisitions and conditions', records: T.requisitions, columns: ['about', 'kind', 'raised_on', 'state'] },
+    { heading: 'Matters in court', fields: ['matters_pending', 'land_under_order'] },
+    { heading: 'Advocate’s remarks', note: { maxLength: 800, hint: 'What a reader should know that no field holds, in the advocate’s own words.' } },
+  ],
+};
+
+/** The litigation report: what is at stake, the matters, and the orders in force. */
+const LITIGATION_REPORT: FieldReportTemplate = {
+  id: 'legal.litigation.report',
+  title: 'Litigation report',
+  sections: [
+    { heading: 'What is at stake', fields: ['matters', 'pending', 'probable', 'claims_in_court', 'claims_against_us', 'contingent', 'notices_open', 'litigation_standing'] },
+    { heading: 'Matters', records: 'shared.matters', columns: ['case_number', 'court', 'subject', 'stage', 'next_hearing', 'likelihood'] },
+    { heading: 'Orders', fields: (['orders', 'orders_in_force', 'directions_open', 'ordered_unpaid', 'construction_restraints', 'sale_restraints', 'order_standing'] as const).map((field) => litigation(L.diary, field)) },
+    { heading: 'Orders, one by one', records: L.orders, columns: ['matter', 'order_date', 'kind', 'effect', 'in_force', 'comply_by'] },
+    { heading: 'Notices and claims', records: L.notices, columns: ['reference', 'kind', 'dated', 'counterparty', 'amount', 'state'] },
+    { heading: 'Counsel’s remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+const REPORTS: SetLinks[] = [
+  { set: T.opinion, reports: [TITLE_REPORT] },
+  { set: L.register, reports: [LITIGATION_REPORT] },
+];
+
+export const TITLES_LITIGATION_FIELD_SETS: FieldSet[] = withLinks(
+  [
   PARCEL_FACTS,
   LAND_RECORDS_SHEET,
   LAND_RECORDS,
@@ -1625,4 +1673,6 @@ export const TITLES_LITIGATION_FIELD_SETS: FieldSet[] = [
   SEARCHES,
   HITS,
   NOTICES,
-];
+],
+  REPORTS,
+);

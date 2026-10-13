@@ -141,18 +141,24 @@ export function lawRuleRowAt(ref: LawRuleRowRef, rows: readonly RuleRow[] = RULE
  * a deadline is kept), every approval the register knows, and the rule rows
  * in force for where it applies.
  */
-export function lawLists(source: { departments: readonly DepartmentKey[]; jurisdiction: string }, today: string, catalog: FieldCatalog = fieldCatalog(), rows: readonly RuleRow[] = RULE_ROWS): LawLists {
-  const fields: LawLists['fields'] = [];
+export function lawLists(source: { departments: readonly DepartmentKey[]; jurisdiction: string; about?: readonly string[] }, today: string, catalog: FieldCatalog = fieldCatalog(), rows: readonly RuleRow[] = RULE_ROWS): LawLists {
+  const every: Array<{ address: FieldAddress; label: string }> = [];
   for (const [fn, sets] of catalog.sheets) {
     const desk = departmentOfFunction(fn);
     if (desk && !source.departments.includes(desk)) continue;
     for (const set of sets) {
       for (const def of set.fields) {
-        if (def.retired || def.kind === 'computed' || def.kind === 'status' || def.kind === 'longtext' || def.sameAs || fields.length >= LAW_LIST_FIELDS_AT_MOST) continue;
-        fields.push({ mark: `f${fields.length + 1}`, address: { fn: set.fn, set: set.id, field: def.key }, label: `${set.title}: ${def.label}` });
+        if (def.retired || def.kind === 'computed' || def.kind === 'status' || def.kind === 'longtext' || def.sameAs) continue;
+        every.push({ address: { fn: set.fn, set: set.id, field: def.key }, label: `${set.title}: ${def.label}` });
       }
     }
   }
+  // A department keeps more fields than a model is shown at once. Any of them can be named: the ones whose sheet and label share
+  // the most words with what changed on the page are the ones listed, in the catalog's order. Chosen by code, from the page's own words.
+  const words = new Set((source.about ?? []).flatMap((line) => line.toLowerCase().match(/[a-z]{4,}/g) ?? []));
+  const shared = (label: string): number => (label.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((word) => words.has(word)).length;
+  const kept = every.length <= LAW_LIST_FIELDS_AT_MOST ? every : every.map((held, index) => ({ held, index, score: shared(held.label) })).sort((a, b) => b.score - a.score || a.index - b.index).slice(0, LAW_LIST_FIELDS_AT_MOST).sort((a, b) => a.index - b.index).map((ranked) => ranked.held);
+  const fields: LawLists['fields'] = kept.map((held, index) => ({ mark: `f${index + 1}`, ...held }));
   const place = source.jurisdiction.trim();
   const here = rows.filter((row) => row.from <= today && (row.to === undefined || row.to >= today) && (!place || sameText(place, 'India') || !row.jurisdiction.state || sameText(row.jurisdiction.state, place) || sameText(row.jurisdiction.city, place)));
   return {
@@ -441,4 +447,15 @@ export function ruleRowsWithOffers(offers: readonly LawRuleRowOffer[], rows: rea
     if (old && (old.to === undefined || old.to >= offer.row.from)) ended.set(old, dayBefore(offer.row.from));
   }
   return [...rows.map((row) => (ended.has(row) ? { ...row, to: ended.get(row)! } : row)), ...offers.map((offer) => offer.row)];
+}
+
+/**
+ * The rule table a firm reads once it has verified rows of its own: the
+ * built-in table with each verified row laid in. Undefined where none is
+ * verified, so the built-in table stands. An offered row nobody has verified
+ * is left out: it is a proposal, and changes no figure.
+ */
+export function firmRuleRows(offers: readonly LawRuleRowOffer[] | undefined, rows: readonly RuleRow[] = RULE_ROWS): RuleRow[] | undefined {
+  const verified = (offers ?? []).filter((offer) => offer.row.verified);
+  return verified.length ? ruleRowsWithOffers(verified, rows) : undefined;
 }

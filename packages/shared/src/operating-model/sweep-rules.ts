@@ -12,7 +12,9 @@
  * - `date_impossible` is a **before** rule: a milestone planned to finish
  *   before it starts, a validity that ends before it begins, an approval
  *   valid until a day before it was issued, work logged on site before the
- *   commencement certificate was issued.
+ *   commencement certificate was issued; and every `before` rule a field
+ *   set of the catalog declares, in any department, where the two dates
+ *   that stand break it and a paper states one of them.
  * - `approval_missing` is the **row rules** over the approvals register:
  *   a row whose paper is missing (`row_missing`) or whose date has passed
  *   (`row_expired`), for rows that work logged or under way depends on.
@@ -28,7 +30,11 @@
  */
 
 import { APPROVAL_STATUS_LABEL, approvalsRegister } from './approvals';
-import { fieldCatalog, type FieldCatalog } from './field-registry';
+import { dayNumber, isBlank } from './check-fields';
+import { addressKey, type FieldCatalog } from './field-registry';
+import { departmentOfFunction, fieldRecords, readSheet, resolveFields } from './field-sheets';
+import { SHARED_FN } from './field-sets/shared-records';
+import { fieldCatalogFor } from './firm-fields';
 import { SWEEP_FIRST_LOOK_DAYS, SWEEP_KIND_TABLE, sweepDesk, sweepDrafts, sweepRulesKept, sweepSourceOf, type SweepEntry, type SweepKind, type SweepNext, type SweepProposal } from './file-sweep';
 import { memoryFacts, type MemFact } from './mem-facts';
 import type { DdProject, FieldAddress, FindingSeverity } from './types';
@@ -69,8 +75,12 @@ function fieldsByFactKey(catalog: FieldCatalog): Map<string, FieldAddress> {
   // Checks and sheets alike: a check's fields are in the catalog under the check's id.
   for (const set of catalog.sets.values()) {
     if (set.records || set.extends) continue;
+    const check = catalog.checks.has(set.id);
     for (const def of set.fields) {
       if (def.kind === 'computed' || def.kind === 'status' || def.kind === 'longtext' || def.kind === 'table' || def.kind === 'evidence' || def.sameAs || def.retired) continue;
+      // Over the whole catalog a bare key is not enough: thousands of fields share short keys. A check's field is a paper's reading by
+      // its key; a sheet's field is one only where it names its papers or the key a reading is filed under.
+      if (!check && !def.fromTypes?.length && !def.factKey) continue;
       const key = def.factKey ?? def.key;
       // A field that names its papers before one that only shares a key with a reading.
       if (!out.has(key) || def.fromTypes?.length) out.set(key, { fn: set.fn, set: set.id, field: def.key });
@@ -163,6 +173,48 @@ function datesImpossible(project: DdProject, lines: readonly Line[], facts: read
   return out;
 }
 
+/**
+ * The same rule over every field set the catalog registers: wherever a set
+ * declares that one date is not after another (`before`) and the two dates
+ * that stand break it. A function's own page already says so to whoever
+ * opens it; the review says it to the department, across the record, where
+ * a paper on the file states at least one of the two dates.
+ */
+function fieldDatesImpossible(project: DdProject, lines: readonly Line[], now: Date, catalog: FieldCatalog): SweepProposal[] {
+  const dated = [...catalog.sets.values()].filter((set) => !catalog.checks.has(set.id) && set.rules.some((rule) => rule.kind === 'before'));
+  if (!dated.length || !Object.keys(project.fieldSheets ?? {}).length) return [];
+  const byRef = new Map(lines.map((line) => [line.ref, line]));
+  const resolution = resolveFields(project, now, catalog);
+  const out: SweepProposal[] = [];
+  for (const set of dated) {
+    const holders: Array<string | undefined> = set.records ? fieldRecords(project, set.id).map((record) => record.id) : project.fieldSheets?.[set.id] ? [undefined] : [];
+    for (const record of holders) {
+      const reading = readSheet(project, set.id, record, resolution, catalog, now);
+      for (const held of reading?.findings ?? []) {
+        const rule = set.rules[held.rule];
+        if (rule?.kind !== 'before' || rule.fields.length < 2) continue;
+        const sides = rule.fields.slice(0, 2).map((key) => {
+          const address: FieldAddress = rule.at?.[key] ?? { fn: set.fn, set: set.id, field: key, ...(record ? { record } : {}) };
+          const value = resolution.read(address);
+          const def = catalog.sets.get(address.set)?.fields.find((field) => field.key === address.field);
+          return { address, def, day: isBlank(value) ? null : String(value!.value).slice(0, 10), line: byRef.get(`${project.id}::fact::field::${addressKey(address)}`) };
+        });
+        const [first, second] = sides;
+        if (!first?.def || !second?.def || !first.day || !second.day || dayNumber(first.day) === null || dayNumber(second.day) === null) continue;
+        const cited = sides.flatMap((side) => (side.line ? [side.line] : []));
+        if (!cited.length) continue;
+        const where = reading!.set.records ? `${set.title}, ${reading!.title}` : set.title;
+        out.push({
+          ...found(project, 'date_impossible', cited, { subjects: [first.address, second.address], left: `${where}: ${first.def.label} (${first.day})`, right: `${second.def.label} (${second.day})`, difference: daysApart(second.day, first.day), unit: 'days' }, { severity: held.insight.severity }),
+          // The department is the function's own, not the review's usual desk for a date.
+          ...(set.fn !== SHARED_FN && departmentOfFunction(set.fn) ? { department: departmentOfFunction(set.fn)! } : {}),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /* -------------------------------------------------------------------- */
 /* row_missing, row_expired: the approvals work depends on                */
 /* -------------------------------------------------------------------- */
@@ -206,9 +258,9 @@ function actionsUnowned(project: DdProject, lines: readonly Line[], now: Date): 
  * no more than a review may raise (`SWEEP_RULES_AT_MOST`). What is already
  * open, accepted or dismissed is left to `sweepRaise` to tell.
  */
-export function sweepRuleFindings(project: DdProject, now: Date, catalog: FieldCatalog = fieldCatalog()): SweepProposal[] {
+export function sweepRuleFindings(project: DdProject, now: Date, catalog: FieldCatalog = fieldCatalogFor(project)): SweepProposal[] {
   const facts = memoryFacts(project).held;
   const since = new Date(now.getTime() - SWEEP_FIRST_LOOK_DAYS * 86_400_000).toISOString();
   const lines = Object.values(sweepDrafts(project, now, since, facts)).flat();
-  return sweepRulesKept([...papersDisagree(project, lines, facts, catalog), ...datesImpossible(project, lines, facts, now), ...approvalsMissing(project, lines, now), ...actionsUnowned(project, lines, now)]);
+  return sweepRulesKept([...papersDisagree(project, lines, facts, catalog), ...datesImpossible(project, lines, facts, now), ...fieldDatesImpossible(project, lines, now, catalog), ...approvalsMissing(project, lines, now), ...actionsUnowned(project, lines, now)]);
 }

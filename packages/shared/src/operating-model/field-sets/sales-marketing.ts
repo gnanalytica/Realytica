@@ -26,7 +26,7 @@
  * handed to an outside collaborator (`project-view.ts`).
  */
 
-import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldSet, FormulaCondition, OptionDef, RowCondition, ShowWhen, Tone } from '../types';
+import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldReportTemplate, FieldSet, FormulaCondition, OptionDef, RowCondition, ShowWhen, Tone } from '../types';
 import { withLinks, type SetLinks } from './builders';
 
 /* ==================================================================== */
@@ -1616,9 +1616,43 @@ const ADVERTISING_SET: FieldSet = {
 const RERA = (field: string): FieldAddress => ({ fn: 'legal.rera', set: 'legal.rera.registration', field });
 const REGISTERED: ShowWhen = { situation: 'rera_registered' };
 
+const each = (fn: string, set: string, fields: string[]): FieldAddress[] => fields.map((field) => at(fn, set, field));
+
+/** Sales and collections: stock, bookings and agreements, what is demanded and received, and what is overdue. It names no buyer. */
+const SALES_REPORT: FieldReportTemplate = {
+  id: 'commercial.inventory.report',
+  title: 'Sales and collections report',
+  sections: [
+    { heading: 'Stock', fields: ['units_total', 'units_sold', 'sold_pct', 'unsold_value', 'unsold_carpet_area', 'lowest_list_price', 'sale_restraints', 'stock_standing'] },
+    { heading: 'Bookings and agreements', fields: each(SALES, BOOKINGS, ['value_booked', 'carpet_booked', 'realised_rate', 'rate_in_appraisal', 'agreements_registered', 'agreements_overdue', 'advances_over_cap', 'bookings_standing']) },
+    { heading: 'Enquiries and visits by week', chart: { of: at(SALES, ENQUIRIES, 'weeks'), x: 'week', y: 'visits', mark: 'line' } },
+    { heading: 'Enquiries by source', table: at(SALES, ENQUIRIES, 'by_source') },
+    { heading: 'Collections', fields: each(BUYERS, COLLECTIONS, ['demanded', 'received', 'outstanding', 'efficiency_pct', 'interest_accrued']) },
+    { heading: 'Dues by age', fields: each(BUYERS, DUES, ['overdue', 'overdue_first_month', 'overdue_second_month', 'overdue_third_month', 'overdue_beyond', 'due_within_month', 'refunds_outstanding', 'dues_standing']) },
+    { heading: 'Brokerage', fields: each(SALES, BROKERAGE, ['partners', 'expected', 'invoiced', 'paid', 'unpaid', 'brokerage_standing']) },
+    { heading: 'Handover', fields: each(HANDOVER, POSSESSION, ['oc_date', 'units_offered', 'units_to_offer', 'units_handed_over', 'snags_open', 'requests_open', 'requests_overdue', 'handover_standing']) },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
+/** Marketing: the launch, what is spent against the budget, and whether what is advertised passes. */
+const MARKETING_REPORT: FieldReportTemplate = {
+  id: 'commercial.marketing.report',
+  title: 'Marketing and advertising report',
+  sections: [
+    { heading: 'Launch', fields: ['kind', 'launch_date', 'units_released', 'value_released', 'budget', 'budget_pct', 'ready'] },
+    { heading: 'Spend', fields: each(MARKETING, SPEND, ['budgeted', 'spent', 'spent_pct', 'leads', 'sales', 'cost_per_lead', 'cost_per_sale', 'spend_standing']) },
+    { heading: 'Campaigns', records: CAMPAIGNS, columns: ['name', 'channel', 'budget', 'spent', 'leads', 'sales'] },
+    { heading: 'Spend by campaign', chart: { of: { records: CAMPAIGNS }, x: 'name', y: 'spent' } },
+    { heading: 'Advertising compliance', fields: each(MARKETING, ADVERTISING, ['advertisements', 'passed', 'to_change', 'unchecked', 'advertising_standing']) },
+    { heading: 'Advertisements', records: ADVERTISEMENTS, columns: ['reference', 'medium', 'released_on', 'number_matches', 'verdict'] },
+    { heading: 'Remarks', note: { maxLength: 600, hint: 'What a reader should know that no field holds.' } },
+  ],
+};
+
 const LINKS: SetLinks[] = [
   // Nothing is advertised, launched or sold before the project is registered: the day is Legal's, and each date here is held to it.
-  { set: LAUNCH, rules: [{ kind: 'before', fields: ['registered_on', 'launch_date'], at: { registered_on: RERA('registered_on') }, say: 'The launch is set for {b}, before the RERA registration of {a}.', severity: 'critical' }] },
+  { set: LAUNCH, reports: [MARKETING_REPORT], rules: [{ kind: 'before', fields: ['registered_on', 'launch_date'], at: { registered_on: RERA('registered_on') }, say: 'The launch is set for {b}, before the RERA registration of {a}.', severity: 'critical' }] },
   { set: ADVERTISEMENTS, rules: [{ kind: 'before', fields: ['registered_on', 'released_on'], at: { registered_on: RERA('registered_on') }, say: 'First released on {b}, before the RERA registration of {a}.', severity: 'critical' }] },
   {
     set: UNIT_AGREEMENT,
@@ -1645,6 +1679,7 @@ const LINKS: SetLinks[] = [
   },
   {
     set: STOCK,
+    reports: [SALES_REPORT],
     // An order in force that restrains a sale is Litigation's record; the unit count is held to the Architect's unit mix.
     fields: [
       { key: 'sale_restraints', label: 'Orders in force restraining a sale', kind: 'number', sameAs: { fn: 'legal.litigation', set: 'legal.litigation.diary', field: 'sale_restraints' }, required: false, section: 'stock', tier: 'situational', showWhen: { situation: 'litigation_pending' } },
