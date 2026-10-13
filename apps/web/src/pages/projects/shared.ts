@@ -1,3 +1,4 @@
+import { dayTime } from '../../lib/format';
 import type { Tone } from '../../components/ui/kit';
 import type { CheckResult, FindingSeverity, ProjectHealth } from '@realytica/shared';
 
@@ -30,5 +31,5 @@ export function formatWhen(iso: string): string {
   // Epoch zero stands in for "no timestamp was recorded" — see `lib/format.ts`.
   // Rendering it as a date announces 1970 as though it meant something.
   if (d.getTime() === 0) return 'Shipped with the build';
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return dayTime(d);
 }

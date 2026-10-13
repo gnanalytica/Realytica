@@ -21,6 +21,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import {
+  addEvidence,
   addFinding,
   addMilestones,
   applyProjectChat,
@@ -110,6 +111,9 @@ describe('an answer about the page a person is on', () => {
 
   it('answers what the register of approvals and the milestones say, from anywhere', () => {
     const p = seedDemoProject();
+    // Nothing recorded of the approvals yet: it says so, and counts none as missing.
+    assert.match(applyProjectChat(p, 'Which approvals are missing or lapsed?').assistantTurn.text, /^Approvals are not recorded yet/);
+    addEvidence(p, { title: 'RERA certificate', kind: 'approval', status: 'received' }, 'tester').documentType = 'RERA registration certificate';
     const approvals = applyProjectChat(p, 'Which approvals are missing or lapsed?');
     assert.match(approvals.assistantTurn.text, /^\d+ of \d+ approvals? in force\./);
     assert.deepEqual([approvals.navigations.at(-1)?.workstream, approvals.navigations.at(-1)?.section], ['legal.approvals', 'approvals'], 'it opens the register it read');
@@ -161,7 +165,9 @@ describe('an answer to an outside collaborator', () => {
   });
 
   it('says the same of the approvals and the milestones, which are counted from the papers they hold', () => {
-    const approvals = applyProjectChat(seedDemoProject(), 'Which approvals are missing or lapsed?', { outside: true }).assistantTurn.text;
+    const held = seedDemoProject();
+    addEvidence(held, { title: 'RERA certificate', kind: 'approval', status: 'received' }, 'tester').documentType = 'RERA registration certificate';
+    const approvals = applyProjectChat(held, 'Which approvals are missing or lapsed?', { outside: true }).assistantTurn.text;
     assert.match(approvals, /^Of what you have been given: \d+ of \d+ approvals? in force\./);
     const p = seedDemoProject();
     addMilestones(p, [{ name: 'Plinth', weight: 5 }], 'tester');

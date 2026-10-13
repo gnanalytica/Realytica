@@ -332,7 +332,7 @@ describe('what is due', () => {
     shoot(held.project, '2026-10-02', { stationId: held.north });
     shoot(held.project, '2026-09-28', { stationId: held.stair });
     const page = readFunctionFields(held.project, 'construction.site', NOW);
-    assert.deepEqual(page.needs.due_soon.map((line) => [line.kind, line.sheet, line.text]), [['due', 'Photograph round', '2 of 3 stations to photograph, the first by 18 Oct 2026']], 'one line, however many stations, of the kind any period that is due is');
+    assert.deepEqual(page.needs.due_soon.map((line) => [line.kind, line.sheet, line.text]), [['due', 'Photograph round', '2 of 3 stations to photograph: 1 by the week, due 18 Oct 2026; 1 by the month, due 31 Oct 2026']], 'one line, however many stations, of the kind any period that is due is');
     assert.deepEqual([page.needs.failing.length, page.needs.missing.length, page.needs.accept.length, page.needs.decide.length], [0, 0, 0, 0]);
     assert.equal(page.needs.due_soon[0]!.key.startsWith(`${STATION_ROUND_SET}::`), true, 'and Open goes to the round');
     const round = stationRound(held.project, NOW);

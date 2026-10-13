@@ -16,7 +16,12 @@ export type PlanningMapStanding =
   | 'commercial'
   | 'unofficial';
 
-export type PlanningRealm = 'bbmp' | 'bmrda' | 'bda' | 'unknown';
+/**
+ * Whose plan covers the site. `elsewhere` is a place this product keeps no
+ * plan for: a project in Mysuru or Hubballi is not in Bengaluru's region, and
+ * is told nothing of Bengaluru's plan or its map counters.
+ */
+export type PlanningRealm = 'bbmp' | 'bmrda' | 'bda' | 'elsewhere' | 'unknown';
 
 export interface PlanningMapWms {
   url: string;
@@ -132,7 +137,14 @@ export function planningRealmOf(project: DdProject, pin?: PlanningOverlayPin | n
     return 'bbmp';
   }
   if (/bengaluru|bangalore/i.test(hay)) return 'bda';
+  // A city is named and it is none of the above: the site is somewhere this product keeps no plan for.
+  if (project.city?.trim()) return 'elsewhere';
   return 'unknown';
+}
+
+/** The place a project's plan is looked up for, as its record names it: the city, else the locality. */
+export function planningPlaceOf(project: Pick<DdProject, 'city' | 'location'>): string {
+  return project.city?.trim() || project.location?.trim() || 'this place';
 }
 
 function sourceByKey(key: string): PlanningMapSource | undefined {
@@ -150,6 +162,8 @@ export function planningMapsFor(
   const realm = planningRealmOf(project, pin);
   const sittings: PlanningMapSource[] = [];
   const liveOverlays: PlanningMapSource[] = [];
+  // Every source kept is Bengaluru's. Outside its region none is the right counter, and none is named.
+  if (realm === 'elsewhere') return { realm, sittings, liveOverlays, refused: [] };
 
   const rmp = sourceByKey('bda_rmp');
   if (rmp) sittings.push(rmp);

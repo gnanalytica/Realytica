@@ -292,7 +292,8 @@ describe('comparing a period with the one before', () => {
     assert.equal(by('collections').said, 'Was ₹4.1 Cr in September; now ₹4.32 Cr');
     assert.deepEqual([by('collections').by, by('collections').bySaid], [2_200_000, '+₹22 lakh']);
     assert.equal(by('contractors').said, 'Unchanged at ₹3 Cr');
-    assert.equal(by('taxes').said, 'Was ₹10 lakh in September; now —');
+    assert.equal(by('taxes').said, 'Was ₹10 lakh in September; not entered for October yet');
+    assert.equal(by('taxes').moved, false, 'a field merely blank this period has not moved');
     assert.equal(by('net').moved, true, 'a figure that is worked out is compared as any other');
     assert.equal(by('month'), undefined, 'the field that names the period is not a figure of it');
     assert.match(said.said, /^\d+ of \d+ fields moved since September$/);

@@ -8,6 +8,7 @@
  */
 
 import { DD_CONNECTORS } from '../dd-connectors';
+import { planningPlaceOf, planningRealmOf } from './planning-maps';
 import { portalForCheck } from './portals';
 import { sittingCheckOf, type SittingRef } from './sitting';
 import type { ChatPlacesPull, DdProject } from './types';
@@ -33,8 +34,13 @@ export interface PlanningOverlayPin {
   source: 'site_context' | 'places' | 'none';
 }
 
+/** The plan in force where a project is, among the plans kept: Bengaluru's for its region, and none for anywhere else. */
+export function planInForceFor(project: DdProject, pin?: PlanningOverlayPin | null): typeof PLAN_IN_FORCE | undefined {
+  return planningRealmOf(project, pin) === 'elsewhere' ? undefined : PLAN_IN_FORCE;
+}
+
 export interface PlanningOverlayFlag {
-  code: 'not_geometry' | 'plan_in_force' | 'no_pin' | 'missing_extract' | 'missing_certificate' | 'conversion' | 'pack_not_sheet';
+  code: 'not_geometry' | 'plan_in_force' | 'no_plan' | 'no_pin' | 'missing_extract' | 'missing_certificate' | 'conversion' | 'pack_not_sheet';
   severity: 'info' | 'flag';
   text: string;
 }
@@ -42,7 +48,10 @@ export interface PlanningOverlayFlag {
 export interface PlanningOverlayRead {
   notGeometry: true;
   notEvidence: true;
-  inForce: typeof PLAN_IN_FORCE;
+  /** The plan in force for the place, where one is kept. Absent for a place no plan is on file for. */
+  inForce?: typeof PLAN_IN_FORCE;
+  /** Said in place of a plan where none is kept for the project's city: "No plan on file for Mysuru." */
+  noPlan?: string;
   pin: PlanningOverlayPin | null;
   locality?: {
     id: string;
@@ -132,17 +141,17 @@ export function compareProjectPlanning(
   const hasMasterPlanExtract = heldEvidence(project, /master plan/i);
   const hasZoningCertificate = heldEvidence(project, /zoning certificate|land-?use (certificate|confirmation)/i);
 
+  const inForce = planInForceFor(project, pin);
+  const noPlan = inForce ? undefined : `No plan on file for ${planningPlaceOf(project)}.`;
   const flags: PlanningOverlayFlag[] = [
     {
       code: 'not_geometry',
       severity: 'info',
-      text: 'No geometric overlay: this product does not intersect a parcel polygon with RMP map sheets. A mouse-drawn shape is not a survey. A pin only says which sheet to open.',
+      text: `No geometric overlay: this product does not intersect a parcel polygon with ${inForce ? 'RMP' : 'master plan'} map sheets. A mouse-drawn shape is not a survey. A pin only says which sheet to open.`,
     },
-    {
-      code: 'plan_in_force',
-      severity: 'info',
-      text: PLAN_IN_FORCE.note,
-    },
+    inForce
+      ? { code: 'plan_in_force', severity: 'info', text: inForce.note }
+      : { code: 'no_plan', severity: 'info', text: `${noPlan} The master plan in force there is the local planning authority’s; it is not among the plans kept here, so no zoning is read for this site.` },
   ];
 
   if (!pin) {
@@ -156,7 +165,7 @@ export function compareProjectPlanning(
     flags.push({
       code: 'missing_extract',
       severity: 'flag',
-      text: 'Master plan extract is not held on this file. Obtain the RMP / LPA sheet covering the village (or a certified extract) and attach it on the land-use check.',
+      text: `Master plan extract is not held on this file. Obtain the ${inForce ? 'RMP / LPA' : 'local planning authority’s'} sheet covering the village (or a certified extract) and attach it on the land-use check.`,
     });
   }
   if (!hasZoningCertificate) {
@@ -177,7 +186,8 @@ export function compareProjectPlanning(
   return {
     notGeometry: true,
     notEvidence: true,
-    inForce: PLAN_IN_FORCE,
+    ...(inForce ? { inForce } : {}),
+    ...(noPlan ? { noPlan } : {}),
     pin,
     // The locality table's zoning and FAR are illustrative, not the plan in
     // force, so they are not offered as a reading of this site.
@@ -197,8 +207,7 @@ export function compareProjectPlanning(
 export function serializePlanningOverlay(read: PlanningOverlayRead): string {
   const lines = [
     'PLANNING OVERLAY — pin vs the kept plan. Not a geometric intersection. Not this project\'s evidence until a person files the sheet or zoning certificate.',
-    `In force: ${read.inForce.title} (${read.inForce.issuer}, asOf ${read.inForce.asOf}) ${read.inForce.url}`,
-    read.inForce.note,
+    ...(read.inForce ? [`In force: ${read.inForce.title} (${read.inForce.issuer}, asOf ${read.inForce.asOf}) ${read.inForce.url}`, read.inForce.note] : [read.noPlan ?? 'No plan on file for this place.']),
   ];
   if (read.pin) {
     const prec = read.pin.precision ? `, ${read.pin.precision}` : '';
@@ -224,12 +233,12 @@ export function serializePlanningOverlay(read: PlanningOverlayRead): string {
   for (const flag of read.flags) {
     lines.push(`• [${flag.severity}] ${flag.text}`);
   }
-  const portal = DD_CONNECTORS.find((c) => c.key === 'bda_rmp');
+  const portal = read.inForce ? DD_CONNECTORS.find((c) => c.key === 'bda_rmp') : undefined;
   if (portal) {
     lines.push(`Obtain: ${portal.label}${portal.url ? ` (${portal.url})` : ''}. ${portal.route} We do not scrape this portal.`);
   }
   lines.push(
-    'The GIS context map on Overview can overlay OpenStreetMap water and landuse around the pin, and a supplied survey sketch if one is on file. That overlay is not a geometric intersection with the RMP sheet.',
+    `The GIS context map on Overview can overlay OpenStreetMap water and landuse around the pin, and a supplied survey sketch if one is on file. That overlay is not a geometric intersection with the ${read.inForce ? 'RMP' : 'master plan'} sheet.`,
   );
   return lines.join('\n');
 }

@@ -25,7 +25,7 @@ import { fieldIsDerived, fieldNumber, fieldState, formatFieldValue, isBlank, sta
 import { costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
 import { PROJECT_FIGURES } from './field-figures';
 import { AS_NOW_NO_HISTORY, stand } from './field-history';
-import { compareHolders, periodDue, periodDueSaid, periodsOf, periodsStanding, type PeriodComparison, type PeriodDue, type PeriodInstance } from './field-periods';
+import { compareHolders, periodDue, periodDueSaid, periodsOf, periodsStanding, projectAsOfPeriod, type PeriodComparison, type PeriodDue, type PeriodInstance } from './field-periods';
 import { optionSetById, type FieldCatalog } from './field-registry';
 import { departmentOfFunction, FieldRefused, readSheet, resolveFields, type FieldWriteOptions, type SheetReading } from './field-sheets';
 import { fieldCatalogFor } from './firm-fields';
@@ -169,6 +169,11 @@ export function sheetFirstPeriod(project: DdProject, set: FieldSet): PeriodSpan 
  * period is due once it has ended; before this nothing was asked of it. What
  * the sheet already holds stays, as that period's entries. Asked of a sheet
  * that has a period already, it changes nothing.
+ *
+ * One thing more can be asked of a sheet already started: an earlier period
+ * that has ended, named. A sheet started on October can still keep September:
+ * that period is opened beside the sheet, blank, to be filled and issued in
+ * its turn as a revision is. The sheet itself stays the period it is on.
  */
 export function startSheetPeriod(project: DdProject, setId: string, actor: string, options: FieldWriteOptions = {}, input: { period?: string; at?: Date } = {}, catalog: FieldCatalog = fieldCatalogFor(project)): PeriodSpan {
   const set = snapshotSet(project, setId, catalog);
@@ -176,7 +181,20 @@ export function startSheetPeriod(project: DdProject, setId: string, actor: strin
   if (options.mayEdit && !(department && options.mayEdit(department))) throw new FieldRefused('Your role on this project reads this department and does not change it.');
   const kept = sheetFirstPeriod(project, set);
   const at = input.at ?? new Date();
-  if (kept) return (sheetOf(project, setId)?.open?.key ? periodOfKey(sheetOf(project, setId)!.open!.key) : undefined) ?? kept;
+  if (kept) {
+    const earlier = input.period ? periodOfKey(input.period) : undefined;
+    const sheet = sheetOf(project, setId);
+    if (earlier && sheet && earlier.from < kept.from && periodOfDay(set.periodic.every, earlier.from, periodsNumbered(project))?.key === earlier.key && isPastDay(earlier.to, at)) {
+      if (!(sheet.periods ?? []).some((period) => period.key === earlier.key)) {
+        const stamp = at.toISOString();
+        sheet.periods = [...(sheet.periods ?? []), { key: earlier.key, from: earlier.from, to: earlier.to, status: 'open', values: {}, openedAt: stamp, openedBy: actor }];
+        project.updatedAt = stamp;
+        recordAuditEvent(project, { actor, action: 'open_period', entityType: 'field_set', entityId: `${setId}::${earlier.key}`, newValue: `${set.title}, ${earlier.label}`, at: stamp });
+      }
+      return earlier;
+    }
+    return (sheet?.open?.key ? periodOfKey(sheet.open.key) : undefined) ?? kept;
+  }
   const span = input.period ? periodOfKey(input.period) : periodOfDay(set.periodic.every, indiaToday(at), periodsNumbered(project));
   if (!span || periodOfDay(set.periodic.every, span.from, periodsNumbered(project))?.key !== span.key) throw new FieldRefused(`${set.title} is kept by the ${set.periodic.every}.`);
   if (span.from > indiaToday(at)) throw new FieldRefused('That period has not begun.');
@@ -187,6 +205,21 @@ export function startSheetPeriod(project: DdProject, setId: string, actor: strin
   project.updatedAt = stamp;
   recordAuditEvent(project, { actor, action: 'open_period', entityType: 'field_set', entityId: `${setId}::${span.key}`, newValue: `${set.title}, ${span.label}`, at: stamp });
   return span;
+}
+
+/**
+ * The period just before the first a sheet was kept for, where it has ended
+ * and the sheet holds nothing of it: what "Also keep September" offers on a
+ * sheet started on October. Nothing on a sheet nobody has started.
+ */
+export function sheetEarlierPeriod(project: DdProject, set: FieldSet, at: Date = new Date()): PeriodSpan | undefined {
+  const periodic = set.periodic;
+  const first = sheetFirstPeriod(project, set);
+  if (!periodic || set.records || typeof periodic.every === 'object' || !first) return undefined;
+  const earliest = (sheetOf(project, set.id)?.periods ?? []).map((period) => period.from).sort()[0];
+  const from = earliest && earliest < first.from ? (periodOfDay(periodic.every, earliest, periodsNumbered(project)) ?? first) : first;
+  const before = periodShift(from, -1);
+  return isPastDay(before.to, at) ? before : undefined;
 }
 
 /** What a sheet kept by period asks for: once it has a first period (one issued, or the one it was started on), the latest period that has ended and is not issued. */
@@ -240,9 +273,12 @@ function assertIssuer(set: FieldSet, issuer: { actor: string; name?: string }, o
   return name || undefined;
 }
 
-/** The project read as at a period's last day, with one sheet holding what a given issue or revision of that period holds. */
+/**
+ * The project read as a period reads it at its last day (`projectAsOfPeriod`: an entry belongs to the period by the day
+ * it describes, whenever it was typed), with one sheet holding what a given issue or revision of that period holds.
+ */
 function projectWithPeriod(project: DdProject, setId: string, period: FieldPeriod): DdProject {
-  const view = projectAsAt(project, period.to);
+  const view = projectAsOfPeriod(project, period.to);
   const sheet = view.fieldSheets?.[setId] ?? { values: {} };
   const { asIssued: _covering, ...plain } = sheet;
   return {
@@ -308,7 +344,7 @@ export function issueSheetPeriod(
     revision.issuedBy = issuer.actor;
     if (name) revision.issuedName = name;
     project.updatedAt = stamp;
-    recordAuditEvent(project, { actor: issuer.actor, action: 'issue_period', entityType: 'field_set', entityId: `${setId}::${span.key}`, oldValue: revision.revises, newValue: `${set.title}, ${span.label}, revised`, at: stamp });
+    recordAuditEvent(project, { actor: issuer.actor, action: 'issue_period', entityType: 'field_set', entityId: `${setId}::${span.key}`, oldValue: revision.revises, newValue: `${set.title}, ${span.label}${revision.revises ? ', revised' : ''}`, at: stamp });
     return revision;
   }
   if (held.some((period) => period.key === span.key && period.status === 'issued')) throw new FieldRefused('This period is already issued. A correction is a revision kept beside it.');

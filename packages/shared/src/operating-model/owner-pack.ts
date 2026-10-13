@@ -42,7 +42,7 @@ import { ownerPackPhotos } from './photo-report';
 import { ownerPackFields } from './report-fields';
 import { requirementSheet } from './requirement-sheet';
 import { recordBehind, statusPeriodSaid, type StatusPeriod } from './status-report';
-import { sameEmail } from './tenancy';
+import { personSaid } from './team';
 import type { DdProject, ResolvedReportBlock } from './types';
 
 export type OwnerPackSectionKey = 'standing' | 'time' | 'cost' | 'decisions' | 'meetings' | 'papers';
@@ -67,12 +67,18 @@ export interface OwnerPackPart {
   empty: string;
   /** What the lines leave out, in one line. */
   note?: string;
+  /** The lines past the few a page gives, in the same order: read behind “more”, and not printed. */
+  more?: OwnerPackLine[];
+  /** The whole part is detail: read behind “more”, and not printed. */
+  detail?: boolean;
 }
 
 export interface OwnerPackSection {
   key: OwnerPackSectionKey;
   title: string;
   parts: OwnerPackPart[];
+  /** What the section was read from, said once for the section. A line keeps its own source as well, for whoever asks of one line. */
+  source?: string;
   /**
    * What the functions' own fields record of this section, each value with
    * where it stands and where it came from (`ownerPackFields`). Absent where
@@ -101,6 +107,20 @@ export const OWNER_PACK_DUE_DAYS = 30;
 export const OWNER_PACK_MOVEMENTS = 3;
 /** How many papers are listed under one party; the rest are counted. */
 export const OWNER_PACK_PAPERS_SHOWN = 8;
+/** How many lines a part of the pack gives on the page; the rest are behind “more”. */
+export const OWNER_PACK_LINES_SHOWN = 5;
+/** How many parties the papers owed are summed up for on the page. */
+export const OWNER_PACK_PARTIES_SHOWN = 6;
+
+/**
+ * A budget line that is not work let to anybody: a contingency, a fee, an
+ * allowance or provisional sum, escalation, tax, insurance, a sub-total. No
+ * purchase order is ever issued against one, so it is never "not awarded".
+ * Read from what the line is called, since a Cost Report's row says no more.
+ */
+export function packageAwaitsNoAward(name: string): boolean {
+  return /\b(contingenc(y|ies)|fees?|allowances?|provisional|provisions?|escalation|gst|taxe?s?|cess|insurance|overheads?|interest|sub[- ]?total|total|statutory|deposits?|preliminaries|margin)\b/i.test(name);
+}
 
 const DAY_MS = 86_400_000;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -141,6 +161,14 @@ export function ownerPackCostReport(project: Pick<DdProject, 'costReports'>, per
 
 const LEVEL_ORDER: Record<ScheduleLevel, number> = { late: 0, behind: 1, slipping: 2 };
 
+/** The first few lines for the page, and the rest behind “more”. */
+function shown(lines: OwnerPackLine[], most = OWNER_PACK_LINES_SHOWN): Pick<OwnerPackPart, 'lines' | 'more'> {
+  return lines.length > most ? { lines: lines.slice(0, most), more: lines.slice(most) } : { lines };
+}
+
+/** Several things in one phrase: "a, b and c". */
+const listed = (items: string[]): string => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : (items[0] ?? ''));
+
 /** The pack for a period, read from the record as it stands at `now`. */
 export function ownerPack(project: DdProject, period: StatusPeriod, now = new Date()): OwnerPack {
   const today = now.toISOString().slice(0, 10);
@@ -148,7 +176,9 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   const periodSaid = statusPeriodSaid(period);
   const money = (amount: number): string => moneySaid(amount, project.currency);
   const signed = (amount: number): string => `${amount > 0 ? '+' : ''}${money(amount)}`;
-  const named = (actor: string | undefined): string | undefined => (actor ? ((project.team ?? []).find((member) => member.name && sameEmail(member.email, actor))?.name ?? actor) : undefined);
+  // Who issued something, by the name the team gives them, else the name part of their address. With sign-in off there is
+  // nobody to name, and a paper for the owner names nobody: never the machine's own address.
+  const named = (actor: string | undefined): string | undefined => (actor && !/@localhost$/i.test(actor.trim()) ? personSaid(project, actor) : undefined);
 
   /* ---- 1. Where the project stands ---- */
   // A period that has ended is read as the record stood when its last day ended in India; one still running, as it stands.
@@ -202,12 +232,12 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   const time: OwnerPackPart[] = [
     {
       heading: 'Late, behind or slipping',
-      lines: warned.map((m) => ({ what: `${m.name}: ${m.say}`, when: m.plannedFinish, overdue: m.level === 'late', source: milestoneSource(m), recordId: m.id })),
+      ...shown(warned.map((m) => ({ what: `${m.name}: ${m.say}`, when: m.plannedFinish, overdue: m.level === 'late', source: milestoneSource(m), recordId: m.id }))),
       empty: milestones.length ? 'No milestone is late, behind or slipping.' : 'No milestones are on the schedule.',
     },
     {
       heading: `Due in the next ${OWNER_PACK_DUE_DAYS} days`,
-      lines: soon.map((m) => ({ what: `${m.name}: planned to finish ${meetingDay(m.plannedFinish!)}, now at ${m.percent}%.`, when: m.plannedFinish, source: milestoneSource(m), recordId: m.id })),
+      ...shown(soon.map((m) => ({ what: `${m.name}: planned to finish ${meetingDay(m.plannedFinish!)}, now at ${m.percent}%.`, when: m.plannedFinish, source: milestoneSource(m), recordId: m.id }))),
       empty: `No milestone is planned to finish in the next ${OWNER_PACK_DUE_DAYS} days.`,
     },
   ];
@@ -296,23 +326,30 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   }
 
   /* ---- 4. Decisions needed from the owner ---- */
-  const decisions: OwnerPackLine[] = [];
+  // By kind, the most money first, a few of each on the page. A contingency, a fee or an allowance awaits no award.
+  const overBudget: OwnerPackLine[] = [];
+  const toAward: OwnerPackLine[] = [];
+  let toAwardNote: string | undefined;
   if (report) {
     const asks = costReportDecisions(report);
     const source = reportSaid(report);
-    for (const pack of asks.overBudget) decisions.push({ what: `Over budget: ${packageLabel(pack)}, ${against(pack.anticipatedCost, pack.budget)}.`, source });
-    for (const pack of asks.unawarded) decisions.push({ what: `Not awarded: ${packageLabel(pack)}, budget ${money(pack.budget)}, no PO issued.`, source });
+    for (const pack of [...asks.overBudget].sort((x, y) => y.over - x.over)) overBudget.push({ what: `Over budget: ${packageLabel(pack)}, ${against(pack.anticipatedCost, pack.budget)}.`, source });
+    const unawarded = asks.unawarded.filter((pack) => !packageAwaitsNoAward(pack.name) && pack.budget > 0).sort((x, y) => y.budget - x.budget);
+    for (const pack of unawarded) toAward.push({ what: `Not awarded: ${packageLabel(pack)}, budget ${money(pack.budget)}, no PO issued.`, source });
+    if (unawarded.length > OWNER_PACK_LINES_SHOWN) toAwardNote = `${counted(unawarded.length, 'package', 'packages')} not awarded, ${money(unawarded.reduce((total, pack) => total + pack.budget, 0))} of budget in all.`;
   }
+  const extension: OwnerPackLine[] = [];
   if (watch.extensionLikely && watch.plannedCompletion) {
     const planned = meetingDay(watch.plannedCompletion);
-    decisions.push({
+    extension.push({
       what: `Extension of time: ${watch.projectedDaysLate ? `at the current rate the work finishes about ${counted(watch.projectedDaysLate, 'day', 'days')} after the planned completion of ${planned}` : `the planned completion of ${planned} has passed with work unfinished`}.`,
       source: schedule,
     });
   }
+  const undecided: OwnerPackLine[] = [];
   for (const decision of project.decisions) {
     if (decision.status !== 'pending') continue;
-    decisions.push({
+    undecided.push({
       what: `To be decided: ${titled(decision.title)}.`,
       when: decision.createdAt.slice(0, 10),
       ...(decision.decisionMaker ? { who: decision.decisionMaker } : {}),
@@ -320,6 +357,13 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
       recordId: decision.id,
     });
   }
+  const needed: OwnerPackPart[] = [
+    { heading: 'Over budget', ...shown(overBudget), empty: '' },
+    { heading: 'Packages to award', ...shown(toAward), empty: '', ...(toAwardNote ? { note: toAwardNote } : {}) },
+    { heading: 'Time', lines: extension, empty: '' },
+    { heading: 'Open decisions', ...shown(undecided), empty: '' },
+  ].filter((part) => part.lines.length);
+  const decisions: OwnerPackPart[] = needed.length ? needed : [{ lines: [], empty: 'Nothing on the record needs a decision from the owner.' }];
 
   /* ---- 5. What was decided in the period, and who owes what ---- */
   const held = meetingsHeld(project)
@@ -360,8 +404,8 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   const noMeeting = `No meeting's notes are kept for ${periodSaid}.`;
   const onCards = waiting ? `${counted(waiting, 'thing', 'things')} read from the notes ${waiting === 1 ? 'waits on a card' : 'wait on cards'}, not yet accepted, and ${waiting === 1 ? 'is' : 'are'} not shown.` : undefined;
   const meetings: OwnerPackPart[] = [
-    { heading: 'Decided', lines: decided, empty: held.length ? 'No decision from the meetings of the period is on the record.' : noMeeting, ...(onCards ? { note: onCards } : {}) },
-    { heading: 'Who owes what', lines: owed, empty: held.length ? 'No action from the meetings of the period is open.' : noMeeting },
+    { heading: 'Decided', ...shown(decided), empty: held.length ? 'No decision from the meetings of the period is on the record.' : noMeeting, ...(onCards ? { note: onCards } : {}) },
+    { heading: 'Who owes what', ...shown(owed), empty: held.length ? 'No action from the meetings of the period is open.' : noMeeting },
   ];
 
   /* ---- 6. Papers owed ---- */
@@ -399,18 +443,38 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   }
   const groups = [...parties.values()].sort((a, b) => Number(!a.owedBy) - Number(!b.owedBy) || b.lines.length - a.lines.length);
   const nothingOwed = checklist.total + sheet.total ? 'Every paper owed is in hand.' : 'No list of papers is loaded, and the checks on the file expect no documents.';
+  // On the page, a line for each party: how many it owes and how many are overdue. The papers themselves are behind “more”.
+  const partyLine = (party: { owedBy?: string; lines: OwnerPackLine[] }): OwnerPackLine => {
+    const overdue = party.lines.filter((line) => line.overdue).length;
+    const oldest = party.lines.filter((line) => line.overdue && line.when).map((line) => line.when!).sort()[0];
+    return {
+      what: `${party.owedBy ?? 'Nobody named'}: ${counted(party.lines.length, 'paper', 'papers')} owed${overdue ? `, ${overdue} overdue${oldest ? `, the oldest since ${meetingDay(oldest)}` : ''}` : ''}.`,
+      ...(overdue ? { overdue: true } : {}),
+      source: 'Papers owed',
+    };
+  };
   const papers: OwnerPackPart[] = groups.length
-    ? groups.map((party) => {
-        const first = [...party.lines].sort((a, b) => Number(!a.overdue) - Number(!b.overdue));
-        const more = first.length - OWNER_PACK_PAPERS_SHOWN;
-        return {
-          heading: `${party.owedBy ?? 'Nobody named'} · ${first.length}`,
-          lines: first.slice(0, OWNER_PACK_PAPERS_SHOWN),
-          empty: '',
-          ...(more > 0 ? { note: `And ${more} more.` } : {}),
-        };
-      })
+    ? [
+        { heading: 'By who owes them', ...shown(groups.map(partyLine), OWNER_PACK_PARTIES_SHOWN), empty: '' },
+        ...groups.map((party): OwnerPackPart => {
+          const first = [...party.lines].sort((a, b) => Number(!a.overdue) - Number(!b.overdue));
+          const more = first.length - OWNER_PACK_PAPERS_SHOWN;
+          return {
+            heading: `${party.owedBy ?? 'Nobody named'} · ${first.length}`,
+            lines: first.slice(0, OWNER_PACK_PAPERS_SHOWN),
+            empty: '',
+            detail: true,
+            ...(more > 0 ? { note: `And ${more} more.` } : {}),
+          };
+        }),
+      ]
     : [{ lines: [], empty: nothingOwed }];
+
+  // What each section was read from, said once.
+  const earlier = report ? costReportIssuedBefore(project, report) : undefined;
+  const costSource = report ? listed([reportSaid(report), ...(earlier ? [reportSaid(earlier)] : []), 'the register of running bills']) : 'the Cost Reports issued';
+  const decisionSource = listed([...(report && (overBudget.length || toAward.length) ? [reportSaid(report)] : []), ...(extension.length ? [schedule] : []), ...(undecided.length ? ['the decision register'] : [])]);
+  const meetingSource = held.length ? `${listed(held.slice(0, 3).map(({ meeting }) => meetingCalled(meeting)))}${held.length > 3 ? ` and ${counted(held.length - 3, 'more meeting', 'more meetings')}` : ''}, their notes on file` : undefined;
 
   const timeFields = ownerPackFields(project, 'time', now, asAt);
   const costFields = ownerPackFields(project, 'cost', now, asAt);
@@ -421,12 +485,12 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
     asOf: today,
     ...(asAt ? { asAt } : {}),
     sections: [
-      { key: 'standing', title: 'Where the project stands', parts: [{ lines: standing, empty: '' }] },
-      { key: 'time', title: 'Time', parts: time, ...(timeFields ? { fields: timeFields } : {}), ...(timePhotos ? { photos: timePhotos } : {}) },
-      { key: 'cost', title: 'Cost', parts: cost, ...(costFields ? { fields: costFields } : {}) },
-      { key: 'decisions', title: 'Decisions needed from the owner', parts: [{ lines: decisions, empty: 'Nothing on the record needs a decision from the owner.' }] },
-      { key: 'meetings', title: 'Decided in the period, and who owes what', parts: meetings },
-      { key: 'papers', title: 'Papers owed', parts: papers },
+      { key: 'standing', title: 'Where the project stands', parts: [{ lines: standing, empty: '' }], source: milestones.length ? `the project record and ${schedule}` : 'the project record' },
+      { key: 'time', title: 'Time', parts: time, ...(milestones.length ? { source: schedule } : {}), ...(timeFields ? { fields: timeFields } : {}), ...(timePhotos ? { photos: timePhotos } : {}) },
+      { key: 'cost', title: 'Cost', parts: cost, source: costSource, ...(costFields ? { fields: costFields } : {}) },
+      { key: 'decisions', title: 'Decisions needed from the owner', parts: decisions, ...(decisionSource ? { source: decisionSource } : {}) },
+      { key: 'meetings', title: 'Decided in the period, and who owes what', parts: meetings, ...(meetingSource ? { source: meetingSource } : {}) },
+      { key: 'papers', title: 'Papers owed', parts: papers, ...(groups.length ? { source: 'the lists of papers owed, and what the checks on the file expect' } : {}) },
     ],
   };
 }

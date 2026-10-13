@@ -31,6 +31,7 @@
  */
 
 import { asAtMoment, isPastDay, projectAsAt } from './as-at';
+import { indiaDayEnd, indiaDayOf } from './field-history';
 import { dayNumber, evaluateFormula, fieldNumber, fieldOptions, fieldState, formatFieldValue, isBlank, standingField, type FormulaOutside } from './check-fields';
 import { departmentOfFunction, FieldRefused, addFieldRecord, readSheet, refChoices, resolveFields, type FieldResolution, type FieldWriteOptions, type SheetReading } from './field-sheets';
 import { DEPARTMENT_KEYS } from './departments';
@@ -38,7 +39,7 @@ import { optionSetById, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { SHARED_FN } from './field-sets/shared-records';
 import { recordAuditEvent } from './operations';
-import { COST_REPORT_PERIODS, costReportDue, costReportPeriods, freezeReading, frozenAsNowSaid, sheetFirstPeriod, sheetPeriodDue, sheetPeriodToIssue, sheetPeriods, sheetPeriodsNotKept } from './sheet-periods';
+import { COST_REPORT_PERIODS, costReportDue, costReportPeriods, freezeReading, frozenAsNowSaid, sheetEarlierPeriod, sheetFirstPeriod, sheetPeriodDue, sheetPeriodToIssue, sheetPeriods, sheetPeriodsNotKept } from './sheet-periods';
 import { dayAfter, isCalendarDay, monthsAfter, periodKind, periodOfDay, periodOfKey, periodShift, periodsBetween, periodsNumbered, yearWritten, type CalendarEvery, type PeriodSpan } from './period-keys';
 import { indiaToday } from './quarters';
 import { stationRoundDue } from './photo-stations';
@@ -46,7 +47,7 @@ import { ruleRow } from './rule-tables';
 import { personSaid } from './team';
 import { daySaid } from './said';
 import { OWED_ROLE_LABEL } from './types';
-import type { CheckFieldDef, CheckFieldValue, DdProject, FieldRecord, FieldSet, OptionDef, PeriodAttribute, Periodic } from './types';
+import type { CheckFieldDef, CheckFieldValue, CheckTableRow, DdProject, FieldRecord, FieldSet, OptionDef, PeriodAttribute, Periodic, StoredFieldSheet } from './types';
 
 const now = (): string => new Date().toISOString();
 
@@ -439,9 +440,183 @@ export function openPeriod(
   return { period: span, records, made: records.length };
 }
 
-/** The project read as at a day, with one record of a set as it is held now: a period's own entries are the period's, whenever they were typed. */
-function projectWithRecord(project: DdProject, setId: string, record: FieldRecord, day: string): DdProject {
+/* ==================================================================== */
+/* The day an entry describes                                            */
+/* ==================================================================== */
+
+const DAY_WRITTEN = /^\d{4}-\d{2}-\d{2}/;
+
+/**
+ * The date field that says which day a record of a set describes: the one
+ * the set declares (`records.dated`), else the date that names its period,
+ * else its only date. A validity date (`expires`) is no day described.
+ * Nothing where the set has several dates and names none.
+ */
+export function describedDayField(set: Pick<FieldSet, 'fields' | 'records' | 'periodic'>): string | undefined {
+  if (!set.records) return undefined;
+  const dates = set.fields.filter((def) => def.kind === 'date' && !def.retired && !def.expires).map((def) => def.key);
+  if (set.records.dated && dates.includes(set.records.dated)) return set.records.dated;
+  if (set.periodic?.by && dates.includes(set.periodic.by)) return set.periodic.by;
+  return dates.length === 1 ? dates[0] : undefined;
+}
+
+/** The column that says which day a row of a table describes: its only date column. */
+function describedDayColumn(def: CheckFieldDef): string | undefined {
+  const dates = (def.columns ?? []).filter((column) => column.kind === 'date').map((column) => column.key);
+  return dates.length === 1 ? dates[0] : undefined;
+}
+
+/** The day a record describes, as its field stands now. Nothing where it has no such field, or nobody has filled it. */
+export function recordDescribes(set: Pick<FieldSet, 'fields' | 'records' | 'periodic'>, record: Pick<FieldRecord, 'values'>): string | undefined {
+  const key = describedDayField(set);
+  const held = key ? standingField(record.values[key])?.value : undefined;
+  return typeof held === 'string' && DAY_WRITTEN.test(held) ? held.slice(0, 10) : undefined;
+}
+
+const rowsOf = (value: CheckFieldValue | undefined): CheckTableRow[] => (Array.isArray(value?.value) ? (value!.value as unknown[]).filter((row): row is CheckTableRow => typeof row === 'object' && row !== null && !Array.isArray(row)) : []);
+const rowDay = (row: CheckTableRow, column: string): string | undefined => (typeof row[column] === 'string' && DAY_WRITTEN.test(row[column] as string) ? (row[column] as string).slice(0, 10) : undefined);
+
+/**
+ * One holder's tables for a period that ended on `day`: of a table whose rows
+ * each describe a day, the rows held now that describe a day up to then,
+ * whenever they were typed. A row with no day of its own falls back to when
+ * the table was last written: it is the period's where that was by the
+ * period's end. (A table's past keeps how many rows it held, not the rows,
+ * so there is no earlier copy to take such a row from.) Every other field is
+ * left as it was read.
+ */
+function tablesByDay(set: Pick<FieldSet, 'fields'>, then: Record<string, CheckFieldValue>, held: Record<string, CheckFieldValue>, day: string): Record<string, CheckFieldValue> {
+  const end = indiaDayEnd(day);
+  let out = then;
+  for (const def of set.fields) {
+    const column = def.kind === 'table' ? describedDayColumn(def) : undefined;
+    const now = column ? standingField(held[def.key]) : undefined;
+    if (!column || !now) continue;
+    const writtenBy = Date.parse(now.at) < end;
+    const rows = rowsOf(now).filter((row) => {
+      const described = rowDay(row, column);
+      return described ? described <= day : writtenBy;
+    });
+    out = { ...out, [def.key]: { ...now, value: rows } };
+  }
+  return out;
+}
+
+/**
+ * The project as a period that ended on `day` reads it.
+ *
+ * A period holds what describes a day in it, never what happened to be typed
+ * by then. So over the record as it stood when the day ended (`projectAsAt`):
+ * a record whose own date is on or before the day is in it as it reads now,
+ * though it was entered afterwards; one whose own date is after the day is
+ * not, though it was entered before; and a table whose rows each carry a
+ * date holds the rows dated up to the day. An entry with no date of its own
+ * falls back to when it was recorded, as the record stood then. A period
+ * already issued, and a record already issued by then, read as they were
+ * frozen.
+ */
+export function projectAsOfPeriod(project: DdProject, day: string, catalog: FieldCatalog = fieldCatalogFor(project)): DdProject {
   const view = projectAsAt(project, day);
+  const end = indiaDayEnd(day);
+  if (!project.fieldSheets || Number.isNaN(end)) return view;
+  const sheets: Record<string, StoredFieldSheet> = { ...view.fieldSheets };
+  for (const [id, held] of Object.entries(project.fieldSheets)) {
+    const set = catalog.sets.get(id);
+    const then = sheets[id];
+    if (!set || !then) continue;
+    let next = then;
+    // The sheet's own tables, unless an issued period covers the day: that one reads as frozen.
+    if (!then.asIssued) {
+      const values = tablesByDay(set, then.values, held.values, day);
+      if (values !== then.values) next = { ...next, values };
+    }
+    if (set.records && held.records?.length) {
+      const stood = new Map((then.records ?? []).map((record) => [record.id, record] as const));
+      const records = held.records.flatMap((record): FieldRecord[] => {
+        const was = stood.get(record.id);
+        // Taken off its list by then, or issued by then: as the record stood.
+        if (was && (was.removed || was.issued)) return [was];
+        const described = recordDescribes(set, record);
+        // No date of its own: when it was recorded decides, as the record stood then.
+        if (!described) return was ? [{ ...was, values: tablesByDay(set, was.values, record.values, day) }] : [];
+        if (described > day || (record.removed && Date.parse(record.removed.at) < end)) return [];
+        const { removed: _removed, issued: _issued, frozen: _frozen, ...open } = record;
+        return [{ ...open, values: tablesByDay(set, record.values, record.values, day) }];
+      });
+      next = { ...next, records };
+    }
+    sheets[id] = next;
+  }
+  return { ...view, fieldSheets: sheets };
+}
+
+/** An entry that describes a day inside a period and was recorded after the period ended. */
+export interface EnteredAfter {
+  set: string;
+  /** The record it is, or holds the row. */
+  record?: string;
+  /** "Drawdowns: Tranche 3", or for a table written since, "Demands: D-1, receipts set against this demand: 2 rows, the latest". */
+  what: string;
+  /** The day it describes. */
+  day: string;
+  /** The day it was entered, in India, and by whom. */
+  enteredOn: string;
+  by: string;
+  /** "Drawdowns: Tranche 3, dated 28 Sep 2026, entered 3 Oct 2026". */
+  said: string;
+}
+
+/**
+ * What was entered after a period ended and describes a day inside it: the
+ * records made since, and the rows of dated tables that were not there when
+ * the period's last day ended. Whoever issues the period is shown these, so
+ * a late entry is counted with their knowledge. Oldest day first.
+ */
+export function enteredAfterPeriod(project: DdProject, span: Pick<PeriodSpan, 'from' | 'to'>, catalog: FieldCatalog = fieldCatalogFor(project)): EnteredAfter[] {
+  const end = indiaDayEnd(span.to);
+  if (!project.fieldSheets || Number.isNaN(end)) return [];
+  const then = projectAsAt(project, span.to);
+  const inside = (day: string | undefined): day is string => Boolean(day && day >= span.from && day <= span.to);
+  const out: EnteredAfter[] = [];
+  const entry = (set: FieldSet, what: string, day: string, at: string, by: string, record?: string): void => {
+    const enteredOn = indiaDayOf(at);
+    out.push({ set: set.id, ...(record ? { record } : {}), what, day, enteredOn, by, said: `${what}, dated ${daySaid(day)}, entered ${daySaid(enteredOn)}` });
+  };
+  // A table's past keeps no rows, so which of its rows are new cannot be told: a dated table written after the period
+  // ended is listed once, with how many of its rows describe a day in the period.
+  const rowsAdded = (set: FieldSet, holder: string, held: Record<string, CheckFieldValue>, record?: string): void => {
+    for (const def of set.fields) {
+      const column = def.kind === 'table' ? describedDayColumn(def) : undefined;
+      const now = column ? standingField(held[def.key]) : undefined;
+      if (!column || !now || Date.parse(now.at) < end) continue;
+      const days = rowsOf(now).map((row) => rowDay(row, column)).filter(inside).sort();
+      if (!days.length) continue;
+      entry(set, `${holder}, ${def.label.charAt(0).toLowerCase()}${def.label.slice(1)}: ${days.length} ${days.length === 1 ? 'row' : 'rows'}, the latest`, days.at(-1)!, now.at, now.by, record);
+    }
+  };
+  for (const [id, held] of Object.entries(project.fieldSheets)) {
+    const set = catalog.sets.get(id);
+    if (!set) continue;
+    const stood = then.fieldSheets?.[id];
+    if (!set.records) {
+      if (!stood?.asIssued) rowsAdded(set, set.title, held.values);
+      continue;
+    }
+    for (const record of held.records ?? []) {
+      if (record.removed) continue;
+      const title = standingField(record.values[set.records.titleField])?.value;
+      const name = `${set.title}${typeof title === 'string' || typeof title === 'number' ? `: ${title}` : ''}`;
+      const day = recordDescribes(set, record);
+      if (inside(day) && Date.parse(record.createdAt) >= end) entry(set, name, day, record.createdAt, record.by, record.id);
+      else rowsAdded(set, name, record.values, record.id);
+    }
+  }
+  return out.sort((a, b) => a.day.localeCompare(b.day) || a.what.localeCompare(b.what));
+}
+
+/** The project read as a period that ended on a day reads it, with one record of a set as it is held now: a period's own entries are the period's, whenever they were typed. */
+function projectWithRecord(project: DdProject, setId: string, record: FieldRecord, day: string): DdProject {
+  const view = projectAsOfPeriod(project, day);
   const sheet = view.fieldSheets?.[setId] ?? { values: {} };
   const { issued: _issued, frozen: _frozen, carried: _carried, ...open } = record;
   return { ...view, fieldSheets: { ...view.fieldSheets, [setId]: { ...sheet, records: [...(sheet.records ?? []).filter((held) => held.id !== record.id), open] } } };
@@ -644,7 +819,9 @@ export function compareHolders(
     const [wasSaid, nowSaid] = [formatFieldValue(def, a, lists), formatFieldValue(def, b, lists)];
     const [n0, n1] = worded(def) ? [null, null] : [fieldNumber(a), fieldNumber(b)];
     const by = n0 !== null && n1 !== null ? Math.round((n1 - n0) * 100) / 100 : undefined;
-    const moved = previous ? wasSaid !== nowSaid : false;
+    // Moved is said only of a field with a value in both periods: one merely blank in a period just opened has not moved.
+    const both = !isBlank(a) && !isBlank(b);
+    const moved = previous ? both && wasSaid !== nowSaid : false;
     const cumulative = (periodic.cumulative ?? []).includes(def.key);
     const move: PeriodFieldMove = { key: def.key, label: def.label, wasSaid, nowSaid, moved, ...(by !== undefined ? { by, bySaid: figureSaid(def, by, true) } : {}), ...(cumulative ? { cumulative: true as const } : {}), said: '' };
     const explains = (periodic.attribute ?? []).filter((attribute) => attribute.field === def.key);
@@ -669,7 +846,11 @@ export function compareHolders(
     }
     move.said = !previous
       ? nowSaid
-      : !moved
+      : !both
+        ? isBlank(b)
+          ? `Was ${wasSaid} in ${previous.period.short}; not entered for ${current.period.short} yet`
+          : `${nowSaid}; nothing was entered in ${previous.period.short}`
+        : !moved
         ? `Unchanged at ${nowSaid}`
         : cumulative && move.bySaid
           ? `${move.bySaid} in ${current.period.short}: ${wasSaid} to ${nowSaid}`
@@ -677,7 +858,8 @@ export function compareHolders(
     fields.push(move);
   }
   const moved = fields.filter((field) => field.moved).length;
-  const figures = fields.length;
+  // Of the fields that hold a value in both periods: the only ones that can be said to have moved or not.
+  const figures = fields.filter((field) => field.wasSaid !== '—' && field.nowSaid !== '—' && !isBlank(was[field.key]) && !isBlank(now[field.key])).length;
   return {
     set: set.id,
     current,
@@ -686,7 +868,11 @@ export function compareHolders(
     moved,
     unsettled: fields.filter((field) => field.unexplained && !field.reason).length,
     reasons,
-    said: previous ? `${moved} of ${figures} ${figures === 1 ? 'field' : 'fields'} moved since ${previous.period.short}` : `Nothing earlier to compare ${current.period.short} with`,
+    said: !previous
+      ? `Nothing earlier to compare ${current.period.short} with`
+      : figures
+        ? `${moved} of ${figures} ${figures === 1 ? 'field' : 'fields'} moved since ${previous.period.short}`
+        : `Nothing entered for ${current.period.short} yet to set beside ${previous.period.short}`,
   };
 }
 
@@ -748,6 +934,11 @@ export interface SetPeriods {
    * Starting is what begins the due cycle; until then nothing is asked of the set.
    */
   first?: { said: string; start: PeriodSpan; earlier: PeriodSpan };
+  /**
+   * A set already started: the period just before the earliest it keeps, where that has ended. One press opens it
+   * beside the rest, to be filled and issued in its turn ("Also keep September").
+   */
+  alsoKeep?: PeriodSpan;
 }
 
 /** The line a set kept by period shows before its first period: "No period kept yet · Start with October 2026". */
@@ -783,8 +974,10 @@ export function setPeriods(
     const due = sheetPeriodDue(project, set, at, all, live);
     const toIssue = sheetPeriodToIssue(project, set, at, all);
     const carried = sheet?.open?.carried;
+    const alsoKeep = sheetEarlierPeriod(project, set, at);
     return {
       current,
+      ...(alsoKeep ? { alsoKeep } : {}),
       ...(sheetFirstPeriod(project, set) ? {} : { first: firstPeriodOf(current) }),
       shown: (sheet?.open?.key ? periodOfKey(sheet.open.key) : undefined) ?? current,
       open: all.filter((instance) => instance.status === 'open'),
@@ -806,8 +999,13 @@ export function setPeriods(
   const notKept = periodsNotKept(project, set.id, at, catalog, all);
   const due = periodDueOf(project, set, at, catalog, all);
   const standing = past.filter((instance) => !instance.superseded);
+  // The period before the earliest kept, where it has ended: a set started on October can still keep September.
+  const earliest = all.map((instance) => instance.period).sort((a, b) => a.from.localeCompare(b.from))[0];
+  const before = earliest && current && typeof set.periodic.every !== 'object' ? periodShift(earliest, -1) : undefined;
+  const alsoKeep = before && isPastDay(before.to, at) ? before : undefined;
   return {
     ...(current ? { current } : {}),
+    ...(alsoKeep ? { alsoKeep } : {}),
     ...(shown ? { shown } : {}),
     open,
     past,

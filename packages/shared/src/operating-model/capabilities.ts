@@ -78,6 +78,8 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
   if (input.tenure !== undefined) project.tenure = input.tenure;
   if (input.plot !== undefined) project.plot = input.plot;
   if (input.karnataka !== undefined) project.karnataka = input.karnataka;
+  if (input.approvalsElsewhere === true) project.approvalsElsewhere = { by: actor, at };
+  if (input.approvalsElsewhere === false) delete project.approvalsElsewhere;
   touch(project, at);
   project.audit.push({
     id: id('aud'),

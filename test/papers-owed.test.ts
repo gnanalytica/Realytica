@@ -278,7 +278,8 @@ describe('the four lines Overview opens with', () => {
     const [needs, slipping, owed] = lines;
     // The reply waits on a line of Engineering's list, so that is where the part opens: Confirm is one step away.
     assert.deepEqual(needs!.parts.map((part) => [part.text, at(part.open)]), [['1 reply to confirm', ENGINEERING], ['1 action overdue', '/projects/prj_1/risks']]);
-    assert.deepEqual(slipping!.parts.map((part) => [part.text, part.tone]), [['1 late', 'critical']]);
+    // The foundation is 22 days past its date, and the finishes, with no rate of their own, wait on it.
+    assert.deepEqual(slipping!.parts.map((part) => [part.text, part.tone]), [['1 late', 'critical'], ['completion 22 Jul 2027, 22 days after planned', 'warning']]);
     assert.equal(at(slipping!.parts[0]!.open), '/projects/prj_1/w/construction.progress?part=progress');
     assert.equal(owed!.label, PAPERS_OWED);
     // Owed is what somebody was asked for. The four lines of the list asked of nobody are not counted, and no party is named for them.

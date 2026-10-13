@@ -24,6 +24,7 @@
  * message: immediate first, because that is the money that changes the price.
  */
 
+import { amount } from '../../lib/format';
 import { plural, type RemedialCostSummary } from '@realytica/shared';
 import { ChartContainer, ChartEmpty, ChartSvg, DirectedBar, STATUS_FILL, compactAxisNumber, scaleLinear, useMeasure, type StatusKey } from './primitives';
 
@@ -96,7 +97,7 @@ export default function RemedialCostChart({ summary, onSelect }: RemedialCostCha
               className={onSelect ? 'cursor-pointer' : undefined}
               onClick={onSelect ? () => onSelect(row.actionIds) : undefined}
             >
-              <title>{`${row.label}: ${summary.currency} ${Math.round(row.total).toLocaleString('en-IN')} across ${row.count} action(s)${unpriced ? `, ${unpriced} of them unpriced` : ''}.`}</title>
+              <title>{`${row.label}: ${amount(row.total, summary.currency)} across ${row.count} action(s)${unpriced ? `, ${unpriced} of them unpriced` : ''}.`}</title>
               <rect x={0} y={y} width={width} height={ROW_H} fill="transparent" />
 
               <text x={0} y={mid - 2} className="fill-ink" style={{ fontSize: 11.5 }}>

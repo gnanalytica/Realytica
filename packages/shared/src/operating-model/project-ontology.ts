@@ -750,7 +750,8 @@ export const PROJECT_EDGE_LABEL_SET_ASIDE: Partial<Record<ProjectGraphEdgeKind, 
  */
 export function projectNodeAwaited(node: { kind: ProjectGraphNodeKind; status?: string }): boolean {
   if (node.kind === 'evidence') return node.status === 'expected' || node.status === 'requested' || node.status === 'missing';
-  if (node.kind === 'approval') return node.status === 'missing';
+  // Needed and not held: missing from a register that is kept, or not recorded on one nobody has kept yet.
+  if (node.kind === 'approval') return node.status === 'missing' || node.status === 'not_recorded';
   return false;
 }
 

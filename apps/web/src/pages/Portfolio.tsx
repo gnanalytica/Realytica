@@ -1,3 +1,5 @@
+import { weekday } from '../lib/format';
+import { daySaid } from '@realytica/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { papersPlacePath, reachesEveryProject } from '@realytica/shared';
 import { useMe } from '../lib/useMe';
@@ -162,7 +164,7 @@ function FortnightStrip({ view }: { view: PortfolioView }) {
                 i === 0 ? 'bg-ink text-ink-inverse shadow-card' : items.length ? 'bg-sunken text-ink hover:bg-[var(--hairline)]' : 'text-ink-secondary',
               )}
             >
-              <span className="text-[10px] uppercase">{date.toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' })}</span>
+              <span className="text-[10px] uppercase">{weekday(date.toISOString().slice(0, 10)).charAt(0)}</span>
               <span className="font-mono text-[12px] font-semibold">{date.getUTCDate()}</span>
               <span
                 aria-hidden
@@ -259,7 +261,7 @@ export default function Portfolio() {
   const issued = all.filter((p) => p.engagement?.stage === 'issued').length;
   const blockedProjects = all.filter((p) => p.health === 'red').length;
   const openRequests = data?.waitingOn.length ?? 0;
-  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+  const today = `${weekday(new Date())}, ${daySaid(new Date())}`;
 
   const digest = useMemo(() => {
     if (!data || !lastSeen) return [];

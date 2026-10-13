@@ -9,6 +9,7 @@
  * canonical number in m² everywhere else.
  */
 
+import { amount } from './format';
 import type { CountryCode } from '@realytica/shared';
 import { readPref, writePref } from './prefs';
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react';
@@ -152,12 +153,8 @@ export function formatArea(sqm: number | null | undefined, unit: AreaUnit): stri
 /** `₹8,548/sq ft` / `₹92,000/m²` — never a decimal on a rate. */
 export function formatRate(perSqmValue: number | null | undefined, unit: AreaUnit, currency: 'INR' | 'EUR'): string {
   if (perSqmValue === null || perSqmValue === undefined || Number.isNaN(perSqmValue)) return '—';
-  const symbol = currency === 'INR' ? '₹' : '€';
-  if (unit === 'sqft') {
-    const perSqft = perSqmValue * SQM_PER_SQFT;
-    return `${symbol}${Math.round(perSqft).toLocaleString('en-IN')}/sq ft`;
-  }
-  return `${symbol}${Math.round(perSqmValue).toLocaleString('en-IN')}/m²`;
+  if (unit === 'sqft') return `${amount(perSqmValue * SQM_PER_SQFT, currency)}/sq ft`;
+  return `${amount(perSqmValue, currency)}/m²`;
 }
 
 /* ------------------------------------------------------------------ */

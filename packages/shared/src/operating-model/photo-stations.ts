@@ -360,11 +360,15 @@ export function stationRoundDue(project: RoundOf, now: Date = new Date()): Perio
     total,
     due: period.to,
     late: behind > 0,
-    // One interval among them: said by its period, as any set kept by period is. Several: by how many, and the day the first is due.
+    // One interval among them: said by its period, as any set kept by period is. Several: by how many, and for each interval the day its round is due.
     said: `${
       new Set(round.due.map((row) => row.station.every)).size === 1
         ? `${period.short}: ${shot} of ${total} ${total === 1 ? 'station' : 'stations'} photographed, due ${daySaid(period.to)}`
-        : `${round.due.length} of ${total} stations to photograph, the first by ${daySaid(period.to)}`
+        : `${round.due.length} of ${total} stations to photograph: ${(['week', 'month', 'quarter'] as const)
+            .map((every) => round.due.filter((row) => row.station.every === every))
+            .filter((rows) => rows.length)
+            .map((rows) => `${rows.length} by the ${rows[0]!.station.every}, due ${daySaid(rows[0]!.period.to)}`)
+            .join('; ')}`
     }${behind ? `; ${behind} a whole period behind` : ''}`,
   };
 }

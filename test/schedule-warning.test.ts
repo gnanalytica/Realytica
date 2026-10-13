@@ -225,9 +225,9 @@ describe('the project as a whole', () => {
   it('is not, while the projection lands on or before planned completion', () => {
     const { p, plinth } = twoMilestones();
     setMilestonePercent(p, plinth.id, 10, PM, '2026-10-01T09:00:00.000Z');
-    setMilestonePercent(p, plinth.id, 30, PM, '2026-10-11T09:00:00.000Z');
+    setMilestonePercent(p, plinth.id, 32, PM, '2026-10-11T09:00:00.000Z');
     const watch = scheduleWatch(p, day('2026-10-11'));
-    // The frame has no rate, so it is taken at its planned date.
+    // The plinth finishes inside its date at its rate. The frame has no rate, so it is taken at its planned date.
     assert.deepEqual({ projected: watch.projectedCompletion, extension: watch.extensionLikely }, { projected: '2027-03-31', extension: false });
   });
 

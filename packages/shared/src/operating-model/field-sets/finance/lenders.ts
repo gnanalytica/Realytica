@@ -570,7 +570,8 @@ export const LENDER_SETS: FieldSet[] = [
     fn: LEN,
     title: 'Drawdowns',
     v: 1,
-    records: { of: 'drawdown', titleField: 'tranche', summaryFields: ['disbursed_amount', 'drawdown_standing'] },
+    // A drawdown belongs to the period it was disbursed in, whenever it was entered.
+    records: { of: 'drawdown', titleField: 'tranche', summaryFields: ['disbursed_amount', 'drawdown_standing'], dated: 'disbursed_on' },
     sections: [
       { key: 'plan', label: 'Planned' },
       { key: 'request', label: 'Requested' },

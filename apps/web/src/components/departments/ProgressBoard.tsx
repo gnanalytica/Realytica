@@ -1,3 +1,4 @@
+import { ApprovalsNotRecorded } from './ApprovalsNotRecorded';
 import { useMemo, useRef, useState } from 'react';
 import { Camera, HardHat, Smartphone, Upload, Users } from 'lucide-react';
 import {
@@ -326,7 +327,10 @@ export function ProgressBoard({
 
   return (
     <div ref={board} className="space-y-4">
-      {!gate.open ? (
+      {gate.unrecorded ? (
+        // Nothing recorded of the approvals: one quiet line with the two ways on, never a warning against an empty register.
+        <ApprovalsNotRecorded project={project} onChanged={onChanged} />
+      ) : !gate.open ? (
         <Callout tone={log.length ? 'critical' : 'warning'} title={log.length ? 'Work is being logged before it is allowed' : 'Not cleared to build yet'}>
           Not on file: {gate.missing.join(', ')}. See Legal › Approvals.
         </Callout>

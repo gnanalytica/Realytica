@@ -255,6 +255,13 @@ export function PeriodRecords({
               </div>
             ) : null}
             {periods.notKeptSaid ? <p className="border-t border-hairline px-4 py-2 text-[12px] text-ink-muted">{periods.notKeptSaid}</p> : null}
+            {mayEdit && periods.alsoKeep ? (
+              <p className="border-t border-hairline px-4 py-2">
+                <button type="button" data-also-keep className="text-[12px] font-medium text-brand hover:underline coarse:min-h-11" onClick={() => onAct({ act: 'open', period: periods.alsoKeep!.key })}>
+                  Also keep {periods.alsoKeep.short}
+                </button>
+              </p>
+            ) : null}
           </CardBody>
         ) : null}
       </Card>
@@ -446,7 +453,10 @@ export function SheetPeriodsBar({
     }
   }, [project, set.id, catalog]);
   const revisions = periods.open;
-  const pastSaid = periods.pastSaid ?? (revisions.length ? `${revisions.length} ${revisions.length === 1 ? 'revision' : 'revisions'} open` : undefined);
+  // What is open beside the sheet: a revision of an issued period, or an earlier period kept and not yet issued.
+  const kept = revisions.filter((instance) => !instance.revises).length;
+  const openSaid = [kept ? `${kept} earlier ${kept === 1 ? 'period' : 'periods'} open` : '', revisions.length - kept ? `${revisions.length - kept} ${revisions.length - kept === 1 ? 'revision' : 'revisions'} open` : ''].filter(Boolean).join(' · ');
+  const pastSaid = periods.pastSaid ? `${periods.pastSaid}${openSaid ? ` · ${openSaid}` : ''}` : openSaid || undefined;
   return (
     <div className="mb-4 space-y-2" data-sheet-periods={set.id}>
       {periods.first ? (
@@ -458,11 +468,19 @@ export function SheetPeriodsBar({
             {periods.carried ? ` · ${periods.carried.keys.length} carried from ${periods.carried.from}` : ''}
             {periods.due?.due ? ` · ${periods.due.period.short} ${periods.due.late ? 'was due' : 'due'} ${daySaid(periods.due.due)}` : ''}
           </span>
-          {mayDecide && periods.toIssue ? (
-            <Button size="sm" variant="secondary" onClick={() => onAct({ act: 'issue', period: periods.toIssue!.key })}>
-              Issue {periods.toIssue.short}
-            </Button>
-          ) : null}
+          <span className="flex flex-wrap items-center gap-2">
+            {/* Started on this period: the one before it can still be kept, opened beside the sheet and issued in its turn. */}
+            {mayEdit && periods.alsoKeep ? (
+              <button type="button" data-also-keep className="text-[12px] font-medium text-brand hover:underline coarse:min-h-11" onClick={() => onAct({ act: 'open', period: periods.alsoKeep!.key })}>
+                Also keep {periods.alsoKeep.short}
+              </button>
+            ) : null}
+            {mayDecide && periods.toIssue ? (
+              <Button size="sm" variant="secondary" onClick={() => onAct({ act: 'issue', period: periods.toIssue!.key })}>
+                Issue {periods.toIssue.short}
+              </Button>
+            ) : null}
+          </span>
         </div>
       )}
       {comparison?.previous ? <Comparison comparison={comparison} locked={!mayEdit} onReason={(field, reason) => onAct({ act: 'reason', field, reason })} /> : null}

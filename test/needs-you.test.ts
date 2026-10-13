@@ -313,7 +313,7 @@ describe('one way to write each kind of figure', () => {
   });
 
   it('does not print the local operator’s machine address as a person', () => {
-    assert.equal(person('operator@localhost'), 'the local operator');
+    assert.equal(person('operator@localhost'), 'you');
     assert.equal(person('asha@firm.example'), 'asha@firm.example');
   });
 });

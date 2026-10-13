@@ -1,3 +1,4 @@
+import { daySaid } from '@realytica/shared';
 import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Camera, ClipboardList, Download, FileOutput, FileStack, MapPin, ShieldAlert, Smartphone, Upload } from 'lucide-react';
@@ -227,7 +228,7 @@ export function DepartmentDesk({
               <ul className="divide-y divide-hairline rounded-xl ring-1 ring-inset ring-[var(--ring)]">
                 {log.slice(0, 8).map((entry) => (
                   <li key={entry.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2">
-                    <span className="font-mono text-micro tabular-nums text-ink-secondary">{entry.date}</span>
+                    <span className="font-mono text-micro tabular-nums text-ink-secondary">{daySaid(entry.date)}</span>
                     <span className="min-w-0 flex-1 truncate text-[13px] text-ink" title={entry.workDone}>
                       {entry.workDone || 'No note'}
                     </span>

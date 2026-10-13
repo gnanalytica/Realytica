@@ -2298,8 +2298,18 @@ export function removeFieldRecord(project: DdProject, setId: string, recordId: s
   const record = sheetOf(project, setId)?.records?.find((held) => held.id === recordId && !held.removed);
   if (!set?.records || !record) throw new FieldRefused('That record is not on this project.');
   if (record.issued) throw new FieldRefused(ISSUED_SAID);
-  assertMayDecide(set.fn, `Taking a record off ${set.title}`, options);
   const at = now();
+  // A record that holds nothing, taken away by whoever just made it (Add pressed, then closed): there is nothing to keep,
+  // so nothing is kept. It goes outright, with no blank left on the list or in the trail of what was taken off.
+  const sheet = sheetOf(project, setId)!;
+  const holdsNothing = Object.values(record.values).every((value) => isBlank(value) && !value.other?.length && !value.history?.length);
+  if (holdsNothing && record.by === actor && !record.revises) {
+    assertMayEdit(set.fn, options);
+    sheet.records = (sheet.records ?? []).filter((held) => held !== record);
+    project.updatedAt = at;
+    return;
+  }
+  assertMayDecide(set.fn, `Taking a record off ${set.title}`, options);
   record.removed = { by: actor, at };
   project.updatedAt = at;
   recordAuditEvent(project, { actor, action: 'remove_field_record', entityType: 'field_set', entityId: `${setId}::${recordId}`, at });

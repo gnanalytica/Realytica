@@ -8,9 +8,9 @@ import {
   type ValueSummary,
 } from '@realytica/shared';
 import { Button, Card, CardBody, Select, Tooltip, cn } from '../ui/kit';
-import { money, pct } from '../../lib/format';
+import { amount, money, pct } from '../../lib/format';
 import { useCountUp } from './useValueFill';
-import { daySaid } from '@realytica/shared';
+import { daySaid, formatMoneyInFull } from '@realytica/shared';
 
 const PREMISE_LABEL: Record<ValuationPremise, string> = {
   as_is: 'As-is market value',
@@ -61,7 +61,7 @@ export type ValueStatus =
 const SERIES = ['bg-series-1', 'bg-series-2', 'bg-series-3', 'bg-series-4'];
 
 function full(n: number): string {
-  return `₹${Math.round(n).toLocaleString('en-IN')}`;
+  return formatMoneyInFull(Math.round(n), 'INR');
 }
 
 /**
@@ -131,7 +131,7 @@ export function ValueHeadline({
                   ) : null}
                   {summary.ratePerSqm !== null && summary.area ? (
                     <span className="text-ink-muted">
-                      {' · '}₹{Math.round(summary.ratePerSqm).toLocaleString('en-IN')}/sqm on {Math.round(summary.area.sqm).toLocaleString('en-IN')} sqm
+                      {' · '}{amount(summary.ratePerSqm)}/sqm on {Math.round(summary.area.sqm).toLocaleString('en-IN')} sqm
                     </span>
                   ) : null}
                 </p>

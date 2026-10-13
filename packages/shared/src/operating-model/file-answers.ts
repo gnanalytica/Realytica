@@ -731,7 +731,9 @@ function answerApprovals(project: DdProject, outside: boolean): FileAnswer {
   const expiring = of('expiring');
   const inForce = of('in_force', 'expiring').length;
   const needed = inForce + lapsed.length + missing.length;
-  const lines = [needed ? `${inForce} of ${plural(needed, 'approval')} in force.` : 'No approval is on file, and none is due at the step the project is at.'];
+  // A register nobody has kept is not a register with approvals missing: it says so, and counts nothing.
+  const unrecorded = of('not_recorded').length > 0;
+  const lines = [needed ? `${inForce} of ${plural(needed, 'approval')} in force.` : unrecorded ? 'Approvals are not recorded yet, so none is counted as in force or missing.' : 'No approval is on file, and none is due at the step the project is at.'];
   if (lapsed.length) lines.push(`Lapsed: ${joinTitles(lapsed.map((line) => line.kind.label), 150)}.`);
   if (expiring.length) lines.push(`Running out: ${joinTitles(expiring.map((line) => `${line.kind.label} (${line.daysLeft} days left)`), 150)}.`);
   if (missing.length) lines.push(`Missing: ${joinTitles(missing.map((line) => line.kind.label), 150)}.`);

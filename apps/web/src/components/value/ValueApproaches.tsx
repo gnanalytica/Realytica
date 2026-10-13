@@ -112,7 +112,7 @@ export function ValueApproaches({
                 .filter((sale) => !sale.recent)
                 .map(
                   (sale) =>
-                    `Sold on ${daySaid(sale.registeredOn)} for ${money(sale.price, 'INR')}: ₹${Math.round(sale.ratePerSqm).toLocaleString('en-IN')}/sqm, ${sale.ageYears.toFixed(1)} years ago (${sale.document}). Not offered as a rate: it is older than a comparable may be.`,
+                    `Sold on ${daySaid(sale.registeredOn)} for ${money(sale.price, 'INR')}: ${money(sale.ratePerSqm, 'INR')}/sqm, ${sale.ageYears.toFixed(1)} years ago (${sale.document}). Not offered as a rate: it is older than a comparable may be.`,
                 )
             : [];
         return (

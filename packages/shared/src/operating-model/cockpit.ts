@@ -1314,7 +1314,7 @@ function fileStanding(project: DdProject): FileStanding {
  * The receipt's figures.
  *
  * Only rows that moved, plus the one that did not move when it should have.
- * "Linked to a scope: 0" is the row that explains an unchanged pack, so it is
+ * "Tied to a check: 0" is the row that explains an unchanged count of papers in hand, so it is
  * kept even at zero when documents were filed — a silent zero there is how six
  * approved documents can feel like progress and be none.
  */
@@ -1322,10 +1322,10 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
   const rows: ChatMetric[] = [];
   const filed = after.evidence - before.evidence;
   if (filed > 0) {
-    rows.push({ label: 'Evidence', value: String(after.evidence), delta: `+${filed}` });
+    rows.push({ label: 'Papers on file', value: String(after.evidence), delta: `+${filed}` });
     const linked = after.linked - before.linked;
     rows.push({
-      label: 'Linked to a scope',
+      label: 'Tied to a check',
       value: String(after.linked),
       delta: linked > 0 ? `+${linked}` : 'none of the new ones',
     });
@@ -1333,8 +1333,8 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
   const packMoved = after.packReceived - before.packReceived;
   if (filed > 0 || packMoved !== 0) {
     rows.push({
-      label: 'Priority pack',
-      value: `${after.packReceived}/${after.packTotal}`,
+      label: 'Papers the checks ask for, in hand',
+      value: `${after.packReceived} of ${after.packTotal}`,
       delta: packMoved > 0 ? `+${packMoved}` : 'unchanged',
     });
   }

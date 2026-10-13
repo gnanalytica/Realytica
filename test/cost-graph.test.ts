@@ -178,7 +178,7 @@ describe('the cost register in the graph', () => {
     assert.equal(nodeOf(graph, contracts.interiors.id).detail, 'Contract value ₹8 lakh · certified ₹0 · paid ₹0 · left to certify ₹8 lakh');
 
     const said = (id: string) => [nodeOf(graph, id).label, nodeOf(graph, id).detail, nodeOf(graph, id).key, nodeOf(graph, id).status];
-    assert.deepEqual(said(bills.ra1.id), ['Sharma Constructions bill RA-1', '2026-08-31 · claimed ₹10 lakh · certified ₹9.4 lakh gross, ₹8,74,200 net · paid ₹8 lakh', 'RA-1', 'certified']);
+    assert.deepEqual(said(bills.ra1.id), ['Sharma Constructions bill RA-1', '2026-08-31 · claimed ₹10 lakh · certified ₹9.4 lakh gross, ₹8.74 lakh net · paid ₹8 lakh', 'RA-1', 'certified']);
     assert.deepEqual(said(bills.ra2.id), ['Sharma Constructions bill RA-2', '2026-09-30 · claimed ₹11.5 lakh · not certified · paid ₹0', 'RA-2', 'in_review']);
     assert.deepEqual(said(bills.f1.id), ['Lakshmi Interiors bill F-1', '2026-10-02 · claimed ₹2 lakh · not certified · paid ₹0', 'F-1', 'claimed']);
   });
@@ -229,7 +229,7 @@ describe('the cost register in the graph', () => {
     const graph = buildProjectGraph(project);
     assert.deepEqual(
       [nodeOf(graph, bills.ra1.id).detail, nodeOf(graph, bills.ra1.id).status],
-      ['2026-08-31 · claimed ₹10 lakh · certified ₹9.4 lakh gross, ₹8,74,200 net · paid ₹8,74,300 · overpaid by ₹100', 'paid'],
+      ['2026-08-31 · claimed ₹10 lakh · certified ₹9.4 lakh gross, ₹8.74 lakh net · paid ₹8.74 lakh · overpaid by ₹100', 'paid'],
     );
     assert.equal(nodeOf(graph, contracts.interiors.id).detail, 'Contract value ₹8 lakh · certified ₹9 lakh · paid ₹0 · certified beyond the contract value by ₹1 lakh');
   });
@@ -282,7 +282,7 @@ describe('the cost register in the graph', () => {
     const stands = nodeOf(graph, certificates.ra1.id);
     assert.deepEqual(
       [stands.label, stands.detail, stands.status],
-      ['Certificate for Sharma Constructions bill RA-1', 'R. Menon, Quantity Surveyor · gross ₹9.4 lakh · less retention ₹47,000, TDS 2% ₹18,800 · net ₹8,74,200 · 2026-09-05', 'current'],
+      ['Certificate for Sharma Constructions bill RA-1', 'R. Menon, Quantity Surveyor · gross ₹9.4 lakh · less retention ₹47,000, TDS 2% ₹18,800 · net ₹8.74 lakh · 2026-09-05', 'current'],
     );
     // The chat is handed the label and the detail, not the status. A certificate that certifies nothing has to say so in words.
     const gone = nodeOf(graph, certificates.ra2.id);

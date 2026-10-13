@@ -3,7 +3,12 @@
  *
  * Outside the app shell, as the other printed reports are, so what prints is
  * the pack and not the navigation around it. Every line is read from the
- * record by `ownerPack`, with what it was read from under it.
+ * record by `ownerPack`. What a section was read from is said once, at its
+ * foot, and each line keeps its own source as its title for whoever asks.
+ *
+ * The page is what matters this period: a few lines a part. The rest of a
+ * part, and the papers owed line by line, are behind "more", on screen, and
+ * are not printed.
  *
  * Opened for a period it reads the record as it stands. Opened for a kept
  * pack (`?pack=`) it shows that pack as it was prepared, and once issued as
@@ -13,25 +18,28 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { cockpitPath, isQuarter, meetingDay, ownerPack, ownerPackPeriod, ownerPackStanding, ownerPackTitle, quarterKey, quarterYearOf, reportPeriodSaid, type OwnerPackLine, type OwnerPackPart } from '@realytica/shared';
+import { cockpitPath, isQuarter, meetingDay, ownerPack, ownerPackPeriod, ownerPackStanding, ownerPackTitle, quarterKey, quarterYearOf, reportPeriodSaid, type OwnerPack, type OwnerPackLine, type OwnerPackPart } from '@realytica/shared';
 import { api, type ReportDayShown } from '../../lib/api';
 import { useMe } from '../../lib/useMe';
 import { useAsync } from '../../lib/useAsync';
 import { ReportFootnotes } from '../../components/report/ReportFieldBlock';
 import { ReportTableView } from '../../components/report/ReportTableView';
 import { StationReportPhotos } from '../../components/report/StationReportPhotos';
-import { Spinner } from '../../components/ui/kit';
+import { ConfirmIssue, Spinner } from '../../components/ui/kit';
+import { personNamed } from '../../lib/format';
 
 function Line({ line }: { line: OwnerPackLine }) {
   return (
-    <li className="break-inside-avoid border-b border-black/10 py-1.5">
-      <p className={line.overdue ? 'font-semibold' : undefined}>{line.what}</p>
-      <p className="text-[11px] text-black/60">
-        {line.who ? `${line.who} · ` : ''}From {line.source}
+    <li className="break-inside-avoid border-b border-black/10 py-1.5" title={`From ${line.source}`}>
+      <p className={line.overdue ? 'font-semibold' : undefined}>
+        {line.what}
+        {line.who ? <span className="font-normal text-black/60"> · {line.who}</span> : null}
       </p>
     </li>
   );
 }
+
+const MORE = 'no-print mt-1 text-[12px] text-black/70 [&>summary]:cursor-pointer [&>summary]:text-blue-700 [&>summary]:underline';
 
 function Part({ part }: { part: OwnerPackPart }) {
   return (
@@ -46,9 +54,26 @@ function Part({ part }: { part: OwnerPackPart }) {
       ) : (
         <p className="mt-1 text-black/60">{part.empty}</p>
       )}
+      {part.more?.length ? (
+        <details className={MORE} data-pack-more>
+          <summary>{part.more.length} more</summary>
+          <ul className="mt-1">
+            {part.more.map((line, at) => (
+              <Line key={at} line={line} />
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {part.note ? <p className="mt-1 text-[11px] text-black/60">{part.note}</p> : null}
     </div>
   );
+}
+
+/** What a section was read from, said once: the pack's own line, or for a pack kept before it had one, its lines' sources without repeats. */
+function sourceOf(section: OwnerPack['sections'][number]): string {
+  if (section.source) return section.source;
+  const said = [...new Set(section.parts.flatMap((part) => part.lines.map((line) => line.source)))];
+  return said.length > 3 ? `${said.slice(0, 3).join('; ')}; and ${said.length - 3} more` : said.join('; ');
 }
 
 const BAR_BUTTON = 'rounded border border-black/20 px-3 py-1 disabled:opacity-50';
@@ -64,6 +89,8 @@ export default function OwnerPackPrint() {
   const [may, setMay] = useState<ReportDayShown>();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState('');
+  // Issuing is asked once: what is frozen, and who is named.
+  const [confirming, setConfirming] = useState(false);
   const [month, quarter, from, to, packId] = [query.get('month'), query.get('quarter'), query.get('from'), query.get('to'), query.get('pack')];
   const kept = packId ? project?.ownerPacks?.find((held) => held.id === packId) : undefined;
   const pack = useMemo(() => (kept ? kept.pack : project && !packId ? ownerPack(project, ownerPackPeriod({ month, quarter, from, to })) : undefined), [project, kept, packId, month, quarter, from, to]);
@@ -148,7 +175,7 @@ export default function OwnerPackPrint() {
               type="button"
               className={`${BAR_BUTTON} bg-black text-white`}
               disabled={busy}
-              onClick={() => void step(() => (kept ? api.ownerPackStep(project.id, kept.id, 'issue', me?.name) : api.keepOwnerPack(project.id, { ...asked, issue: true, name: me?.name })))}
+              onClick={() => setConfirming(true)}
             >
               Issue
             </button>
@@ -164,6 +191,18 @@ export default function OwnerPackPrint() {
         </div>
       </div>
       {failed ? <p className="no-print border-b border-black/10 px-6 py-2 text-[13px] text-red-700">{failed}</p> : null}
+      <ConfirmIssue
+        open={confirming}
+        what={`the owner pack for ${kept?.periodSaid ?? pack.periodSaid}`}
+        issuer={me?.name || personNamed(project, me?.email) || 'you'}
+        lines={['The pack is kept as it reads now: every line, figure and photograph. What the record does afterwards does not change it.']}
+        busy={busy}
+        onClose={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          void step(() => (kept ? api.ownerPackStep(project.id, kept.id, 'issue', me?.name) : api.keepOwnerPack(project.id, { ...asked, issue: true, name: me?.name })));
+        }}
+      />
 
       <article className="mx-auto max-w-[760px] px-4 py-8 text-[13px] leading-relaxed sm:px-10">
         <header className="border-b border-black/20 pb-4">
@@ -184,9 +223,23 @@ export default function OwnerPackPrint() {
             <h2 className="break-after-avoid border-b border-black/30 pb-1 text-[14px] font-semibold tracking-wide">
               {at + 1}. {section.title}
             </h2>
-            {section.parts.map((part, n) => (
-              <Part key={part.heading ?? n} part={part} />
-            ))}
+            {section.parts
+              .filter((part) => !part.detail)
+              .map((part, n) => (
+                <Part key={part.heading ?? n} part={part} />
+              ))}
+            {/* The detail of a section: read on screen behind one press, and never printed. */}
+            {section.parts.some((part) => part.detail) ? (
+              <details className={MORE} data-pack-more>
+                <summary>More: line by line</summary>
+                {section.parts
+                  .filter((part) => part.detail)
+                  .map((part, n) => (
+                    <Part key={part.heading ?? n} part={part} />
+                  ))}
+              </details>
+            ) : null}
+            {sourceOf(section) ? <p className="mt-2 text-[11px] text-black/60">From {sourceOf(section)}.</p> : null}
             {/* What the functions' own fields record of this section, each value with where it stands and where it came from. */}
             {section.fields?.table ? (
               <div className="mt-3 break-inside-avoid">

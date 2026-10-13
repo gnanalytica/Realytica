@@ -96,7 +96,7 @@ function VariationLog({
   return (
     <Card>
       <CardHeader title="Variation log" subtitle="Cause of project cost increment" />
-      <CardBody className="space-y-3">
+      <CardBody className="space-y-3 overflow-x-auto">
         {mayEdit ? (
           <div className="flex flex-wrap items-end gap-2 rounded-lg bg-sunken p-2.5">
             <label className="min-w-[14rem] flex-1 text-[12px] text-ink-secondary">

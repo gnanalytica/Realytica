@@ -1,3 +1,4 @@
+import { daySaid } from '@realytica/shared';
 import { useState } from 'react';
 import { Briefcase, Plus } from 'lucide-react';
 import {
@@ -108,7 +109,7 @@ export function EngagementsCard({ project, onSaved }: { project: DdProject; onSa
                   <span className="text-[13px] font-medium text-ink">{e.title}</span>
                   {e.client ? <span className="text-[12px] text-ink-secondary">for {e.client}</span> : null}
                   <span className="flex-1" />
-                  {e.dueDate ? <span className="font-mono text-micro text-ink-muted">due {e.dueDate}</span> : null}
+                  {e.dueDate ? <span className="font-mono text-micro text-ink-muted">due {daySaid(e.dueDate)}</span> : null}
                   <Badge tone={e.stage === 'issued' ? 'good' : 'neutral'}>{ENGAGEMENT_STAGE_LABEL[e.stage]}</Badge>
                   <span className="w-full text-micro text-ink-muted">Draws on {e.workstreams.map((w) => WORKSTREAMS.find((x) => x.key === w)?.label ?? w).join(', ')}</span>
                 </button>

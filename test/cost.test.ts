@@ -740,7 +740,7 @@ describe('the certificate for a bill', () => {
     assert.match(certificate.id, /^cert_/);
     assert.equal(standingCertification(bill), certificate);
     assert.deepEqual(lastAudit(project), ['certify_bill', 'certification', certificate.id, COST_LEAD]);
-    assert.equal(project.audit.at(-1)!.newValue, 'Bill RA-1: ₹9.4 lakh gross, ₹8,74,200 net. R. Menon, Quantity Surveyor');
+    assert.equal(project.audit.at(-1)!.newValue, 'Bill RA-1: ₹9.4 lakh gross, ₹8.74 lakh net. R. Menon, Quantity Surveyor');
 
     refused(project, () => certifyBill(project, bill.id, input, COST_CERTIFIER), /This bill already has a certificate\. Withdraw it before issuing another\./);
   });
@@ -809,7 +809,7 @@ describe('paying, and what the job is expected to cost', () => {
     assert.match(payment.id, /^pay_/);
     assert.deepEqual(bill.payments, [payment]);
     assert.deepEqual(lastAudit(project), ['record_payment', 'bill', bill.id, COST_ACCOUNTS]);
-    assert.equal(project.audit.at(-1)!.newValue, '₹2,50,000.50 paid on 2026-09-12 against bill RA-1 (NEFT 4471)');
+    assert.equal(project.audit.at(-1)!.newValue, '₹2.5 lakh paid on 2026-09-12 against bill RA-1 (NEFT 4471)');
 
     for (const amount of [0, -100, Number.NaN]) {
       refused(project, () => recordPayment(project, bill.id, { amount, paidOn: '2026-09-12' }, COST_ACCOUNTS), /A payment is an amount of money above zero\./);
@@ -1310,8 +1310,11 @@ describe('amounts and sources in words', () => {
     assert.equal(moneySaid(999), '₹999');
     assert.equal(moneySaid(1000), '₹1,000');
     assert.equal(moneySaid(100_000), '₹1 lakh');
-    assert.equal(moneySaid(12_345_678), '₹1,23,45,678');
-    assert.equal(moneySaid(12_345_678.5), '₹1,23,45,678.50');
+    // From a lakh up, in lakh and crore to two places, the one way every page writes money: never the same column three ways.
+    assert.equal(moneySaid(12_345_678), '₹1.23 Cr');
+    assert.equal(moneySaid(43_875_000), '₹4.39 Cr');
+    assert.equal(moneySaid(1_047_000), '₹10.47 lakh');
+    assert.equal(moneySaid(99_999.5), '₹99,999.5');
     assert.equal(moneySaid(0.05), '₹0.05');
     assert.equal(moneySaid(999.999), '₹1,000', 'rounded to the paisa first');
     assert.equal(moneySaid(-1200), '−₹1,200', 'the minus goes before the sign');
@@ -1320,7 +1323,7 @@ describe('amounts and sources in words', () => {
   });
 
   it('writes money in the project’s own currency', () => {
-    assert.equal(moneySaid(12_345_678.5, 'INR'), '₹1,23,45,678.50');
+    assert.equal(moneySaid(12_345_678.5, 'INR'), '₹1.23 Cr');
     assert.equal(moneySaid(12_345_678.5, 'EUR'), '€12,345,678.50');
     assert.equal(moneySaid(-1200, 'EUR'), '−€1,200');
     // A project kept in euros says euros on its trail, and in what it refuses.

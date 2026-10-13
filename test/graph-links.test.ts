@@ -90,7 +90,7 @@ describe('a node’s links, in words', () => {
     // The approvals the project needs and does not hold sit in Approvals all the same.
     const approvals = panel(graph, `${project.id}::ws::legal.approvals`).find((g) => g.kind === 'approval')!;
     assert.ok(approvals.links.length > 0);
-    assert.ok(approvals.links.every((l) => l.phrase === 'still needs'), 'every approval on this file is missing');
+    assert.ok(approvals.links.every((l) => l.phrase === 'still needs'), 'no approval is on this file');
     const gate = panel(graph, `${project.id}::approval::commencement`).flatMap((g) => g.links).find((l) => l.otherId === `${project.id}::ws::construction.progress`)!;
     assert.equal(`${gate.phrase} → ${gate.label}`, 'is needed before → Engineering › Progress');
   });

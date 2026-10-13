@@ -476,6 +476,8 @@ export const patchProjectBodySchema = z.object({
    */
   parcelId: parcelIdSchema.optional(),
   tenure: tenureSchema.optional(),
+  /** The approvals are held outside this record, as a person says. */
+  approvalsElsewhere: z.boolean().optional(),
   actor: actorSchema,
 });
 

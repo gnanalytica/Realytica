@@ -281,7 +281,7 @@ describe('work already done stays on show', () => {
       const inHand = (id: string) => {
         const node = byId.get(id)!;
         if (node.kind === 'evidence') return node.status === 'received' || node.status === 'validated' || node.status === 'used';
-        if (node.kind === 'approval') return node.status !== 'missing';
+        if (node.kind === 'approval') return node.status !== 'missing' && node.status !== 'not_recorded';
         if (node.kind === 'check') return node.detail !== 'pending';
         return true;
       };

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, type ReactNode } from 'react';
+import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { ArrowRight, ChevronRight } from 'lucide-react';
 import {
@@ -7,6 +7,7 @@ import {
   PROJECT_HEALTH_LABEL,
   QUICK_VERDICT_LABEL,
   approvalsRegister,
+  approvalsStanding,
   cockpitPath,
   currentCertified,
   openAlerts,
@@ -29,6 +30,7 @@ import { DEPARTMENT_ICON } from '../../components/departments/icons';
 import { DepartmentsControl } from '../../components/departments/DepartmentsControl';
 import { StageRecord } from '../../components/departments/StageTimeline';
 import { DepartmentFigures } from '../../components/analytics/DepartmentFigures';
+import { ApprovalsNotRecorded } from '../../components/departments/ApprovalsNotRecorded';
 import { WORKSTREAM_PANE } from './cockpit/rail';
 import { formatWhen, healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -135,6 +137,8 @@ function StandingFigures({ project }: { project: DdProject }) {
   const alerts = openAlerts(project);
   const critical = alerts.filter((a) => a.severity === 'critical').length;
   const register = approvalsRegister(project);
+  // Nothing recorded of the approvals: the figure says so, and is no warning.
+  const recorded = approvalsStanding(project) === 'recorded';
   const due = register.filter((l) => l.status === 'in_force' || l.status === 'expiring' || l.status === 'expired' || l.status === 'missing');
   const inForce = register.filter((l) => l.status === 'in_force' || l.status === 'expiring').length;
   const progress = progressSummary(project).percent;
@@ -145,7 +149,11 @@ function StandingFigures({ project }: { project: DdProject }) {
     // one-pixel gap, so it falls right at two columns and at five.
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-hairline shadow-card ring-1 ring-[var(--ring)] [@container(min-width:40rem)]:grid-cols-5 [&>*]:bg-surface [@container(max-width:40rem)]:[&>*:last-child]:col-span-2">
       <Figure label="Health" value={PROJECT_HEALTH_LABEL[project.health]} tone={health === 'critical' ? 'critical' : health === 'warning' ? 'warning' : health === 'good' ? 'good' : undefined} hint={stageAndStep(project.currentStage)} />
-      <Figure label="Approvals in force" value={inForce} of={due.length} tone={inForce < due.length ? 'warning' : undefined} hint={`${due.length - inForce} lapsed or missing`} />
+      {recorded ? (
+        <Figure label="Approvals in force" value={inForce} of={due.length} tone={inForce < due.length ? 'warning' : undefined} hint={inForce < due.length ? `${due.length - inForce} lapsed or missing` : 'All that are due'} />
+      ) : (
+        <Figure label="Approvals" value="—" hint={approvalsStanding(project) === 'elsewhere' ? 'Held elsewhere' : 'Not recorded yet'} />
+      )}
       <Figure label="Open alerts" value={alerts.length} tone={critical ? 'critical' : undefined} hint={critical ? `${critical} critical` : 'Nothing critical'} />
       <Figure label="Papers filed" value={documents} hint="On file" />
       <Figure label="Progress" value={progress === null ? '—' : `${Math.round(progress)}%`} hint={progress === null ? 'No milestones yet' : 'Weighted milestones'} />
@@ -190,6 +198,24 @@ function AcrossProject({ project }: { project: DdProject }) {
 }
 
 /**
+ * A part of Overview below its opening, as one line. Its contents are drawn
+ * once it is first opened and stay drawn after: a map set up inside a closed
+ * fold would measure a box of no size.
+ */
+function Fold({ title, children }: { title: string; children: ReactNode }) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <details data-overview-fold className="group rounded-xl bg-surface ring-1 ring-inset ring-[var(--ring)]" onToggle={(event) => (event.currentTarget.open ? setOpened(true) : undefined)}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-medium text-ink hover:bg-sunken coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+        <ChevronRight size={14} aria-hidden className="shrink-0 text-ink-muted transition-transform group-open:rotate-90" />
+        {title}
+      </summary>
+      {opened ? <div className="border-t border-hairline p-3">{children}</div> : null}
+    </details>
+  );
+}
+
+/**
  * The project's one summary page: where it stands in each department, the
  * engagements commissioned on it, where the site is, and what needs a person.
  *
@@ -226,6 +252,7 @@ export default function Overview() {
       <Reveal delay={0.05}>
         <StandingFigures project={project} />
       </Reveal>
+      <ApprovalsNotRecorded project={project} onChanged={setProject} />
 
       <AcrossProject project={project} />
 
@@ -253,23 +280,32 @@ export default function Overview() {
         </div>
       ) : null}
 
-      <DepartmentFigures project={project} />
-      <DepartmentFigures project={project} />
-
-      <DepartmentsControl project={project} onSaved={setProject} />
-
-      <EngagementsCard project={project} onSaved={setProject} />
-
-      <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-        <div className="min-w-0">
-          <Suspense fallback={<Skeleton className="h-72 w-full rounded-xl" />}>
-            <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
-          </Suspense>
+      {/*
+        The four lines at the top are the page. What follows them is short: the standing figures, the stage and the
+        departments. Everything else is one line each, opened when it is wanted, and drawn only once it is opened.
+      */}
+      <Fold title="By department: what waits, and for how long">
+        <DepartmentFigures project={project} />
+      </Fold>
+      <Fold title="Departments in use, and engagements">
+        <div className="space-y-4">
+          <DepartmentsControl project={project} onSaved={setProject} />
+          <EngagementsCard project={project} onSaved={setProject} />
         </div>
-        <KeyFacts project={project} />
-      </div>
-
-      <RecentActivityCard project={project} />
+      </Fold>
+      <Fold title="The site: map, plan and key facts">
+        <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+          <div className="min-w-0">
+            <Suspense fallback={<Skeleton className="h-72 w-full rounded-xl" />}>
+              <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
+            </Suspense>
+          </div>
+          <KeyFacts project={project} />
+        </div>
+      </Fold>
+      <Fold title="Recent activity">
+        <RecentActivityCard project={project} />
+      </Fold>
 
       {project.stageHistory.length > 1 ? (
         <Disclosure title="Stage history" count={project.stageHistory.length}>

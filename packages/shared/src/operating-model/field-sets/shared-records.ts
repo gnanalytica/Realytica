@@ -48,7 +48,7 @@ export const SHARED_RECORDS: FieldSet[] = [
       {
         id: 'party_role',
         label: 'Role',
-        options: ['owner', 'vendor', 'developer', 'contractor', 'consultant', 'architect', 'engineer', 'accountant', 'advocate', 'lender', 'authority', 'valuer', 'customer', 'channel partner', 'litigant'].map((label) => ({ key: label.replace(/\s+/g, '_'), label })),
+        options: ['owner', 'vendor', 'developer', 'project manager', 'contractor', 'consultant', 'architect', 'structural consultant', 'mep consultant', 'cost consultant', 'engineer', 'accountant', 'advocate', 'lender', 'authority', 'valuer', 'customer', 'channel partner', 'litigant'].map((label) => ({ key: label.replace(/\s+/g, '_'), label })),
       },
     ],
     fields: [

@@ -32,9 +32,11 @@ import {
   addMilestones,
   asAtMoment,
   attachEvidenceFile,
+  comparePeriods,
   compareSheetPeriods,
   createProject,
   decidesIn,
+  enteredAfterPeriod,
   departmentRole,
   fieldIsDerived,
   frozenAsNowSaid,
@@ -59,6 +61,7 @@ import {
   photoStations,
   placeEntryShots,
   projectAsAt,
+  projectAsOfPeriod,
   projectShots,
   projectView,
   readFunctionFields,
@@ -238,7 +241,8 @@ describe('a set nobody has kept by period yet', () => {
     assert.equal(startSheetPeriod(p, POSITION, LEAD, seat(p, LEAD), { at: NOW }).key, '2026-10');
     const started = sheet(NOW);
     assert.deepEqual([started.first, started.shown!.key, started.due, started.toIssue], [undefined, '2026-10', undefined, undefined], 'started on October, September is not asked for');
-    assert.equal(startSheetPeriod(p, POSITION, LEAD, seat(p, LEAD), { period: '2026-09', at: NOW }).key, '2026-10', 'asked twice, it is started once');
+    assert.equal(startSheetPeriod(p, POSITION, LEAD, seat(p, LEAD), { at: NOW }).key, '2026-10', 'asked twice, it is started once');
+    assert.equal(p.fieldSheets![POSITION]!.periods, undefined);
     // October ends: now it is due, as any period is.
     const next = sheet(at('2026-11-03T06:00:00Z'));
     assert.deepEqual([next.due!.period.key, next.due!.late, next.toIssue!.key], ['2026-10', false, '2026-10']);
@@ -656,5 +660,141 @@ describe('the view across projects', () => {
     assert.deepEqual([whole, acrossProjects([copy], NOW).sales.lines.length], [1, 0]);
     // And as at a past day, the copy is read as the project is.
     assert.equal(projectAsAt(copy, '2026-09-30').fieldSheets?.[STOCK], undefined);
+  });
+});
+
+/* ==================================================================== */
+/* Four more, reported by the builder of tracking                         */
+/* ==================================================================== */
+
+describe('what a period holds is decided by the day each entry describes', () => {
+  /** July's drawdown, then one disbursed on 28 September that reaches the record on 3 October. */
+  function late(): DdProject {
+    const p = project();
+    const facility = funded(p);
+    add(p, 'finance.lenders.drawdowns', { tranche: 'T1', facility, disbursed_on: '2026-09-28', disbursed_amount: 50_000_000 }, '2026-10-03T06:00:00.000Z');
+    setFieldValues(p, { set: POSITION }, { outstanding_per_statement: 430_000_000, outstanding_per_books: 430_000_000, account_class: 'standard' }, LEAD, seat(p, LEAD));
+    return p;
+  }
+
+  it('puts a September drawdown entered on 3 October in September as issued', () => {
+    const p = late();
+    const issued = issueSheetPeriod(p, POSITION, { actor: LEAD }, seat(p, LEAD), { at: NOW });
+    assert.equal(issued.key, '2026-09');
+    assert.equal(issued.frozen!.drawn!.value, 430_000_000, 'the drawdown was disbursed in September, whenever it was typed');
+    assert.equal(issued.frozen!.drawn!.said, '₹43 Cr');
+    // As the record stood on 30 September it was not there: that is a different question, and is answered as before.
+    assert.equal(projectAsAt(p, '2026-09-30').fieldSheets!['finance.lenders.drawdowns']!.records!.length, 1);
+    assert.equal(projectAsOfPeriod(p, '2026-09-30').fieldSheets!['finance.lenders.drawdowns']!.records!.length, 2);
+  });
+
+  it('leaves out an entry that describes a later day, though it was typed before the period ended', () => {
+    const p = project();
+    const facility = funded(p);
+    add(p, 'finance.lenders.drawdowns', { tranche: 'T1', facility, disbursed_on: '2026-10-05', disbursed_amount: 50_000_000 }, '2026-09-29T06:00:00.000Z');
+    assert.equal(projectAsOfPeriod(p, '2026-09-30').fieldSheets!['finance.lenders.drawdowns']!.records!.length, 1);
+  });
+
+  it('falls back to when it was recorded for an entry with no date of its own', () => {
+    const p = project();
+    const facility = funded(p);
+    // Planned, not yet disbursed: no day it describes.
+    add(p, 'finance.lenders.drawdowns', { tranche: 'T2', facility, planned_on: '2026-09-15', planned_amount: 20_000_000 }, '2026-10-03T06:00:00.000Z');
+    add(p, 'finance.lenders.drawdowns', { tranche: 'T3', facility, planned_on: '2026-11-15', planned_amount: 20_000_000 }, '2026-09-10T06:00:00.000Z');
+    const tranches = projectAsOfPeriod(p, '2026-09-30').fieldSheets!['finance.lenders.drawdowns']!.records!.map((record) => record.values.tranche!.value);
+    assert.deepEqual(tranches, ['T0', 'T3'], 'the one recorded by then is there, the one recorded after is not');
+  });
+
+  it('holds the rows of a dated table by their own day: a September receipt typed in October is September’s', () => {
+    const p = project();
+    const unit = add(p, 'shared.units', { number: 'A-501' }, '2026-08-01T06:00:00.000Z');
+    const demand = add(p, 'commercial.buyers.demands', { demand_no: 'D-1', unit, raised_on: '2026-09-01', due_on: '2026-09-15', principal: 1_000_000, settled_by: [{ receipt_no: 'R-1', received_on: '2026-09-10', amount: 400_000, mode: null }] }, '2026-09-10T06:00:00.000Z');
+    const record = p.fieldSheets!['commercial.buyers.demands']!.records!.find((held) => held.id === demand)!;
+    assert.ok(Array.isArray(record.values.settled_by?.value), 'the demand holds its receipts');
+    // On 4 October two more receipts are typed: one received on 29 September, one on 2 October.
+    const out = setFieldValues(p, { set: 'commercial.buyers.demands', record: demand }, { settled_by: [{ receipt_no: 'R-1', received_on: '2026-09-10', amount: 400_000, mode: null }, { receipt_no: 'R-2', received_on: '2026-09-29', amount: 300_000, mode: null }, { receipt_no: 'R-3', received_on: '2026-10-02', amount: 100_000, mode: null }] }, LEAD, seat(p, LEAD));
+    assert.deepEqual(out.rejected, []);
+    record.values.settled_by!.at = '2026-10-04T06:00:00.000Z';
+    const rows = (view: DdProject) => (view.fieldSheets!['commercial.buyers.demands']!.records!.find((held) => held.id === demand)!.values.settled_by!.value as Array<{ receipt_no: string }>).map((row) => row.receipt_no);
+    assert.deepEqual(rows(projectAsOfPeriod(p, '2026-09-30')), ['R-1', 'R-2']);
+    // A table keeps no past rows, so the issuer is told the table changed since and how many of its rows are September's.
+    assert.deepEqual(enteredAfterPeriod(p, { from: '2026-09-01', to: '2026-09-30' }).map((entry) => entry.said), ['Demands: D-1, receipts set against this demand: 2 rows, the latest, dated 29 Sep 2026, entered 4 Oct 2026']);
+  });
+
+  it('lists for whoever issues the period what was entered after it ended, and nothing where nothing was', () => {
+    const p = late();
+    assert.deepEqual(
+      enteredAfterPeriod(p, { from: '2026-09-01', to: '2026-09-30' }).map((entry) => [entry.said, entry.day, entry.enteredOn]),
+      [['Drawdowns: T1, dated 28 Sep 2026, entered 3 Oct 2026', '2026-09-28', '2026-10-03']],
+    );
+    assert.deepEqual(enteredAfterPeriod(p, { from: '2026-08-01', to: '2026-08-31' }), []);
+  });
+});
+
+describe('a period just opened', () => {
+  it('does not say fields moved when they are merely blank: moved counts only fields with a value in both periods', () => {
+    const p = project();
+    add(p, CASH_MONTHS, { month: '2026-09-01', collections: 41_000_000, contractors: 30_000_000, taxes: 1_000_000 });
+    const october = openPeriod(p, CASH_MONTHS, LEAD, seat(p, LEAD), { period: '2026-10', at: NOW }).records[0]!;
+    const opened = comparePeriods(p, CASH_MONTHS, october.id, undefined, NOW);
+    assert.equal(opened.moved, 0);
+    assert.doesNotMatch(opened.said, /fields? moved since/);
+    assert.equal(opened.said, 'Nothing entered for October yet to set beside September');
+    for (const field of opened.fields) assert.equal(field.moved, false, field.key);
+    // One figure typed: it is the one field with a value in both, and it has moved.
+    setFieldValues(p, { set: CASH_MONTHS, record: october.id }, { collections: 43_000_000 }, LEAD, seat(p, LEAD));
+    const typed = comparePeriods(p, CASH_MONTHS, october.id, undefined, NOW);
+    assert.equal(typed.fields.find((field) => field.key === 'collections')!.moved, true);
+    assert.equal(typed.fields.find((field) => field.key === 'contractors')!.moved, false);
+    assert.match(typed.said, /^\d+ of \d+ fields moved since September$/);
+    const [moved, of] = typed.said.match(/\d+/g)!.map(Number);
+    assert.ok(of! < typed.fields.length, 'the fields blank in October are not among those that could have moved');
+    assert.ok(moved! <= of!);
+  });
+});
+
+describe('a sheet started on the current month', () => {
+  it('can still keep the month before: it is opened beside the sheet, filled, and issued in its turn', () => {
+    const p = project();
+    funded(p);
+    setFieldValues(p, { set: POSITION }, { account_class: 'standard' }, LEAD, seat(p, LEAD));
+    startSheetPeriod(p, POSITION, LEAD, seat(p, LEAD), { at: NOW });
+    const periods = () => readFunctionFields(p, 'finance.lenders', NOW).sheets.find((held) => held.set.id === POSITION)!.periods!;
+    assert.equal(periods().alsoKeep!.key, '2026-09', 'offered as “Also keep September”');
+    assert.throws(() => startSheetPeriod(p, POSITION, JUNIOR, { ...seat(p, JUNIOR), mayEdit: () => false }, { period: '2026-09', at: NOW }), /reads this department/);
+    assert.equal(startSheetPeriod(p, POSITION, LEAD, seat(p, LEAD), { period: '2026-09', at: NOW }).key, '2026-09');
+    assert.equal(startSheetPeriod(p, POSITION, LEAD, seat(p, LEAD), { period: '2026-09', at: NOW }).key, '2026-09');
+    assert.equal(p.fieldSheets![POSITION]!.periods!.length, 1, 'asked twice, it is opened once');
+    assert.equal(p.fieldSheets![POSITION]!.open!.key, '2026-10', 'the sheet stays on October');
+    assert.equal(periods().alsoKeep!.key, '2026-08', 'and the month before that can be kept in the same way');
+    // September is filled as an open period is, and issued under a name.
+    const out = setFieldValues(p, { set: POSITION, period: '2026-09' }, { outstanding_per_statement: 380_000_000, outstanding_per_books: 380_000_000, account_class: 'standard' }, LEAD, seat(p, LEAD));
+    assert.deepEqual(out.rejected, []);
+    const issued = issueSheetPeriod(p, POSITION, { actor: LEAD }, seat(p, LEAD), { period: '2026-09', at: NOW });
+    assert.deepEqual([issued.key, issued.status, issued.frozen!.drawn!.value], ['2026-09', 'issued', 380_000_000]);
+    assert.equal(p.audit.at(-1)!.newValue, 'Loan position, September 2026', 'a first issue is not called a revision');
+    assert.equal(p.fieldSheets![POSITION]!.open!.key, '2026-10', 'and October goes on, with what it holds');
+    assert.equal(readSheet(p, POSITION, undefined, undefined, undefined, NOW)!.fields.find((view) => view.def.key === 'account_class')!.held!.value, 'standard');
+  });
+
+  it('is offered the month before on a set of records too, and opens it', () => {
+    const p = project();
+    openPeriod(p, CASH_MONTHS, LEAD, seat(p, LEAD), { period: '2026-10', at: NOW });
+    const periods = () => readFunctionFields(p, 'finance.funding', NOW).sheets.find((held) => held.set.id === CASH_MONTHS)!.periods!;
+    assert.equal(periods().alsoKeep!.key, '2026-09');
+    const opened = openPeriod(p, CASH_MONTHS, LEAD, seat(p, LEAD), { period: '2026-09', at: NOW });
+    assert.equal(opened.made, 1);
+    assert.equal(periods().alsoKeep!.key, '2026-08');
+  });
+});
+
+describe('the photograph round with stations on different intervals', () => {
+  it('names, for each interval, how many stations wait and the day that round is due', () => {
+    const p = project('Quarry');
+    add(p, STATIONS_SET, { label: 'Gate', every: 'week' });
+    add(p, STATIONS_SET, { label: 'Tower crane', every: 'week' });
+    add(p, STATIONS_SET, { label: 'North corner', every: 'month' });
+    add(p, STATIONS_SET, { label: 'Panorama', every: 'quarter' });
+    assert.equal(stationRoundDue(p, NOW)!.said, '4 of 4 stations to photograph: 2 by the week, due 18 Oct 2026; 1 by the month, due 31 Oct 2026; 1 by the quarter, due 31 Dec 2026');
   });
 });

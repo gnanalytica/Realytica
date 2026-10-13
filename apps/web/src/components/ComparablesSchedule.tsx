@@ -37,6 +37,7 @@
  * line. Neither is a summary of the other — both carry every figure.
  */
 
+import { amount } from '../lib/format';
 import type { Comparable } from '@realytica/shared';
 import { Card, CardBody, CardHeader, Tooltip, cn } from './ui/kit';
 import { FormulaTip } from './FormulaTip';
@@ -66,8 +67,7 @@ function shortName(key: string, label: string): string {
 }
 
 function rate(n: number, currency: string): string {
-  const v = Math.round(n).toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US');
-  return currency === 'INR' ? `₹${v}` : `${currency} ${v}`;
+  return amount(n, currency);
 }
 
 function signed(pct: number): string {

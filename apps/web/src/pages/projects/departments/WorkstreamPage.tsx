@@ -26,6 +26,7 @@ import { Connections } from '../../../components/departments/Connections';
 import { WorkstreamChecks, WorkstreamDocuments, WorkstreamEngagements } from '../../../components/departments/WorkstreamRecords';
 import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegister';
 import { FieldSheets } from '../../../components/fields/FieldSheets';
+import { NeedsBrief } from '../../../components/fields/NeedsBrief';
 import { PapersOwedCard } from '../../../components/papers/PapersOwedCard';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
 import { BudgetDesk } from '../../../components/budget/BudgetDesk';
@@ -38,6 +39,14 @@ import { exampleOfWorkstream } from '../../example/paths';
 import { WORKSTREAM_PANE } from '../cockpit/rail';
 import { EvidenceProof } from '../EvidenceProof';
 import type { ProjectOutlet } from '../ProjectLayout';
+
+/** The functions that have a desk of their own, and the part it is: the part such a function opens on, ahead of its sheets. */
+const DESK_PART: Record<string, string> = {
+  'finance.budget': 'cost',
+  'construction.progress': 'progress',
+  'procurement.boq': 'tenders',
+  'legal.approvals': 'approvals',
+};
 
 /**
  * Where a workstream lives: its own page, or the pane that has always been it.
@@ -313,9 +322,12 @@ function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = 
   };
 
   const hasSheets = functionHasSheets(ws.key);
-  // The part in view: the one the address names, else the one the page opens on. Needs you and the sheets where the function keeps any.
+  // A function with a desk of its own opens on it: Budget on the Cost Report, Progress on the board, Tenders on the tenders,
+  // Approvals on the register. Its sheets follow, one press away.
+  const deskId = sheetsOnly ? undefined : DESK_PART[ws.key];
+  // The part in view: the one the address names, else the one the page opens on. The desk where the function has one, else Needs you and the sheets where it keeps any.
   const partIds = sheetsOnly ? ['sheet', 'documents'] : functionSections(ws.key);
-  const shownPart = part && partIds.includes(part) ? part : hasSheets ? 'sheet' : (partIds[0] ?? 'standing');
+  const shownPart = part && partIds.includes(part) ? part : deskId && partIds.includes(deskId) ? deskId : hasSheets ? 'sheet' : (partIds[0] ?? 'standing');
   const pickPart = (id: string) => {
     const next = new URLSearchParams(query);
     next.set('part', id);
@@ -325,7 +337,7 @@ function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = 
 
   const centre: PageSection | null =
     ws.key === 'legal.approvals'
-      ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={openHere} marked={item} /> }
+      ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={openHere} marked={item} onChanged={setProject} /> }
       : ws.key === 'construction.progress'
         ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} marked={item} /> }
         : ws.key === 'finance.budget'
@@ -337,7 +349,22 @@ function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = 
                 { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
               : null;
 
+  // The desk, with what the sheets need of a person above it as five lines.
+  const desk: PageSection | null =
+    centre && centre.id === deskId
+      ? {
+          ...centre,
+          body: (
+            <>
+              {hasSheets ? <NeedsBrief project={project} fn={ws.key} onOpenSheets={() => pickPart('sheet')} /> : null}
+              {centre.body}
+            </>
+          ),
+        }
+      : null;
+
   const sections: PageSection[] = [
+    ...(desk ? [desk] : []),
     {
       id: 'standing',
       name: 'Estimate and certified',
@@ -373,7 +400,7 @@ function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = 
           },
         ]
       : []),
-    ...(centre ? [centre] : []),
+    ...(centre && !desk ? [centre] : []),
     { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} marked={part === 'checks' ? item : null} /> },
     {
       id: 'documents',
