@@ -634,14 +634,14 @@ describe('Approvals: a plan sanction that is being revised', () => {
 });
 
 describe('Law and Liaison among the rest', () => {
-  it('are registered once, and read nothing another group has yet to declare', () => {
+  it('are registered once, and mirror only what a check or a department’s own set declares', () => {
     assert.ok(LAW_LIAISON_FIELD_SETS.every((set) => FIELD_SETS.includes(set)));
     const catalog = fieldCatalog();
-    const ids = new Set(LAW_LIAISON_FIELD_SETS.map((set) => set.id));
     for (const set of LAW_LIAISON_FIELD_SETS) {
       for (const def of set.fields) {
         if (!def.sameAs) continue;
-        assert.ok(catalog.checks.has(def.sameAs.set) || ids.has(def.sameAs.set), `${set.id}/${def.key} mirrors ${def.sameAs.set}`);
+        // Every department is declared now: a mirror names a field that is there, in a check or in its owner's set.
+        assert.ok(catalog.sets.get(def.sameAs.set)?.fields.some((owner) => owner.key === def.sameAs!.field), `${set.id}/${def.key} mirrors ${def.sameAs.set}/${def.sameAs.field}`);
       }
     }
   });

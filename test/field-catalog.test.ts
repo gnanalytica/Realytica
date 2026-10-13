@@ -35,6 +35,7 @@ import {
   ruleRowFaults,
   setFieldValues,
   statedBySeveral,
+  withLinks,
   type CheckFieldDef,
   type CheckFieldValue,
   type CheckFormula,
@@ -490,6 +491,45 @@ describe('a shared record', () => {
   it('are the ones the catalogs name, each a set that repeats', () => {
     const catalog = fieldCatalog();
     for (const id of ['shared.parties', 'shared.parcels', 'shared.buildings', 'shared.units', 'shared.drawings', 'shared.approvals', 'shared.matters', 'shared.contracts', 'shared.accounts']) assert.ok(catalog.sets.get(id)?.records, id);
+  });
+});
+
+describe('what a file reads from another department', () => {
+  const own = [set('finance.funding.plan_x', [num('equity'), { key: 'cost', label: 'Cost', kind: 'money', sameAs: { fn: 'finance.budget', set: 'cost_quantity.budget_current', field: 'sanctioned_budget' }, required: false }])];
+  const forecast = { fn: 'finance.budget', set: 'cost_quantity.forecast', field: 'forecast_at_completion' };
+
+  it('is laid into the set it belongs to: a mirror added, a mirror pointed at its owner, a rule across sets', () => {
+    const [linked] = withLinks(own, [
+      {
+        set: 'finance.funding.plan_x',
+        fields: [{ key: 'forecast', label: 'Forecast', kind: 'money', sameAs: forecast, required: false }],
+        repoint: { cost: forecast },
+        rules: [{ kind: 'at_least', fields: ['equity', 'forecast'], say: 'Equity of {a} is below the forecast of {b}.', severity: 'high' }],
+      },
+    ]);
+    assert.deepEqual(linked!.fields.map((def) => [def.key, def.sameAs?.set ?? null]), [['equity', null], ['cost', 'cost_quantity.forecast'], ['forecast', 'cost_quantity.forecast']]);
+    assert.equal(linked!.rules.length, 1);
+    assert.equal(own[0]!.fields.length, 2, 'the set as declared is left as it was');
+    assert.deepEqual(catalogFaults([...FIELD_SETS, linked!]), []);
+  });
+
+  it('is never a second box to type in, and names only what the file declares', () => {
+    assert.throws(() => withLinks(own, [{ set: 'finance.funding.plan_x', replace: [num('equity')] }]), /never with another box to type in/);
+    assert.throws(() => withLinks(own, [{ set: 'finance.funding.plan_x', fields: [num('equity')] }]), /already has/);
+    assert.throws(() => withLinks(own, [{ set: 'finance.funding.plan_x', repoint: { equity: forecast } }]), /only a mirror/);
+    assert.throws(() => withLinks(own, [{ set: 'finance.funding.nowhere', fields: [] }]), /does not declare/);
+  });
+
+  it('holds across the catalog: every department reads another, and none of it is a ring', () => {
+    const catalog = fieldCatalog();
+    const department = (fn: string) => fn.split('.')[0]!;
+    const readers = new Set<string>();
+    for (const held of FIELD_SETS) {
+      for (const def of held.fields) if (def.sameAs && !catalog.checks.has(def.sameAs.set) && department(def.sameAs.fn) !== department(held.fn) && def.sameAs.fn !== 'shared') readers.add(department(held.fn));
+      for (const rule of held.rules) for (const address of Object.values(rule.at ?? {})) if (!catalog.checks.has(address.set) && department(address.fn) !== department(held.fn)) readers.add(department(held.fn));
+    }
+    assert.deepEqual([...readers].sort(), ['commercial', 'construction', 'design', 'finance', 'legal']);
+    assert.equal(fieldOrder(catalog).cycle, undefined);
   });
 });
 

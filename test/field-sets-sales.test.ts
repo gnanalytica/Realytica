@@ -285,7 +285,7 @@ describe('a unit and its sale', () => {
     assert.equal(before.shown('sale_lender_consent'), 'hidden');
     assert.equal(before.view('sale_lender_consent').missing, false);
     assert.ok(!before.said().some((text) => /lender/.test(text)));
-    assert.deepEqual(page(p, 'commercial.inventory').situations.map((s) => [s.situation.key, s.state]), [['leads_contacted_by_phone_or_message', 'off'], ['channel_partners_engaged', 'off'], ['joint_development', 'off'], ['lender_funded', 'off']]);
+    assert.deepEqual(page(p, 'commercial.inventory').situations.map((s) => [s.situation.key, s.state]), [['litigation_pending', 'off'], ['leads_contacted_by_phone_or_message', 'off'], ['channel_partners_engaged', 'off'], ['joint_development', 'off'], ['lender_funded', 'off']]);
 
     setSituation(p, 'commercial.inventory', 'joint_development', true, LEAD);
     // A lender is not said: a facility on Lenders' register is one.
@@ -519,7 +519,8 @@ describe('possession and defects', () => {
     const request = sheet(p, 'commercial.handover.requests', id);
     assert.deepEqual(['rectify_by', 'days_left', 'request_standing'].map(request.value), ['2026-10-01', -11, 'Past the time to rectify']);
     assert.equal(request.view('rectify_by').cites?.[0]?.source.clause, 'section 14(3)');
-    add(p, 'commercial.handover.snags', { item: 'Chipped tile at the entrance', unit, trade: 'flooring_and_tiles', raised_on: '2026-09-20' });
+    // A snag is the site's record, kept by Technical against the unit: Handover reads how many are open.
+    add(p, 'construction.quality.snags', { snag_no: 'SN-014', unit, raised_on: '2026-09-20' });
     const handover = sheet(p, 'commercial.handover.possession');
     assert.deepEqual(['snags_open', 'requests_open', 'requests_overdue', 'handover_standing'].map(handover.value), [1, 1, 1, 'A defect is past its time']);
     assert.ok(page(p, 'commercial.handover').exceptions.some((e) => e.text === '1 defect(s) are past the time the Act gives to rectify them.'));

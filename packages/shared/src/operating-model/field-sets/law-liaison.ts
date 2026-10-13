@@ -15,6 +15,7 @@
  */
 
 import type { CheckFieldDef, CheckFormula, FieldAddress, FieldSet, OptionDef, OptionSet, ShowWhen, Tone } from '../types';
+import { withLinks, type SetLinks } from './builders';
 
 const CONTRACTS = 'legal.contracts';
 const RERA = 'legal.rera';
@@ -1637,4 +1638,119 @@ const SITE_SETS: FieldSet[] = [
   },
 ];
 
-export const LAW_LIAISON_FIELD_SETS: FieldSet[] = [...LAND_SETS, ...JDA_SETS, ...CUSTOMER_SETS, ...RERA_SETS, ...REGISTER_SETS, ...PLAN_SETS, ...SITE_SETS];
+/* ==================================================================== */
+/* What Law and Liaison read from the other departments                  */
+/* ==================================================================== */
+
+const TITLE_CLEAR = at('legal.title', 'legal.title.character', 'clear_extent');
+/** The land Title finds clear of restriction: what an agreement, a sanction and a conversion are held to. */
+const clearLand = (section: string, more: Partial<CheckFieldDef> = {}): CheckFieldDef => mirror('land_on_parcel_check', 'Extent clear of restriction, per Title', 'area', TITLE_CLEAR, { unit: 'sqm', section, ...more });
+const JDA_PAYMENTS = 'finance.tax.jda_payments';
+const paidAs = (kind: string): CheckFormula => ({ op: 'sum_if', over: { records: JDA_PAYMENTS }, column: 'amount', where: { column: 'kind', is: 'equals', value: kind } });
+const UNITS_ON_SALE: ShowWhen = { records: 'shared.units', is: 'any', where: { column: 'sale_released', is: 'true' } };
+const ACCOUNT_KEPT: ShowWhen = { situation: 'designated_account_kept' };
+const SALES_STOCK = (field: string) => at('commercial.inventory', 'commercial.inventory.bookings', field);
+const RERA_ACCOUNT = (set: string, field: string) => at('finance.funding', `finance.funding.${set}`, field);
+
+const LAW_LINKS: SetLinks[] = [
+  {
+    set: LAND,
+    replace: [clearLand('land')],
+    // Who has to sign, and what the advocate still asks before closing, are Title's: a purchase is read against them here.
+    fields: [
+      mirror('owners_not_joining', 'Owners with a share who join no deed, per Title', 'number', at('legal.title', 'legal.title.ownership', 'not_joining'), { section: 'obligations', tier: 'situational', showWhen: { field: at('legal.title', 'legal.title.ownership', 'not_joining'), is: 'gt', value: 0 } }),
+      mirror('requisitions_open', 'Requisitions open, per Title', 'number', at('legal.title', 'legal.title.opinion', 'requisitions_open'), { section: 'obligations', tier: 'situational', showWhen: { field: at('legal.title', 'legal.title.opinion', 'requisitions_open'), is: 'gt', value: 0 } }),
+    ],
+    // A lender takes the lease as security: the lessor's consent to mortgage is then a paper the loan waits on.
+    rules: [{ kind: 'require', fields: ['consent_to_mortgage'], when: { all: [{ situation: 'leasehold_land' }, { situation: 'lender_funded' }] }, say: 'A lender funds the project and the lessor’s consent to mortgage the lease is not recorded.', severity: 'high' }],
+  },
+  {
+    set: JDA,
+    replace: [clearLand('terms', { tier: 'situational' })],
+    // What has been paid to the landowner is Tax's record, payment by payment. The agreement's figures are held to it here.
+    fields: [
+      { key: 'refundable_paid', label: 'Refundable deposit paid, per Tax’s payments', kind: 'computed', dimension: 'money', currency: 'INR', section: 'money', tier: 'situational', showWhen: { records: JDA_PAYMENTS, is: 'any' }, formula: paidAs('refundable_deposit') },
+      { key: 'non_refundable_paid', label: 'Paid outright, per Tax’s payments', kind: 'computed', dimension: 'money', currency: 'INR', section: 'money', tier: 'situational', showWhen: { records: JDA_PAYMENTS, is: 'any' }, formula: paidAs('non_refundable') },
+    ],
+    rules: [
+      { kind: 'at_most', fields: ['refundable_paid', 'refundable_deposit'], when: { records: JDA_PAYMENTS, is: 'any' }, say: '{a} has been paid to the landowner as refundable deposit; the agreement provides {b}.', severity: 'medium' },
+      { kind: 'at_most', fields: ['non_refundable_paid', 'non_refundable_deposit'], when: { records: JDA_PAYMENTS, is: 'any' }, say: '{a} has been paid to the landowner outright; the agreement provides {b}.', severity: 'medium' },
+    ],
+  },
+  {
+    set: SALE_AGREEMENT,
+    sections: [{ key: 'in_use', label: 'Agreements as Sales records them', showWhen: UNITS_ON_SALE }],
+    fields: [
+      mirror('agreements_registered', 'Agreements registered', 'number', SALES_STOCK('agreements_registered'), { section: 'in_use', tier: 'situational' }),
+      mirror('agreements_overdue', 'Agreements past the date they were due', 'number', SALES_STOCK('agreements_overdue'), { section: 'in_use', tier: 'situational' }),
+      mirror('advances_over_cap', 'Units holding an advance above the cap', 'number', SALES_STOCK('advances_over_cap'), { section: 'in_use', tier: 'situational' }),
+    ],
+  },
+  {
+    set: REGISTRATION,
+    // What the application declares, read from whoever keeps it. Law types none of these figures.
+    sections: [{ key: 'declared', label: 'Declared with the application, as other departments record it', tier: 'expert' }],
+    fields: [
+      mirror('estimated_cost', 'Estimated cost of the project', 'money', RERA_ACCOUNT('rera_cost', 'total_estimated'), { dimension: 'money', currency: 'INR', section: 'declared' }),
+      mirror('borrowings', 'Borrowings sanctioned', 'money', at('finance.lenders', 'finance.lenders.drawdown', 'sanctioned'), { dimension: 'money', currency: 'INR', section: 'declared' }),
+      mirror('title_opinion', 'Title opinion', 'evidence', at('legal.title', 'legal.title.opinion', 'opinion_doc'), { section: 'declared' }),
+      mirror('charges_open', 'Charges on the land not released', 'number', at('legal.title', 'legal.title.encumbrance', 'charges_open'), { section: 'declared' }),
+      { key: 'agents_engaged', label: 'Channel partners engaged', kind: 'computed', precision: 0, section: 'declared', formula: { op: 'records', set: 'commercial.inventory.partners', reduce: 'count' } },
+    ],
+  },
+  {
+    set: COMPLIANCE,
+    repoint: {
+      // Units sold are counted from the unit records Sales keeps, and progress from the milestones Construction keeps.
+      units_booked: at('commercial.inventory', 'commercial.inventory.stock', 'units_sold'),
+      construction_complete: at('construction.progress', 'construction.progress.programme', 'actual_percent'),
+    },
+    // The designated account's figures are Finance's. They are read here beside the filings they go into.
+    fields: [
+      mirror('realised_in_quarter', 'Realised from allottees in the quarter', 'money', RERA_ACCOUNT('rera_deposit', 'realised'), { dimension: 'money', currency: 'INR', section: 'position', tier: 'situational', showWhen: ACCOUNT_KEPT }),
+      mirror('deposited_in_quarter', 'Deposited in the designated account in the quarter', 'money', RERA_ACCOUNT('rera_deposit', 'deposited'), { dimension: 'money', currency: 'INR', section: 'position', tier: 'situational', showWhen: ACCOUNT_KEPT }),
+      mirror('withdrawn_to_date', 'Withdrawn to date', 'money', RERA_ACCOUNT('rera_withdrawal', 'withdrawn_to_date'), { dimension: 'money', currency: 'INR', section: 'position', tier: 'situational', showWhen: ACCOUNT_KEPT }),
+      mirror('net_withdrawable', 'Net amount that can be withdrawn now', 'money', RERA_ACCOUNT('rera_withdrawal', 'net_withdrawable'), { dimension: 'money', currency: 'INR', section: 'position', tier: 'situational', showWhen: ACCOUNT_KEPT }),
+      mirror('cost_incurred_counted', 'Cost incurred, as the accountant counts it', 'money', RERA_ACCOUNT('rera_cost', 'total_incurred'), { dimension: 'money', currency: 'INR', section: 'position', tier: 'situational', showWhen: ACCOUNT_KEPT }),
+      mirror('cost_to_complete', 'Cost to complete, per the budget', 'money', at('finance.budget', 'finance.budget.to_complete', 'cost_to_complete'), { dimension: 'money', currency: 'INR', section: 'position', tier: 'expert' }),
+    ],
+  },
+  {
+    set: CONVEYANCE,
+    fields: [
+      mirror('units_handed_over', 'Units handed over, per Sales', 'number', at('commercial.handover', 'commercial.handover.possession', 'units_handed_over'), { tier: 'situational', showWhen: { records: 'shared.units', is: 'any', where: { column: 'handover_taken_on', is: 'set' } } }),
+    ],
+  },
+  {
+    set: OCCUPANCY,
+    // Possession is Sales' to record, unit by unit. A unit handed over while no occupancy certificate is recorded is said here.
+    fields: [
+      {
+        key: 'handed_before_certificate',
+        label: 'Units handed over with no occupancy certificate',
+        kind: 'computed',
+        precision: 0,
+        section: 'occupancy',
+        tier: 'situational',
+        showWhen: { records: 'shared.units', is: 'any', where: { column: 'handover_taken_on', is: 'set' } },
+        formula: { op: 'if', when: { field: 'oc_issued', is: 'true' }, then: { op: 'const', value: 0 }, else: { op: 'count_if', over: { records: 'shared.units' }, where: { column: 'handover_taken_on', is: 'set' } } },
+      },
+    ],
+    rules: [{ kind: 'at_most', fields: ['handed_before_certificate'], against: 0, say: '{a} unit(s) are recorded as handed over and no occupancy certificate is recorded.', severity: 'critical' }],
+  },
+  {
+    set: ENVIRONMENT,
+    // The built-up area as designed is the Architect's: the clearance is held to it, and the sewage the plant is sized for is read from Services.
+    fields: [
+      mirror('built_up_designed', 'Built-up area as designed', 'area', at('design.areas', 'design.areas.statement', 'total_built_up'), { unit: 'sqm', section: 'clearance', tier: 'situational', showWhen: { records: 'design.areas.floors', is: 'any' } }),
+      mirror('sewage_generated', 'Sewage generated, per the services design', 'number', at('design.sewage', 'design.sewage.plant', 'sewage_generated'), { unit: 'KLD', section: 'consent', tier: 'expert' }),
+    ],
+    rules: [{ kind: 'at_most', fields: ['built_up_designed', 'ec_built_up_area'], say: 'The design comes to {a} of built-up area; the environment clearance covers {b}.', severity: 'high' }],
+  },
+  // A lift is designed once, by Services. Its permission and licence are kept here, linked to that lift.
+  { set: LIFTS, fields: [{ key: 'designed_as', label: 'Lift, as designed', kind: 'ref', target: { set: 'design.lifts.schedule' }, required: false }] },
+  { set: SANCTION, replace: [clearLand('sanction')] },
+  { set: LAND_USE, replace: [clearLand('conversion', { tier: 'situational' })] },
+];
+
+export const LAW_LIAISON_FIELD_SETS: FieldSet[] = withLinks([...LAND_SETS, ...JDA_SETS, ...CUSTOMER_SETS, ...RERA_SETS, ...REGISTER_SETS, ...PLAN_SETS, ...SITE_SETS], LAW_LINKS);

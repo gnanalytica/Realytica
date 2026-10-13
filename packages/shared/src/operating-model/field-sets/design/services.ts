@@ -628,7 +628,7 @@ export const SERVICES_FIELD_SETS: FieldSet[] = [
       { key: 'fire_lifts', label: 'Fire lifts', kind: 'computed', precision: 0, section: 'provision', formula: countWhere(LIFTS, { column: 'kind', is: 'equals', value: 'fire' }) },
       { key: 'dwellings_per_lift', label: 'Dwellings to a passenger lift', kind: 'computed', precision: 0, section: 'provision', formula: over(read(UNITS_TOTAL), f('passenger_lifts')) },
       { key: 'lift_load', label: 'Connected load of the lifts', kind: 'computed', unit: 'kW', section: 'provision', formula: sumOf(LIFTS, 'connected_kw') },
-      { key: 'licensed', label: 'Lifts with a licence to use', kind: 'computed', precision: 0, section: 'provision', formula: countWhere(LIFTS, { column: 'licence_number', is: 'set' }) },
+      { key: 'licensed', label: 'Lifts with a licence to use', kind: 'computed', precision: 0, section: 'provision', formula: countWhere('legal.approvals.lifts', { column: 'licence_no', is: 'set' }) },
       { key: 'tallest', label: 'Tallest building', kind: 'computed', unit: 'm', section: 'need', formula: { op: 'records', set: 'shared.buildings', reduce: 'max', field: 'height' } },
       { key: 'lift_from', label: 'A lift is needed from this height', kind: 'computed', unit: 'm', section: 'need', formula: { op: 'rate', table: 'lift_required_height_m' } },
       {
@@ -655,11 +655,11 @@ export const SERVICES_FIELD_SETS: FieldSet[] = [
     fn: FN.lifts,
     title: 'Lifts',
     v: 1,
-    records: { of: 'lift', titleField: 'tag', summaryFields: ['building', 'kind', 'licence_valid_until'] },
+    records: { of: 'lift', titleField: 'tag', summaryFields: ['building', 'kind', 'commissioned_on'] },
     sections: [
       { key: 'lift', label: 'Lift' },
-      { key: 'permission', label: 'Permission to erect' },
-      { key: 'licence', label: 'Licence to use' },
+      // The permission to erect and the licence to use are Liaison's records of this lift (legal.approvals.lifts), linked to it from there.
+      { key: 'licence', label: 'Commissioning' },
       { key: 'more', label: 'More', tier: 'expert' },
     ],
     fields: [
@@ -670,21 +670,11 @@ export const SERVICES_FIELD_SETS: FieldSet[] = [
       { key: 'stops', label: 'Stops', kind: 'number', min: 0, precision: 0, section: 'lift', from: 'Vendor data sheet' },
       { key: 'connected_kw', label: 'Connected load', kind: 'number', unit: 'kW', min: 0, section: 'lift', required: false, from: 'Vendor data sheet' },
       { key: 'on_generator', label: 'On the generator', kind: 'boolean', control: 'switch', section: 'lift', required: false },
-      { key: 'permission_number', label: 'Permission number', kind: 'text', section: 'permission', required: false, from: 'Permission to erect' },
-      { key: 'permitted_on', label: 'Permitted on', kind: 'date', section: 'permission', required: false, from: 'Permission to erect' },
-      { key: 'permission', label: 'Permission to erect', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'permission', required: false },
       { key: 'commissioned_on', label: 'Commissioned on', kind: 'date', section: 'licence', required: false, from: 'Vendor’s test certificate' },
-      { key: 'licence_number', label: 'Licence number', kind: 'text', section: 'licence', required: false, from: 'Licence to use' },
-      { key: 'licence_issued_on', label: 'Licence issued on', kind: 'date', section: 'licence', required: false, from: 'Licence to use' },
-      { key: 'licence_valid_until', label: 'Licence valid until', kind: 'date', section: 'licence', required: false, expires: { leadDays: 90 }, from: 'Licence to use' },
-      { key: 'licence', label: 'Licence to use', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'licence', required: false },
       { key: 'speed', label: 'Speed', kind: 'number', unit: 'm/s', min: 0, section: 'more', tier: 'expert', required: false, from: 'Vendor data sheet' },
       { key: 'make', label: 'Make', kind: 'text', suggest: 'party', section: 'more', tier: 'expert', required: false, from: 'Vendor data sheet' },
     ],
     rules: [
-      { kind: 'before', fields: ['permitted_on', 'commissioned_on'], say: 'Commissioned on {b}, before the permission to erect of {a}.', severity: 'high' },
-      { kind: 'before', fields: ['commissioned_on', 'licence_issued_on'], say: 'The licence is dated {b}, before the lift was commissioned on {a}.', severity: 'low' },
-      { kind: 'require_if', fields: ['commissioned_on', 'licence_number'], say: 'The lift was commissioned on {a} and no licence to use is recorded.', severity: 'high' },
     ],
   },
 ];

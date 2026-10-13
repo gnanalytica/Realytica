@@ -504,7 +504,8 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
       shows(rule.when, at('a rule'));
       for (const [key, address] of Object.entries(rule.at ?? {})) if (!exists(address)) faults.push(`${at()}: a rule reads ${address.set}/${address.field} as "${key}", which does not exist.`);
     }
-    const inherited = new Set(set.extends ? (sheets.find((other) => other.id === set.extends)?.fields ?? []).map((def) => def.key) : []);
+    // A rule of a set that adds to a record reads that record as it stands merged: its own fields, and what another department added.
+    const inherited = new Set(set.extends ? (catalog.sets.get(set.extends)?.fields ?? []).map((def) => def.key) : []);
     for (const rule of set.rules) for (const field of rule.fields) if (!keys.has(field) && !inherited.has(field) && !rule.at?.[field]) faults.push(`${at()}: a rule reads "${field}", which is not a field of it.`);
   }
 
@@ -513,7 +514,8 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
     for (const def of set.fields) {
       for (const read of fieldReads(def, set)) {
         const target = catalog.sets.get(read.set);
-        const recordsOnly = def.kind === 'computed' && def.formula?.op === 'records' && !read.field;
+        // A count of a set's records names no field of it, wherever in the formula the count sits.
+        const recordsOnly = !read.field;
         if (recordsOnly ? !target?.records : !exists(read)) faults.push(`${set.id}/${def.key}: reads ${read.set}/${read.field || '(records)'}, which does not exist.`);
       }
       if (def.sameAs && fieldDefAt(def.sameAs, catalog)?.sameAs) faults.push(`${set.id}/${def.key}: mirrors a field that is itself a mirror. Name the field it is entered on.`);

@@ -26,7 +26,8 @@
  * handed to an outside collaborator (`project-view.ts`).
  */
 
-import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldSet, FormulaCondition, OptionDef, RowCondition, Tone } from '../types';
+import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldSet, FormulaCondition, OptionDef, RowCondition, ShowWhen, Tone } from '../types';
+import { withLinks, type SetLinks } from './builders';
 
 /* ==================================================================== */
 /* Names                                                                 */
@@ -63,7 +64,8 @@ const DUES = 'commercial.buyers.dues';
 const CANCELLATIONS = 'commercial.buyers.cancellations';
 const POSSESSION = 'commercial.handover.possession';
 const UNIT_POSSESSION = 'commercial.handover.unit_possession';
-const SNAGS = 'commercial.handover.snags';
+// A snag is the site's record, kept once by Technical (construction.quality.snags) against the unit; Handover reads how many are open.
+const SNAGS = 'construction.quality.snags';
 const REQUESTS = 'commercial.handover.requests';
 
 /**
@@ -1179,7 +1181,7 @@ const POSSESSION_SET: FieldSet = {
     workedCount('units_to_offer', 'Sold, with possession still to offer', once('oc_date', minus(f('units_sold', at(SALES, STOCK, 'units_sold')), f('units_offered'))), { section: 'units' }),
     workedCount('units_handed_over', 'Handed over', countWhere(UNITS, { column: 'sale_status', is: 'equals', value: UNIT_STATUS.handedOver }), { section: 'units' }),
     workedMoney('delay_interest', 'Interest owed to buyers for late possession', sumOf(UNITS, 'handover_delay_interest'), { section: 'units' }),
-    workedCount('snags_open', 'Snags open', minus({ op: 'records', set: SNAGS, reduce: 'count', field: 'item' }, countWhere(SNAGS, { column: 'closed_on', is: 'set' })), { section: 'defects' }),
+    workedCount('snags_open', 'Snags open, per the site', { op: 'records', set: SNAGS, reduce: 'sum', field: 'open' }, { section: 'defects' }),
     workedCount('requests_open', 'Service requests open', countWhere(REQUESTS, { column: 'days_left', is: 'set' }), { section: 'defects' }),
     workedCount('requests_overdue', 'Defects past the time to rectify', countWhere(REQUESTS, { column: 'request_standing', is: 'equals', value: 'Past the time to rectify' }), { section: 'defects' }),
     {
@@ -1253,31 +1255,13 @@ const UNIT_POSSESSION_SET: FieldSet = {
 
 const DEFECT_CATEGORIES = options(['structural', 'seepage or waterproofing', 'plumbing', 'electrical', 'joinery', 'flooring and tiles', 'lift', 'common area', 'papers', 'account']);
 
-const SNAGS_SET: FieldSet = {
-  id: SNAGS,
-  fn: HANDOVER,
-  title: 'Snags before handover',
-  v: 1,
-  records: { of: 'snag', titleField: 'item', summaryFields: ['unit', 'trade', 'closed_on'] },
-  optionSets: [{ id: 'handover_defect_category', label: 'Category', options: DEFECT_CATEGORIES }],
-  fields: [
-    { key: 'item', label: 'Snag', kind: 'text', from: 'Inspection sheet' },
-    { key: 'unit', label: 'Unit', kind: 'ref', target: 'unit' },
-    { key: 'room', label: 'Room', kind: 'enum', options: ['living', 'kitchen', 'bedroom', 'bathroom', 'balcony', 'utility', 'entrance'], required: false },
-    { key: 'trade', label: 'Trade', kind: 'enum', optionSet: 'handover_defect_category' },
-    { key: 'raised_on', label: 'Raised on', kind: 'date', from: 'Inspection sheet' },
-    { key: 'closed_on', label: 'Closed on', kind: 'date', required: false },
-    { key: 'photograph', label: 'Photograph', kind: 'evidence', accepts: 'image', viewer: 'image', required: false },
-  ],
-  rules: [{ kind: 'before', fields: ['raised_on', 'closed_on'], say: 'Closed on {b}, before it was raised on {a}.', severity: 'low' }],
-};
-
 const REQUESTS_SET: FieldSet = {
   id: REQUESTS,
   fn: HANDOVER,
   title: 'Service requests',
   v: 1,
   records: { of: 'service request', titleField: 'request_no', summaryFields: ['unit', 'category', 'request_standing'] },
+  optionSets: [{ id: 'handover_defect_category', label: 'Category', options: DEFECT_CATEGORIES }],
   sections: [
     { key: 'request', label: 'Request' },
     { key: 'liability', label: 'Defect liability', showWhen: { field: at(HANDOVER, REQUESTS, 'in_liability_period'), is: 'true' } },
@@ -1625,7 +1609,69 @@ const ADVERTISING_SET: FieldSet = {
 /* The catalog                                                           */
 /* ==================================================================== */
 
-export const SALES_MARKETING_FIELD_SETS: FieldSet[] = [
+/* ==================================================================== */
+/* What Sales, Marketing, Collections and Handover read from others      */
+/* ==================================================================== */
+
+const RERA = (field: string): FieldAddress => ({ fn: 'legal.rera', set: 'legal.rera.registration', field });
+const REGISTERED: ShowWhen = { situation: 'rera_registered' };
+
+const LINKS: SetLinks[] = [
+  // Nothing is advertised, launched or sold before the project is registered: the day is Legal's, and each date here is held to it.
+  { set: LAUNCH, rules: [{ kind: 'before', fields: ['registered_on', 'launch_date'], at: { registered_on: RERA('registered_on') }, say: 'The launch is set for {b}, before the RERA registration of {a}.', severity: 'critical' }] },
+  { set: ADVERTISEMENTS, rules: [{ kind: 'before', fields: ['registered_on', 'released_on'], at: { registered_on: RERA('registered_on') }, say: 'First released on {b}, before the RERA registration of {a}.', severity: 'critical' }] },
+  {
+    set: UNIT_AGREEMENT,
+    rules: [
+      { kind: 'before', fields: ['registered_on', 'sale_allotted_on'], at: { registered_on: RERA('registered_on') }, say: 'Allotted on {b}, before the RERA registration of {a}.', severity: 'critical' },
+      { kind: 'before', fields: ['sale_possession_promised', 'declared_completion'], at: { declared_completion: RERA('declared_completion') }, when: REGISTERED, say: 'Possession is promised for {a}, after the completion of {b} declared to RERA.', severity: 'high' },
+    ],
+  },
+  {
+    set: UNIT_SALE,
+    // Which side a unit falls to under a joint development is Legal's allocation. One allotted to the land owners is not the promoter's to sell.
+    fields: [
+      {
+        key: 'sale_of_owners_unit',
+        label: 'Released for sale though allotted to the land owners',
+        kind: 'computed',
+        precision: 0,
+        section: 'sale',
+        tier: 'expert',
+        formula: { op: 'if', when: { all: [{ field: 'allotted_to', is: 'equals', value: 'owner' }, { field: 'sale_released', is: 'true' }] }, then: { op: 'const', value: 1 }, else: { op: 'const', value: 0 } },
+      },
+    ],
+    rules: [{ kind: 'at_most', fields: ['sale_of_owners_unit'], against: 0, when: { situation: 'joint_development' }, say: 'This unit is allotted to the land owners under the joint development and is released for sale.', severity: 'high' }],
+  },
+  {
+    set: STOCK,
+    // An order in force that restrains a sale is Litigation's record; the unit count is held to the Architect's unit mix.
+    fields: [
+      { key: 'sale_restraints', label: 'Orders in force restraining a sale', kind: 'number', sameAs: { fn: 'legal.litigation', set: 'legal.litigation.diary', field: 'sale_restraints' }, required: false, section: 'stock', tier: 'situational', showWhen: { situation: 'litigation_pending' } },
+    ],
+    rules: [
+      { kind: 'at_most', fields: ['sale_restraints'], against: 0, say: '{a} order(s) in force restrain a sale or its registration.', severity: 'critical' },
+      { kind: 'compare', fields: ['units_total', 'units_designed'], at: { units_designed: { fn: 'design.brief', set: 'design.brief.sheet', field: 'units_total' } }, when: { records: 'design.brief.unit_types', is: 'any' }, tolerance: 0.001, say: 'The register holds {a} units and the Architect’s unit mix comes to {b}.', severity: 'medium' },
+    ],
+  },
+  {
+    set: CAMPAIGNS,
+    fields: [{ key: 'contract', label: 'Contract with the agency', kind: 'ref', target: 'contract', required: false, tier: 'expert' }],
+  },
+  {
+    set: POSSESSION,
+    // The site hands a unit over before a buyer takes it: Technical's count is the ceiling on Handover's.
+    rules: [{ kind: 'at_most', fields: ['units_handed_over', 'handed_by_site'], at: { handed_by_site: { fn: 'construction.quality', set: 'construction.quality.handover', field: 'units_handed' } }, when: { records: 'shared.units', is: 'any', where: { column: 'readiness', is: 'set' } }, say: '{a} unit(s) are recorded as taken by buyers and the site has handed over {b}.', severity: 'medium' }],
+  },
+  {
+    set: UNIT_POSSESSION,
+    fields: [{ key: 'handover_received_per_demands', label: 'Received on this unit, per Collections', kind: 'computed', dimension: 'money', currency: 'INR', section: 'possession', tier: 'expert', formula: { op: 'sum_if', over: { records: DEMANDS }, column: 'received', where: { column: 'unit', is: 'own' } } }],
+    rules: [{ kind: 'compare', fields: ['handover_paid_by_buyer', 'handover_received_per_demands'], when: { records: DEMANDS, is: 'any' }, say: 'The buyer is taken to have paid {a} and Collections’ receipts on this unit come to {b}.', severity: 'medium' }],
+  },
+];
+
+export const SALES_MARKETING_FIELD_SETS: FieldSet[] = withLinks(
+  [
   // Market
   PRICE_LIST_SET,
   WATCH_SET,
@@ -1655,6 +1701,7 @@ export const SALES_MARKETING_FIELD_SETS: FieldSet[] = [
   // Handover
   POSSESSION_SET,
   UNIT_POSSESSION_SET,
-  SNAGS_SET,
   REQUESTS_SET,
-];
+],
+  LINKS,
+);

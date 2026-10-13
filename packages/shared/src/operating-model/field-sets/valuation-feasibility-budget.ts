@@ -22,7 +22,7 @@
  */
 
 import type { CheckFieldDef, CheckFormula, CheckInsightRule, FieldAddress, FieldSet, FormulaCondition, Situation } from '../types';
-import { statedBySeveral } from './builders';
+import { statedBySeveral, withLinks, type SetLinks } from './builders';
 
 const VAL = 'finance.valuation';
 const FEA = 'finance.feasibility';
@@ -45,7 +45,8 @@ const revenueCheck = (field: string) => at(FEA, 'financial_appraisal.revenue_ass
 const marginCheck = (field: string) => at(FEA, 'financial_appraisal.margin', field);
 const absorption = (field: string) => at('commercial.market', 'commercial_market.absorption', field);
 const forecastCheck = (field: string) => at(BUD, 'cost_quantity.forecast', field);
-const PROGRESS = at('construction.progress', 'schedule_progress.planned_vs_actual', 'actual_percent');
+// Progress is Construction's, worked out from the milestones it keeps: the stage a valuation takes and the progress a budget is held to are read from there.
+const PROGRESS = at('construction.progress', 'construction.progress.programme', 'actual_percent');
 const CONVERSION = at('legal.approvals', 'regulatory.land_use', 'conversion_status');
 
 /* --- The sets of this file --------------------------------------------- */
@@ -1579,4 +1580,77 @@ const BUDGET: FieldSet[] = [
   costToComplete.set,
 ];
 
-export const VALUATION_FEASIBILITY_BUDGET_FIELD_SETS: FieldSet[] = [...VALUATION, ...FEASIBILITY, ...BUDGET];
+/* ==================================================================== */
+/* What Valuation, Feasibility and Budget read from other departments    */
+/* ==================================================================== */
+
+const VARIATIONS = 'procurement.orders.variations';
+const ORDERS = (field: string) => at('procurement.orders', 'procurement.orders.position', field);
+const WITH_LENDER = { situation: 'lender_funded' } as const;
+const ANY_VARIATION = { records: VARIATIONS, is: 'any' } as const;
+
+const LINKS: SetLinks[] = [
+  {
+    set: V_LAND,
+    // Title's own standing and the advocate's verdict, beside the land they are an assumption about; and the head lease, where the land is leased.
+    fields: [
+      mirror('title_standing', 'Title, as Legal finds it', 'text', at('legal.title', 'legal.title.opinion', 'title_standing'), { section: 'land', tier: 'situational', showWhen: { field: at('legal.title', 'legal.title.opinion', 'verdict'), is: 'set' } }),
+      { key: 'title_verdict', label: 'Advocate’s verdict on title', kind: 'enum', optionSet: 'title_verdict', sameAs: at('legal.title', 'legal.title.opinion', 'verdict'), required: false, section: 'land', tier: 'situational', showWhen: { field: at('legal.title', 'legal.title.opinion', 'verdict'), is: 'set' } },
+      { key: 'head_lease_ends', label: 'Head lease ends', kind: 'date', sameAs: at('legal.contracts', 'legal.contracts.land', 'lease_end'), required: false, section: 'interest', tier: 'situational', showWhen: { situation: 'leasehold_land' } },
+      mirror('ground_rent', 'Ground rent, a year', 'money', at('legal.contracts', 'legal.contracts.land', 'ground_rent'), { ...INR, section: 'interest', tier: 'situational', showWhen: { situation: 'leasehold_land' } }),
+    ],
+  },
+  {
+    set: V_REGISTER,
+    // What is owed against the security is Lenders' figure. The cover a lender looks at is worked out from it.
+    fields: [
+      mirror('loan_outstanding', 'Loan outstanding, per Lenders', 'money', at('finance.lenders', 'finance.lenders.position', 'outstanding'), { ...INR, section: 'revaluation', tier: 'situational', showWhen: WITH_LENDER }),
+      worked('loan_to_value_pct', 'Loan to value', { op: 'multiply', left: { op: 'divide', left: there(at('finance.lenders', 'finance.lenders.position', 'outstanding')), right: own('value_now') }, right: { op: 'const', value: 100 } }, { unit: '%', precision: 1, section: 'revaluation', tier: 'situational', showWhen: WITH_LENDER }),
+      { key: 'lender_revalues_every', label: 'Lender revalues every', kind: 'duration', unit: 'months', sameAs: at('finance.lenders', 'finance.lenders.security', 'revaluation_every'), required: false, section: 'revaluation', tier: 'situational', showWhen: WITH_LENDER },
+    ],
+    rules: [rule('at_most', ['validity_months', 'lender_revalues_every'], 'The report is valid for {a} months and the lender revalues every {b}.', 'medium', { when: WITH_LENDER })],
+  },
+  {
+    set: F_REVENUE,
+    rules: [
+      // The landowner's share is the agreement's, which Legal holds.
+      rule('compare', ['owner_share_assumed_pct', 'owner_share_agreed'], 'The appraisal gives the landowner {a} and the joint development agreement {b}.', 'high', { at: { owner_share_agreed: at('legal.contracts', 'legal.contracts.jda', 'owner_share') }, tolerance: 0.001, when: { situation: 'joint_development' } }),
+      // No sale before registration: the launch the appraisal assumes is held to the day Legal records.
+      rule('before', ['registered_on', 'launch_date'], 'The appraisal launches on {b}, before the RERA registration of {a}.', 'high', { at: { registered_on: at('legal.rera', 'legal.rera.registration', 'registered_on') } }),
+    ],
+  },
+  {
+    set: F_COSTS,
+    fields: [
+      mirror('duty_worked_out', 'Stamp duty and fees on the land, per Tax', 'money', at('finance.tax', 'finance.tax.duty', 'worked_out'), { ...INR, section: 'land', tier: 'situational', showWhen: { records: 'finance.tax.instruments', is: 'any' } }),
+      mirror('fees_demanded', 'Approval fees demanded, per Liaison', 'money', at('legal.approvals', 'legal.approvals.register', 'fees_demanded'), { ...INR, section: 'land', tier: 'situational', showWhen: { records: 'shared.approvals', is: 'any', where: { column: 'fees_total', is: 'gt', value: 0 } } }),
+      mirror('debt_sanctioned', 'Debt sanctioned, per Lenders', 'money', at('finance.lenders', 'finance.lenders.drawdown', 'sanctioned'), { ...INR, section: 'debt', tier: 'situational' }),
+    ],
+    rules: [
+      rule('at_least', ['approval_costs', 'fees_demanded'], 'The appraisal carries {a} of approval fees and the authorities have demanded {b}.', 'medium'),
+      rule('compare', ['debt_assumed', 'debt_sanctioned'], 'The appraisal assumes {a} of debt and the lender has sanctioned {b}.', 'medium', { tolerance: 0.05, when: WITH_LENDER }),
+    ],
+  },
+  {
+    set: B_COMMITMENTS,
+    // Variations are Procurement's records. Where it keeps any, their approved total is read from there; the variations check stands in until then.
+    replace: [
+      worked(
+        'variations_on_check',
+        'Variations approved',
+        { op: 'if', when: { left: { op: 'records', set: VARIATIONS, reduce: 'count' }, is: 'gt', right: { op: 'const', value: 0 } }, then: there(ORDERS('variations_approved')), else: there(at(BUD, 'cost_quantity.variations', 'variation_total')) },
+        { ...INR, section: 'awards' },
+      ),
+    ],
+  },
+  {
+    set: B_TO_COMPLETE,
+    fields: [
+      mirror('variations_pending', 'Variations pending, per Procurement', 'money', ORDERS('variations_pending'), { ...INR, section: 'forecast', tier: 'situational', showWhen: ANY_VARIATION }),
+      mirror('built_unapproved', 'Built and not approved, per Procurement', 'money', ORDERS('built_unapproved'), { ...INR, section: 'forecast', tier: 'situational', showWhen: ANY_VARIATION }),
+      mirror('undrawn_loan', 'Loan not yet drawn, per Lenders', 'money', at('finance.lenders', 'finance.lenders.drawdown', 'undrawn'), { ...INR, section: 'forecast', tier: 'situational', showWhen: WITH_LENDER }),
+    ],
+  },
+];
+
+export const VALUATION_FEASIBILITY_BUDGET_FIELD_SETS: FieldSet[] = withLinks([...VALUATION, ...FEASIBILITY, ...BUDGET], LINKS);

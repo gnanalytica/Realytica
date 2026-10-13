@@ -109,7 +109,7 @@ before(async () => {
   const vendorParty = add('shared.parties', { name: 'M. Vendor', kind: 'individual', roles: ['vendor'] });
   add('commercial.inventory.buyers', { party: buyerParty, unit, resident: 'in India', papers_on_file: ['PAN'], co_applicants: [{ party: coBuyerParty, share_pct: 50 }] });
   assert.deepEqual(setFieldValues(project, { set: 'legal.title.holding' }, { seller: vendorParty }, OWNER).rejected, []);
-  add('commercial.handover.snags', { item: 'Chipped tile', unit, trade: 'flooring_and_tiles', raised_on: '2026-09-20' });
+  add('commercial.handover.requests', { request_no: 'SR-001', unit, category: 'flooring_and_tiles', raised_on: '2026-09-20', in_liability_period: false });
   ids = { unit, buyerParty, coBuyerParty, vendorParty };
   store.data.projects!.push(project);
 
@@ -160,7 +160,7 @@ describe('buyers, with sign-in on', () => {
     assert.equal(unit.values.number!.value, 'A-501');
     assert.equal(unit.values.handover_offered_on!.value, '2026-10-01', 'what Handover adds to the unit goes with Handover');
     assert.deepEqual(Object.keys(unit.values).filter((key) => key.startsWith('sale_')), [], 'what Sales adds to the unit does not');
-    assert.equal(body.fieldSheets!['commercial.handover.snags']!.records!.length, 1);
+    assert.equal(body.fieldSheets!['commercial.handover.requests']!.records!.length, 1);
     assert.deepEqual(parties(body), ['M. Vendor'], 'Handover names contractors, so the parties come with it: without the buyers');
   });
 

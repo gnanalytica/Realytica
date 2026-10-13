@@ -2,7 +2,7 @@
  * Shapes a catalog declares often, written once.
  */
 
-import type { CheckFieldDef, FieldSet, RefTarget, Tone } from '../types';
+import type { CheckFieldDef, CheckInsightRule, FieldAddress, FieldSection, FieldSet, RefTarget, Tone } from '../types';
 
 /**
  * One figure stated by several people, side by side: cost to complete by the
@@ -79,4 +79,51 @@ export function statedBySeveral(input: {
       },
     ],
   };
+}
+
+/**
+ * What one set of a file reads from another department.
+ *
+ * A department declares its own facts in its sets. Where one of its sets
+ * needs a fact another department owns, it does not hold it a second time:
+ * it mirrors the owner's field, links to the owner's record, works a figure
+ * out from the owner's records, or holds its own figure to the owner's with
+ * a rule. Those readings are declared together, in the reader's file, as one
+ * list of these, so what a department takes from the others can be read in
+ * one place and none of it is a second box to type in.
+ */
+export interface SetLinks {
+  /** The set of this file the links belong to. */
+  set: string;
+  /** Sections the added fields sit in, where the set has none for them. */
+  sections?: FieldSection[];
+  /** Fields added: a mirror (`sameAs`), a link (`ref`) or a figure worked out from the owner's fields. */
+  fields?: CheckFieldDef[];
+  /** A field the set already declares, given again as a reading of its owner: same key, never a typed kind. */
+  replace?: CheckFieldDef[];
+  /** A mirror the set already declares, pointed at the field its owner now keeps. */
+  repoint?: Record<string, FieldAddress>;
+  /** Rules that hold a figure of this set to another department's (`at`). */
+  rules?: CheckInsightRule[];
+}
+
+/** A file's sets with its links to other departments laid in. A link that names a set or a field that is not there stops the build. */
+export function withLinks(sets: readonly FieldSet[], links: readonly SetLinks[]): FieldSet[] {
+  const out = sets.map((set) => ({ ...set }));
+  for (const link of links) {
+    const set = out.find((held) => held.id === link.set);
+    if (!set) throw new Error(`A link names the set "${link.set}", which this file does not declare.`);
+    const keys = new Set(set.fields.map((def) => def.key));
+    for (const def of link.fields ?? []) if (keys.has(def.key)) throw new Error(`${link.set}/${def.key}: a link adds a field the set already has.`);
+    for (const def of link.replace ?? []) {
+      if (!keys.has(def.key)) throw new Error(`${link.set}/${def.key}: a link replaces a field the set does not have.`);
+      if (!def.sameAs && def.kind !== 'computed' && def.kind !== 'ref' && def.kind !== 'status') throw new Error(`${link.set}/${def.key}: a link replaces a field with a reading of its owner, never with another box to type in.`);
+    }
+    for (const key of Object.keys(link.repoint ?? {})) if (!set.fields.find((def) => def.key === key)?.sameAs) throw new Error(`${link.set}/${key}: only a mirror can be pointed at another field.`);
+    const replaced = new Map((link.replace ?? []).map((def) => [def.key, def]));
+    set.fields = [...set.fields.map((def) => replaced.get(def.key) ?? (link.repoint?.[def.key] ? { ...def, sameAs: link.repoint[def.key] } : def)), ...(link.fields ?? [])];
+    if (link.sections?.length) set.sections = [...(set.sections ?? []), ...link.sections];
+    if (link.rules?.length) set.rules = [...set.rules, ...link.rules];
+  }
+  return out;
 }
