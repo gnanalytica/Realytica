@@ -77,7 +77,8 @@ function PastList({ project, instances, onOpen }: { project: DdProject; instance
         const who = instance.issued ? periodIssuedSaid(project, instance).replace(/^.*? issued( by )?/, '').replace(/, revised$/, '') : '';
         const row = (
           <>
-            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+            {/* Never cut short: on a phone the row wraps, and the period is still said in full. */}
+            <span className="min-w-[8rem] flex-1 text-[13px] text-ink">
               {instance.period.label}
               {instance.perSaid ? ` · ${instance.perSaid}` : ''}
             </span>
