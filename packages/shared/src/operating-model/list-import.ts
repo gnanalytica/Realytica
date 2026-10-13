@@ -132,22 +132,24 @@ export function parseTrackedRows(table: readonly (readonly string[])[], sheetNam
     const distinct = [...new Set(beside)];
     const banner = distinct.length === 1 && (beside.length > 1 || !at(row, 'title')) ? distinct[0]! : undefined;
     const others = row.filter((cell, n) => cell && !named.has(n) && cell !== at(row, 'title')).length;
-    return { row, ref, title: at(row, 'title'), banner, others, sheetRow };
+    // What says a row is an item: a package, an older number, how it stands, the round, what was to hand, who owes it or by when. A remark alone does not.
+    const itemly = (['package', 'oldRef', 'status', 'round', 'availability', 'owedBy', 'targetDate'] as const).some((key) => at(row, key));
+    return { row, ref, title: at(row, 'title'), banner, others, itemly, sheetRow };
   });
 
   const drafts: ChecklistDraft[] = [];
   const packages: string[] = [];
   let stack: ChecklistHeading[] = [];
   let lastPackage: string | undefined;
-  const head = (ref: string, title: string) => {
+  const head = (ref: string, title: string, remark?: string) => {
     const depth = ref ? depthOf(ref) : 1;
     stack = stack.filter((h) => (h.ref ? depthOf(h.ref) : 1) < depth);
-    stack.push({ ...(ref ? { ref } : {}), title: title.slice(0, CHECKLIST_LIMITS.label) });
+    stack.push({ ...(ref ? { ref } : {}), title: title.slice(0, CHECKLIST_LIMITS.label), ...(remark ? { remark: remark.slice(0, CHECKLIST_LIMITS.label) } : {}) });
     if (depth === 1) lastPackage = undefined;
     sections += 1;
   };
 
-  for (const line of body) {
+  for (const [n, line] of body.entries()) {
     if (line.banner !== undefined) {
       // "2 TOWER – CIVIL & STRUCTURAL WORKS" in one cell: the number leads it.
       const lead = /^([A-Za-z]?\d{1,3}(?:\.[A-Za-z0-9]{1,3}){0,5})[.)]?\s+(.+)$/.exec(line.banner);
@@ -168,6 +170,13 @@ export function parseTrackedRows(table: readonly (readonly string[])[], sheetNam
     // A number and a name and nothing else is a section, never a paper: an item of a tracked list says at least how it stands.
     if (!line.others) {
       head(line.ref, line.title);
+      continue;
+    }
+    // A heading may carry a remark on its whole section ("3.3 Façade · Concept attached"). It is still a heading where it says
+    // nothing an item says and the rows under it are numbered beneath its own number: counted as a paper, every total is one over.
+    const under = body.slice(n + 1).find((other) => other.ref)?.ref;
+    if (columns.status !== undefined && !line.itemly && line.ref && under?.startsWith(`${line.ref}.`)) {
+      head(line.ref, line.title, [at(line.row, 'remark'), at(line.row, 'note')].filter(Boolean).join(' · '));
       continue;
     }
     const status = columns.status === undefined ? undefined : listStatus(at(line.row, 'status'));
@@ -235,25 +244,41 @@ export const PACKAGE_DESKS: ReadonlyArray<{ says: RegExp; fn: string; said: stri
 
 export interface PackageDesk {
   package: string;
-  /** The function its lines go to, where one is known. */
+  /** The function its lines go to, where whoever loads the list said so. Absent: they stay on the desk the list is loaded on. */
   fn?: string;
   department?: DepartmentKey;
+  /** The function the words of its name point to (`PACKAGE_DESKS`): offered as a choice, never taken unasked. */
+  suggested?: string;
+  /** How many lines of the list are of this package. */
+  lines?: number;
 }
 
 const packageKey = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 /**
- * Each package of a list with the function it goes to: the one the firm
- * names for it (`given`, by the package's name), else the table's. A package
- * neither knows goes to the desk the list was loaded on.
+ * Each package of a list with the function it goes to. A list stays on the
+ * desk it is loaded on: a package goes elsewhere only where whoever loads it
+ * names a function for it (`given`, by the package's name). The function the
+ * words of its name point to is handed back as `suggested`, for the load box
+ * to offer, and moves nothing by itself.
  */
 export function packageDesks(packages: readonly string[], given: Readonly<Record<string, string>> = {}): PackageDesk[] {
   const named = new Map(Object.entries(given).map(([pack, fn]) => [packageKey(pack), fn]));
   return packages.map((pack) => {
-    const fn = named.get(packageKey(pack)) ?? PACKAGE_DESKS.find((desk) => desk.says.test(pack))?.fn;
+    const fn = named.get(packageKey(pack));
     const department = fn ? workstreamDefinition(fn)?.department : undefined;
-    return { package: pack, ...(fn && department ? { fn, department } : {}) };
+    const suggested = PACKAGE_DESKS.find((desk) => desk.says.test(pack))?.fn;
+    return { package: pack, ...(fn && department ? { fn, department } : {}), ...(suggested ? { suggested } : {}) };
   });
+}
+
+/**
+ * The answer a firm gives where it chooses to send each package to the
+ * function that keeps it: the table's function for each package it knows,
+ * by the package's name. What the load box sends when that is ticked.
+ */
+export function suggestedDesks(packages: readonly string[]): Record<string, string> {
+  return Object.fromEntries(packageDesks(packages).flatMap((desk) => (desk.suggested ? [[desk.package, desk.suggested]] : [])));
 }
 
 /** A list's lines, each sent to the function and the desk its package belongs to. */

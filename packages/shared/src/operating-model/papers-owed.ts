@@ -199,7 +199,7 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
         const reply = opts.outside ? undefined : answeredLines.get(line.item.id)?.reply;
         const party = line.item.owedBy ?? line.askedOf;
         // Under its own sections where the list has them, each with its number; else its stage and package as before.
-        const sections = (line.item.headings ?? []).map((heading) => [heading.ref, heading.title].filter(Boolean).join(' '));
+        const sections = (line.item.headings ?? []).map((heading) => `${[heading.ref, heading.title].filter(Boolean).join(' ')}${heading.remark ? ` (${heading.remark})` : ''}`);
         const where = [line.item.stage, line.item.package, ...sections].filter(Boolean).join(' · ');
         const standing: PaperStanding =
           line.status === 'received' ? 'in_hand' : line.mark === 'assumed' ? 'assumed' : reply ? 'answered' : line.mark === 'partial' ? 'partial' : line.status === 'pending' ? 'not_asked' : 'asked';
@@ -354,7 +354,7 @@ export function papersNeedSaid(view: Pick<PapersOwed, 'notAsked' | 'nobodyNamed'
 /** How one line stands, in a line under its name. */
 export function paperLineSaid(line: PaperLine, day: (iso: string) => string, opts: { tracked?: boolean } = {}): string {
   if (line.standing === 'in_hand') return line.fileName ?? (line.from === 'request' ? 'Answered' : line.checklist?.item.received?.fromList ? 'Received, by the list' : 'Marked in hand');
-  if (line.standing === 'assumed') return `Will not come · ${line.assumer} to assume${line.checklist?.item.assumed?.fields?.length ? '' : ' · no field named'}`;
+  if (line.standing === 'assumed') return `Will not come · ${line.assumer} to assume${line.checklist?.item.assumed?.fields?.length ? '' : ' · what is assumed is not recorded yet'}`;
   if (line.standing === 'answered') return `Answered by ${line.repliedBy ?? 'them'} · waiting for you to confirm`;
   const due = line.dueAt ? `due ${day(line.dueAt)}${line.overdue ? ' (overdue)' : ''}` : '';
   // The one quiet mark: who owes it and by when is said where either is missing, on a list that keeps them.

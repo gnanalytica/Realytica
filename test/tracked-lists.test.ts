@@ -38,6 +38,7 @@ import {
   loadTrackedList,
   markChecklistPartial,
   packageDesks,
+  suggestedDesks,
   paperLineSaid,
   papersOwed,
   papersOwedCsvFile,
@@ -151,7 +152,7 @@ async function tracked(rows: Row[]) {
 async function loaded(rows: Row[] = FIRST): Promise<DdProject> {
   const p = project();
   const read = await tracked(rows);
-  loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages)), 'qs@northbank.example');
+  loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages, suggestedDesks(read.packages))), 'qs@northbank.example');
   return p;
 }
 
@@ -255,7 +256,14 @@ describe('the lines it puts on the project', () => {
         ['design', 'design.electrical'],
       ],
     );
-    assert.deepEqual(packageDesks(['MEP', 'Lifts and escalators'], { mep: 'design.fire' }), [{ package: 'MEP', fn: 'design.fire', department: 'design' }, { package: 'Lifts and escalators' }]);
+    assert.deepEqual(packageDesks(['MEP', 'Lifts and escalators'], { mep: 'design.fire' }), [{ package: 'MEP', fn: 'design.fire', department: 'design', suggested: 'design.electrical' }, { package: 'Lifts and escalators' }]);
+    // Left unanswered, the table moves nothing: it says where a package could go, and the list stays on the desk it is loaded on.
+    assert.deepEqual(packageDesks(['MEP', 'General']), [{ package: 'MEP', suggested: 'design.electrical' }, { package: 'General', suggested: 'finance.budget' }]);
+    const stays = project();
+    const whole = await tracked(FIRST);
+    loadTrackedList(stays, 'finance', placeDrafts(whole.drafts, packageDesks(whole.packages)), 'qs');
+    assert.deepEqual([...new Set(stays.checklist!.map((item) => item.department))], ['finance'], 'every line is on the desk it was loaded on');
+    assert.equal(stays.checklist!.some((item) => item.fn), false);
     // A package the table does not know stays on the desk the list was loaded on.
     const q = project();
     loadTrackedList(q, 'procurement', placeDrafts([{ title: 'Lift traffic analysis', list: 'L', ref: '1', package: 'Vertical transport', status: 'pending' }], packageDesks(['Vertical transport'])), 'qs');
@@ -286,7 +294,7 @@ describe('the lines it puts on the project', () => {
   it('are kept in the list’s own order, with a line a later copy adds set where the list puts it', async () => {
     const p = await loaded();
     const read = await tracked(second());
-    loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages)), 'qs@northbank.example');
+    loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages, suggestedDesks(read.packages))), 'qs@northbank.example');
     const refs = checklistSheet(p, { department: 'design', now: NOW }).stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines)).map((line) => line.item.ref);
     assert.deepEqual(refs.slice(0, 4), ['2.1.1', '2.1.2', '2.1.3', '2.1.4']);
   });
@@ -297,7 +305,7 @@ describe('the same list sent again', () => {
     const p = await loaded();
     const before = p.checklist!.map((item) => item.id);
     const read = await tracked(second());
-    const drafts = placeDrafts(read.drafts, packageDesks(read.packages));
+    const drafts = placeDrafts(read.drafts, packageDesks(read.packages, suggestedDesks(read.packages)));
     const would = loadTrackedList(p, 'finance', drafts, 'qs@northbank.example', { dryRun: true });
     assert.equal(p.checklist!.length, 16, 'a dry run changes nothing');
     const report = loadTrackedList(p, 'finance', drafts, 'qs@northbank.example');
@@ -337,7 +345,7 @@ describe('the same list sent again', () => {
     const rows = FIRST.map((row) => [...row]);
     // The list still calls 1.3 pending: a person here has it in hand, with its document.
     const read = await tracked(rows);
-    const report = loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages)), 'qs@northbank.example');
+    const report = loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages, suggestedDesks(read.packages))), 'qs@northbank.example');
     assert.deepEqual([report.reopened, report.becameReceived], [[], []]);
     assert.equal(paper(p, '1.3').standing, 'in_hand');
     assert.deepEqual([lineOf(p, '4.1').owedBy, lineOf(p, '4.1').targetDate], ['Greenline Landscape', '2026-12-01']);
@@ -353,7 +361,7 @@ describe('partly in hand, and to be assumed', () => {
     assert.equal(paperLineSaid(paper(p, '4.1'), day, { tracked: true }), 'Partly in hand, still wanted: Planting schedule and irrigation layout · Asked in E mail 02 · nobody named, no date');
     assumeChecklistItem(p, id, { assumer: 'Northbank Cost Consultants' }, 'pm@builders.example');
     assert.deepEqual([paper(p, '4.1').standing, paper(p, '4.1').assumer, lineOf(p, '4.1').partial], ['assumed', 'Northbank Cost Consultants', undefined]);
-    assert.equal(paperLineSaid(paper(p, '4.1'), day), 'Will not come · Northbank Cost Consultants to assume · no field named');
+    assert.equal(paperLineSaid(paper(p, '4.1'), day), 'Will not come · Northbank Cost Consultants to assume · what is assumed is not recorded yet');
     assumeChecklistItem(p, id, null, 'pm@builders.example');
     assert.equal(paper(p, '4.1').standing, 'asked');
     assert.throws(() => assumeChecklistItem(p, id, { assumer: ' ' }, 'pm'), /Name who is to assume/);
@@ -560,9 +568,9 @@ describe('what a rehearsal on real lists found', () => {
     const p = project();
     addChecklistItems(p, 'finance', [{ title: 'A line typed by hand' }], 'pm');
     const read = await tracked(FIRST);
-    loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages)), 'qs', { load: 'load_first' });
+    loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages, suggestedDesks(read.packages))), 'qs', { load: 'load_first' });
     const later = await tracked(second());
-    loadTrackedList(p, 'finance', placeDrafts(later.drafts, packageDesks(later.packages)), 'qs', { load: 'load_second' });
+    loadTrackedList(p, 'finance', placeDrafts(later.drafts, packageDesks(later.packages, suggestedDesks(later.packages))), 'qs', { load: 'load_second' });
     assert.deepEqual(checklistLoads(p), [{ list: 'INFORMATION REQUIRED TO UPDATE THE BUDGET', lines: 17, departments: ['finance', 'design'] }]);
     // Taking the second load back takes the one line it added, and no line of the first.
     assert.deepEqual(removeChecklistLoad(p, { load: 'load_second' }, 'pm').map((item) => item.ref), ['2.1.3']);
@@ -686,7 +694,7 @@ describe('a project that had a checklist before any of this', () => {
   it('keeps its own lines apart from a tracked list loaded beside it', async () => {
     const p = old();
     const read = await tracked(FIRST);
-    loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages)), 'qs@northbank.example');
+    loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages, suggestedDesks(read.packages))), 'qs@northbank.example');
     assert.equal(p.checklist!.length, 19);
     assert.deepEqual(p.checklist!.slice(0, 3).map((item) => [item.title, item.list, item.ref]), [['Soil investigation report', undefined, undefined], ['Built-up area statement', undefined, undefined], ['Basic prices', undefined, undefined]]);
   });

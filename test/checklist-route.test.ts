@@ -267,22 +267,28 @@ async function tenderForm(defects = '12 months'): Promise<Uint8Array> {
 }
 
 describe('a tracked list sent to the project', () => {
-  it('is looked at first, goes to the desks its packages belong to, and updates its own lines when it is sent again', async () => {
+  it('is looked at first, stays on the desk it is loaded on unless a package is sent elsewhere, and updates its own lines when it is sent again', async () => {
     const project = await seeded();
     const at = `/api/projects/${project.id}/checklist`;
     const preview = await call('POST', `${at}/import`, { department: 'finance', text: trackedText(), preview: true });
     assert.equal(preview.status, 200);
     assert.deepEqual([preview.body.kind, preview.body.list, preview.body.lines, preview.body.project], ['tracked', 'INFORMATION REQUIRED TO UPDATE THE BUDGET', 5, undefined]);
+    // Each package with how many lines it has and where it could go. None is sent anywhere: nobody chose to.
     assert.deepEqual(preview.body.desks, [
-      { package: 'General', fn: 'finance.budget', department: 'finance' },
-      { package: 'Civil and structural', fn: 'design.structure', department: 'design' },
-      { package: 'MEP', fn: 'design.electrical', department: 'design' },
+      { package: 'General', suggested: 'finance.budget', lines: 2 },
+      { package: 'Civil and structural', suggested: 'design.structure', lines: 2 },
+      { package: 'MEP', suggested: 'design.electrical', lines: 1 },
     ]);
     assert.equal(preview.body.report.added.length, 5);
     assert.equal((await call('GET', `/api/projects/${project.id}`)).body.checklist ?? undefined, undefined, 'looking changes nothing');
 
-    // The firm sends MEP to another of its functions as it loads the list.
-    const loaded = await call('POST', `${at}/import`, { department: 'finance', text: trackedText(), desks: { MEP: 'design.fire' } });
+    // Loaded with no package sent anywhere, every line stays on Finance, where it was loaded.
+    const kept = await seeded();
+    const stayed = await call('POST', `/api/projects/${kept.id}/checklist/import`, { department: 'finance', text: trackedText() });
+    assert.deepEqual((stayed.body.project.checklist as Array<Record<string, any>>).map((line) => [line.ref, line.department, line.fn]), [['1.1', 'finance', undefined], ['1.2', 'finance', undefined], ['2.1', 'finance', undefined], ['2.2', 'finance', undefined], ['3.1', 'finance', undefined]]);
+
+    // The firm chooses to send each package to a function as it loads the list: MEP to another than the table's.
+    const loaded = await call('POST', `${at}/import`, { department: 'finance', text: trackedText(), desks: { General: 'finance.budget', 'Civil and structural': 'design.structure', MEP: 'design.fire' } });
     assert.equal(loaded.status, 201);
     assert.deepEqual([loaded.body.kind, loaded.body.added, loaded.body.said], ['tracked', 5, '5 added']);
     const lines = loaded.body.project.checklist as Array<Record<string, any>>;
@@ -298,7 +304,7 @@ describe('a tracked list sent to the project', () => {
     );
     assert.equal((await call('POST', `${at}/import`, { department: 'finance', text: trackedText(), desks: { MEP: 'no.such.function' } })).status, 400);
 
-    const again = await call('POST', `${at}/import`, { department: 'finance', text: trackedText({ '2.2': 'Received', '1.2': 'Received' }), desks: { MEP: 'design.fire' } });
+    const again = await call('POST', `${at}/import`, { department: 'finance', text: trackedText({ '2.2': 'Received', '1.2': 'Received' }), desks: { General: 'finance.budget', 'Civil and structural': 'design.structure', MEP: 'design.fire' } });
     assert.deepEqual([again.status, again.body.added, again.body.said], [201, 0, '2 now received']);
     assert.deepEqual(again.body.report.becameReceived, ['1.2 Project programme with key dates', '2.2 Basement waterproofing specification']);
     assert.equal(again.body.project.checklist.length, 5);

@@ -244,17 +244,18 @@ describe('a list that runs across departments, and a tender form', () => {
   };
 
   it('is not loaded into a department its sender only reads, from whichever desk it is sent', async () => {
-    // Vera edits in Legal as any of the firm's staff does, and only reads Finance. The list's first package is the budget's.
+    // Vera edits in Legal as any of the firm's staff does, and only reads Finance. She chooses to send the list's first package to the budget, where it would be kept.
     const before = (await lines()).checklist!.length;
     for (const preview of [true, false]) {
-      const answer = await call('POST', `${at()}/checklist/import`, { token: viewer(), body: { department: 'legal', text: TRACKED, ...(preview ? { preview } : {}) } });
+      const answer = await call('POST', `${at()}/checklist/import`, { token: viewer(), body: { department: 'legal', text: TRACKED, desks: { General: 'finance.budget' }, ...(preview ? { preview } : {}) } });
       assert.equal(answer.status, 403, JSON.stringify(answer.body));
       assert.match(answer.body.error, /finance/);
     }
     assert.equal((await lines()).checklist!.length, before);
-    // Sent to a function she edits in, it loads.
-    const moved = await call('POST', `${at()}/checklist/import`, { token: viewer(), body: { department: 'legal', text: TRACKED, desks: { General: 'legal.title' } } });
+    // Left on the desk she loads it on, where she edits, it loads whole: no package is sent anywhere she was not asked about.
+    const moved = await call('POST', `${at()}/checklist/import`, { token: viewer(), body: { department: 'legal', text: `Information required by the advocate\n${TRACKED}` } });
     assert.equal(moved.status, 201, JSON.stringify(moved.body).slice(0, 200));
+    assert.deepEqual([...new Set((moved.body.project.checklist as Array<{ load?: string; department: string }>).filter((item) => item.load === moved.body.load).map((item) => item.department))], ['legal']);
   });
 
   it('a load is taken back, and a list removed, only by somebody who may edit on every desk its lines are on', async () => {

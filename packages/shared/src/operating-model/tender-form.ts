@@ -33,6 +33,7 @@ import { optionSetById, type FieldCatalog } from './field-registry';
 import { addFieldRecord, decideField, fieldRecords, proposeFieldValues, readSheet, refChoices, type FieldProposal, type FieldWriteOptions } from './field-sheets';
 import { TENDER_TERMS } from './field-sets/construction-procurement/tender-terms';
 import { fieldCatalogFor } from './firm-fields';
+import { partiesByRole } from './project-parties';
 import { daySaid } from './said';
 import type { CheckFieldDef, CheckFieldValue, DdProject, FieldAddress } from './types';
 
@@ -52,7 +53,7 @@ type Picks = ReadonlyArray<readonly [string, RegExp]>;
 
 /** How a response is read as one field's value. */
 type Reader =
-  | { as: 'yes_no' }
+  | { as: 'yes_no'; about?: RegExp; lead?: boolean }
   | { as: 'share'; nth?: number; after?: RegExp; last?: boolean }
   | { as: 'money' }
   | { as: 'count'; unit: 'days' | 'months' | 'years' | 'kva'; nth?: number }
@@ -159,8 +160,8 @@ export const TENDER_FORM_ROWS: readonly TenderFormSection[] = [
     rows: [
       { no: '5.1', item: 'Water for construction', details: 'Available at site (yes / no), source, and free / chargeable / contractor to arrange', fields: [{ key: 'water_available', tag: 'Available', read: { as: 'yes_no' } }, { key: 'water_source', tag: 'Source', read: { as: 'pick', of: [['borewell', /bore ?well/i], ['tanker', /tanker/i], ['municipal supply', /municipal|corporation|board|mains|piped/i]] } }, { key: 'water_charges', tag: 'Charges', read: { as: 'pick', of: CHARGES } }] },
       { no: '5.2', item: 'Electricity for construction', details: 'Available (yes / no), connection point, sanctioned load, and free / chargeable / contractor to arrange', fields: [{ key: 'power_available', tag: 'Available', read: { as: 'yes_no' } }, { key: 'power_point', tag: 'Connection point', read: { as: 'pick', of: [['at the transformer', /transformer/i], ['at the client’s panel', /panel|\bdb\b|distribution board/i], ['at the site boundary', /boundary|gate|entrance/i]] } }, { key: 'sanctioned_load', tag: 'Sanctioned load', read: { as: 'count', unit: 'kva' } }, { key: 'power_charges', tag: 'Charges', read: { as: 'pick', of: CHARGES } }] },
-      { no: '5.3', item: 'Borewell permitted', details: 'Yes / No', fields: [{ key: 'borewell_permitted', read: { as: 'yes_no' } }] },
-      { no: '5.4', item: 'Contractor to provide generator backup', details: 'Yes / No', fields: [{ key: 'generator_by_contractor', read: { as: 'yes_no' } }] },
+      // One row, as a consultant's form asks it: is a borewell permitted, and is the contractor to bring a generator.
+      { no: '5.3', item: 'Borewell and generator set', details: 'Borewell permitted (yes / no); contractor to provide generator backup (yes / no)', fields: [{ key: 'borewell_permitted', tag: 'Borewell permitted', read: { as: 'yes_no', about: /bore ?well/i, lead: true } }, { key: 'generator_by_contractor', tag: 'Generator backup by the contractor', read: { as: 'yes_no', about: /generator|\bdg\b|genset|back ?up/i } }] },
     ],
   },
   {
@@ -390,17 +391,69 @@ export function wordingAlike(a: string, b: string): number {
  * section and its number where they agree. A row whose wording is not near
  * any is left unmatched, and said.
  */
-export function tenderFormRowFor(row: { no: string; item: string; section?: string }, taken: ReadonlySet<string> = new Set()): TenderFormRow | undefined {
+export function tenderFormRowFor(row: { no: string; item: string; section?: string; details?: string }, taken: ReadonlySet<string> = new Set()): TenderFormRow | undefined {
+  const best = rowScores(row)
+    .filter((held) => !taken.has(held.row.no))
+    .sort((a, b) => b.score - a.score)[0];
+  return best && best.score >= ROW_MATCH ? best.row : undefined;
+}
+
+const ROW_MATCH = 0.6;
+
+/** The kinds of answer a row's own "details" ask for, read from its words: a yes or no, a percentage, a period. */
+function kindsAsked(details: string | undefined): Array<'yes_no' | 'share' | 'count'> {
+  const said = details ?? '';
+  return [/\byes\s*\/\s*no\b/i.test(said) ? ('yes_no' as const) : undefined, /%|per ?cent/i.test(said) ? ('share' as const) : undefined, /\b(?:months?|days?|years?|period)\b/i.test(said) ? ('count' as const) : undefined].filter((kind): kind is 'yes_no' | 'share' | 'count' => kind !== undefined);
+}
+
+/**
+ * How well each row of the table answers to a written row.
+ *
+ * A consultant writes a row in as few words as its section allows: under
+ * the retention's heading the rows are "Retention rate" and "Ceiling", and
+ * under the advance's one is "Interest". Read by its words alone
+ * such a row is its neighbour's or nobody's. So a row is known by three
+ * things together: its wording, with its "details" beside it; its section;
+ * and its number within that section, which counts for most where the
+ * section is the table's own. A row whose details ask for a kind of answer
+ * none of a candidate's fields takes (a yes or no, a percentage, a period)
+ * is held to be less likely that candidate.
+ */
+function rowScores(row: { no: string; item: string; section?: string; details?: string }): Array<{ row: TenderFormRow; score: number }> {
   const section = row.section ? TENDER_FORM_ROWS.map((s) => ({ s, score: wordingAlike(row.section!, s.title) })).sort((a, b) => b.score - a.score)[0] : undefined;
-  let best: { row: TenderFormRow; score: number } | undefined;
+  const asked = kindsAsked(row.details);
+  const no = row.no.replace(/[.)]+$/, '');
+  const out: Array<{ row: TenderFormRow; score: number }> = [];
   for (const held of TENDER_FORM_ROWS) {
+    const inSection = Boolean(section && section.score >= 0.5 && section.s === held);
     for (const candidate of held.rows) {
-      if (taken.has(candidate.no)) continue;
-      const score = wordingAlike(row.item, candidate.item) + (section && section.score >= 0.5 && section.s === held ? 0.25 : 0) + (row.no.replace(/[.)]+$/, '') === candidate.no ? 0.15 : 0);
-      if (!best || score > best.score) best = { row: candidate, score };
+      const wording = Math.max(wordingAlike(row.item, candidate.item), row.details ? wordingAlike(`${row.item} ${row.details}`, `${candidate.item} ${candidate.details}`) * 0.9 : 0);
+      const kinds = new Set(candidate.fields.map((field) => field.read.as));
+      const wrongKind = asked.length > 0 && candidate.fields.length > 0 && !asked.some((kind) => kinds.has(kind));
+      const score = wording + (inSection ? 0.25 : 0) + (no === candidate.no ? (inSection ? 0.45 : 0.15) : 0) - (wrongKind ? 0.35 : 0);
+      out.push({ row: candidate, score });
     }
   }
-  return best && best.score >= 0.6 ? best.row : undefined;
+  return out;
+}
+
+/**
+ * The rows of the table that the written rows of one form are, all at once:
+ * the surest pair is settled first, so a row that is plainly one of the
+ * table's is never taken by a vaguer one written above it. A written row
+ * that is near none is left unmatched, in its place.
+ */
+export function tenderFormRowsFor(rows: ReadonlyArray<{ no: string; item: string; section?: string; details?: string }>): Array<TenderFormRow | undefined> {
+  const pairs = rows.flatMap((row, at) => rowScores(row).filter((held) => held.score >= ROW_MATCH).map((held) => ({ at, ...held })));
+  pairs.sort((a, b) => b.score - a.score || a.at - b.at);
+  const out: Array<TenderFormRow | undefined> = rows.map(() => undefined);
+  const taken = new Set<string>();
+  for (const pair of pairs) {
+    if (out[pair.at] || taken.has(pair.row.no)) continue;
+    out[pair.at] = pair.row;
+    taken.add(pair.row.no);
+  }
+  return out;
 }
 
 /* ==================================================================== */
@@ -478,8 +531,16 @@ function valueFor(project: DdProject, catalog: FieldCatalog, response: string, f
   if (!text) return undefined;
   const read = field.read;
   switch (read.as) {
-    case 'yes_no':
-      return /^(?:yes|y|applicable|permitted|allowed|available|required|provided)\b/i.test(text) ? true : /^(?:no|n|not|nil|none)\b/i.test(text) ? false : undefined;
+    case 'yes_no': {
+      const plain = (said: string): boolean | undefined => (/^(?:yes|y|applicable|permitted|allowed|available|required|provided)\b/i.test(said) ? true : /^(?:no|n|not|nil|none)\b/i.test(said) ? false : undefined);
+      if (!read.about || tagged) return plain(text);
+      // One row that asks two things: each answer is the part of the response that speaks of it.
+      const parts = text.split(/[;.?\n]+|,\s+(?=[A-Za-z])/).map((part) => part.trim()).filter(Boolean);
+      const part = parts.find((held) => read.about!.test(held));
+      if (!part) return read.lead ? plain(text) : undefined;
+      if (/\b(?:no|not|nil|none|never)\b/i.test(part)) return false;
+      return /\b(?:yes|permitted|allowed|applicable|required|provided?|to (?:provide|bring|arrange|supply|install)|shall|will|by (?:the )?contractor)\b/i.test(part) ? true : plain(part.replace(read.about, '').replace(/^[\s:–—-]+/, ''));
+    }
     case 'share': {
       const shares = all(text, SHARE);
       if (tagged && !shares.length && /^\d+(?:\.\d+)?$/.test(text)) return Number(text);
@@ -538,6 +599,11 @@ const isNotApplicable = (text: string): boolean => /^(?:n\.?\s?\/?\s?a\.?|not ap
 /* ==================================================================== */
 /* Loading a form                                                        */
 /* ==================================================================== */
+
+/** The fields of the Tender terms sheet a row of the form asks for: its answers, and the paper it names. */
+function rowFields(row: TenderFormRow): string[] {
+  return [...row.fields.map((field) => field.key), ...(row.paper ? [row.paper] : [])].filter((key, n, keys) => keys.indexOf(key) === n);
+}
 
 /** A row a client marked "Not Applicable": offered, and taken or set aside by a person. */
 export interface TenderFormOffer {
@@ -643,8 +709,12 @@ export function loadTenderForm(
   }
   const responseBy = listDay(read.header.responseBy);
 
-  for (const written of read.rows) {
-    const form = tenderFormRowFor(written, taken);
+  // Who owes an unanswered row: the client. Where People names one owner, that party, so the lines are theirs by the name every other list uses; else the client as the form writes it.
+  const owners = partiesByRole(project).groups.find((group) => group.key === 'owner')?.parties ?? [];
+  const client = owners.length === 1 ? owners[0]!.name : read.header.client ? flat(read.header.client) : 'Client';
+  const matched = tenderFormRowsFor(read.rows);
+  for (const [n, written] of read.rows.entries()) {
+    const form = matched[n];
     if (!form) {
       report.unmatched.push({ no: written.no, item: written.item });
       continue;
@@ -661,11 +731,13 @@ export function loadTenderForm(
       headings: [{ ref: section.no, title: section.title }],
       fn: FN,
       ...(pack ? { package: pack } : {}),
-      owedBy: read.header.client ? flat(read.header.client) : 'Client',
+      owedBy: client,
       round: 'Tender form',
       ...(responseBy ? { targetDate: responseBy } : {}),
       status: answered ? 'received' : 'pending',
       ...(answered ? { remark: response || `Attached: ${written.attached}` } : {}),
+      // The fields the row asks for: a value that stands on any of them, typed on the sheet or accepted from a form, answers the line.
+      answers: { set: TENDER_TERMS, fields: rowFields(form) },
     });
     if (!answered) {
       report.unanswered += 1;
@@ -752,7 +824,9 @@ export function loadTenderForm(
   });
   // A form with nothing to offer still fills a record of its own, so what is not applicable has somewhere to be decided.
   if (!record && offers.length) record = addFieldRecord(project, TENDER_TERMS, {}, input.actor, {}, catalog).record?.id;
-  report.owed = loadTrackedList(project, 'procurement', drafts.map((draft) => ({ ...draft, department: 'procurement' as const })), input.actor, { openOnly: true, ...(input.load ? { load: input.load } : {}) });
+  // A blank form still fills a record of its own: its rows are answered on that record's sheet, and a line owed has to know which.
+  if (!record && drafts.some((draft) => draft.status !== 'received')) record = addFieldRecord(project, TENDER_TERMS, {}, input.actor, {}, catalog).record?.id;
+  report.owed = loadTrackedList(project, 'procurement', drafts.map((draft) => ({ ...draft, department: 'procurement' as const, ...(draft.answers && record ? { answers: { ...draft.answers, record } } : {}) })), input.actor, { openOnly: true, ...(input.load ? { load: input.load } : {}) });
   if (record) {
     report.record = record;
     // What is already not applicable on the sheet is not offered again.

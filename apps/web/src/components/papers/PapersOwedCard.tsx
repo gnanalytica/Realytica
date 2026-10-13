@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { CheckCircle2, ChevronRight, Circle, CircleDot, CircleSlash, Clock, Copy, Download, Inbox, MailQuestion, Plus, Send, Upload, X } from 'lucide-react';
 import {
   CHECK_RESULT_LABEL,
@@ -8,8 +9,10 @@ import {
   TENDER_TERMS,
   WORKSTREAMS,
   assumableFields,
+  checklistFunction,
   checklistLoads,
   checklistSummary,
+  cockpitPath,
   departmentDefinition,
   departmentRole,
   fieldCatalogFor,
@@ -20,11 +23,13 @@ import {
   papersOwedCsvFile,
   papersOwedSaid,
   papersOwedText,
+  projectDepartments,
   reachesEveryProject,
   refChoices,
   requirementSheet,
   roleCanDecide,
   roleCanEdit,
+  workstreamDefinition,
   type ChecklistDraft,
   type ChecklistItem,
   type ChecklistSummary,
@@ -73,6 +78,29 @@ function download(name: string, text: string) {
 
 /** The functions a package's lines may go to: the ones with a Documents part, where a list is shown. */
 const DESKS = WORKSTREAMS.filter((ws) => functionSections(ws.key).includes('documents'));
+
+/**
+ * Where a list's lines would go, said before it is loaded: how many stay on
+ * the desk it is loaded on and how many go to each other function, with a
+ * department that is not live for the project said to be so.
+ */
+function loadSplitSaid(project: DdProject, department: DepartmentKey, packages: ReadonlyArray<{ package: string; lines?: number }>, chosen: Readonly<Record<string, string>>, total: number): string {
+  const away = new Map<string, number>();
+  for (const pack of packages) {
+    const fn = chosen[pack.package];
+    if (fn && workstreamDefinition(fn)) away.set(fn, (away.get(fn) ?? 0) + (pack.lines ?? 0));
+  }
+  const gone = [...away.values()].reduce((n, lines) => n + lines, 0);
+  const lines = (n: number): string => `${n} ${n === 1 ? 'line' : 'lines'}`;
+  if (!gone) return `All ${lines(total)} stay here, on ${DEPARTMENT_SHORT[department]}.`;
+  const used = projectDepartments(project);
+  const where = [...away].map(([fn, n]) => {
+    const ws = workstreamDefinition(fn)!;
+    const not = !used.includes(ws.department) ? `, a department this project does not use` : departmentDefinition(ws.department).status !== 'live' ? `, a department that is not built yet beyond its sheets` : '';
+    return `${n} to ${DEPARTMENT_SHORT[ws.department]} › ${ws.label}${not}`;
+  });
+  return `${lines(total - gone)} ${total - gone === 1 ? 'stays' : 'stay'} here, on ${DEPARTMENT_SHORT[department]}; ${gone} ${gone === 1 ? 'goes' : 'go'} elsewhere: ${where.join('; ')}.`;
+}
 
 /** A few of the lines a load would move, and how many more. */
 function Moved({ label, lines }: { label: string; lines: string[] }) {
@@ -150,7 +178,8 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
         if (read.kind === 'plain') await load();
         else {
           setPreview(read);
-          setDesks(Object.fromEntries((read.desks ?? []).filter((desk) => desk.fn).map((desk) => [desk.package, desk.fn!])));
+          // The list stays on this desk unless a package is sent elsewhere here, by choice.
+          setDesks({});
         }
       }
     } catch (e) {
@@ -199,6 +228,19 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
             <Moved label="No longer on the list, and kept" lines={tracked.gone} />
           </ul>
           <div className="space-y-1.5">
+            <p className="text-[13px] font-medium text-ink" data-load-summary>
+              {loadSplitSaid(project, department, preview!.desks ?? [], desks, preview!.lines ?? 0)}
+            </p>
+            {(preview!.desks ?? []).some((desk) => desk.suggested && workstreamDefinition(desk.suggested)?.department !== department) ? (
+              <label className="flex items-center gap-2 text-[12px] text-ink-secondary">
+                <input
+                  type="checkbox"
+                  checked={Object.keys(desks).length > 0}
+                  onChange={(e) => setDesks(e.target.checked ? Object.fromEntries((preview!.desks ?? []).filter((desk) => desk.suggested).map((desk) => [desk.package, desk.suggested!])) : {})}
+                />
+                Send each package to the function that keeps it, in place of keeping the list on this desk
+              </label>
+            ) : null}
             <p className="text-micro text-ink-secondary">Where each package goes</p>
             {(preview!.desks ?? []).map((desk) => (
               <label key={desk.package} className="flex items-center gap-2 text-[13px] text-ink">
@@ -637,8 +679,10 @@ export function PapersOwedCard({
   const [newParty, setNewParty] = useState<string | null>(null);
   const partyList = `parties-${department}`;
   const lists = useMemo(() => checklistLoads(project).filter((held) => held.list && held.departments.includes(department)), [project, department]);
-  // The consultant's count, over the whole list: its packages run across departments.
-  const summary = useMemo(() => (view.tracked ? checklistSummary(project, round ? { round } : {}) : undefined), [project, view.tracked, round]);
+  // The consultant's count, of one list at a time and of what this desk holds of it: two lists are never added into one table, and a chip never counts a line that is on another desk.
+  const [listPicked, setListPicked] = useState<string | null>(null);
+  const listShown = lists.find((held) => held.list === listPicked)?.list ?? lists[0]?.list;
+  const summary = useMemo(() => (view.tracked && listShown ? checklistSummary(project, { department, list: listShown, ...(round ? { round } : {}) }) : undefined), [project, department, view.tracked, round, listShown]);
   const shown = (line: PaperLine): boolean =>
     (only === 'all' || (only === 'unnamed' ? Boolean(line.unnamed) : only === 'undated' ? Boolean(line.undated) : line.standing === only)) && (!round || fold(line.round) === fold(round));
 
@@ -795,7 +839,7 @@ export function PapersOwedCard({
   function row(line: PaperLine) {
     const editable = line.from === 'list' && staff && mayEdit(line.department);
     const expanded = open === line.key;
-    const canExpand = editable || line.from === 'checks' || Boolean(line.request && staff);
+    const canExpand = editable || line.from === 'checks' || Boolean(line.request && staff) || Boolean(line.checklist?.item.availability || line.checklist?.item.oldRef);
     const item = line.checklist?.item;
     const suggestion = line.checklist?.suggestion;
     const said = [paperLineSaid(line, day, { tracked: view.tracked }), line.where, line.remark, item?.note].filter(Boolean).join(' · ');
@@ -853,6 +897,12 @@ export function PapersOwedCard({
               </>
             ) : null}
           </div>
+        ) : null}
+        {/* What the list keeps of the line beside its standing: what was to hand when it was asked for, and the number it had on an older copy. */}
+        {expanded && item && (item.availability || item.oldRef) ? (
+          <p className="mt-1.5 pl-[26px] text-[12px] text-ink-secondary" data-line-as-listed>
+            {[item.availability ? `Availability at request: ${item.availability}` : '', item.oldRef ? `Older serial: ${item.oldRef}` : ''].filter(Boolean).join(' · ')}
+          </p>
         ) : null}
         {expanded && line.requirement ? (
           <ul className="mt-2 space-y-1 pl-[26px]">
@@ -1105,6 +1155,40 @@ export function PapersOwedCard({
         ) : null}
         {summary ? (
           <div className="space-y-2">
+            {lists.length > 1 ? (
+              <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Which list is counted">
+                {lists.map((held) => (
+                  <button key={held.list} type="button" role="tab" aria-selected={held.list === listShown} onClick={() => setListPicked(held.list!)} className={chip(held.list === listShown)}>
+                    {held.list}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <p className="text-[13px] font-medium text-ink" data-list-counted>
+              {listShown}: {summary.total.total} {summary.total.total === 1 ? 'line' : 'lines'} on this desk{round ? `, asked in ${round}` : ''}
+            </p>
+            {summary.elsewhere.length ? (
+              <p className="text-[12px] text-ink-secondary" data-list-elsewhere>
+                The rest of this list is on{' '}
+                {summary.elsewhere.map((held, at) => {
+                  const fn = checklistFunction(held.department);
+                  return (
+                    <span key={held.department}>
+                      {at ? ', ' : ''}
+                      {fn ? (
+                        <Link className="text-brand underline-offset-2 hover:underline" to={cockpitPath(project.id, 'workstream', { workstream: fn, section: 'documents' })}>
+                          {DEPARTMENT_SHORT[held.department]}
+                        </Link>
+                      ) : (
+                        DEPARTMENT_SHORT[held.department]
+                      )}{' '}
+                      ({held.lines} {held.lines === 1 ? 'line' : 'lines'})
+                    </span>
+                  );
+                })}
+                . They are counted there, not here.
+              </p>
+            ) : null}
             <SummaryTable summary={summary} department={department} />
             {summary.rounds.length ? (
               <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Asked in">

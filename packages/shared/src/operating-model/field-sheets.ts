@@ -1212,6 +1212,8 @@ export interface FieldException {
   target?: FieldAddress;
   /** For a record a paper offered and nobody has accepted a value of: where each of its values waits. The line is the record, and its address ends in `RECORD_AS_OFFERED`. */
   whole?: FieldAddress[];
+  /** For such a record: each value it offers with its field's label, in the set's order, so the screen can draw it as labelled fields and not as one run of words. `text` says the same in a line. */
+  parts?: Array<{ label: string; text: string }>;
 }
 
 export interface SituationView {
@@ -1348,11 +1350,33 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
   };
   for (const read of readings) {
     const where = { sheet: read.set.records ? `${read.set.title} · ${read.title}` : read.set.title, ...(read.recordId ? { record: read.recordId } : {}) };
+    /** A field that is out of play only because the value that would bring it into play is itself offered and waiting on this holder: the earnest money's amount, behind "earnest money applies: yes". */
+    const behindAnOffer = (view: FieldView): boolean => {
+      if (view.state !== 'proposed' || fieldIsDerived(view.def)) return false;
+      const depth = view.def.sheet ? read.set.sheets?.find((sheet) => sheet.id === view.def.sheet) : undefined;
+      /** Every field a condition reads, however it is nested under all, any and not. */
+      const reads = (condition: unknown): Array<FieldAddress | string> => {
+        if (!condition || typeof condition !== 'object') return [];
+        if (Array.isArray(condition)) return condition.flatMap(reads);
+        const held = condition as Record<string, unknown>;
+        return [...('field' in held && held.field ? [held.field as FieldAddress | string] : []), ...reads(held.all), ...reads(held.any), ...reads(held.not)];
+      };
+      return [depth?.showWhen, view.def.showWhen].flatMap(reads).some((named) => {
+        const key = typeof named === 'string' ? named : named.set === read.set.id ? named.field : undefined;
+        return key !== undefined && key !== view.def.key && read.fields.some((other) => other.def.key === key && other.state === 'proposed');
+      });
+    };
     for (const view of read.fields) {
-      // What is not in play asks nothing of anybody, whatever it holds.
-      if (view.shown === 'hidden') continue;
+      // What is not in play asks nothing of anybody, whatever it holds: but for a value a paper offered behind another it offered, which is said with it.
+      const behind = view.shown === 'hidden' && behindAnOffer(view);
+      if (view.shown === 'hidden' && !behind) continue;
       const key = addressKey(view.address);
-      const on = { ...where, address: view.address, label: view.def.label, ...(view.def.sheet ? { depth: view.def.sheet } : {}) };
+      const depthTitle = behind && view.def.sheet ? read.set.sheets?.find((sheet) => sheet.id === view.def.sheet)?.title : undefined;
+      const on = { ...where, address: view.address, label: depthTitle ? `${depthTitle}: ${view.def.label}` : view.def.label, ...(view.def.sheet ? { depth: view.def.sheet } : {}) };
+      if (behind) {
+        all.push({ kind: 'proposed', need: 'accept', key: `${key}::proposed`, ...on, text: view.text, source: view.source, oneAtATime: view.oneAtATime });
+        continue;
+      }
       if (view.state === 'proposed') all.push({ kind: 'proposed', need: 'accept', key: `${key}::proposed`, ...on, text: view.text, source: view.source, oneAtATime: view.oneAtATime });
       else if (view.state === 'disputed') all.push({ kind: 'disputed', need: 'decide', key: `${key}::disputed`, ...on, text: [view.text, ...view.waiting.map((w) => w.text)].join(' / '), source: view.source, tone: 'critical' });
       // A value offered for a check's field this one only reads, with nothing held there yet: a check has no page of sheets of
@@ -1527,6 +1551,15 @@ function offeredRecordsAsOneLine(all: FieldException[], readings: readonly Sheet
     if (done.has(key)) continue;
     done.add(key);
     const lines = all.filter((line) => line.kind === 'proposed' && line.address?.set === at.set && line.address.record === at.record);
+    // Values offered on a sheet of the record that opens only once another offered value is accepted (the earnest money's amount, behind
+    // "earnest money applies: yes"): they are part of what the paper offers and go with the record when it is accepted, so they are said here too.
+    const behind = read.fields
+      .filter((view) => view.state === 'proposed' && !fieldIsDerived(view.def) && !lines.some((line) => line.address?.field === view.def.key))
+      .map((view) => {
+        // Said with the sheet it is on: "Amount" alone says nothing, "Earnest money: Amount" does.
+        const depth = read.set.sheets?.find((sheet) => sheet.fields.some((field) => field.key === view.def.key));
+        return { label: depth ? `${depth.title}: ${view.def.label}` : view.def.label, text: view.text, address: { fn: at.fn, set: at.set, record: at.record, field: view.def.key } as FieldAddress };
+      });
     out.push({
       kind: 'proposed',
       need: 'accept',
@@ -1535,10 +1568,11 @@ function offeredRecordsAsOneLine(all: FieldException[], readings: readonly Sheet
       record: at.record,
       address: { fn: at.fn, set: at.set, record: at.record, field: RECORD_AS_OFFERED },
       label: `New ${read.set.records.of}`,
-      text: lines.map((line) => `${line.label} ${line.text}`).join(' · '),
+      text: [...lines, ...behind].map((line) => `${line.label} ${line.text}`).join(' · '),
+      parts: [...lines, ...behind].map((line) => ({ label: line.label, text: line.text })),
       ...(lines[0]!.source ? { source: lines[0]!.source } : {}),
       oneAtATime: lines.some((line) => line.oneAtATime),
-      whole: lines.map((line) => line.address!),
+      whole: [...lines.map((line) => line.address!), ...behind.map((line) => line.address)],
     });
   }
   return out;

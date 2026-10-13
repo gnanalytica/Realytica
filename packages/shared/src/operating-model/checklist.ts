@@ -14,6 +14,7 @@
  * exists to prevent.
  */
 
+import { standingRecords } from './standing-records';
 import type { DepartmentKey } from './departments';
 import { matchFilesToEvidence, type MatchRow } from './file-match';
 import { addRequest } from './project-requests';
@@ -42,6 +43,8 @@ export interface ChecklistItem {
   dismissed?: string[];
   /** The list it is a line of, where it came from a tracked list: what a later copy of that list is matched against. */
   list?: string;
+  /** The fields that answer it, where it is a row of a form of answers: once one of them holds a value that stands on that record, the line is answered, whoever typed it. */
+  answers?: { set: string; record?: string; fields: string[] };
   /** The load that put it on the project: what "Undo" takes back, whole. */
   load?: string;
   /** The day a person says it was asked for, where no request went from here and the list names no round. */
@@ -77,6 +80,8 @@ export interface ChecklistItem {
 export interface ChecklistHeading {
   ref?: string;
   title: string;
+  /** A few words the list writes against the heading itself: a remark on the whole section. */
+  remark?: string;
 }
 
 /** A field a line to be assumed stands in for, and the value it is assumed at. */
@@ -110,6 +115,8 @@ export interface ChecklistDraft {
   status?: ChecklistListStatus;
   /** Who is to assume, where the status says somebody will. */
   assumer?: string;
+  /** The fields that answer the line, where it is a row of a form of answers. */
+  answers?: { set: string; record?: string; fields: string[] };
 }
 
 export interface ChecklistPatch {
@@ -504,8 +511,9 @@ export function parseChecklistSheets(sheets: ReadonlyArray<{ name: string; rows:
 /* ==================================================================== */
 
 /** What a tracked list says of a line beyond its name: where it sits, when it was asked for and what came back. Absent members are left out, so a plain line is stored as it always was. */
-function listed(draft: ChecklistDraft): Partial<Pick<ChecklistItem, 'list' | 'ref' | 'oldRef' | 'headings' | 'order' | 'fn' | 'round' | 'availability' | 'targetDate'>> {
-  const out: Partial<Pick<ChecklistItem, 'list' | 'ref' | 'oldRef' | 'headings' | 'order' | 'fn' | 'round' | 'availability' | 'targetDate'>> = {};
+function listed(draft: ChecklistDraft): Partial<Pick<ChecklistItem, 'list' | 'ref' | 'oldRef' | 'headings' | 'order' | 'fn' | 'round' | 'availability' | 'targetDate' | 'answers'>> {
+  const out: Partial<Pick<ChecklistItem, 'list' | 'ref' | 'oldRef' | 'headings' | 'order' | 'fn' | 'round' | 'availability' | 'targetDate' | 'answers'>> = {};
+  if (draft.answers?.fields.length) out.answers = { set: draft.answers.set.slice(0, 120), ...(draft.answers.record ? { record: draft.answers.record.slice(0, 120) } : {}), fields: draft.answers.fields.slice(0, 12).map((key) => key.slice(0, 80)) };
   const [list, ref, oldRef, fn, round, availability] = [clean(draft.list, CHECKLIST_LIMITS.label), clean(draft.ref, CHECKLIST_LIMITS.ref), clean(draft.oldRef, CHECKLIST_LIMITS.ref), clean(draft.fn, 80), clean(draft.round, CHECKLIST_LIMITS.label), clean(draft.availability, CHECKLIST_LIMITS.label)];
   const headings = cleanHeadings(draft.headings);
   const targetDate = listDay(draft.targetDate);
@@ -1017,6 +1025,8 @@ export interface ChecklistLine {
   receivedAt?: string;
   /** A person marked it; otherwise a filed document carries its name. */
   byHand?: boolean;
+  /** It is a row of a form of answers, and a field it asks for holds a value that stands: answered on the sheet. */
+  bySheet?: boolean;
   /** A filed document that may be this paper. Nothing is in hand until a person confirms it. */
   suggestion?: { evidenceId: string; title: string; score: number };
   /** Who was asked, and by when, when a request is out for it. */
@@ -1175,6 +1185,20 @@ function inListOrder(items: readonly ChecklistItem[]): ChecklistItem[] {
  *
  * `department` narrows it to one desk's list.
  */
+/** The standing value that answers a line of a form of answers, where one of the fields it asks for holds one on the form's record. */
+function answeredOnSheet(project: DdProject, item: ChecklistItem): { at?: string } | undefined {
+  const asks = item.answers;
+  if (!asks?.record || !asks.fields.length) return undefined;
+  // Through the door other modules read a set's records by: the record still on its list, cut to what stands.
+  const standing = standingRecords(project, asks.set).find((record) => record.id === asks.record);
+  for (const key of asks.fields) {
+    const value = standing?.values[key];
+    const empty = value === undefined || value.value === null || value.value === undefined || value.value === '' || (Array.isArray(value.value) && !value.value.length);
+    if (value && !empty) return { ...(value.acceptedAt ?? value.at ? { at: value.acceptedAt ?? value.at } : {}) };
+  }
+  return undefined;
+}
+
 export function checklistSheet(project: DdProject, opts: { department?: DepartmentKey; now?: string } = {}): ChecklistSheet {
   const today = (opts.now ?? nowIso()).slice(0, 10);
   const items = inListOrder((project.checklist ?? []).filter((i) => !opts.department || i.department === opts.department));
@@ -1196,6 +1220,9 @@ export function checklistSheet(project: DdProject, opts: { department?: Departme
     }
     const named = sure.get(item.id);
     if (named) return { item, status: 'received', receivedAt: named.attachments[0]?.uploadedAt ?? named.updatedAt, ...fileOf(named) };
+    // A row of a form of answers is answered once a field it asks for holds a value that stands, however it got there: typed on the sheet, or accepted from the form.
+    const answer = answeredOnSheet(project, item);
+    if (answer) return { item, status: 'received', bySheet: true, ...(answer.at ? { receivedAt: answer.at } : {}) };
     const offer = offered.get(item.id);
     const suggestion = offer ? { evidenceId: offer.row.id, title: offer.row.title, score: offer.score } : undefined;
     // It will not come: nobody is chased for it, and no day is waited for.
@@ -1390,6 +1417,8 @@ export interface ChecklistSummary {
   rounds: Array<{ round: string; total: number }>;
   /** Whether any line came from a tracked list: one with numbers, rounds or a status column. */
   tracked: boolean;
+  /** Counted for one list on one desk: the other desks that hold lines of the same list, each with how many. Empty where the whole list is here. */
+  elsewhere: Array<{ department: DepartmentKey; lines: number }>;
 }
 
 /** Whether a line carries what only a tracked list gives it. */
@@ -1405,8 +1434,15 @@ export function checklistLineTracked(item: ChecklistItem): boolean {
  * Worked out afresh from the lines each time, so it cannot disagree with
  * them. `round` narrows it to the lines asked for in one round.
  */
-export function checklistSummary(project: DdProject, opts: { department?: DepartmentKey; round?: string; now?: string } = {}): ChecklistSummary {
-  const all = checklistSheet(project, { department: opts.department, now: opts.now }).stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines));
+export function checklistSummary(project: DdProject, opts: { department?: DepartmentKey; round?: string; now?: string; list?: string } = {}): ChecklistSummary {
+  // One list at a time where one is named: two lists on a desk are never added into one table.
+  const ofList = (line: { item: ChecklistItem }): boolean => opts.list === undefined || line.item.list === opts.list;
+  const all = checklistSheet(project, { department: opts.department, now: opts.now }).stages.flatMap((stage) => stage.packages.flatMap((pack) => pack.lines)).filter(ofList);
+  // Where the rest of the list is, for a count that is of one desk.
+  const others = new Map<DepartmentKey, number>();
+  if (opts.department && opts.list !== undefined) {
+    for (const item of project.checklist ?? []) if (item.list === opts.list && item.department !== opts.department) others.set(item.department, (others.get(item.department) ?? 0) + 1);
+  }
   const lines = opts.round ? all.filter((line) => fold(line.item.round) === fold(opts.round)) : all;
   const blank = (key: string, pack: string): ChecklistSummaryRow => ({ key, package: pack, departments: [], total: 0, received: 0, partial: 0, assumed: 0, pending: 0, percent: 0 });
   const rows = new Map<string, ChecklistSummaryRow>();
@@ -1432,5 +1468,5 @@ export function checklistSummary(project: DdProject, opts: { department?: Depart
     rounds.set(fold(line.item.round), held);
     held.total += 1;
   }
-  return { rows: [...rows.values()], total, rounds: [...rounds.values()], tracked: all.some((line) => checklistLineTracked(line.item)) };
+  return { rows: [...rows.values()], total, rounds: [...rounds.values()], tracked: all.some((line) => checklistLineTracked(line.item)), elsewhere: [...others].map(([department, lines]) => ({ department, lines })) };
 }

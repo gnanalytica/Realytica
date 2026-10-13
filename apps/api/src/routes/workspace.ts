@@ -2360,7 +2360,8 @@ projectWorkspaceRouter.post<Params>('/checklist/import', checklistUpload.single(
     // A tracked list: its lines go to the desks their packages belong to, and a later copy updates them.
     const tracked = parseTrackedSheets(sent.sheets);
     if (tracked) {
-      const desks = packageDesks(tracked.packages, desksGiven(req.body?.desks));
+      // A list stays on the desk it is loaded on: a package goes to another function only where whoever loads it says so.
+      const desks = packageDesks(tracked.packages, desksGiven(req.body?.desks)).map((desk) => ({ ...desk, lines: tracked.drafts.filter((draft) => (draft.package ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === desk.package.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()).length }));
       const placed = placeDrafts(tracked.drafts, desks);
       for (const department of new Set(placed.map((draft) => draft.department ?? asked.data))) {
         if (department !== asked.data && !mayChangeChecklist(req, res, project, department)) return;

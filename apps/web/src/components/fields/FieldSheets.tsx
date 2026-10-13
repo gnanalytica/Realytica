@@ -690,7 +690,7 @@ function NeedsYou({
                       <p className="text-[13px] text-ink">
                         <span className={cn('mr-2 text-[11px] font-semibold uppercase tracking-[0.06em]', NEED_TONE[exception.need])}>{NEED_LABEL[exception.need]}</span>
                         {exception.label}
-                        {valued ? <span className="font-mono text-ink-secondary"> {exception.text}</span> : null}
+                        {valued && !exception.parts?.length ? <span className="font-mono text-ink-secondary"> {exception.text}</span> : null}
                         {needRuleUnchecked(page, exception) ? (
                           <span className="ml-2 whitespace-nowrap text-[11px] text-[var(--status-warning-text)]" title={needRuleRows(page, exception) || undefined}>
                             rule not checked
@@ -702,6 +702,23 @@ function NeedsYou({
                           </span>
                         ) : null}
                       </p>
+                      {/* A record a paper offered is read as what it is: a small card, a labelled field to a line, never one run of words. */}
+                      {exception.parts?.length ? (
+                        <dl data-offered-record className="mt-1.5 grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-3 gap-y-1 rounded-lg bg-sunken/60 px-3 py-2 text-[13px]">
+                          {exception.parts.map((part) => (
+                            <div key={part.label} className="contents">
+                              <dt className="text-[12px] text-ink-muted">{part.label}</dt>
+                              <dd className="text-ink">{part.text}</dd>
+                            </div>
+                          ))}
+                          {exception.source?.page ? (
+                            <div className="contents">
+                              <dt className="text-[12px] text-ink-muted">Page</dt>
+                              <dd className="text-ink">{exception.source.page}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                      ) : null}
                       {under || source ? (
                         <p className="text-[12px] leading-snug text-ink-muted">
                           {under}
@@ -719,7 +736,7 @@ function NeedsYou({
                           ) : null}
                         </p>
                       ) : null}
-                      {exception.source?.quote && exception.kind === 'proposed' ? <p className="text-[12px] leading-snug text-ink-muted">“{exception.source.quote}”</p> : null}
+                      {exception.source?.quote && exception.kind === 'proposed' && !exception.parts?.length ? <p className="text-[12px] leading-snug text-ink-muted">“{exception.source.quote}”</p> : null}
                       {needUnverified(exception) ? <p className="text-[12px] leading-snug text-[var(--status-warning-text)]">These words were not found on that page. Accepted one at a time, after a look at the paper.</p> : null}
                     </div>
                     {exception.need === 'due_soon' && mayDecide ? (
@@ -794,7 +811,7 @@ function NeedsYou({
                 </p>
               ) : null}
               {page.waitingOn.length ? <p>Waiting on others: {waitingOn}. Listed under Papers owed.</p> : null}
-              {page.assumed ? <p>{plural(page.assumed, 'usual value')} in use.</p> : null}
+              {page.assumed ? <p>{page.assumed === 1 ? '1 figure here rests on a usual value nobody entered.' : `${page.assumed} figures here rest on usual values nobody entered.`}</p> : null}
               {page.snoozed.length ? (
                 <details>
                   <summary className="cursor-pointer select-none coarse:min-h-11">{page.snoozed.length} postponed</summary>
