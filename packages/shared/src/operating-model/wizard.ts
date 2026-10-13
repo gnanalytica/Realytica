@@ -1020,6 +1020,26 @@ function looksLikeInquiry(question: string): boolean {
   return false;
 }
 
+/** A sentence that opens with a verb of showing, or with "when": it looks, and changes nothing. */
+const LOOKS = /^(?:please\s+)?(?:open|show|go to|take me|see|view|display|print|bring up|pull up|find|list|when)\b/i;
+
+/** A verb of change. A named field of the project is changed only by a sentence that has one, or that states the field outright ("The owner is Asha Menon"). */
+const CHANGES = /\b(?:set|change|update|make|correct|rename|replace|record|put|amend|revise|edit|fix|switch|assign|name)\b/i;
+
+/**
+ * What a sentence says a named field of the project now is, or undefined.
+ *
+ * With a verb of change the field may sit anywhere in the sentence ("set the
+ * owner to Priya Shah"). Without one the sentence has to open with the field
+ * and state a name: "The owner is Asha Menon" does, and "the owner pack is
+ * late" or "the owner is asking about cost" does not.
+ */
+function fieldStated(q: string, field: string, value: string): string | undefined {
+  if (CHANGES.test(q)) return new RegExp(`\\b(?:${field})\\b(?:\\s+is|\\s+as|:|\\s+to)?\\s+(${value})`, 'i').exec(q)?.[1];
+  const stated = new RegExp(`^(?:the\\s+)?(?:project(?:'s|’s)?\\s+)?(?:${field})(?:\\s+is|\\s*:|\\s*=)\\s+(${value})`, 'i').exec(q)?.[1];
+  return stated && /^["“']?[A-Z0-9]/.test(stated) ? stated : undefined;
+}
+
 function isImperative(question: string): boolean {
   const t = question.trim().toLowerCase();
   return /^(set|update|change|add|create|record|patch|put|rename|move|mark|file|log|raise)\b/.test(t)
@@ -1141,7 +1161,8 @@ export function interpretConversation(project: DdProject, question: string, acto
   ensureProjectShape(project);
   const q = question.trim();
   // A question asks for nothing to be changed, and an instruction to accept or set aside is carried out as itself.
-  if (looksLikeInquiry(q) || readInstruction(q)) {
+  // So does a sentence that asks to be shown something: "open the owner pack for September" names a place, and changes no owner.
+  if (looksLikeInquiry(q) || LOOKS.test(q) || readInstruction(q)) {
     return { proposals: [], imperative: false };
   }
 
@@ -1150,36 +1171,36 @@ export function interpretConversation(project: DdProject, question: string, acto
   const patchBits: string[] = [];
   const owner = project.owner || actor;
 
-  const ownerHit = q.match(/\b(?:owner|dd lead|diligence lead|project lead)\b(?:\s+is|\s+as|:|\s+to)?\s+([^.\n]+)/i);
+  const ownerHit = fieldStated(q, 'owner|dd lead|diligence lead|project lead', '[^.\\n]+');
   if (ownerHit) {
-    const next = clipPhrase(ownerHit[1] ?? '');
+    const next = clipPhrase(ownerHit);
     if (next.length >= 2 && next.toLowerCase() !== (project.owner ?? '').toLowerCase()) {
       patch.owner = next;
       patchBits.push(`owner “${project.owner || 'blank'}” → “${next}”`);
     }
   }
 
-  const developerHit = q.match(/\bdeveloper\b(?:\s+is|\s+as|:|\s+to)?\s+([^.\n]+)/i);
+  const developerHit = fieldStated(q, 'developer', '[^.\\n]+');
   if (developerHit) {
-    const next = clipPhrase(developerHit[1] ?? '');
+    const next = clipPhrase(developerHit);
     if (next.length >= 2 && next.toLowerCase() !== (project.developer ?? '').toLowerCase()) {
       patch.developer = next;
       patchBits.push(`developer “${project.developer || 'blank'}” → “${next}”`);
     }
   }
 
-  const cityHit = q.match(/\bcity\b(?:\s+is|:|\s+to)?\s+([A-Za-z .-]{2,40})/i);
+  const cityHit = fieldStated(q, 'city', '[A-Za-z .-]{2,40}');
   if (cityHit) {
-    const next = clipPhrase(cityHit[1] ?? '');
+    const next = clipPhrase(cityHit);
     if (next && next.toLowerCase() !== project.city.toLowerCase()) {
       patch.city = next;
       patchBits.push(`city “${project.city}” → “${next}”`);
     }
   }
 
-  const addressHit = q.match(/\b(?:site address|address)\b(?:\s+is|:|\s+to)?\s+([^.\n]+)/i);
+  const addressHit = fieldStated(q, 'site address|address', '[^.\\n]+');
   if (addressHit) {
-    const next = clipPhrase(addressHit[1] ?? '');
+    const next = clipPhrase(addressHit);
     if (next.length >= 6 && next.toLowerCase() !== (project.siteAddress ?? '').toLowerCase()) {
       patch.siteAddress = next;
       patchBits.push('site address');

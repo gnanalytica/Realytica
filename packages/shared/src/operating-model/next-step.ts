@@ -306,7 +306,13 @@ export function fileIsBare(project: DdProject): boolean {
     project.landAreaSqm === undefined &&
     project.saleableAreaSqm === undefined &&
     project.builtUpAreaSqm === undefined &&
-    !project.parcelId?.trim()
+    !project.parcelId?.trim() &&
+    // A project that keeps packages, a Cost Report, a schedule, a site log or a list of papers is being built, whether or not anybody named its land.
+    !project.cost?.workPackages.length &&
+    !project.costReports?.length &&
+    !project.milestones?.length &&
+    !project.siteLog?.length &&
+    !project.checklist?.length
   );
 }
 

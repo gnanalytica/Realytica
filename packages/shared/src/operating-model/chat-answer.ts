@@ -134,8 +134,15 @@ export const CHAT_STANDING_LABEL: Record<ChatStanding, string> = {
   memory_note: 'A note',
 };
 
+/** Where a row's figures are held: the page's name as a person knows it, and its address in the app. */
+export interface ChatOpen {
+  label: string;
+  path: string;
+}
+
 export interface ChatAnswerRow {
-  kind: 'field' | 'record' | 'fact' | 'passage';
+  /** A figure is one a screen works out from its own records (`chat-questions.ts`): the same function's, said the same. */
+  kind: 'field' | 'record' | 'fact' | 'passage' | 'figure';
   label: string;
   /** As the record holds it. For a passage, the page's own words. */
   value: string;
@@ -149,6 +156,8 @@ export interface ChatAnswerRow {
   rules?: Array<{ said: string; verified: boolean }>;
   /** For a figure worked out on a usual value nobody entered: the fields that value stands in for, by label. Said as "on an assumed value". */
   assumes?: string[];
+  /** The page that holds what the row says. */
+  open?: ChatOpen;
 }
 
 export interface ChatAnswerCard {
@@ -156,7 +165,7 @@ export interface ChatAnswerCard {
   outcome: ChatOutcome;
   rows: ChatAnswerRow[];
   /** What to look at where the record does not answer: a field to fill, a paper to read. */
-  look: Array<{ label: string; address?: FieldAddress; evidenceId?: string }>;
+  look: Array<{ label: string; address?: FieldAddress; evidenceId?: string; open?: ChatOpen }>;
   /** The template's lines said round the card, in the language of the question: what leads it, and what stands over the list to look at. */
   said?: ChatAnswerSaid;
 }
@@ -316,7 +325,7 @@ export function chatLanguageOf(question: string): Language {
   return script === 'devanagari' ? 'hi' : script === 'kannada' ? 'kn' : 'en';
 }
 
-const sourceSaid = (row: ChatAnswerRow): string => (row.source ? `${row.source.label}${row.source.page ? `, page ${row.source.page}` : ''}` : '');
+const sourceSaid = (row: ChatAnswerRow): string => (row.source ? `${row.source.label}${row.source.page ? `, page ${row.source.page}` : ''}` : (row.open?.label ?? ''));
 
 /**
  * A card as text: the template's line for what the card holds, a line a

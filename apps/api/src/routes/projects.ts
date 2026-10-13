@@ -184,6 +184,8 @@ import {
   linkRecordIds,
   memAsksForLint,
   memAsksMemory,
+  CHAT_NOT_ANSWERED,
+  chatQuestionAsked,
   memContextText,
   memLintLine,
   memSaidUnder,
@@ -1679,7 +1681,8 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * from the facts, and looked for before every other rule, so that one
    * which reads a single value off the file does not answer in its place.
    */
-  const askedOfMemory = !notes && memoryLint === undefined && !sitting?.decision ? memAsksMemory(question) : undefined;
+  // Not one of the questions answered from the functions the screens read: "what changed in cost since last month" is the Cost Report's to answer, and memory's only where no such rule has it.
+  const askedOfMemory = !notes && memoryLint === undefined && !sitting?.decision && !chatQuestionAsked(question) ? memAsksMemory(question) : undefined;
   const memorySaid = askedOfMemory ? await memoryAnswer(seen, askedOfMemory, { question, place, sitting }).catch(() => undefined) : undefined;
   const deterministic = Boolean(notes) || nothingLeftToRead || memoryLint !== undefined || memorySaid !== undefined || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
   const stream = beginNdjson(res);
@@ -1757,6 +1760,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
         viewContext: parsed.data.viewContext,
         place,
         history: canvas.conversation,
+        outside: canvas !== project,
         memory: [unseen, memoryText, remembered ? memContextText(remembered) : ''].filter(Boolean).join('\n\n') || undefined,
         // The lines by their marks: an answer picks marks, and code prints the lines.
         remembered,
@@ -1924,7 +1928,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
           modelReader: capability.available,
         });
         const by = (tried.assistantTurn.toolCalls ?? []).map((call) => call.name);
-        if (by.includes('next_step')) [named, sought] = [held, byItsWords];
+        if (by.includes('next_step') || by.includes(CHAT_NOT_ANSWERED)) [named, sought] = [held, byItsWords];
         // What could be added, offered for a word of the question ("assessment", "report"), is no answer of the rules' own either: it carries the wizard's name, or none where every card it would raise is waiting already. The value the question names is said in its place, and no page is asked.
         else if (by.includes('wizard') || (!by.length && !tried.commands.length)) named = held;
       } catch {
@@ -1983,6 +1987,9 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * dropped where it is written.
    */
   sayWhatIsMissing(seen, question, result);
+  // A reply that says in its own line that it cannot answer, with the nearest things to open, is not said a second time above itself.
+  // Only where no model is set up: a model that failed is still said to have, since asking again may help.
+  if (!capability.available && result.assistantTurn.toolCalls?.some((call) => call.name === CHAT_NOT_ANSWERED)) unanswered = undefined;
   if (fromMemory) {
     // The answer came from memory: the turn keeps the facts it lists, each with the place of its tag in the words as they now stand.
     const at = result.assistantTurn.text.lastIndexOf(fromMemory.text);

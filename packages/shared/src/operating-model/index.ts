@@ -150,6 +150,7 @@ export * from './photo-stations';
 export * from './milestone-photos';
 export * from './photo-report';
 export * from './chat-answer';
+export * from './chat-questions';
 export * from './sweep-rules';
 export * from './law-watch';
 export * from './law-change';

@@ -324,7 +324,7 @@ function answerHelp(): FileAnswer {
     citedEvidenceIds: [],
     citedNodeIds: [],
     choices: [
-      { id: 'help-missing', label: 'What documents do I need?', detail: 'The priority pack', send: 'What documents do I need?', kind: 'action' },
+      { id: 'help-missing', label: 'What documents do I need?', detail: 'The papers the checks expect', send: 'What documents do I need?', kind: 'action' },
       { id: 'help-summary', label: 'Summarise this file', detail: 'Where it stands', send: 'Summarise this file', kind: 'action' },
     ],
   };
@@ -819,10 +819,10 @@ function answerMissing(project: DdProject): FileAnswer {
   // A register with no row waited for has no gaps to name: a new project, or one with only its first papers filed. What is needed is the rest of the priority pack.
   if (!open.length && pack.missing) {
     const more = pack.missing - titled.length;
-    const lead = pack.missing === pack.total ? `The priority pack is ${plural(pack.total, 'paper')} and none is on file yet` : `${pack.missing} of the ${pack.total} priority papers are not on file yet`;
+    const lead = pack.missing === pack.total ? `The checks expect ${plural(pack.total, 'paper')} and none is on file yet` : `${pack.missing} of the ${pack.total} papers the checks expect are not on file yet`;
     return {
       text: `${lead}: ${titled.join('; ')}${more > 0 ? `; and ${more} more` : ''}.\nDrop any into the chat and I’ll read and file it.`,
-      summary: 'Priority pack',
+      summary: 'Papers the checks expect',
       citedEvidenceIds: [],
       citedNodeIds: [],
       navigate: { pane: 'evidence' },
