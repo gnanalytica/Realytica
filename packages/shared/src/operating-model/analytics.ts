@@ -572,7 +572,9 @@ export function departmentAnalytics(project: DdProject, now: Date): DepartmentAn
     const workstream = (check ? workstreamOfCheck(check.definitionId) : undefined) ?? (paper ? documentWorkstream(project, paper) : undefined) ?? from?.place?.fn;
     const department = (workstream ? functionDepartment(workstream) : undefined) ?? (from?.place?.department as DepartmentKey | undefined);
     const due = action.dueDate?.slice(0, 10);
-    const overdue = action.status === 'overdue' || Boolean(due && due < today);
+    // By the day asked about, never by the stamp: an action is marked overdue by the clock of whichever day it was last touched, and a
+    // figure asked for as at a day has to come out the same whenever it is worked out.
+    const overdue = Boolean(due && due < today);
     bucket(department).actions.push({
       ...base(project),
       title: action.title,
