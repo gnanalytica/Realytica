@@ -345,13 +345,13 @@ before(async () => {
   const formRead = parseTenderFormRows([
     ['Client:', 'Zq7 Client Named', 'Response required by:', '20/10/2090'],
     ['S.No', 'Information / Document Required', 'Details to be Provided', 'Client Response', 'Document Attached', 'Remarks'],
-    ['7.6', 'Payment terms', 'Billing frequency, minimum bill value, certification and payment period in days', 'Monthly; certified in 7 days and paid within 8765 days'],
+    ['7.6', 'Payment terms', 'Billing frequency, minimum bill value, certification and payment period in days', 'Monthly; certified in 7 days and paid within 8765432 days'],
     ['4.1', 'Materials supplied by the client', 'Cement, steel, others or none', 'Not Applicable'],
     ['7.4', 'Defects liability period', 'Months', ''],
   ])!;
   const formLoaded = loadTenderForm(project, formRead, { file: 'Zq7 Form File.xlsx', record: tender, actor: OWNER, today: '2090-01-02' });
   assert.deepEqual([formLoaded.offered, formLoaded.notApplicable, formLoaded.unanswered], [4, 1, 1]);
-  marked.push({ fn: 'procurement.boq', set: 'procurement.boq.tender_terms', forms: ['8765', 'Zq7 Form File.xlsx'] });
+  marked.push({ fn: 'procurement.boq', set: 'procurement.boq.tender_terms', forms: ['8765432', 'Zq7 Form File.xlsx'] });
   marked.push({ fn: 'procurement.boq', set: 'a tender form', forms: ['Zq7 Client Named'], buyer: true });
 
   // Photographs tied to a place. A station is the Site record's: handed with the site record area and the scope its checks sit in.
