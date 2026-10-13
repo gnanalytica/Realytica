@@ -109,7 +109,7 @@ function dayOf(iso: string): string {
 
 const grouped = (n: number): string => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
-const rupees = (n: number): string => rupeesSaid(n);
+const rupees = (n: number): string => rupeesSaid(n, '₹');
 
 /** A fact's value as a person reads it: the record's own way of writing it where it has one, else by the form its key takes. */
 function valueOf(fact: MemFact): string {

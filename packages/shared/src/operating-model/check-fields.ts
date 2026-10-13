@@ -1069,7 +1069,8 @@ export function checkInsights(
       const b = values[bKey!]?.value;
       if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) continue;
       if (a <= b) continue;
-      out.push({ severity: rule.severity, text: fill(rule.say, { a, b }), fields: [aKey!, bKey!], computed: true });
+      // Two days, each written as a day is written everywhere.
+      out.push({ severity: rule.severity, text: fill(rule.say, { a: looksLikeDay(a) ? daySaid(a) : a, b: looksLikeDay(b) ? daySaid(b) : b }), fields: [aKey!, bKey!], computed: true });
       continue;
     }
 

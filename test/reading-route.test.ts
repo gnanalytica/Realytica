@@ -330,11 +330,11 @@ describe('how much of a paper was read, as it is said and kept', () => {
       '10 of 40 pages read: only the first 8 scanned pages of a file are read here. A model was sent pages 9, 10, 39 and 40; nothing it gave for pages 10 and 39 was found there. ' +
         'Only pages 9, 10, 39 and 40 went to the model: the file is too heavy to send whole, and pages 11 to 38 did not go.',
     );
-    assert.equal(sentToModelLine(ends), 'Pages 9, 10, 39 and 40 of 40 went to the model reader.');
+    assert.equal(sentToModelLine(ends), 'Pages 9, 10, 39 and 40 of 40 were read by the reader, not by the rules alone.');
     // Could not be cut: the whole file went where one page needed it.
     const uncut = { ...whole, modelReasons: ['OCR was unsure of page 2.'], modelPages: [2], modelPagesSent: [1, 2], modelPagesRead: [2] };
     assert.equal(readingLine(uncut), 'The whole file went to the model, pages 1 and 2, where only page 2 needed it: the file could not be cut.');
-    assert.equal(sentToModelLine(uncut), 'All 2 pages went to the model reader.');
+    assert.equal(sentToModelLine(uncut), 'All 2 pages were read by the reader, not by the rules alone.');
     assert.equal(sentToModelLine(whole), '');
   });
 

@@ -40,6 +40,7 @@ import {
   fieldOptions,
   fieldTone,
   formatFieldValue,
+  formatMoney,
   isBlank,
   longtextCap,
   optionSetById,
@@ -120,7 +121,15 @@ const toneOf = (tone: FieldTone | undefined): 'good' | 'warning' | 'critical' | 
 function typedFor(def: CheckFieldDef, value: CheckFieldValue | undefined): string {
   if (isBlank(value)) return '';
   const entered = value!.entered;
-  if (def.dimension && entered) return entered.text ?? `${entered.value} ${entered.unit}`;
+  // Rupees read in the box as they read everywhere else, and type back the same way: "1.1 Cr", "45 lakh", "50,000".
+  // Only where lakh or crore says the amount exactly; a figure they would round is shown to the rupee, so typing over it loses nothing.
+  if (fieldDimension(def) === 'money' && typeof value!.value === 'number') {
+    const amount = value!.value;
+    const band = Math.abs(amount) >= 1e7 ? 1e7 : 1e5;
+    const exact = (def.currency ?? 'INR') === 'INR' && Math.abs(amount) >= 1e5 && Number.isInteger(Math.round((amount / band) * 1e6) / 1e4);
+    return exact ? formatMoney(amount, 'INR').replace(/^(−?)[^\d−]+/, '$1') : amount.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  }
+  if (def.dimension && entered) return entered.text ?? `${entered.value.toLocaleString('en-IN', { maximumFractionDigits: 4 })} ${entered.unit}`;
   return String(value!.value);
 }
 
@@ -225,9 +234,10 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                     aria-expanded={sourceOf === def.key}
                     aria-label={`Who entered ${def.label}, and what else can be done with it`}
                     onClick={() => setSourceOf(sourceOf === def.key ? null : def.key)}
-                    className="ml-auto shrink-0 text-[11px] font-normal text-ink-muted hover:text-ink hover:underline"
+                    title="Who entered it, and what else can be done with it"
+                    className="ml-auto grid h-5 min-w-6 shrink-0 place-items-center rounded px-1 text-[12px] font-normal text-ink-muted hover:bg-sunken hover:text-ink coarse:h-11 coarse:min-w-11"
                   >
-                    {sourceOf === def.key ? 'Less' : 'More'}
+                    {sourceOf === def.key ? 'Close' : '⋯'}
                   </button>
                 ) : null}
               </span>
@@ -668,11 +678,11 @@ function EvidenceField({
                 value={find}
                 disabled={busy}
                 aria-label={`Find a paper for ${def.label}`}
-                placeholder={`Find a paper (${received.length} received)`}
+                placeholder="Find a paper on file"
                 onChange={(e) => setFind(e.target.value)}
                 onFocus={() => setLooking(true)}
                 onBlur={() => window.setTimeout(() => setLooking(false), 150)}
-                className="h-7 w-64 min-w-0 max-w-full rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11"
+                className={cn(inputCls, 'mt-0 w-72 min-w-0 max-w-full')}
               />
               {looking || wanted ? (
                 <ul className="absolute left-0 top-full z-10 mt-1 max-h-56 w-72 max-w-[80vw] overflow-y-auto rounded-lg bg-surface py-1 shadow-pop ring-1 ring-[var(--ring)]">

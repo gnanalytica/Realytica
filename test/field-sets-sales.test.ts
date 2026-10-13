@@ -368,7 +368,7 @@ describe('demands and collections', () => {
     const demand = sheet(p, 'commercial.buyers.demands', old);
     assert.deepEqual(['received', 'outstanding', 'days_past_due', 'demand_standing'].map(demand.value), [400_000, 600_000, 103, 'Overdue']);
     assert.equal(demand.value('interest_accrued'), 18_286.03, '6,00,000 at 10.8% for 103 days');
-    assert.deepEqual(demand.said(), ['Raised on 2026-06-16, before the stage was certified on 2026-06-20.', 'No stage completion certificate is cited for this demand.']);
+    assert.deepEqual(demand.said(), ['Raised on 16 Jun 2026, before the stage was certified on 20 Jun 2026.', 'No stage completion certificate is cited for this demand.']);
     assert.deepEqual(demand.reading.chips, ['Unit A-501', 'Outstanding ₹6 lakh', 'Demand Overdue']);
 
     const collections = sheet(p, 'commercial.buyers.collections');

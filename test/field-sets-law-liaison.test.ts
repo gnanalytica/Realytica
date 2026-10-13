@@ -217,7 +217,7 @@ describe('Contracts: a joint development whose allocation does not match the agr
     assert.equal(dates.value('sanction_due'), '2025-10-15');
     assert.equal(dates.value('completion_due'), '2029-06-01');
     assert.equal(dates.value('delivery_standing'), 'Sanction came late');
-    assert.deepEqual(dates.said, ['The plan was sanctioned on 2025-12-01, after the 2025-10-15 the agreement allows.']);
+    assert.deepEqual(dates.said, ['The plan was sanctioned on 1 Dec 2025, after the 15 Oct 2025 the agreement allows.']);
     write(p, 'regulatory.sanction', { sanction_date: '2025-09-20' });
     assert.equal(sheet(p, DELIVERY).value('delivery_standing'), 'Within the agreement');
     assert.equal(sheet(p, DELIVERY).value('completion_due'), '2029-03-20');
@@ -322,13 +322,13 @@ describe('RERA: a registration and its filing calendar', () => {
     const first = sheet(p, REG);
     assert.equal(first.value('validity_days_left'), 111);
     assert.equal(first.value('registration_standing'), 'Ends before the declared completion');
-    assert.deepEqual(first.said, ['Completion is declared for 2027-06-30, after the registration ends on 2027-01-31.']);
+    assert.deepEqual(first.said, ['Completion is declared for 30 Jun 2027, after the registration ends on 31 Jan 2027.']);
     assert.equal(first.view('extended_to').shown, 'shown', 'under 181 days the extension fields are in play');
     assert.equal(first.value('extension_limit'), '2028-01-31');
     assert.equal(first.view('extension_limit').cites?.[0]?.verified, false);
 
     write(p, REG, { extended_to: '2028-06-30', declared_completion: '2026-12-31' });
-    assert.deepEqual(sheet(p, REG).said, ['Extended to 2028-06-30, past the 2028-01-31 the Act allows in all.']);
+    assert.deepEqual(sheet(p, REG).said, ['Extended to 30 Jun 2028, past the 31 Jan 2028 the Act allows in all.']);
     write(p, REG, { extended_to: '2027-12-31' });
     const extended = sheet(p, REG);
     assert.deepEqual(extended.said, []);

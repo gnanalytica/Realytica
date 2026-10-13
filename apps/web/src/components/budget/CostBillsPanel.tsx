@@ -14,6 +14,7 @@ import {
   type CostBill,
   type CostContract,
   type DdProject,
+  daySaid,
 } from '@realytica/shared';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
@@ -353,7 +354,7 @@ function BillCard({
             {contract?.contractor ?? 'Bill'} · {bill.number}
           </p>
           <p className="text-mini text-ink-muted">
-            {bill.date} · claimed {money(position.claimed, project.currency)}
+            {daySaid(bill.date)} · claimed {money(position.claimed, project.currency)}
             {certificate ? ` · certified ${money(certificate.net, project.currency)} net` : ''}
           </p>
         </div>

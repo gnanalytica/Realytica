@@ -578,7 +578,7 @@ describe('a fact is kept by the department it belongs to, and read by the others
     const { p } = building();
     write(p, 'legal.approvals.occupancy', { commencement_on: '2026-03-20' });
     write(p, 'construction.progress.programme', { started_on: '2026-03-10' });
-    assert.ok(sheet(p, 'legal.approvals.occupancy').says().includes('Work began on site on 2026-03-10, before the commencement certificate of 2026-03-20.'), sheet(p, 'legal.approvals.occupancy').says().join(' | '));
+    assert.ok(sheet(p, 'legal.approvals.occupancy').says().includes('Work began on site on 10 Mar 2026, before the commencement certificate of 20 Mar 2026.'), sheet(p, 'legal.approvals.occupancy').says().join(' | '));
     write(p, 'construction.progress.programme', { started_on: '2026-03-21' });
     assert.deepEqual(sheet(p, 'legal.approvals.occupancy').says().filter((say) => /Work began/.test(say)), []);
   });

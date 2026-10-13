@@ -507,7 +507,7 @@ describe('Lenders', () => {
     write(p, 'schedule_progress.forecast_completion', { forecast_completion: '2027-06-30' });
     const late = sheet(p, 'finance.lenders.limits');
     assert.equal(late.value('completion_standing'), 'Forecast after the committed date');
-    assert.deepEqual(late.said(), ['Completion is forecast for 2027-06-30, after the 2027-03-31 committed to the lender.']);
+    assert.deepEqual(late.said(), ['Completion is forecast for 30 Jun 2027, after the 31 Mar 2027 committed to the lender.']);
 
     write(p, 'cost_quantity.budget_current', { current_forecast: '112 Cr' });
     const over = sheet(p, 'finance.lenders.limits');

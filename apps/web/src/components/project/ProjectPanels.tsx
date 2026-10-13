@@ -1,3 +1,4 @@
+import { person } from '../../lib/format';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -194,7 +195,7 @@ export function RecentActivityCard({ project, className, limit = 5 }: { project:
                 <span className="font-mono text-[11px] text-ink-muted">{dayMonth(e.at)}</span>
                 <span className="min-w-0 text-ink">
                   {e.text}
-                  {e.actor ? <span className="block text-[12px] text-ink-secondary">{e.actor}</span> : null}
+                  {e.actor ? <span className="block text-[12px] text-ink-secondary">{person(e.actor)}</span> : null}
                 </span>
               </li>
             ))}

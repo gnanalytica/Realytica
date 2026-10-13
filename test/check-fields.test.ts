@@ -155,7 +155,7 @@ describe('insights are arithmetic, and they say so', () => {
       [{ kind: 'before', fields: ['ec_from', 'ec_to'], severity: 'medium', say: 'runs {a} to {b}, which is backwards' }],
     );
     assert.equal(insights.length, 1);
-    assert.match(insights[0]!.text, /2020-01-01 to 1998-01-01/);
+    assert.match(insights[0]!.text, /1 Jan 2020 to 1 Jan 1998/);
   });
 
   it('never fires a required-field rule on a check nobody has touched', () => {

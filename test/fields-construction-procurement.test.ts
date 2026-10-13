@@ -500,7 +500,7 @@ describe('Procurement: a package is planned back from the day it is needed on si
     recordLetterOfAcceptance(p, tender.id, { bidderId: high.id, value: 184_000_000, letterOn: '2026-10-10' }, 'tester', NOW);
     read = sheet(p, PACKAGE_PLANS, plan);
     assert.deepEqual([read.value('estimate'), read.value('awarded_on'), read.value('late'), read.value('standing')], [180_000_000, '2026-10-10', 0, 'Awarded after it was needed']);
-    assert.deepEqual(read.says(), ['The letter of acceptance is dated 2026-10-10, after the 2026-10-06 the award was needed by.']);
+    assert.deepEqual(read.says(), ['The letter of acceptance is dated 10 Oct 2026, after the 6 Oct 2026 the award was needed by.']);
     assert.equal(sheet(p, PLAN).value('packages_awarded'), 1);
 
     const evaluation = record(p, EVALUATIONS, { package: pack.id, reasons: ['shortest time'], approver: 'stk_engineer' });
@@ -595,11 +595,11 @@ describe('Procurement: a variation with a time claim', () => {
     assert.deepEqual([held.value('days_granted'), held.value('revised_completion')], [45, '2027-08-14']);
     const security = sheet(p, SECURITIES, guarantee);
     assert.deepEqual([security.value('obligation_ends'), security.value('standing')], ['2027-10-13', 'Runs out before the obligation ends']);
-    assert.deepEqual(security.says(), ['The obligation it secures runs to 2027-10-13 and this runs out on 2027-08-31: have it extended.']);
+    assert.deepEqual(security.says(), ['The obligation it secures runs to 13 Oct 2027 and this runs out on 31 Aug 2027: have it extended.']);
     const cover = sheet(p, COVER);
     assert.equal(cover.value('uncovered'), 1);
     const needs = readFunctionFields(p, 'procurement.vendors', NOW);
-    assert.deepEqual(needs.exceptions.filter((e) => e.kind === 'rule').map((e) => e.text), ['The obligation it secures runs to 2027-10-13 and this runs out on 2027-08-31: have it extended.'], 'the function’s page says so, once');
+    assert.deepEqual(needs.exceptions.filter((e) => e.kind === 'rule').map((e) => e.text), ['The obligation it secures runs to 13 Oct 2027 and this runs out on 31 Aug 2027: have it extended.'], 'the function’s page says so, once');
 
     // Extended, it is in order again, and nothing else changed hands.
     write(p, SECURITIES, { valid_to: '2027-10-31' }, guarantee);
@@ -655,7 +655,7 @@ describe('Procurement: a variation with a time claim', () => {
     write(p, TERMS, { default_notice_on: '2026-09-01', cure_days: 28, terminated_on: '2026-09-20' }, terms);
     const read = sheet(p, TERMS, terms);
     assert.equal(read.value('cure_ends'), '2026-09-29');
-    assert.deepEqual(read.says(), ['Terminated on 2026-09-20, before the cure period ended on 2026-09-29.']);
+    assert.deepEqual(read.says(), ['Terminated on 20 Sep 2026, before the cure period ended on 29 Sep 2026.']);
     // Out of play again, what was recorded is kept and no longer asked or judged.
     setSituation(p, 'procurement.orders', 'contract_being_terminated', false, 'tester');
     const kept = sheet(p, TERMS, terms);

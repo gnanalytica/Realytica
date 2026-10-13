@@ -14,6 +14,7 @@ import {
   type ScheduleSkippedRow,
   type SiteLogEntry,
 } from '@realytica/shared';
+import { person } from '../../lib/format';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
@@ -274,7 +275,7 @@ export function ProgressBoard({
         </Callout>
       ) : null}
       <Card>
-        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${summary.lastEntry.date} by ${summary.lastEntry.author}` : 'Nothing logged from site yet'} />
+        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${daySaid(summary.lastEntry.date)} by ${person(summary.lastEntry.author)}` : 'Nothing logged from site yet'} />
         <CardBody className="flex flex-wrap items-center gap-6">
           <Ring percent={summary.percent} />
           <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-2 text-[13px] sm:grid-cols-4">
@@ -367,7 +368,7 @@ export function ProgressBoard({
               {log.slice(0, 30).map((entry) => (
                 <li key={entry.id} data-marked={entry.id === marked ? '' : undefined} className={cn('rounded-lg p-3', entry.id === marked ? MARKED_ROW : 'bg-sunken/50')}>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <p className="font-mono text-[12px] font-semibold text-ink">{entry.date}</p>
+                    <p className="font-mono text-[12px] font-semibold text-ink">{daySaid(entry.date)}</p>
                     <p className="text-[12px] text-ink-secondary">{entry.author}</p>
                     {entry.weather ? <Badge tone="neutral">{entry.weather}</Badge> : null}
                     {entry.manpower.length ? (

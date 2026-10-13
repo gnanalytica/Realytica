@@ -21,7 +21,7 @@ import {
   projectFor,
   viewFor,
 } from '../auth/access';
-import { actorOf as principalActor, reachesEveryProject, readDocumentTypes } from '@realytica/shared';
+import { RECORD_AS_OFFERED, actorOf as principalActor, reachesEveryProject, readDocumentTypes } from '@realytica/shared';
 import multer from 'multer';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -3490,7 +3490,9 @@ projectsRouter.post('/:projectId/fields/decide', async (req, res) => {
     if (fieldCatalogFor(seat.project).checks.has(set.id)) assertMayWrite(req, seat.project, [checkHolding(seat.project, set.id)?.id]);
     decideField(seat.project, { ...address, fn: set.fn }, decision, actorOf(req), { value: input.value, pick: input.pick, reason: input.reason, note: input.note }, seat.options);
     const label = fieldSet(set.id, fieldCatalogFor(seat.project))?.fields.find((field) => field.key === address.field)?.label ?? address.field;
-    await persistPaneWrite(req, seat.project, `${FIELD_DECISION_SAID[decision]} “${label}” on ${set.title}.`);
+    // A record taken or left as a paper offered it is said as what it is: "Accepted a new purchase on Land purchases."
+    const said = address.field === RECORD_AS_OFFERED ? `${FIELD_DECISION_SAID[decision]} a new ${set.records?.of ?? 'record'} on ${set.title}, as its paper offered it.` : `${FIELD_DECISION_SAID[decision]} “${label}” on ${set.title}.`;
+    await persistPaneWrite(req, seat.project, said);
     res.json({ project: seat.project });
   } catch (err) {
     failField(res, err);

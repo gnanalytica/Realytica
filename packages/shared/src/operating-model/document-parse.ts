@@ -911,7 +911,8 @@ function parseAmount(raw: string): number | null {
 }
 
 /** Rupees as a person says them. Lakh and crore are written in one place (`units.ts`). */
-const displayInr = (n: number): string => rupeesSaid(n);
+// As a field writes rupees: the sign, then lakh or crore.
+const displayInr = (n: number): string => rupeesSaid(n, '₹');
 
 /** An area phrase to square metres, or null. Understands acres and guntas. */
 function areaToSqm(value: string, unit: string): number | null {
