@@ -137,7 +137,7 @@ describe('papers read together', () => {
     }
     assert.ok(proposedFacts(filedOn(project, 'deed.pdf')!).length > 0, 'what the deed states is waiting on its row');
     assert.equal(project.chatProposals.filter((c) => c.kind === 'file_evidence' && c.status === 'proposed').length, 0, 'and none is left noted as a file not read yet');
-    assert.match(String((result.assistantTurn as { metrics?: Array<{ label: string; delta?: string }> }).metrics?.find((m) => m.label === 'Evidence')?.delta), /^\+4$/, 'the reply’s receipt counts from before the drop');
+    assert.match(String((result.assistantTurn as { metrics?: Array<{ label: string; delta?: string }> }).metrics?.find((m) => m.label === 'Papers on file')?.delta), /^\+4$/, 'the reply’s receipt counts from before the drop');
   });
 
   it('are offered again when the request ended before they were read', async () => {

@@ -34,10 +34,11 @@ export interface FieldSet {
   extends?: string;      // adds these fields to a shared record in place of making a sheet
   sheets?: DepthSheet[]; // hard cases, each a small sheet opened from the holder that needs it
   reports?: FieldReportTemplate[]; // the reports this set's function hands over: see Reports
+  periodic?: Periodic;   // kept by period: opened from the last, compared with it, due, issued. See Periods
 }
 ```
 
-**A function's page.** A function with at least one field set opens on **Needs you** (see below) and the list of its sheets, and on nothing else. Its certified reports, checks, papers and connections are parts reached from the rail, one at a time, never stacked below. No quick assessment is drawn over a function that keeps sheets. A function still marked `coming_soon` in `departments.ts` becomes a page of its sheets and its documents as soon as a set names it in `fn`; its tab stops being muted. There is nothing to switch on.
+**A function's page.** A function with at least one field set opens on **Needs you** (see below) and the list of its sheets, and on nothing else. A function with a desk of its own opens on the desk instead (Budget on the Cost Report, Progress on the board, Tenders on the tenders, Approvals on the register), with Needs you above it as one line that unfolds to its first five (`NeedsBrief`) and the sheets one part away. Its certified reports, checks, papers and connections are parts reached from the row of parts across the top, each an icon with its name, one at a time, never stacked below. No quick assessment is drawn over a function that keeps sheets. A function still marked `coming_soon` in `departments.ts` becomes a page of its sheets and its documents as soon as a set names it in `fn`; its tab stops being muted. There is nothing to switch on.
 
 ## Kinds
 
@@ -104,7 +105,7 @@ match: { left:  { column: 'survey_no',  label: 'Survey numbers', of: { target: '
          agree: ['rtc_owner', 'purchaser', 'khata_holder'] }
 ```
 
-**Viewers.** `viewer` on an `evidence` field is `pdf`, `image`, `drawing` or `deed`, each opening the paper in the app's own viewer, or `ifc`, which says the model is filed and not drawn yet.
+**Viewers.** `viewer` on an `evidence` field is `pdf`, `image`, `drawing` or `deed`, each opening the paper in the app's own viewer, or `ifc`, which says the model is filed and not drawn yet. `series` draws photographs by the period each was taken in, two periods side by side: see Photographs. An `image` field is drawn the same way once its photographs span more than one month.
 
 ## Attributes
 
@@ -127,6 +128,7 @@ match: { left:  { column: 'survey_no',  label: 'Survey numbers', of: { target: '
 | `dueFrom` | From when it is expected: a step of the project or a day. See Due and owed |
 | `owedBy` | Who owes it, where that is not the function's own people. See Due and owed |
 | `maxLength` | The cap on a `longtext` |
+| `trend` | How it is drawn over time, inside the popover its label opens: see Trends |
 | `retired`, `since` | No longer asked; the version that introduced it |
 
 ## Units
@@ -136,7 +138,7 @@ Give a measure a `dimension`: `area`, `length`, `volume`, `mass`, `money`, `time
 - **Area:** `sqm`, `sqft`, `sqyd`, `acre`, `gunta`, `cent`, `hectare`, and `ground`. A ground has a size only where the state's pack gives it one (`field-sets/state-packs.ts`); elsewhere the person is asked for another unit.
 - **Length:** `m`, `ft`, `in`, `mm`, `cm`, `km`, `yd`. **Volume:** `cum`, `cft`, `litre`. **Mass:** `kg`, `tonne`, `quintal`, `g`.
 - **One way to write each.** A day is `13 Oct 2026`, a share has at most two decimals with its sign against it, and a count agrees with its noun: `daySaid`, `percentSaid`, `countSaid` and `agreeSaid` in `said.ts`, which `formatFieldValue` and every page go through. No raw ISO date, no "INR" suffix and no "(s)" is printed.
-- **Money:** typed as `4,20,00,000`, `4.2 Cr` or `45 lakh`; printed in lakh and crore by one formatter (`rupeesSaid`, `formatMoney`). Another currency is kept in its own, never converted.
+- **Money:** typed as `4,20,00,000`, `4.2 Cr` or `45 lakh`; printed in lakh and crore, to two places, by one formatter (`rupeesSaid`, `formatMoney`), which the cost register's `moneySaid` and every page's `amount` go through. A column of a table is written in one unit chosen for the column (`moneyUnitFor`, `formatMoneyIn`; on a page `moneyColumn`), with the figure in full as the cell's title; the Cost Report's ledger, its two executive sheets, its bottom line, the variation log and the printed report do this, and a figure being typed on the ledger shows as its column is written until the box is entered. A bill, a certificate, a payment, an import's preview and a row a paper offered are written to the rupee, since each is checked against a paper. Another currency is kept in its own, never converted. `test/rehearsal-screens.test.ts` fails on an amount or a date written to a screen without the formatter.
 - `enterIn` narrows what may be typed. A bare number is in the base unit, or in the first unit of `enterIn` where the base is not one of them. `m2` and `m3` are read as square and cubic metres.
 - What is typed is read strictly. Spaces alone are nothing recorded, never a zero; a figure is digits, commas and one point (`0x10` and a lone comma are refused); a day has to be one the calendar has. An amount with no `currency` and no unit of its own prints in rupees, and a rule prints two amounts in full where they would read the same in lakh and crore.
 
@@ -159,7 +161,7 @@ The key is stored and the label shown. Tones are `good`, `warning`, `critical`, 
 ## Addresses, mirrors and links
 
 ```ts
-type FieldAddress = { fn: string; set: string; field: string; column?: string; record?: string };
+type FieldAddress = { fn: string; set: string; field: string; column?: string; record?: string; period?: string };
 ```
 
 `set` is a field set's id or a check definition's id: every check's fields are in the same catalog, unchanged, under the check's id and the function the check sits in.
@@ -242,7 +244,7 @@ A field hidden by its condition that still holds a value is kept, under "Filled 
 
 **Not applicable.** A person marks a field or a section not applicable with one of five reasons: not in this project, not at this stage, done by another party, exempt, no such paper. The reason is a key, never a sentence.
 
-**Usual values.** `defaults: [{ when?, value, from, cite }]` fills a field as `assumed`: it is said to be assumed, feeds what is worked out, needs nobody, and gives way the moment a value is typed or accepted. A value somebody offered does not switch it off: the offer shows on the field to be accepted, and the usual value goes on standing in behind it. A value worked out from one carries the labels of the fields that stood in (`assumes`), and a report prints it as "worked out, on an assumed value". `cite` is required unless `from` is `'firm'`.
+**Usual values.** `defaults: [{ when?, value, from, cite }]` fills a field as `assumed`: it is said to be assumed, feeds what is worked out, needs nobody, and gives way the moment a value is typed or accepted. A value somebody offered does not switch it off: the offer shows on the field to be accepted, and the usual value goes on standing in behind it. A value worked out from one carries the labels of the fields that stood in (`assumes`), and a report prints it as "worked out, on an assumed value". `cite` is required unless `from` is `'firm'`. A value assumed because a paper will not come stands in the same way, ahead of a usual value, with its line of Papers owed as the citation: see Lists.
 
 ## Due and owed
 
@@ -257,6 +259,54 @@ Two attributes say when a field is the reader's to fill, and both keep the count
 - **`owedBy`** is a role (`owner`, `advocate`, `authority`, `consultant`, `contractor`, `lender`, `buyer`) or `{ ref }`, the key of a `ref` field of the same set that links to a party: whoever that link names owes it. A field somebody else owes is never under Missing and never counted against the reader. It is listed under that party on the function's page ("Waiting on others") and as a line of the department's **Papers owed** list, on its Documents part. There is no page of its own.
 
 Only a must-field that a person fills can be owed.
+
+## Lists: papers owed, and a form of answers
+
+Two lists a consultant keeps are taken in as they are, through the one **Load a list** on a department's Documents part (`POST /checklist/import`; with `preview` it says what it would do and changes nothing). Neither is a field set: a list is lines, and a form is answers to fields that already exist.
+
+**A tracked list** is a spreadsheet of information required, sent again each time it moves: a title and a legend, a row that names the columns, section rows between the items, and for each item a number, an older number, a package, the round it was asked in, a few words on what came back, and a status. `parseTrackedSheets` (`list-import.ts`) reads it from an `.xlsx`, a CSV or pasted rows. It finds the header wherever it is and knows the columns by their words, whoever's name is in them:
+
+| Column, by its words | Kept on the line as |
+|---|---|
+| `Ref No`, `Sl. No`, `Item No` | `ref`, as written: "2.1.4" |
+| `Orig. Sl.No`, `Old Ref` | `oldRef` |
+| `Package`, `Discipline`, `Trade` | `package`; a blank cell takes the package of the line above in the same section |
+| `Description of Information Required`, `Description`, `Item`, `Particulars` | `title` |
+| `Availability (at request)` | `availability`, as written |
+| `Request Ref`, `Asked in`, `Round` | `round`: a line with one has been asked for |
+| `Client Response / Remarks` | `remark`, read from the list |
+| `Current Status` | how the line stands: see below |
+| `Responsibility`, `Action by` | `owedBy` |
+| `Target Date`, `Due`, `Required by` | `targetDate`, as a day |
+| `Next Action / … Comments` | `note` |
+
+A row with only its number and its name is a section: it is kept as a heading over the lines under it (`headings`, outermost first, each with its number) and is never a paper, and neither is the title, the legend or the header. A heading may carry a remark on its whole section; where the list keeps a status column, a row that says nothing an item says (no package, older number, status, round, availability, party or day) and whose rows below are numbered under its own number is still a heading, kept with its remark, so the count is the sheet's own. What a line was said to have to hand when it was asked for, and its older number, are shown on the line when it is opened. A sheet that counts the list ("Summary") is not read. A load ends by saying how many rows the sheet held, how many lines and sections were made of them, and each row that became neither with its reason (`counted`), so a count that does not add up is seen. A workbook's merged cells and blank rows are read through; a line the list is signed on ("Prepared by:" where the number would be) is skipped and said, as "a signature line"; and a file that cannot be read is refused in a sentence, never in an error's own words.
+
+- **What makes a line itself.** Its number where the list has one, else its name within the sections it sits under: two phases that ask for a paper in the same words are two lines.
+- **A load is one step.** Every line a load adds carries the load's id. The card says "Loaded 99 lines from …" with **Undo**, which takes that load back whole (`removeChecklistLoad`, `POST /checklist/remove`), and a tracked list is removed whole, with one confirmation, by somebody who may edit on every desk its lines are on.
+- **Lines ticked are set together** (`assignChecklistItems`, `POST /checklist/assign`): in hand, partial, to be assumed, asked for on a day, who owes them and the day they are wanted by.
+- **A document is offered for a line only on words that mean something.** "Client", "drawing", "details", "report", "list", "works" and "information" carry no weight: a match needs two other words in common, or the one the line has.
+- **Owed is counted one way.** A paper is owed once somebody has been asked for it; the card, Overview and every notice say the same number (`askedFor`, `papersOwedSaid`, `notAskedSaid`). Lines nobody was asked for, and lines that name nobody or no day, are what the list needs of somebody: a function's opening says so in one line with the counts (`papersNeedSaid`).
+- **Who owes it is a party.** The owed-by box picks from the project's parties, and a name that is not one yet is offered to be added to them. A consultant a tender form names who is no party is offered as a new party with its role; once accepted, the form's row links to it.
+- **A spreadsheet dropped in the chat** that is a tracked list or a tender form is offered to its loader in one press, in place of being read as a paper.
+
+- **Six standings.** Four are worked out as before: not asked, asked for, answered and in hand. Two more are set by a person who may edit the list, or by the list's own status column: **partial** (some of it is in hand and the rest is still owed, with a short line on what is still wanted) and **to be assumed** (it will not come, and a named party proceeds on an assumption). The status column reads `Received` as in hand, `Partial` as partial, `… to assume` as to be assumed with whoever is named, and `Pending` as asked for where a round is named and not asked where none is.
+- **Sent again, it updates.** `loadTrackedList` matches a line to the one an earlier copy of the same list made: by its number and name, then by its name where the number moved, then by its number where it was reworded. It reports what became received, became partial, became to be assumed, went back to pending, was added, and is no longer on the list (kept, and said). A line is never added twice. What a person settled here is not undone by the list.
+- **A list stays on the desk it is loaded on.** A package goes to another function only where whoever loads the list says so (`desks`, a package's name to a function's key). `PACKAGE_DESKS` only suggests where a package could go, by the words in its name (general to Budget, civil and structural to the Structural design basis, architectural and finishes to the Finishes schedule, external development to Landscape and external works, MEP to the Electrical load): `packageDesks` hands each suggestion back as `suggested` with how many lines the package has, the load box offers them behind one tick, and before anything is loaded it says how the list would be split ("12 lines stay here, on Finance; 30 go elsewhere: 18 to Design › Electrical load, …"), naming any department the project does not use or that is not built beyond its sheets. Whoever loads it has to be able to edit in every department it reaches. Sent again with no choice made, a list's lines stay where they are.
+- **The count is worked out, of one list on one desk.** `checklistSummary` gives, for each package and in total, how many lines are received, partial, to be assumed and pending, and the percent received; with `round`, of the lines asked for in one round; with `list`, of one list and no other; with `department`, of what that desk holds, with where the rest of the list is (`elsewhere`). The card draws one list at a time, titled with the list's name and how many of its lines are on the desk, with a link to each other desk that holds the rest; its round chips count only the lines the desk holds. A report carries the count as the bound block `information_status`.
+- **Who owes it and by when.** A line still owed that names nobody, or no day, says so in one quiet mark on a list that keeps such things ("nobody named, no date"), each is a filter, and one act sets the party and the day for every line ticked (`assignChecklistItems`). A line past its day is overdue. Nothing new is counted: Overview and the work list read the same papers-owed list as before.
+- **A paper that will not come.** A line to be assumed may name the fields the paper would have filled, each with the value assumed (`assumeChecklistItem`, `list-assumptions.ts`). Such a field reads that value as **assumed**, with the line as its reason: it feeds what is worked out, is said to be assumed wherever it shows, and gives way the moment a value is typed or accepted. Nothing is written onto the field, so taking the line back takes the assumption with it. Only a field a person fills with one value can be assumed, and whoever sets it has to be able to type in that field's department.
+
+**A tender form** is a form of answers: lines above a table for the project, the client, the package and the day a reply is wanted by, then rows under `Information / Document Required`, `Details to be Provided`, `Client Response`, `Document Attached` and `Remarks`. A sheet with the second and third of those columns is one. Its rows are the fields of **Tender terms** (`procurement.boq.tender_terms`), a record for each tender, and `TENDER_FORM_ROWS` (`tender-form.ts`) is the one table that says which: fifty rows in ten sections, each with the fields it answers and how a response is read as each.
+
+- A row is known by three things together (`tenderFormRowsFor`): its wording with its "details" beside it, a letter or a word off; its section; and its number within that section, which counts for most where the section is the table's own, because a consultant writes a row in as few words as its section allows ("Interest", "Ceiling"). A row whose details ask for a kind of answer none of a candidate's fields takes (a yes or no, a percentage, a period) is held to be less likely that candidate. All the rows of a form are matched at once, the surest pair first, so a row that is plainly one of the table's is never taken by a vaguer one written above it. `test/papers-as-sent.test.ts` fails where a row of the form's layout reaches no field or a field of the wrong kind.
+- One row may ask two things (is a borewell permitted, is the contractor to bring a generator): each field reads the part of the response that speaks of it.
+- A filled response is **offered** as each field's value, with the file, the sheet and the row as its source, and counts for nothing until a lead or signer accepts it on the field. Words that cannot be read as the field's type are offered nowhere: the row is listed for a person to type.
+- `Not Applicable` is offered as not applicable, and a lead or signer of Procurement takes it or sets it aside.
+- A paper named under `Document Attached` is offered as the field's paper where a document of that name is on the project.
+- A row left unanswered, or naming a paper that is not on file, is a line of Papers owed: owed by the client, asked for, and wanted by the day the form asks for its reply. A blank form lists every one of its rows, and still fills a record of its own. A line knows the fields its row asks for (`answers`), and is answered once one of them holds a value that stands on that record, however it got there: typed on the Tender terms sheet, or accepted from a form.
+- A value offered on a sheet of the record that opens only once another offered value is accepted (the earnest money's amount, behind "earnest money applies: yes") is said among the values the form offers, with the sheet's name before its label, and goes with the record when it is accepted.
+- `tenderFormExport` writes the same form back out, in the same columns, from the values that stand on the sheet. A form written here and read back offers nothing new.
 
 ## Depth sheets
 
@@ -281,7 +331,7 @@ When one row needs a dozen more fields, they do not join the row. They are a **d
 - At most twenty fields in at most four sections, and no list inside that pairs or opens another. Function, row, sheet is the whole depth.
 - A record at its twenty-field limit makes room by moving the fields of one hard case to a depth sheet under the keys they always had: what projects saved stays where it was.
 
-The catalog declares thirteen: an owner's guardianship and succession (with the heirs as rows under the owner who died), an instrument signed by an attorney and a partition, the partition suit, a final order and its appeal, what a plan revision changes, a variation's time claim, the cost of a delay, a guarantee's invocation, a design change that alters what buyers were promised or needs a modified sanction, and a cancellation after the registered agreement.
+The catalog declares twenty-two: an owner's guardianship and succession (with the heirs as rows under the owner who died), an instrument signed by an attorney and a partition, the partition suit, a final order and its appeal, what a plan revision changes, a variation's time claim, the cost of a delay, a guarantee's invocation, a design change that alters what buyers were promised or needs a modified sanction, a cancellation after the registered agreement, and the nine sheets of a tender's terms. Six of those every tender has (issue and reply, consultants, water and electricity, retention and security, approved makes and guarantee formats, the appendices); three open only once the tender says yes (earnest money, the mobilisation advance, materials the client supplies), so a tender with none of them is a short sheet.
 
 ## Needs you
 
@@ -294,6 +344,8 @@ A function does not open on its form. It opens on at most five lines in all, the
 | **Failing** | A rule firing at high or critical; a day that has run out; a pairing whose names differ | Needs judgement, best made once the values under it are settled |
 | **Due soon** | A day within its `expires.leadDays`; a rule at medium; a standing whose tone is a warning | Can wait a day |
 | **Missing** | A must-field the function's own people owe that holds nothing; a thing with no counterpart in a match | Last, because most of it is cured by filing a paper |
+
+A set kept by period (see Periods) adds one line of its own, of kind `due`: the latest period that has ended and is not issued, said as how full it is and when it is due ("October: 4 of 9 fields, due 7 Nov 2026"). It is counted under **Due soon** until its day and under **Failing** after it ("was due"), inside the five lines like any other. There is one for a set, whatever else the set is behind on; older periods nobody kept are said on the sheet, not here. The photograph round is one more such line, on the Site record: the stations not photographed this period, however many (`stationRoundDue`).
 
 Not on the card: expert fields; fields before their `dueFrom`; what another party owes (one quiet line, "Waiting on others"); usual values standing in (one quiet line); a rule at low, which is said on the sheet it is about.
 
@@ -335,7 +387,8 @@ A formula is a tree. Every leaf is a field, a figure or a rule row; nothing in i
 | `op` | Gives |
 |---|---|
 | `field` `{ key, at?, via? }` | A field of this set, or with `at` of any set. With `via` as well, `at` names a field of a set that repeats and `via` one of this set's own links: the field is read from the record that link holds (the agreed value of this ledger's unit) |
-| `figure` `{ key, of? }` | A figure a module of its own works out, read and never entered: see Figures from other modules |
+| `figure` `{ key, of?, asAt? }` | A figure a module of its own works out, read and never entered: see Figures from other modules. `asAt` names one of the holder's own dates: the figure is then read as the project stood when that day ended, where the day has gone by |
+| `moved` `{ key, since }` | How far one of the holder's own figures has moved: now less then. `since: 'last_period'` is since the last period issued of a set kept by period; `since: { days }` is since so many days ago, read from the project as it stood then. No answer where the record does not reach that far |
 | `const` | A figure. Never one a law sets: see the rule table |
 | `add` `subtract` `multiply` `divide` `power` `variance_pct` | Arithmetic on `left` and `right` |
 | `min` `max` `{ of: [] }` | The least or the most, leaving out what is not known |
@@ -358,7 +411,7 @@ Fields are worked out in the order of what they read, across sets and functions.
 
 Each of these is a pure function with its arithmetic written out in `test/formula-operators.test.ts`. A match table's side may likewise be read from a table inside records (`of: { records, table, column }`: the sellers named on every purchase).
 
-What formulas still cannot do, so that nobody hunts for it: group rows by a column and reduce each group, or run an ordered window over records (a running balance). A money field refuses a negative value unless it declares a negative `min` (an overdrawn balance, a net outflow).
+A formula takes the latest of dated records (`records` with `latest`), counts or sums the rows inside a window of days (`between`), counts the rows that stood on a past day (`asAt` on `count_if`), reads a figure as at a day the holder names (`figure` with `asAt`), and says how far a figure has moved since the last period or a number of days (`moved`). What formulas still cannot do, so that nobody hunts for it: group rows by a column and reduce each group, or run an ordered window over records (a running balance). A money field refuses a negative value unless it declares a negative `min` (an overdrawn balance, a net outflow).
 
 ## Figures from other modules
 
@@ -369,7 +422,9 @@ The schedule, the site log, the tender tracker, the cost register, the monthly c
 { key: 'awarded_on', label: 'Awarded on', kind: 'computed', yields: 'date', formula: { op: 'figure', key: 'package.award_day', of: 'package' } }   // of one work package: `of` names this set's own link to it
 ```
 
-`field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, and `package.*` for one work package). One group of them is worked out from field records by code, because it moves milestones and a formula does not: what the extensions of time granted do to the schedule. The days of a search period no encumbrance certificate covers and the plan sanction as the last sanctioned revision leaves it used to be figures too; they are formulas now (`span_days`, `records` with `latest`). Each reads only values that stand, through `standing-records.ts`. A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
+Planned progress is one of them, and is typed by nobody: `progress.planned_percent` is each milestone's planned start and finish read by its weight (none before the start, all of it from the finish, a straight line between), and is null while any milestone has no planned finish. `progress.planned_value`, `progress.earned_value`, `progress.schedule_index` and `progress.cost_index` are the work in money, and are null unless every milestone is tied to a work package with a budget (`earnedValue` in `milestone-schedule.ts`): a milestone's weight is a share somebody judged, not money. `progress.building_percent` and `progress.building_planned_percent` are of one building, by the link the set names.
+
+`field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, `photos.*`, and `package.*` for one work package). A figure marked `own` (`photos.station_*`) is of the record that asks for it: read from a field of a set that repeats, it is given that record with no link named. One group of them is worked out from field records by code, because it moves milestones and a formula does not: what the extensions of time granted do to the schedule. The days of a search period no encumbrance certificate covers and the plan sanction as the last sanctioned revision leaves it used to be figures too; they are formulas now (`span_days`, `records` with `latest`). Each reads only values that stand, through `standing-records.ts`. A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
 
 ## Links to other departments
 
@@ -446,7 +501,8 @@ A field that a kind of paper states names that kind:
 - **How a paper's kind maps to fields.** The rules name the kind (`parseDocumentText`), or a model does and a person confirms it. The kind decides three things: the row the paper is filed on (one titled as that kind and nothing else, else a row of its own, under the function `DOCUMENT_WORKSTREAM` gives the kind); the keys the reader is asked for (every registered field whose `fromTypes` names the kind, by `factKey` or its own key: `paperKeys(kind)`); and the fields its values are offered to (the same list). The chat's route hands the reader the kind even where it hands over no local reading (`papers` on `enrichIngestWithDocumentIntelligence`).
 - **A measure keeps the paper's units.** A value read in the base unit carries the measure as the page writes it (`written` on the fact and on the proposal: "1 acre 20 guntas"). Where that is a measure the field takes and comes to the value offered, it is kept as what was entered, so the field shows "1 acre 20 guntas (6,070 sqm)". The value itself is never taken from it.
 - **One parcel's extent is not the holding's.** A deed or a record of rights that names fewer survey numbers than the project holds is offered to that parcel's own record, and to no check that asks for the extent of the whole land.
-- **A new record is one line.** A record a paper offered, and nobody has accepted a value of, is one line under Accept ("New purchase", with each value said). Accepting it (`decideField` at the address whose field is `RECORD_AS_OFFERED`) takes every value that needs no naming; one a person has to name stays for them. It is nothing until then.
+- **A paper that states rows offers rows.** A cost report states a line for each package and an engineer's report an observation after another; neither is a fact with one key. A technical due diligence report's observations are offered to **Report observations** (`construction.quality.observations`), a record to each, by `offerReportObservations` through `proposeFieldValues`: what was seen and what is recommended as the page's own words in a line each, the risk and the part of the building as picks, every value with its page. A cost report's rows are offered to the Cost Report, which is no field set, and wait there the same way (`cost-import.ts`). A page is read by where its words sit (`readCostWords` in `cost-table.ts`), so a table set in cells, with wrapped headings and names, keeps its columns, and by its lines; a picture is read both ways from each reading OCR made of it. The reading the page's own totals hold is kept (`costTableTie`: each section to its sub-total, the rows to the total before GST, a page that runs on to the total it carries). A row is offered only where it is believable as a row of the ledger (`costRowDoubts`), and a picture's rows only where the page holds and every row on it was read cleanly, never in part; a page that does not is declined whole, with why (`CostPaper.declined`), as is one that repeats or breaks down a page already offered. "All of a page" is refused for a page its totals do not hold (`costPageHolds`), and is shown before it is written (`previewCostOffersOnPage`). Neither kind names fields with `fromTypes`, and the keyed-fact reader is not asked about either.
+- **A new record is one line.** A record a paper offered, and nobody has accepted a value of, is one line under Accept ("New purchase", with each value said), drawn as a small card of labelled fields (`FieldException.parts`) with the page it is on. Accepting it (`decideField` at the address whose field is `RECORD_AS_OFFERED`) takes every value that needs no naming; one a person has to name stays for them. It is nothing until then.
 
 The model's tools are `get_fields({ fn })` and `propose_field_values({ values: [{ address, value, origin }] })`. A proposal is refused without a source, for a choice not on the list, for a link to something not on the project, and for any field that is computed, a status, a mirror or prose. What is kept as a value's origin is built by the server from the named members of what was sent (`offeredOrigin`), never stored as sent: who read it is the proposer; a model's words are looked for on the pages this server read (`setPaperPages`, the page check a review answer is held to) and the value is `page_text` on the page that holds them or `unverified`, which "accept all" never takes; every string is cut to a bound and a link is kept only as https. Words given to `suggest_answers` as a paper's are laid beside a question only where a page of the paper holds them. On a check, a field whose `proof` is `'required'` takes a value only from a paper on the project.
 
@@ -465,11 +521,114 @@ origin?: { kind: 'paper', evidenceId, page, quote, reader } | { kind: 'external'
 entered?, proposedBy?, acceptedBy?, acceptedAt?, other?, declined?, naReason?, naNote?
 ```
 
+A value also carries `history`, what the field held before (see History), and `since` where the day it began to stand is neither `acceptedAt` nor `at`.
+
 Accepted, typed and assumed values stand. Typing over a value accepted from a paper does not replace it: the two are disputed until a lead or signer keeps one, and typing again adds a third beside them. Typing the value a field already holds changes nothing, source and all. A value accepted from a source is cleared only by a lead or signer, and is then kept among what was set aside; a disputed one is not cleared at all. Marking a field not applicable keeps what it held (`was`), and asking it again puts that back as it was. On screen an accepted or typed value carries no mark; pressing its label shows where it came from. Only what needs somebody is marked.
 
 **In a report and in the chat.** An accepted, entered or worked-out value prints with a footnote: the paper and page, the public source and the day read, or the person and the day. An assumed one prints "assumed". A proposed or disputed one prints "waiting" and never its figure. A figure from a rule row prints the row's citation and "not verified". A field that is not in play is left out. The chat's card says the same of each row, and calls a worked-out figure worked out, never accepted.
 
 **Who may do what.** Whoever edits in the function's department (lead, contributor, signer) types values, adds records and raises a dispute. Only a lead or signer accepts, keeps, sets aside, marks not applicable, sets a situation or takes a record off its list. A situation the whole project shares is set from a function that declares it or has fields waiting on it, and from no other. A check's field is decided on its check: a collaborator whose grant leaves that check out does not decide it. A decision sent to a mirror is made on the field it reads, in that field's function. An outside collaborator is handed a function's sheets only where their grant names a scope the function's checks sit in, and three functions ask for more (the Procurement scope by name, the Budget area, the Valuation area): the gates, what follows a sheet onto a copy and what is refused are in [auth.md](auth.md), under “Field sheets on a collaborator's copy”. They are never handed a set in `CUSTOMER_SETS` (buyers) or a party record one of those names, and are handed a department's additions to a shared record only where that department's function is in their reach.
+
+## History
+
+A field holds one value, and keeps what it held before on the value itself.
+
+```ts
+interface FieldPast {
+  value: string | number | boolean | string[] | null;   // never a table's rows: a table keeps `rows`, how many it had
+  rows?: number;
+  entered?: { value: number; unit: string; text?: string };
+  state: 'accepted' | 'typed' | 'not_applicable' | 'empty';
+  origin?: FieldOrigin;        // a paper's words cut to 80 characters
+  by: string; at: string;      // who made it stand, and from when
+  until: string;               // when it stopped standing
+}
+// CheckFieldValue.history?: FieldPast[]   newest first, at most 24
+```
+
+- **One writer.** `stand(holder, key, next, { at, by })` in `field-history.ts` is the only way a stored value changes: a sheet, a record, a check (`recordCheckFields`), an acceptance, an edit made while accepting, a field marked not applicable and asked again. A mirror holds nothing, and says its owner's past. Where the value that stood stops standing, it is kept with the moment it stopped; where what stands is unchanged (the same figure typed again, a value offered beside it) nothing is added. Clearing a field keeps its past on an empty value.
+- **Only what stood enters.** A value somebody offered, one in dispute and a usual value standing in are never history.
+- **Bounded.** Past 24 entries the first is kept, the latest 12, and of the rest the ones that stood at a month's end (`thinHistory`). An entry whose successor was dropped says so, so a day in the hole is never read as a day nothing stood.
+- **Read as at a day.** `fieldAsAt(value, day, project.historyFrom)` gives what stood when the day ended in India: the value held now, an entry of its history, nothing, or today's value marked `as_now` where the record does not reach that day. `fieldMoved(value, sinceDay)` gives then, now and the difference.
+- **No migration.** History begins at a field's first change after this was built. `project.historyFrom` is the moment a project's history is whole from: its making, or its first change of a field since. Before it, a past day reads as now and says so.
+- **On screen.** Nothing new on the sheet. The popover a label opens gains one line put together by code, "Was ₹4.1 Cr on 12 Aug 2026 (R. Iyer); now ₹4.32 Cr", and a small line where the field has held three figures or more (`fieldHistorySaid`).
+- **Who, by name.** Wherever a line says who typed, accepted or issued something (the popover, a footnote of a report, the line that opens a set's past, a photograph's caption, a notice), it prints the name the project's team gives them, else the name part of their address (`personSaid` in `team.ts`). No line prints an address; the trail keeps it.
+- **The trail** says what a field held and what it holds, as the field prints them (`oldValue`, `newValue` on `set_field_values`, `record_check_fields` and each `field_<decision>`).
+- **A collaborator's copy** cuts a field's past as it cuts the field: with the field, and each entry's citation only where its paper is on the copy.
+
+## Periods
+
+A set kept by period says so with `periodic`. There are two forms and one declaration.
+
+```ts
+interface Periodic {
+  every: 'week' | 'month' | 'quarter' | 'year' | { event: string; on?: string };  // event: a records set; `on`, its record's own day
+  by?: string;            // on a set that repeats: the field that names the period
+  per?: string[];         // on a set that repeats: what tells one instance from another in a period (the kind, the building)
+  carry?: string[];       // keys copied from the last period; the rest open blank
+  cumulative?: string[];  // running totals: what moved is this less the last
+  due: { days: number } | { rate: string };   // after the period ends; a day a law sets is a rule row, in days or months
+  issuer: 'lead' | 'signer' | OwedRole;       // an outside party's paper is recorded as issued, under the name it was signed by
+  attribute?: Array<{ field; rows: FormulaRows; date; amount; label; of?: 'movement' | 'amount' }>;
+  reasons?: string;       // the option set a person picks from for what the rows do not explain
+}
+```
+
+**Records as periods.** On a set that repeats, each record is one period's instance. `by` names the field the period is read from: a date (the month a cash record begins, the quarter a certificate ends), the year as a receipt writes it ("2026-27"), or for `{ event }` the link to the event's record. Storage is what it was; a record gains only `issued`, `frozen`, `revises`, `carried` and `reasons`.
+
+```ts
+{ id: 'finance.funding.rera_certificates', fn: 'finance.funding', title: 'RERA certificates', v: 1,
+  records: { of: 'certificate', titleField: 'kind', summaryFields: ['period_end', 'signed_on'] },
+  periodic: { every: 'quarter', by: 'period_end', per: ['kind'], carry: ['signed_by', 'membership_no'],
+              due: { rate: 'rera_quarterly_filing_days' }, issuer: 'consultant' },
+  fields: [ … ], rules: [] }
+```
+
+**A sheet as periods.** On a sheet held once, the sheet is the open period, and each period issued is kept beside it (`StoredFieldSheet.periods`) with every field frozen. It names no `by`.
+
+```ts
+{ id: 'finance.lenders.position', fn: 'finance.lenders', title: 'Loan position', v: 1,
+  periodic: { every: 'month', carry: ['account_class', 'notice_dated', 'reply_by', 'matter'], due: { days: 7 }, issuer: 'lead' },
+  fields: [ … ], rules: [] }
+```
+
+- **Keys.** A period's key never changes: `2026-09`, `FY2026-Q2` (or `2026-Q3` where the project numbers quarters by the calendar year), `2026-W41` (Monday to Sunday, numbered as ISO 8601 numbers weeks), `FY2026`, and `evt:<record>` for an event. Days are days in India. `period-keys.ts` holds the calendar, and it is the only one: `periodOfDay`, `periodOfKey`, `periodShift`, and `periodsNumbered(project)` for the year a project numbers its quarters in. A cash month, a RERA quarter and a photograph round all ask it, so a week, a month and a quarter mean one thing.
+- **The first period.** A set nobody has kept shows one quiet line, "No period kept yet · Start with October 2026" (`SetPeriods.first`), and asks for nothing: no line under Needs you, no notice, however long it is left. Starting it is one press, on the period today falls in or the one before: `openPeriod` for a set of records, `startSheetPeriod` for a sheet. That first start is what begins the due cycle, and nothing is expected of any period before it. A set started on October can still keep September: "Also keep September" (`SetPeriods.alsoKeep`) opens the period before the earliest kept, beside the rest, to be filled and issued in its turn; on a sheet it is an open period kept beside the sheet, which stays on the period it is on. On a set that keeps several instances a period, the first period opens a row for each kind the set declares (each certificate) or for each building the project keeps, never one blank row that says no kind.
+- **What a period opens with.** `carry` lists the fields whose value normally holds from one period to the next: a bank, a facility, a rate, a party, a limit, a name, a classification, and a total to date, which only grows (every `cumulative` key is carried; `test/tracking-gaps.test.ts` holds the catalog to it). They open filled and say "Carried from September" until somebody writes them. Every other field a person fills is read afresh each period (a balance as at a day, a month's collections, a week's count): it opens blank, with what it read last period beside it as "last: ₹4.1 Cr" (`FieldView.last`), so a person sees what to compare. A worked-out field never goes blank because an input was cleared: it says "Waiting for Opening balance" (`FieldView.waitingFor`, the fields of its own holder it reads that hold nothing).
+- **Opening.** `openPeriod` makes the period today falls in, or one named: a record for each instance the last period kept, with the `per` fields and the `carry` keys already filled and marked "Carried from September" until somebody writes them. Asked twice it makes nothing twice. Nothing carried is asked again.
+- **Comparing.** `comparePeriods` (a record) and `compareSheetPeriods` (a sheet) give each figure as it was and as it is, by its key, in one templated line: "Was ₹4.1 Cr in September; now ₹4.32 Cr", or for a `cumulative` key "+₹15 Cr in FY 2026-27: ₹10 Cr to ₹25 Cr". Where `attribute` names dated rows for a figure, their sum inside the period is set against the movement (or against the period's own amount, with `of: 'amount'`), and what is left is "Unexplained". A person settles it with a pick from `reasons`; no sentence is kept.
+- **Due, late, not kept.** A period is due `days` after it ends, or by what the rule row says. A set is expected only once somebody has kept a first instance of it, or started its sheet on a period. The latest period that has ended and is not issued is the set's one `due` line; past its day it is said to be late. A period that went by with nothing kept is said to be not kept ("2 periods not kept: September, July") and is filled in by nobody but a person: opened late, its record is dated the day it was made.
+- **Issuing.** `issuePeriod` (a record) and `issueSheetPeriod` (a sheet) issue a period under a person's name: a lead or signer of the function's department for `lead`, its signer alone for `signer`, and for an outside party's role a lead or signer who gives the name it was signed under. Refused while a value waits or is in dispute. Issuing writes down every field in play, the worked-out ones among them, as it read and as it printed, with its footnote (`frozen`): an issued period is never worked out again. A sheet then goes on as the next period's, keeping what it carries and opening the rest blank, with what it held in each field's history.
+- **A late issue reads the period's last day.** A period that has ended is frozen as at its last day, whenever it is issued: September issued on 13 October carries nothing recorded in October. What the sheet or the record itself holds is the period's own entries and is taken as typed, whenever it was typed; everything it reads from the rest of the project (other sheets and records, the milestones, the site log, the Cost Reports) is read through `projectAsAt` as the project stood when that day ended. A figure the record's history does not reach, or one of a module that keeps no past, is frozen as it reads on the day of issue and marked (`FrozenField.asNow`); the issued sheet says which, in one line: "2 figures as now, no history before 13 Oct 2026: Drawn to date, Principal outstanding" (`frozenAsNowSaid`). What a period holds of the rest of the project is decided by the day each entry describes, never by when it was typed (`projectAsOfPeriod`): a drawdown disbursed on 28 September and entered on 3 October is in September as issued, and one dated 5 October and entered early is not. The day a record describes is its only date field, or the one its set names (`records.dated`: a drawdown's `disbursed_on`); a table's rows go by its only date column. An entry with no date of its own falls back to when it was recorded. Whoever issues the period is shown what was entered after it ended and is dated in it (`enteredAfterPeriod`), in the one confirmation that issuing asks for. "Moved" in a comparison is said only of a field with a value in both periods: a field merely blank in a period just opened has not moved.
+- **Being told.** Whoever issues a set, and whoever opened the period that is due, is told once for the period, as a notice (`gatherPeriodsDue` in `tell-periods.ts`, written by the daily job). No report day has to be set. Only the firm's own people are told.
+- **An issued period is never edited.** Every write to it is refused. A correction is a revision kept beside it (`revisePeriod`, `reviseSheetPeriod`): a copy of what it held, worked on like any open period (a sheet's with `period` named on the write), and issued in its turn. Until then the issue stands and is what every figure reads; after, the revision does, and the first is kept as it was sent.
+- **Opening a past period.** The one line under a set's title, "September issued by A. Rao · 11 earlier", opens the list of its periods, newest first, each with its status (issued, issued late, replaced by a revision, a revision not issued) and who issued it. One picked is read only under a band that names the period and who issued it, with "Compare with the one before" one press away (`comparePeriods`, `compareSheetPeriods` with the period's key).
+- **Reading a set's periods in code.** `periodsOf(project, setId)` gives every instance, latest first (`PeriodInstance`: its period, status, who issued it, whether a revision replaced it, when it is due, how full it is). `currentPeriod(project, setId)` and `lastPeriod(project, setId)` give the period today falls in and the one before, each as `{ span, instances }`. `periodSeries(project, { set, field })` gives one figure period by period, and reads a figure that keeps its own months (progress by the milestones, the plan by their dates) the same way; the view across projects reads the schedule and the units sold through it (`ACROSS_SCHEDULE_SERIES`, `ACROSS_SOLD_SERIES`).
+- **The Cost Report** stays its own module. `periodsOf(project, 'finance.budget.cost_report')` reads its months as instances, so the due list and a chart see it as they see any set kept by period. Its reopen is a revision too: a draft beside the issued report, which is `superseded` once the draft is issued.
+
+Which sets are kept by period is listed in [departments.md](departments.md).
+
+## As at a day
+
+`projectAsAt(project, day)` (`as-at.ts`) is the project as it stood when a day ended in India: a reading, never saved. Fields are what stood then (`fieldAsAt`); a record is there where it had been made by then and not yet taken off its list; a milestone is done where the record dates it as done on or before the day, and otherwise at the percent last reported of a day on or before it, whenever that was typed; one with readings and none that early is marked `unread`, and nothing is said of it for that day; the site log and the Cost Reports are those of the days up to it. `resolveFields(view, asAtMoment(day))` then gives every formula, standing and figure as at that day with no change to a formula.
+
+- **An issued period wins.** Where a period issued for a sheet covers the day, the sheet reads as that period was frozen, whatever would be worked out afresh.
+- **What keeps no past says so.** A value the record's history does not reach, and a figure of a module that keeps none (the cost register, the tenders), is today's and carries `asNow`; so does whatever is worked out from it. A report prints it "as now" with the footnote "As now: no history before 14 Oct 2026."
+- **Reports.** A field section with `asAt` on its source reads the project as at that day and says "Figures as at 30 Sep 2026." A function's report made for a period (`generateReport` with `period`) sets it to the period's last day; the owner pack for a period that has ended reads progress, the schedule and the functions' fields as at its last day. A report for September is not moved by what is recorded in October.
+- **On screen.** Live carries no mark. The sheets read as at a past day carry a band with the date that stays in view, and every control is off; so does an issued period opened from its sheet. The control that picks the day sits beside the line that opens a set's past (at the head of the sheets where no set there is kept by period), and the day picked holds while a person moves between the function's parts.
+- **Photographs.** A station's standing, the round, a milestone's checklist and a station's series are read as at a day too: a shot taken after it is not counted (`stationRound(project, asAtMoment(day))`, `photoSeries(…, asAt)`).
+
+## Trends
+
+A field says how it is drawn over time with `trend`, and it is drawn inside the popover its label opens.
+
+```ts
+trend?: { over: 'history' | 'periods'; mark: 'line' | 'bar'; against?: string; last?: number }
+```
+
+Four forms and no more: a line over periods, bars by period, either with a second field of the same holder drawn against it (`against`: planned against actual), and the stacked bar a table already draws. `over: 'periods'` reads the periods of a set kept by period (its issues, then the sheet as it reads now), or the month-by-month readings of a figure that keeps them (progress by the milestones, the plan by their dates). `over: 'history'` reads the values a typed field has held. `fieldTrend(project, address)` in `field-charts.ts` shapes the points, beside `fieldChart`. A threshold is an ordinary `status` over a `moved` field: "Little progress since the last month" is a case that fires when the figure moved less than one point. A report draws a field period by period with `chart: { of: { periods: setId }, y: field, moved? }`.
+
+**Progress.** A milestone keeps what was reported of it day by day for a hundred and twenty days, and past that its first report and each month's last (`thinReadings`): nothing is dropped outright. Planned against actual, month by month, is `progressCurve`, and is the trend the programme sheet declares. RERA's quarterly progress is a set of records, one a quarter and one for each building where the milestones say which building they are of (`legal.rera.progress_quarters`): every figure is read as at the quarter's end, and Law types none.
 
 ## Limits the catalog test holds you to
 
@@ -501,7 +660,36 @@ A report is put together by code from fields. A function's report is a template:
 ] }
 ```
 
-A section is one of `fields` (with `layout`), `table`, `records` (with `columns`), `chart`, `note` or `register` (a reading of the project's registers). `reportTemplateFaults()` names anything a template points at that is not there, and `test/report-fields.test.ts` holds every declared template to it, and to being fields, tables, charts and at most one capped note. Every department declares at least one; they are listed in [departments.md](departments.md). A function whose fields are on checks in Legal, Finance or Engineering also gets a generated `<fn>.checks` template.
+A section is one of `fields` (with `layout`), `table`, `records` (with `columns`), `chart`, `note`, `photos` (photographs by place and period: see Photographs) or `register` (a reading of the project's registers). A chart may draw a field of a set kept by period, period by period (`of: { periods }`). A report made for a period reads its field sections as at the period's last day: see As at a day. `reportTemplateFaults()` names anything a template points at that is not there, and `test/report-fields.test.ts` holds every declared template to it, and to being fields, tables, charts and at most one capped note. Every department declares at least one; they are listed in [departments.md](departments.md). A function whose fields are on checks in Legal, Finance or Engineering also gets a generated `<fn>.checks` template.
+
+## Photographs: a place, a station and a period
+
+A photograph is kept where photographs are kept: on the phone's site log, or as a file on the document register. Both carry the same three optional members, and `photo-stations.ts` reads the two stores as one list of shots (`projectShots`).
+
+```ts
+interface PhotoPlace { building?: string; floor?: string; unit?: string; milestone?: string; element?: PhotoElement }
+// SiteLogPhoto and CaptureFacts:  place?: PhotoPlace;  stationId?: string;  placed?: { how: 'picked' | 'near' | 'person'; by; at; metres? }
+```
+
+- **A place** is links, never a sentence: a building and a unit of the shared records, a milestone of the schedule, an element off the list a model picks from (`PHOTO_ELEMENTS`), and a floor as a word or two. The free-text `zone` a person wrote before this still reads. A person sets a place (`setShotPlace`, `PUT /photos/place`). A model writes none of it: the element it picked in a photograph is offered beside the place and is the place's only once a person accepts it, and words a model wrote about a photograph before photographs were read as picks are shown as "Written by a model, before this change".
+- **A station** is a place shot again and again from the same spot: a record of `construction.site.stations`, the Site record's own sheet, with its label, building, floor, element, milestone, how often it is to be shot (week, month, quarter) and its `shots`, an evidence field with `viewer: 'series'`. Its shots are not held on its sheet: they are the photographs of either store that name it, with any register row a person files on the station itself.
+- **Its standing is worked out each time it is read**, from the days its shots were taken by the day it is in India: shot this period; due, where its last shot is in the period before; overdue, where a whole period has gone by; never shot. The station's sheet reads it as figures (`photos.station_shots`, `photos.station_last_shot`, `photos.station_behind`), in no tone that raises a line of its own.
+- **A shot reaches a station by code** (`matchStation`, `placeEntryShots`): the station picked on the phone, else the one station whose point the photograph's own position is within `STATION_MATCH_M` (30 m) of, else it waits as "place not set" for a person. Two stations both within the distance are a question for a person, since position cannot tell the same corner on two floors apart. A station's point is the one recorded on it, else where it was first shot from by somebody who picked it.
+- **What is due is one line, of kind `due`.** The stations not photographed this period are one line under the Site record's Needs you, as any set kept by period has one (`stationRoundDue`): "October: 3 of 5 stations photographed, due 31 Oct 2026" where the stations it waits on share an interval, "2 of 5 stations to photograph: 1 by the week, due 18 Oct 2026; 1 by the month, due 31 Oct 2026" where they do not, each interval with the day its round is due. It is under Due soon until a station has gone a whole period without a shot, and under Failing after. It is no rule's line as well: the round's sheet (`construction.site.round`) counts them, and says so in a tone that raises nothing. Open goes to the round, where the stations are listed.
+- **A milestone that names required photographs is not marked complete without them.** A station marked as needed by its milestone is on that milestone's checklist (`milestonePhotoChecklist`). A person who marks the milestone a hundred per cent while such a station holds no shot of the period is refused, with the stations named (`markMilestonePercent` in `milestone-photos.ts`; the route answers 409). The one way past is a waiver: somebody who may accept in Construction picks why from a short list (`MILESTONE_PHOTO_WAIVERS`: no access, the work was covered, the station is gone, not safe, photographed under another record), and the pick is kept on the milestone with who made it. No sentence is kept. What is reported from the phone and what a schedule brings in is recorded as reported, since a report from site is not a person's decision that the milestone is complete; a milestone complete that way, or completed before photographs were required of it, reads "complete, photographs wanting" on its own line (`milestonePhotoStanding`) and is a line under Failing on the Site record until the photographs are taken or the reason is picked.
+- **The series viewer** (`PhotoSeries.tsx`) groups the shots by period (`photoSeries`), newest first, and puts two periods side by side (`seriesPair`): this one and the last, or any two picked. Under each photograph is its date and who took it, and nothing else. On a phone the two stack. Every field that holds photographs (`photo()`: snags, non-conformances, pours, the lender's engineer's report) takes a place for each, and is drawn through the same viewer once its photographs span more than one month.
+- **A station's period is the calendar's own.** Each station says how often it is shot, and the period it is in is `periodOfDay(station.every, indiaToday(now), periodsNumbered(project))`, the one before it `periodShift(…, -1)` (`period-keys.ts`): the week, month and quarter a set kept by period is in, numbered in the Indian financial year or the calendar year as the project says. The standing, the series, the round's line and the report section all ask there.
+
+**In a report.** A section that names `photos` prints the shots of stations for a period:
+
+```ts
+{ heading: 'Site photographs, this month beside the last', photos: { show: 'period_and_last', most: 12 } }
+// photos: { stations?: string[]; place?: PhotoPlace; show: 'period' | 'period_and_last'; most: number; every?: 'week' | 'month' | 'quarter' }
+```
+
+It becomes a block that reads `station_photographs`, resolved by code (`resolveStationPhotos`): the stations named, else those at the place, else every one; each gives its newest shot of the period the report is of (the period its `asAt` day is in, else its `to`, else the period today is in), and a station with none is printed as not photographed. A function's report made for a period carries that period's last day on the section, so a report for September prints September's shot beside August's whatever has been shot since. Each row is a station, its place, the period, the day taken and who took it. Construction's monthly progress report carries the section, the owner pack places it under Time where the project keeps stations (`ownerPackPhotos`), and any report takes it from the list of what a section reads. The older section of photographs a person ticked (`site_photographs`) reads as before. The Word file prints both kinds of photograph a section cites, the ones on the document register and the ones still in the site log (`reportTablePhotos` in `apps/web/src/lib/report-photos.ts`).
+
+**On a collaborator's copy.** The Site record's sheets go with the scope its checks sit in and the Site record area. A station is on the copy only where the copy holds the building and the milestone it names. A photograph the grant holds by its own scope keeps the parts of its place the copy holds, and its station only where the station is on the copy. The site log's own photographs are the firm's, as the site log is.
 
 ## The firm's own fields
 
@@ -536,9 +724,18 @@ A stored value may be one that waits. Code that acts on a field reads it through
 | `firm-fields.ts` | A firm's overlay, the catalog for a project's firm, and the rule table a firm reads once it has verified rows of its own |
 | `field-figures.ts` | The one door to figures other modules work out: schedule, site log, tenders, cost register, cost report, comparables, valuation, appraisal cash flow |
 | `field-sets/builders.ts` | Shapes written once: one figure stated by several people, and a file's links to other departments (`withLinks`) |
+| `checklist.ts`, `papers-owed.ts` | A list's lines and what loading one again does; the one list of papers owed, its standings and its count |
+| `list-import.ts`, `list-assumptions.ts` | A tracked list read as it is sent, and the desk each package goes to; a line to be assumed and the fields it stands in for |
+| `tender-form.ts` | The tender form's rows as fields: reading a client's form into Tender terms, and writing the form back out |
 | `report-fields.ts` | A report's field sections: resolving, templates, freezing, and what a grant's copy keeps |
 | `sweep-rules.ts`, `law-change.ts`, `chat-answer.ts` | The daily review's rules, a law change as fields with its lists and offered rule rows, and the chat's card |
-| `field-charts.ts` | A table's rows shaped for its chart |
+| `field-history.ts` | What a field held before: the one writer, the bound, a field as at a day and how far it moved |
+| `period-keys.ts`, `field-periods.ts`, `sheet-periods.ts` | The calendar's periods, for every set and every station; a set of records kept by period (open, compare, issue, revise, due); a sheet kept by period (start, issue, revise), and the Cost Report read as periods |
+| `as-at.ts` | The project as it stood when a past day ended |
+| `field-charts.ts` | A table's rows shaped for its chart, and a field's trend over time |
+| `photo-stations.ts`, `photo-report.ts`, `photo-figures.ts` | Photographs tied to a place and a period: stations, their standing, matching a shot to one, the round's due line, the series, the report section, and the figures the Site record's sheets read |
+| `milestone-photos.ts` | A milestone is not marked complete without the photographs it needs, unless a lead or signer picks why |
+| `tell-periods.ts` | Who is told a period is due, and the notice written for each of them once |
 | `rule-tables.ts`, `units.ts` | Dated figures a law sets; units and money |
 
-The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets folded to a line each, records and depth sheets, and the units' stack plan from `StackPlan.tsx`) over `CheckFields.tsx`, which draws every kind of field. Construction's Technical page draws its sheets too, though it is not laid out in parts.
+The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets folded to a line each, records and depth sheets, the band a past day or an issued period is read under, and the units' stack plan from `StackPlan.tsx`) over `CheckFields.tsx`, which draws every kind of field and the popover a label opens. `Periods.tsx` draws a set kept by period (its open period, the one line that opens the past, the comparison, issue and revise), and `TrendChart.tsx` a field over time. Construction's Technical page draws its sheets too, though it is not laid out in parts.

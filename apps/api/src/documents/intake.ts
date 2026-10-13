@@ -42,6 +42,10 @@ export interface PaperPage {
   text: string;
   /** OCR's confidence in the page, 0..100. */
   confidence?: number;
+  /** OCR could not make out enough of the page to be relied on. */
+  unsure?: true;
+  /** The page holds a large picture nobody here could read as writing, beside its own words. */
+  picture?: true;
 }
 
 /** A paper's pages as they are kept beside its file; see `./page-text`. */
@@ -67,6 +71,27 @@ const PAGES = new WeakMap<ChatIngestFile, PaperPages>();
 /** Where each word sat on its page, with OCR's confidence in it: for judging a value a later reader lays over this one. Never stored. */
 const LAYOUTS = new WeakMap<ChatIngestFile, PageLayout[]>();
 
+/** Where OCR found each word on the large picture of a page that also has type, as fractions of the picture: for setting a table's words in columns. Never stored. */
+const PICTURES = new WeakMap<ChatIngestFile, PageLayout[]>();
+
+/** The other reading OCR made of a page's picture, where it made two. Never stored. */
+const ALTERNATES = new WeakMap<ChatIngestFile, NonNullable<DocumentText['alternates']>>();
+
+/** The other reading of each page's picture, where OCR read one twice: for a reader of tables to try both. */
+export function alternatesOf(file: ChatIngestFile): NonNullable<DocumentText['alternates']> | undefined {
+  return ALTERNATES.get(file);
+}
+
+/** Where each word of a page's picture sits on the picture, where this process read it by OCR beside the page's own type. */
+export function picturesOf(file: ChatIngestFile): PageLayout[] | undefined {
+  return PICTURES.get(file);
+}
+
+/** Where each word of an ingest row's pages sits, where this process read it. Not stored: it is as large as the paper. */
+export function layoutOf(file: ChatIngestFile): PageLayout[] | undefined {
+  return LAYOUTS.get(file);
+}
+
 /** The pages read for an ingest row this process read, to be stored beside its file. */
 export function pagesOf(file: ChatIngestFile): PaperPages | undefined {
   return PAGES.get(file);
@@ -76,7 +101,7 @@ function pagesRead(fileName: string, text: DocumentText): PaperPages {
   const pages = (text.pageReads ?? []).flatMap((read): PaperPage[] => {
     const words = text.pages[read.page - 1]?.trim();
     if (read.reader === 'none' || !words) return [];
-    return [{ page: read.page, reader: read.reader, text: words, ...(read.confidence !== undefined ? { confidence: read.confidence } : {}) }];
+    return [{ page: read.page, reader: read.reader, text: words, ...(read.confidence !== undefined ? { confidence: read.confidence } : {}), ...(read.unsure ? { unsure: true as const } : {}), ...(read.pictureUnread ? { picture: true as const } : {}) }];
   });
   return { v: 1, fileName, readAt: new Date().toISOString(), pagesInFile: text.totalPages, pagesRead: pages.length, pages };
 }
@@ -85,12 +110,14 @@ function pagesRead(fileName: string, text: DocumentText): PaperPages {
  * Why pages went unread here, in words to show beside "8 of 40 pages read".
  * Each cause is said once, with what it left out.
  */
-function whyUnread(pages: readonly PageRead[]): string | undefined {
+export function whyUnread(pages: readonly PageRead[]): string | undefined {
   const left = (why: PageRead['unread']) => pages.filter((page) => page.reader === 'none' && page.unread === why).map((page) => page.page);
   const scanned = pages.filter((page) => page.reader === 'ocr').length;
   const said: string[] = [];
-  if (left('past_ocr_limit').length) said.push(scanned === 1 ? 'only the first scanned page of a file is read here' : `only the first ${scanned} scanned pages of a file are read here`);
-  if (left('past_page_limit').length) said.push(`only the first ${pages.length - left('past_page_limit').length} pages of a file are opened here`);
+  // Which pages, as well as why: "12 of 26 pages read" alone leaves a person to find the fourteen.
+  const were = (which: number[]): string => `${pagesNamed(which)} ${which.length === 1 ? 'was' : 'were'} left, as`;
+  if (left('past_ocr_limit').length) said.push(`${were(left('past_ocr_limit'))} ${scanned === 1 ? 'only the first scanned page of a file is read here' : `only the first ${scanned} scanned pages of a file are read here`}`);
+  if (left('past_page_limit').length) said.push(`${were(left('past_page_limit'))} only the first ${pages.length - left('past_page_limit').length} pages of a file are opened here`);
   if (left('out_of_time').length) said.push(`the reading ran out of time before ${pagesNamed(left('out_of_time'))}`);
   if (left('nothing_legible').length) said.push(`nothing legible was found on ${pagesNamed(left('nothing_legible'))}`);
   return said.length ? said.join('; ') : undefined;
@@ -145,6 +172,29 @@ function otherScript(text: string): string | undefined {
 
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
+/** The kinds of paper whose substance is rows and not keyed facts: a cost report's packages, a report's observations. */
+const STATES_ROWS: ReadonlySet<string> = new Set(['cost_report', 'technical_report']);
+
+/**
+ * The words of a page that say what script it is in: for a page OCR read, the
+ * words OCR could make out, where it kept them.
+ *
+ * A photograph is not writing, and OCR read with Kannada beside English finds
+ * Kannada letters in its shadows and edges. Measured on an invented page of
+ * two site photographs captioned in English: 106 "words", most of them
+ * Kannada letters OCR scored at 0 to 55 in 100, and a caption it read whole at
+ * over 90. Counted letter for letter the page was "in Kannada", and a person
+ * was told so. A script is told from words that were read, never from marks
+ * that were guessed at. A real Kannada page keeps its words: OCR is sure of
+ * most of them.
+ */
+function wordsMadeOut(page: PageRead, text: string, layout: readonly PageLayout[] | undefined): string {
+  if (page.reader !== 'ocr') return text;
+  const words = layout?.find((held) => held.page === page.page)?.words;
+  if (!words?.length) return text;
+  return words.filter((word) => word.confidence === undefined || word.confidence >= WEAK_WORD_CONFIDENCE).map((word) => word.text).join(' ');
+}
+
 /**
  * Whether a paper goes to the model reader, and why.
  *
@@ -164,6 +214,8 @@ export function routeReading(input: {
   texts: readonly string[];
   /** Pages a value was left out on because OCR could not make out its words. */
   withheld?: readonly number[];
+  /** Where each word sat and how sure OCR was of it. With it, the script of a page OCR read is judged from the words OCR could make out. */
+  layout?: readonly PageLayout[];
   /** What the rules made of it. Absent when nothing could be read. */
   read?: Pick<IngestRead, 'type' | 'confidence'> & { facts: readonly unknown[] };
 }): ReadingRoute {
@@ -177,7 +229,7 @@ export function routeReading(input: {
 
   const scripts = new Map<string, number[]>();
   for (const page of input.pages) {
-    const script = page.reader === 'none' ? undefined : otherScript(input.texts[page.page - 1] ?? '');
+    const script = page.reader === 'none' ? undefined : otherScript(wordsMadeOut(page, input.texts[page.page - 1] ?? '', input.layout));
     if (script) scripts.set(script, [...(scripts.get(script) ?? []), page.page]);
   }
   for (const [script, pages] of scripts) say(pages, (which, one) => `${capital(which)} ${one ? 'is' : 'are'} in ${script}.`);
@@ -204,6 +256,8 @@ export function routeReading(input: {
   const thin = !read
     ? unread.length ? '' : 'Nothing in it could be read here.'
     : read.type === 'other' ? 'It was not recognised here.'
+    // A report that states rows states no facts with keys: its rows are offered on their own (`./offers`), and how few facts it has says nothing of how it was read.
+    : STATES_ROWS.has(read.type) ? ''
     : read.facts.length < 3 ? `${read.facts.length ? `Only ${read.facts.length}` : 'No'} fact${read.facts.length === 1 ? ' was' : 's were'} found in it here.`
     : read.confidence < 0.5 ? 'It is not clear here what kind of paper it is.'
     : '';
@@ -268,12 +322,14 @@ export async function readIngestLocally(
     const out = { ...row, reading: coverage(pages, route, text.pageReads ?? []) };
     PAGES.set(out, pages);
     if (text.layout) LAYOUTS.set(out, text.layout);
+    if (text.pictures) PICTURES.set(out, text.pictures);
+    if (text.alternates) ALTERNATES.set(out, text.alternates);
     return out;
   };
   if (text.method === 'none') {
     return done(
       { ...file, readFailure: text.failure ?? 'No legible text was found in the file.' },
-      routeReading({ pages: text.pageReads ?? [], texts: text.pages }),
+      routeReading({ pages: text.pageReads ?? [], texts: text.pages, layout: text.layout }),
     );
   }
   opts.onPages?.(text.pages);
@@ -303,7 +359,7 @@ export async function readIngestLocally(
     scopes: parsed.scopes,
     evidenceKind: parsed.evidenceKind,
   };
-  const route = routeReading({ pages: text.pageReads ?? [], texts: text.pages, withheld, read });
+  const route = routeReading({ pages: text.pageReads ?? [], texts: text.pages, withheld, read, layout: text.layout });
   return done(
     {
       ...file,
@@ -364,6 +420,10 @@ export function mergeModelReading(local: ChatIngestFile, model: ChatIngestFile |
   if (pages.kept) PAGES.set(merged, pages.kept);
   const layout = LAYOUTS.get(local);
   if (layout) LAYOUTS.set(merged, layout);
+  const pictures = PICTURES.get(local);
+  if (pictures) PICTURES.set(merged, pictures);
+  const alternates = ALTERNATES.get(local);
+  if (alternates) ALTERNATES.set(merged, alternates);
   return merged;
 }
 
@@ -373,6 +433,10 @@ function carry(from: ChatIngestFile, to: ChatIngestFile): void {
   if (pages) PAGES.set(to, pages);
   const layout = LAYOUTS.get(from);
   if (layout) LAYOUTS.set(to, layout);
+  const pictures = PICTURES.get(from);
+  if (pictures) PICTURES.set(to, pictures);
+  const alternates = ALTERNATES.get(from);
+  if (alternates) ALTERNATES.set(to, alternates);
 }
 
 /**
@@ -586,6 +650,8 @@ function contested(facts: DocumentFact[], loose: readonly DocumentFact[]): Docum
  * not recognise, or read little from.
  */
 export function needsModelReading(file: ChatIngestFile): boolean {
+  // The keyed-fact reader has no key to answer in for a paper that states rows. A cost report's pictures go to the reader of cost rows instead.
+  if (file.read && STATES_ROWS.has(file.read.type)) return false;
   if (file.reading) return file.reading.modelReasons.length > 0;
   return !file.read || file.read.type === 'other' || file.read.facts.length < 3 || file.read.confidence < 0.5;
 }

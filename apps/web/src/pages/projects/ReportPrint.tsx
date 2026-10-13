@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { ReportChartView, ReportFootnotes } from '../../components/report/ReportFieldBlock';
 import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
+import { StationReportPhotos } from '../../components/report/StationReportPhotos';
 import { TitleChainDiagram } from '../../components/charts';
 import { useParams } from 'react-router-dom';
 import {
@@ -15,6 +16,7 @@ import {
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { daySaid } from '@realytica/shared';
+import { personNamed } from '../../lib/format';
 import { reportSummary } from '../../lib/report-summary';
 
 /**
@@ -141,7 +143,7 @@ export default function ReportPrint() {
                     <ReportTableView table={resolved.table} print />
                     {resolved.note ? <p className="mt-1 italic text-neutral-600">{resolved.note}</p> : null}
                     <ReportFootnotes footnotes={resolved.footnotes} print />
-                    <ReportPhotos project={project} table={resolved.table} print />
+                    {block.source?.kind === 'station_photographs' ? <StationReportPhotos project={project} table={resolved.table} print /> : <ReportPhotos project={project} table={resolved.table} print />}
                   </>
                 ) : resolved.footnotes?.length ? (
                   <>
@@ -175,7 +177,7 @@ export default function ReportPrint() {
                   {/* A person's note says whose it is. A section detached from the registers already says when it stopped reading them. */}
                   {block.editedBy && block.editedAt && !block.detachedAt && (block.text ?? '').trim() ? (
                     <p className="mt-1 text-[12px] italic text-neutral-600">
-                      Written by {block.editedBy}, {printedDay(block.editedAt)}.
+                      Written by {personNamed(project, block.editedBy)}, {printedDay(block.editedAt)}.
                     </p>
                   ) : null}
                 </>

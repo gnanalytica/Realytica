@@ -53,3 +53,13 @@ export function photoSource(projectId: string, entryId: string, index: number): 
     headers: { Authorization: `Bearer ${pairing.token}` },
   };
 }
+
+/** Where a station's last shot before this period can be fetched, to frame the next one against. */
+export function stationGuideSource(projectId: string, stationId: string): { uri: string; headers: Record<string, string> } | null {
+  const pairing = currentPairing();
+  if (!pairing) return null;
+  return {
+    uri: apiUrl(pairing.server, `/projects/${id(projectId)}/stations/${id(stationId)}/guide`),
+    headers: { Authorization: `Bearer ${pairing.token}` },
+  };
+}

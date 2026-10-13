@@ -18,6 +18,9 @@ import { contestedKeys, decideCheckFields, departmentOfCheck, departmentOfPaper,
 import type { MayDecide } from './team';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { moneySaid } from './cost';
+import { costPaperPagesSaid, costPapersOf } from './cost-import';
+import { pagesSaid } from './said';
+import { observationsWaitingFrom } from './report-observations';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import {
   detachReportBlock,
@@ -77,6 +80,8 @@ import {
   proposeReportCard,
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
+import { CHAT_NOT_ANSWERED, CHAT_QUESTION, chatNotAnswered, chatQuestionRuled, projectIsRunning, reportPlaceAsked } from './chat-questions';
+import { chatAnswerText, type ChatAnswerCard } from './chat-answer';
 import { placeProposalsFromIngest } from './place-extract';
 import { ddForDocumentsProposal, factsOnFile, pendingFactProposals } from './document-intake';
 import { answerFromFile } from './file-answers';
@@ -991,6 +996,9 @@ function instructionSaid(project: DdProject, sentence: string, chat?: ChatSittin
   return { said, left };
 }
 
+/** A sentence that asks what to do next, or where to begin: the one thing the next step answers. */
+const ASKS_WHAT_NEXT = /\bnext\b|\bwhat now\b|\bwhere (?:do|should|shall) (?:i|we) (?:start|begin)\b|\bwhat (?:should|shall|do|can) (?:i|we) do\b|\bget(?:ting)? started\b|\bhow do (?:i|we) (?:start|begin)\b|\bguide\b|\bwalk me\b|^(?:hi|hello|hey|help|start|begin|go|continue|carry on|ok|okay|yes|thanks|thank you)\b/;
+
 export function wantsDeterministicProjectChat(
   project: DdProject,
   question: string,
@@ -1008,6 +1016,11 @@ export function wantsDeterministicProjectChat(
   if (asksForOutgoing(draftToSendSaid(q))) return true;
   // A pressed choice that accepts or sets aside acts on the ids it carries. Its sentence is not for anything to read.
   if (options.sitting?.decision) return true;
+  // A report asked for by its period is a place, and the questions a person running a project asks are answered from the functions the screens read.
+  if (reportPlaceAsked(project, q)) return true;
+  const ruled = chatQuestionRuled(project, q, { here: options.place });
+  // A figure the Cost Report does not hold may be a field a model can find: that one is left to it, where there is one.
+  if (ruled && (ruled.asked.shape !== 'figure' || ruled.card.rows.length)) return true;
   // A page or a stage asked for by name is a place to go, and needs no model to find.
   if (placeFromText(project, q, options.place)) return true;
   // Nor does a record asked for by its own words, or a value the papers state set side by side.
@@ -1314,7 +1327,7 @@ function fileStanding(project: DdProject): FileStanding {
  * The receipt's figures.
  *
  * Only rows that moved, plus the one that did not move when it should have.
- * "Linked to a scope: 0" is the row that explains an unchanged pack, so it is
+ * "Tied to a check: 0" is the row that explains an unchanged count of papers in hand, so it is
  * kept even at zero when documents were filed — a silent zero there is how six
  * approved documents can feel like progress and be none.
  */
@@ -1322,10 +1335,10 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
   const rows: ChatMetric[] = [];
   const filed = after.evidence - before.evidence;
   if (filed > 0) {
-    rows.push({ label: 'Evidence', value: String(after.evidence), delta: `+${filed}` });
+    rows.push({ label: 'Papers on file', value: String(after.evidence), delta: `+${filed}` });
     const linked = after.linked - before.linked;
     rows.push({
-      label: 'Linked to a scope',
+      label: 'Tied to a check',
       value: String(after.linked),
       delta: linked > 0 ? `+${linked}` : 'none of the new ones',
     });
@@ -1333,8 +1346,8 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
   const packMoved = after.packReceived - before.packReceived;
   if (filed > 0 || packMoved !== 0) {
     rows.push({
-      label: 'Priority pack',
-      value: `${after.packReceived}/${after.packTotal}`,
+      label: 'Papers the checks expect, in hand',
+      value: `${after.packReceived} of ${after.packTotal}`,
       delta: packMoved > 0 ? `+${packMoved}` : 'unchanged',
     });
   }
@@ -1422,6 +1435,8 @@ export function applyProjectChat(
     modelReader?: boolean;
     /** What reading the attached documents cost. Rendered beside the turn, as a chat turn's cost already is. */
     spend?: TurnSpend;
+    /** The day the question is asked on, for what is late, due or owed. Absent: today. */
+    now?: Date;
   } = {},
 ): ProjectChatResult {
   ensureProjectShape(project);
@@ -1493,6 +1508,13 @@ export function applyProjectChat(
   let assistantText = '';
   let choices: ChatChoice[] | undefined;
   let toolCalls: ProjectChatTurn['toolCalls'];
+  // The answer as a card of fields, on a turn a rule of `chat-questions.ts` answered. The reply's words are then the card's.
+  let answerCard: ChatAnswerCard | undefined;
+  const sayCard = (card: ChatAnswerCard, tool: string, summary: string): void => {
+    answerCard = card;
+    assistantText = chatAnswerText(card);
+    toolCalls = [{ name: tool, summary }];
+  };
   let citedEvidenceIds: string[] = [];
   let citedNodeIds: string[] | undefined;
 
@@ -1577,6 +1599,10 @@ export function applyProjectChat(
    * give, a check with a title like it, or a portal to fetch from.
    */
   const went = ingest.length ? null : placeFromText(project, q, here);
+  // Read before any rule that could take a word of the sentence for a record to change.
+  const own = !ingest.length && !meetingGiven && !options.reply && !options.nothingLeftToRead && !options.memoryLint && !options.memoryAnswer && !options.sitting?.decision;
+  const reportAsked = own ? reportPlaceAsked(project, q, options.now) : undefined;
+  const ruled = own && !reportAsked ? chatQuestionRuled(project, q, { now: options.now, here, outside: options.outside }) : undefined;
   // The chat this was asked in, and whose it is.
   const chat = options.chat && { ...options.chat, actor: options.chat.actor ?? options.actor };
   // A choice that was pressed, or failing that a typed instruction. Read before this request adds its own turns to the thread.
@@ -2012,7 +2038,9 @@ export function applyProjectChat(
      * gone, and with it the moment the next step was offered, so it is
      * offered here: one card, waiting in its register.
      */
-    if (!valuesWaiting && !rows.some((r) => r.status === 'proposed')) {
+    // Not on a project that is being built, and not where the papers offered rows of their own: a cost report dropped during construction is no cue to start a due diligence.
+    const offeredRows = costPapersOf(project).some((paper) => filedIds.includes(paper.evidenceId) && paper.offers.length > 0) || observationsWaitingFrom(project, filedIds) > 0;
+    if (!valuesWaiting && !rows.some((r) => r.status === 'proposed') && !offeredRows && !projectIsRunning(project)) {
       const next = projectNextStep(project, actor);
       if (next.kind !== 'idle' && next.proposals.length) {
         const filedCards = offered;
@@ -2050,7 +2078,10 @@ export function applyProjectChat(
       const raw = f.read!.label;
       // "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym.
       const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
-      return f.read!.method === 'text' ? label : `${label} (scan, read by OCR)`;
+      // A paper of typed pages with scanned ones among them is not a scan: only those pages were read by OCR.
+      // Which pages, where the reading kept them: "its scanned pages" said of a report whose observations are on two typed pages reads as if those were scanned.
+      const byOcr = pagesSaid(f.reading?.ocrPages ?? []);
+      return f.read!.method === 'text' ? label : f.read!.method === 'mixed' ? `${label} (${byOcr ? `${byOcr} read by OCR, the rest from the file’s own text` : 'its scanned pages read by OCR'})` : `${label} (scan, read by OCR)`;
     });
     const redFlags = rows.filter((p) => p.kind === 'add_finding');
     const patches = rows.filter((p) => p.kind === 'patch_project').length;
@@ -2108,7 +2139,27 @@ export function applyProjectChat(
     // Not to an outside collaborator: what rests on a function is the firm's view of the whole project.
     const reach = !options.outside && (valuesWaiting || redFlags.length || disagreements.length) ? reachSentence(project, filedIds) : '';
     const extraLine = extras.join('; ');
-    assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${filedLine}${flagLine}${differLine}${waitingLine}${reach ? `\n${reach}` : ''}`;
+    /*
+     * What a report states in rows, and where each waits: a cost report's
+     * package rows on the Cost Report, a technical report's observations
+     * under Technical. Counted from what was laid on the record as the paper
+     * was filed, so the chat and the desk say one number.
+     */
+    const costRows = options.outside ? [] : costPapersOf(project).filter((paper) => filedIds.includes(paper.evidenceId));
+    const rowsWaiting = costRows.reduce((sum, paper) => sum + paper.offers.filter((offer) => offer.status === 'offered').length, 0);
+    const tablesUnread = costRows.some((paper) => !paper.offers.length && paper.pictures.length > 0);
+    const observed = options.outside ? 0 : observationsWaitingFrom(project, filedIds);
+    const rowsLine = [
+      rowsWaiting ? `${plural(rowsWaiting, 'row')} of its cost table ${rowsWaiting === 1 ? 'is' : 'are'} offered to the Cost Report on Finance › Budget, each with its page. None is on the report until a lead or signer of Finance accepts it there.` : '',
+      // Page by page: which rows are held by the page's own totals, and which pages were left because they are pictures not read reliably or state again what another page does.
+      ...costRows.flatMap((paper) => (paper.offers.length ? costPaperPagesSaid(paper) : [])),
+      tablesUnread ? `Its tables are pictures and no row could be read from them reliably${options.modelReader === false ? ': no model reader is set up here' : ''}. The table can be pasted on Finance › Budget, with the paper open beside it.` : '',
+      observed ? `${plural(observed, 'observation')} ${observed === 1 ? 'is' : 'are'} offered under Engineering › Technical, each with its risk and its page, to accept there.` : '',
+    ]
+      .filter(Boolean)
+      .map((line) => `\n${line}`)
+      .join('');
+    assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${filedLine}${flagLine}${differLine}${waitingLine}${rowsLine}${reach ? `\n${reach}` : ''}`;
     assistantText += partlyReadSentence(ingest, options.modelReader !== false);
     /*
      * The papers this reply brought, and nothing else. "Approve all" accepts
@@ -2210,6 +2261,13 @@ export function applyProjectChat(
       if (cards.length || rows.length) acceptThese(cards, rows);
       else refused('accept', 'That is no longer waiting, so nothing was accepted.');
     }
+  } else if (reportAsked) {
+    // A report and its period are a place: it opens, and nothing is changed.
+    navigate(reportAsked.open.pane, reportAsked.label, reportAsked.open.extra);
+    assistantText = reportAsked.text;
+    toolCalls = [{ name: 'navigate', summary: reportAsked.label }];
+  } else if (ruled) {
+    sayCard(ruled.card, CHAT_QUESTION, ruled.summary);
   } else if (asksToFileUnder(project, q)) {
     /*
      * "File “Survey notes” under Legal › Title": a person giving a document
@@ -2805,8 +2863,8 @@ export function applyProjectChat(
         : '';
       assistantText = [
         wantsAssets(ql) ? `${plural(cards.filter((p) => p.kind === 'add_asset').length, 'asset')} worth adding.` : null,
-        wantsDdTypes(ql) ? `${plural(cards.filter((p) => p.kind === 'start_dd').length, 'DD')} you could start. Each brings its scopes with it.` : null,
-        wantsScopes(ql) ? 'Scopes come with the DD. Ask what’s next for the following check.' : null,
+        wantsDdTypes(ql) ? `${plural(cards.filter((p) => p.kind === 'start_dd').length, 'due diligence review')} you could start. Each brings its checks with it.` : null,
+        wantsScopes(ql) ? 'Scopes come with a due diligence review. Ask what’s next for the following check.' : null,
         wantsReport(ql) ? `${plural(cards.filter((p) => p.kind === 'generate_report').length, 'report')} you could run, off the live registers.` : null,
         proofBlock ? `Proofs\n${proofBlock}` : null,
         /*
@@ -2861,6 +2919,17 @@ export function applyProjectChat(
           assistantText = asked.text;
           choices = asked.choices;
           toolCalls = [{ name: 'clarify', summary: asked.summary }];
+        } else if (q && !ASKS_WHAT_NEXT.test(ql)) {
+          /*
+           * A question no rule answers. It used to get the next step in the
+           * same voice as an answer: "Start the Approval / Compliance DD",
+           * a card raised and the page moved to due diligence, to somebody
+           * who had asked what a consultant still owed. It is said in one
+           * line that it cannot be answered, with the nearest real things to
+           * open, and nothing is proposed and nothing moves.
+           */
+          const not = chatNotAnswered(project, q, here);
+          sayCard(not.card, CHAT_NOT_ANSWERED, not.summary);
         } else {
           const next = projectNextStep(project, actor);
           offer(next.proposals);
@@ -2881,6 +2950,7 @@ export function applyProjectChat(
 
   const assistantTurn = turn('assistant', assistantText, {
     choices,
+    card: answerCard,
     citedEvidenceIds: [...new Set(citedEvidenceIds)],
     citedNodeIds: citedNodeIds ? [...new Set(citedNodeIds)] : undefined,
     toolCalls,

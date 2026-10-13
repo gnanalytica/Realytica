@@ -302,6 +302,8 @@ const ORDERS_SETS: FieldSet[] = [
     fn: ORDERS,
     title: 'Contracts and claims',
     v: 1,
+    // Kept by the month. Which package each contract covers is true until somebody changes it, so it goes on.
+    periodic: { every: 'month', carry: ['package_cover'], due: { days: 7 }, issuer: 'lead' },
     sections: [
       { key: 'contracts', label: 'Contracts' },
       { key: 'variations', label: 'Variations' },

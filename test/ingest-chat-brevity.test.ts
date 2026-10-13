@@ -167,14 +167,14 @@ describe('the receipt says whether the file actually moved', () => {
     const metrics = upload.assistantTurn.metrics ?? [];
 
     const by = (label: string) => metrics.find((m) => m.label === label);
-    assert.equal(by('Evidence')?.value, '2');
-    assert.equal(by('Evidence')?.delta, '+2');
+    assert.equal(by('Papers on file')?.value, '2');
+    assert.equal(by('Papers on file')?.delta, '+2');
     assert.equal(
-      by('Linked to a scope')?.delta,
+      by('Tied to a check')?.delta,
       'none of the new ones',
       'with no assessment on the file there is nothing for a document to attach to',
     );
-    assert.match(by('Priority pack')!.value, /^\d+\/\d+$/);
+    assert.match(by('Papers the checks expect, in hand')!.value, /^\d+ of \d+$/);
   });
 
   it('says "unchanged" out loud when the pack did not move', () => {
@@ -182,7 +182,7 @@ describe('the receipt says whether the file actually moved', () => {
     // Nothing here answers a core pack item, which is exactly when a person
     // most needs telling — six filed documents can leave the pack where it was.
     const upload = applyProjectChat(p, '', { ingest: [file('BSNL_height_NOC.pdf'), file('BESCOM_supply_NOC.pdf')] });
-    const pack = (upload.assistantTurn.metrics ?? []).find((m) => m.label === 'Priority pack');
+    const pack = (upload.assistantTurn.metrics ?? []).find((m) => m.label === 'Papers the checks expect, in hand');
     assert.equal(pack?.delta, 'unchanged');
   });
 

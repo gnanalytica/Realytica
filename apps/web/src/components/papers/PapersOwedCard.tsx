@@ -1,44 +1,67 @@
 import { useMemo, useRef, useState } from 'react';
-import { CheckCircle2, ChevronRight, Circle, Clock, Copy, Download, Inbox, MailQuestion, Plus, Send, Upload, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CheckCircle2, ChevronRight, Circle, CircleDot, CircleSlash, Clock, Copy, Download, Inbox, MailQuestion, Plus, Send, Upload, X } from 'lucide-react';
 import {
   CHECK_RESULT_LABEL,
+  DEPARTMENT_SHORT,
   PAPERS_OWED,
   PAPER_STANDING_LABEL,
+  TENDER_TERMS,
+  WORKSTREAMS,
+  assumableFields,
+  checklistFunction,
+  checklistLoads,
+  checklistSummary,
+  cockpitPath,
+  departmentDefinition,
   departmentRole,
+  fieldCatalogFor,
+  functionSections,
+  listLoadSaid,
   paperLineSaid,
   papersOwed,
   papersOwedCsvFile,
   papersOwedSaid,
   papersOwedText,
+  projectDepartments,
   reachesEveryProject,
+  refChoices,
   requirementSheet,
+  roleCanDecide,
   roleCanEdit,
+  workstreamDefinition,
   type ChecklistDraft,
   type ChecklistItem,
+  type ChecklistSummary,
   type DdProject,
   type DepartmentKey,
+  type ListLoadReport,
   type PaperLine,
   type PaperParty,
   type PaperStanding,
+  type TenderFormReport,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { workspaceApi } from '../../lib/workspace-api';
+import { workspaceApi, type ListCounted, type ListLoaded, type ListPreview, type ListSend } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, Modal, Select, Textarea, cn, useToast, type Tone } from '../ui/kit';
 import { RequestActions } from '../project/RequestsPanel';
 import { RequestReplies } from '../project/RequestOutside';
 import { daySaid } from '@realytica/shared';
 
-const STANDING_TONE: Record<PaperStanding, Tone> = { not_asked: 'neutral', asked: 'warning', answered: 'info', in_hand: 'good' };
+const STANDING_TONE: Record<PaperStanding, Tone> = { not_asked: 'neutral', asked: 'warning', answered: 'info', partial: 'warning', assumed: 'neutral', in_hand: 'good' };
 
 function StandingMark({ line }: { line: PaperLine }) {
   if (line.standing === 'in_hand') return <CheckCircle2 size={16} className="shrink-0 text-good" aria-hidden />;
   if (line.standing === 'answered') return <MailQuestion size={16} className="shrink-0 text-ai" aria-hidden />;
+  if (line.standing === 'partial') return <CircleDot size={16} className={cn('shrink-0', line.overdue ? 'text-critical' : 'text-warning')} aria-hidden />;
+  if (line.standing === 'assumed') return <CircleSlash size={16} className="shrink-0 text-ink-muted" aria-hidden />;
   if (line.standing === 'asked') return <Clock size={16} className={cn('shrink-0', line.overdue ? 'text-critical' : 'text-warning')} aria-hidden />;
   return <Circle size={16} className="shrink-0 text-ink-muted" aria-hidden />;
 }
 
 const day = (iso: string) => daySaid(iso);
+const fold = (text: string | undefined) => (text ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
@@ -53,28 +76,121 @@ function download(name: string, text: string) {
 /* Loading a list                                                        */
 /* ==================================================================== */
 
-function LoadDialog({ project, department, open, onClose, onDone }: { project: DdProject; department: DepartmentKey; open: boolean; onClose: () => void; onDone: (next: DdProject) => void }) {
+/** The functions a package's lines may go to: the ones with a Documents part, where a list is shown. */
+const DESKS = WORKSTREAMS.filter((ws) => functionSections(ws.key).includes('documents'));
+
+/**
+ * Where a list's lines would go, said before it is loaded: how many stay on
+ * the desk it is loaded on and how many go to each other function, with a
+ * department that is not live for the project said to be so.
+ */
+function loadSplitSaid(project: DdProject, department: DepartmentKey, packages: ReadonlyArray<{ package: string; lines?: number }>, chosen: Readonly<Record<string, string>>, total: number): string {
+  const away = new Map<string, number>();
+  for (const pack of packages) {
+    const fn = chosen[pack.package];
+    if (fn && workstreamDefinition(fn)) away.set(fn, (away.get(fn) ?? 0) + (pack.lines ?? 0));
+  }
+  const gone = [...away.values()].reduce((n, lines) => n + lines, 0);
+  const lines = (n: number): string => `${n} ${n === 1 ? 'line' : 'lines'}`;
+  if (!gone) return `All ${lines(total)} stay here, on ${DEPARTMENT_SHORT[department]}.`;
+  const used = projectDepartments(project);
+  const where = [...away].map(([fn, n]) => {
+    const ws = workstreamDefinition(fn)!;
+    const not = !used.includes(ws.department) ? `, a department this project does not use` : departmentDefinition(ws.department).status !== 'live' ? `, a department that is not built yet beyond its sheets` : '';
+    return `${n} to ${DEPARTMENT_SHORT[ws.department]} › ${ws.label}${not}`;
+  });
+  return `${lines(total - gone)} ${total - gone === 1 ? 'stays' : 'stay'} here, on ${DEPARTMENT_SHORT[department]}; ${gone} ${gone === 1 ? 'goes' : 'go'} elsewhere: ${where.join('; ')}.`;
+}
+
+/** A few of the lines a load would move, and how many more. */
+function Moved({ label, lines }: { label: string; lines: string[] }) {
+  if (!lines.length) return null;
+  return (
+    <li className="text-[12px] text-ink-secondary">
+      <span className="font-medium text-ink">
+        {label} ({lines.length})
+      </span>
+      : {lines.slice(0, 4).join('; ')}
+      {lines.length > 4 ? `, and ${lines.length - 4} more` : ''}
+    </li>
+  );
+}
+
+/** What a sheet held against what was made of it, in one line: so a count that does not add up is seen. */
+function countedSaid(counted: ListCounted): string {
+  return [`The sheet held ${counted.rows} ${counted.rows === 1 ? 'row' : 'rows'}`, `${counted.lines} ${counted.lines === 1 ? 'line' : 'lines'}`, counted.sections ? `${counted.sections} ${counted.sections === 1 ? 'section' : 'sections'}` : '', counted.skipped.length ? `${counted.skipped.length} skipped` : 'none skipped']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function Skipped({ counted }: { counted: ListCounted }) {
+  if (!counted.skipped.length) return null;
+  return (
+    <ul className="space-y-0.5 text-[12px] text-ink-secondary">
+      {counted.skipped.slice(0, 6).map((row, n) => (
+        <li key={n}>
+          {row.row ? `Row ${row.row}: ` : ''}
+          {row.text} ({row.reason})
+        </li>
+      ))}
+      {counted.skipped.length > 6 ? <li>and {counted.skipped.length - 6} more</li> : null}
+    </ul>
+  );
+}
+
+function LoadDialog({ project, department, open, onClose, onDone }: { project: DdProject; department: DepartmentKey; open: boolean; onClose: () => void; onDone: (next: DdProject, loaded: ListLoaded) => void }) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // What the list was read as, before anything is changed: a tracked list and a tender form are shown first.
+  const [preview, setPreview] = useState<ListPreview | null>(null);
+  const [desks, setDesks] = useState<Record<string, string>>({});
+  const [record, setRecord] = useState('');
+  const tenders = useMemo(() => (open ? refChoices(project, { set: TENDER_TERMS }) : []), [project, open]);
+
+  const sent = (): ListSend => ({ ...(file ? { file } : { text }), department, ...(Object.keys(desks).length ? { desks } : {}), ...(record ? { record } : {}) });
+
+  function reset() {
+    setFile(null);
+    setText('');
+    setPreview(null);
+    setDesks({});
+    setRecord('');
+  }
+
+  async function load() {
+    const res = await workspaceApi.importChecklist(project.id, sent());
+    onDone(res.project, res);
+    toast(res.said ?? `${res.added} added${res.skipped ? ` · ${res.skipped} already there` : ''}`, 'good');
+    reset();
+    onClose();
+  }
 
   async function run() {
     setBusy(true);
     try {
-      const res = await workspaceApi.importChecklist(project.id, file ? { file, department } : { text, department });
-      onDone(res.project);
-      toast(`${res.added} added${res.skipped ? ` · ${res.skipped} already there` : ''}`, 'good');
-      setFile(null);
-      setText('');
-      onClose();
+      if (preview) await load();
+      else {
+        const read = await workspaceApi.previewChecklist(project.id, sent());
+        // A plain list is one paper to a line: there is nothing to look at first.
+        if (read.kind === 'plain') await load();
+        else {
+          setPreview(read);
+          // The list stays on this desk unless a package is sent elsewhere here, by choice.
+          setDesks({});
+        }
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not read that list', 'critical');
     } finally {
       setBusy(false);
     }
   }
+
+  const tracked = preview?.kind === 'tracked' ? (preview.report as ListLoadReport) : undefined;
+  const form = preview?.kind === 'tender_form' ? (preview.report as TenderFormReport) : undefined;
 
   return (
     <Modal
@@ -84,8 +200,8 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
       width="md"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
+          <Button variant="ghost" onClick={preview ? () => setPreview(null) : onClose} disabled={busy}>
+            {preview ? 'Back' : 'Cancel'}
           </Button>
           <Button variant="primary" loading={busy} disabled={!file && !text.trim()} onClick={() => void run()}>
             Load
@@ -93,60 +209,138 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
         </>
       }
     >
-      <div className="space-y-3">
-        <button
-          type="button"
-          onClick={() => input.current?.click()}
-          className={cn(
-            'flex w-full items-center gap-3 rounded-xl border border-dashed p-3 text-left transition-colors duration-quick ease-state',
-            file ? 'border-brand/50 bg-brand-soft/50' : 'border-[var(--axis)] hover:bg-sunken/60',
-          )}
-        >
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
-            <Upload size={16} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-medium text-ink">{file ? file.name : 'Choose a file'}</span>
-            <span className="block text-micro text-ink-muted">.xlsx, .csv, .tsv or .txt</span>
-          </span>
-          {file ? (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label="Remove the file"
-              onClick={(e) => {
-                e.stopPropagation();
-                setFile(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+      {tracked ? (
+        <div className="space-y-3">
+          <div>
+            <p className="text-[13px] font-medium text-ink">{preview!.list}</p>
+            <p className="text-micro text-ink-muted">
+              {preview!.lines} lines · {listLoadSaid(tracked)}
+            </p>
+            {preview!.counted ? <p className="text-micro text-ink-muted">{countedSaid(preview!.counted)}</p> : null}
+          </div>
+          {preview!.counted ? <Skipped counted={preview!.counted} /> : null}
+          <ul className="space-y-1">
+            <Moved label="New" lines={tracked.added} />
+            <Moved label="Now received" lines={tracked.becameReceived} />
+            <Moved label="Now partial" lines={tracked.becamePartial} />
+            <Moved label="Now to be assumed" lines={tracked.becameAssumed} />
+            <Moved label="Pending again" lines={tracked.reopened} />
+            <Moved label="No longer on the list, and kept" lines={tracked.gone} />
+          </ul>
+          <div className="space-y-1.5">
+            <p className="text-[13px] font-medium text-ink" data-load-summary>
+              {loadSplitSaid(project, department, preview!.desks ?? [], desks, preview!.lines ?? 0)}
+            </p>
+            {(preview!.desks ?? []).some((desk) => desk.suggested && workstreamDefinition(desk.suggested)?.department !== department) ? (
+              <label className="flex items-center gap-2 text-[12px] text-ink-secondary">
+                <input
+                  type="checkbox"
+                  checked={Object.keys(desks).length > 0}
+                  onChange={(e) => setDesks(e.target.checked ? Object.fromEntries((preview!.desks ?? []).filter((desk) => desk.suggested).map((desk) => [desk.package, desk.suggested!])) : {})}
+                />
+                Send each package to the function that keeps it, in place of keeping the list on this desk
+              </label>
+            ) : null}
+            <p className="text-micro text-ink-secondary">Where each package goes</p>
+            {(preview!.desks ?? []).map((desk) => (
+              <label key={desk.package} className="flex items-center gap-2 text-[13px] text-ink">
+                <span className="min-w-0 flex-1 truncate">{desk.package}</span>
+                <Select value={desks[desk.package] ?? ''} onChange={(e) => setDesks((was) => ({ ...was, [desk.package]: e.target.value }))} aria-label={`Function for ${desk.package}`} className="w-52">
+                  <option value="">This desk ({DEPARTMENT_SHORT[department]})</option>
+                  {DESKS.map((ws) => (
+                    <option key={ws.key} value={ws.key}>
+                      {DEPARTMENT_SHORT[ws.department]} › {ws.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : form ? (
+        <div className="space-y-3">
+          <div>
+            <p className="text-[13px] font-medium text-ink">A tender form: {form.list.replace(/^Tender terms: /, '')}</p>
+            <p className="text-micro text-ink-muted">
+              {form.rows} rows · {preview!.said}
+            </p>
+          </div>
+          <label className="block text-micro text-ink-secondary">
+            Fills the Tender terms of
+            <Select value={record} onChange={(e) => setRecord(e.target.value)} className="mt-1">
+              <option value="">{form.record && !tenders.some((tender) => tender.id === form.record) ? 'The tender this form filled before' : 'A new tender'}</option>
+              {tenders.map((tender) => (
+                <option key={tender.id} value={tender.id}>
+                  {tender.label}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <p className="text-[12px] text-ink-secondary">Each answer is offered on its field with this file, its sheet and its row as the source. Nothing counts until a lead or signer accepts it.</p>
+          <ul className="space-y-1">
+            <Moved label="Still owed by the client" lines={form.owed.added} />
+            <Moved label="To type by hand" lines={form.unread.map((row) => `${row.no} ${row.item}`)} />
+            <Moved label="Not on the form" lines={form.unmatched.map((row) => `${row.no} ${row.item}`)} />
+            <Moved label="Not taken" lines={form.refused.map((row) => `${row.no} ${row.item}: ${row.error}`)} />
+          </ul>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => input.current?.click()}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-xl border border-dashed p-3 text-left transition-colors duration-quick ease-state',
+              file ? 'border-brand/50 bg-brand-soft/50' : 'border-[var(--axis)] hover:bg-sunken/60',
+            )}
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+              <Upload size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-ink">{file ? file.name : 'Choose a file'}</span>
+              <span className="block text-micro text-ink-muted">.xlsx, .csv, .tsv or .txt</span>
+            </span>
+            {file ? (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label="Remove the file"
+                onClick={(e) => {
                   e.stopPropagation();
                   setFile(null);
-                }
-              }}
-              className="grid size-7 place-items-center rounded-lg text-ink-muted hover:bg-sunken hover:text-ink"
-            >
-              <X size={14} />
-            </span>
-          ) : null}
-        </button>
-        <input
-          ref={input}
-          type="file"
-          accept=".xlsx,.csv,.tsv,.txt,.md"
-          className="hidden"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
-            e.target.value = '';
-          }}
-        />
-        {file ? null : (
-          <label className="block text-micro text-ink-secondary">
-            Or paste, one paper per line
-            <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} placeholder={'Concept:\nSoil investigation report\nBuilt-up area statement'} className="mt-1" />
-          </label>
-        )}
-      </div>
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation();
+                    setFile(null);
+                  }
+                }}
+                className="grid size-7 place-items-center rounded-lg text-ink-muted hover:bg-sunken hover:text-ink"
+              >
+                <X size={14} />
+              </span>
+            ) : null}
+          </button>
+          <input
+            ref={input}
+            type="file"
+            accept=".xlsx,.csv,.tsv,.txt,.md"
+            className="hidden"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              e.target.value = '';
+            }}
+          />
+          {file ? null : (
+            <label className="block text-micro text-ink-secondary">
+              Or paste, one paper per line
+              <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} placeholder={'Concept:\nSoil investigation report\nBuilt-up area statement'} className="mt-1" />
+            </label>
+          )}
+          <p className="text-micro text-ink-muted">A list with numbers and a status column updates the lines it loaded before. A form of answers is read into Tender terms.</p>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -155,8 +349,8 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
 /* One line                                                              */
 /* ==================================================================== */
 
-/** A line's own fields, for a new line or one already on the list. */
-function LineForm({ start, busy, submit, onSubmit, children }: { start: ChecklistDraft; busy: boolean; submit: string; onSubmit: (draft: ChecklistDraft) => void; children?: React.ReactNode }) {
+/** A line's own fields, for a new line or one already on the list. `more` adds the day it is wanted by and what came back. */
+function LineForm({ start, busy, submit, more, parties, onSubmit, children }: { start: ChecklistDraft; busy: boolean; submit: string; more?: boolean; parties?: string; onSubmit: (draft: ChecklistDraft) => void; children?: React.ReactNode }) {
   const [draft, setDraft] = useState<ChecklistDraft>(start);
   const set = (key: keyof ChecklistDraft) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft((was) => ({ ...was, [key]: e.target.value }));
   return (
@@ -176,12 +370,24 @@ function LineForm({ start, busy, submit, onSubmit, children }: { start: Checklis
         </label>
         <label className="text-micro text-ink-secondary">
           Owed by
-          <Input value={draft.owedBy ?? ''} onChange={set('owedBy')} className="mt-1" />
+          <Input value={draft.owedBy ?? ''} onChange={set('owedBy')} list={parties} className="mt-1" />
         </label>
+        {more ? (
+          <label className="text-micro text-ink-secondary">
+            Wanted by
+            <Input type="date" value={draft.targetDate ?? ''} onChange={set('targetDate')} className="mt-1" />
+          </label>
+        ) : null}
         <label className="text-micro text-ink-secondary">
           Note
           <Input value={draft.note ?? ''} onChange={set('note')} className="mt-1" />
         </label>
+        {more ? (
+          <label className="text-micro text-ink-secondary">
+            What came back
+            <Input value={draft.remark ?? ''} onChange={set('remark')} maxLength={200} className="mt-1" />
+          </label>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="primary" loading={busy} disabled={!draft.title.trim()} onClick={() => onSubmit(draft)}>
@@ -193,11 +399,224 @@ function LineForm({ start, busy, submit, onSubmit, children }: { start: Checklis
   );
 }
 
-const draftOf = (item: ChecklistItem): ChecklistDraft => ({ title: item.title, stage: item.stage, package: item.package, owedBy: item.owedBy, note: item.note });
+const draftOf = (item: ChecklistItem): ChecklistDraft => ({ title: item.title, stage: item.stage, package: item.package, owedBy: item.owedBy, note: item.note, targetDate: item.targetDate, remark: item.remark?.text });
+
+/**
+ * The two standings a person sets on a line of a list: partly in hand, with
+ * what is still wanted, and to be assumed, with who assumes and the field the
+ * paper would have filled. A value given for that field stands in on it as
+ * assumed until a real one is typed or accepted.
+ */
+function StandingForm({ project, line, busy, change }: { project: DdProject; line: PaperLine; busy: boolean; change: (run: () => Promise<{ project: DdProject }>, said?: string) => Promise<boolean> }) {
+  const item = line.checklist!.item;
+  const [wanted, setWanted] = useState(item.partial?.wanted ?? '');
+  const [assumer, setAssumer] = useState(item.assumed?.assumer ?? '');
+  const [field, setField] = useState('');
+  const [value, setValue] = useState('');
+  // The fields of this department's sheets a paper could have filled, by sheet.
+  const fields = useMemo(() => {
+    const catalog = fieldCatalogFor(project);
+    return departmentDefinition(item.department).workstreams.flatMap((ws) => assumableFields(ws.key, catalog));
+  }, [project, item.department]);
+  const sheets = [...new Set(fields.map((held) => held.set.id))];
+  const named = fields.find((held) => `${held.address.set}::${held.address.field}` === field);
+  const stood = (item.assumed?.fields ?? []).map((held) => {
+    const known = fields.find((f) => f.address.set === held.address.set && f.address.field === held.address.field);
+    return `${known ? `${known.set.title} › ${known.def.label}` : held.address.field} at ${String(held.value)}`;
+  });
+  const patch = (body: Parameters<typeof workspaceApi.patchChecklistItem>[2], said?: string) => void change(() => workspaceApi.patchChecklistItem(project.id, item.id, body), said);
+
+  return (
+    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="space-y-2 rounded-xl bg-sunken/60 p-2.5 ring-1 ring-inset ring-[var(--ring)]">
+        <label className="block text-micro text-ink-secondary">
+          Partly in hand: what is still wanted
+          <Input value={wanted} onChange={(e) => setWanted(e.target.value)} maxLength={200} className="mt-1" />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => patch({ partial: { wanted: wanted.trim() || null } }, 'Marked partial.')}>
+            {item.partial ? 'Save' : 'Mark partial'}
+          </Button>
+          {item.partial ? (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => patch({ partial: false })}>
+              Not partial
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <div className="space-y-2 rounded-xl bg-sunken/60 p-2.5 ring-1 ring-inset ring-[var(--ring)]">
+        <label className="block text-micro text-ink-secondary">
+          It will not come: who is to assume
+          <Input value={assumer} onChange={(e) => setAssumer(e.target.value)} maxLength={120} className="mt-1" />
+        </label>
+        {stood.length ? <p className="text-[12px] text-ink-secondary">Stands in for {stood.join('; ')}</p> : null}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
+          <Select value={field} onChange={(e) => setField(e.target.value)} aria-label="The field it stands in for">
+            <option value="">No field</option>
+            {sheets.map((sheet) => (
+              <optgroup key={sheet} label={fields.find((held) => held.set.id === sheet)!.set.title}>
+                {fields
+                  .filter((held) => held.set.id === sheet)
+                  .map((held) => (
+                    <option key={held.address.field} value={`${held.address.set}::${held.address.field}`}>
+                      {held.def.label}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </Select>
+          <Input value={value} onChange={(e) => setValue(e.target.value)} disabled={!named} placeholder="Assumed at" aria-label="The value assumed" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || !assumer.trim() || Boolean(named && !value.trim())}
+            onClick={() => patch({ assumed: { assumer: assumer.trim(), fields: named ? [{ address: named.address, value: value.trim() }] : (item.assumed?.fields ?? []) } }, 'Marked to be assumed.')}
+          >
+            {item.assumed ? 'Save' : 'Mark to be assumed'}
+          </Button>
+          {item.assumed ? (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => patch({ assumed: false })}>
+              Take back
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==================================================================== */
+/* The summary                                                           */
+/* ==================================================================== */
+
+/**
+ * What a consultant counts at the foot of the list: for each package and in
+ * total, how many are received, partial, to be assumed and pending. Worked
+ * out from the lines, so it cannot disagree with them. A package another
+ * department holds is said to be theirs.
+ */
+function SummaryTable({ summary, department }: { summary: ChecklistSummary; department: DepartmentKey }) {
+  const cell = 'px-2 py-1 text-right font-mono tabular-nums';
+  return (
+    <div className="overflow-x-auto rounded-xl ring-1 ring-inset ring-[var(--ring)]">
+      <table className="w-full min-w-[26rem] text-[12px] text-ink">
+        <thead>
+          <tr className="bg-sunken/60 text-micro text-ink-secondary">
+            <th scope="col" className="px-3 py-1.5 text-left font-medium">
+              Package
+            </th>
+            {['Total', 'Received', 'Partial', 'To assume', 'Pending', 'Received %'].map((head) => (
+              <th key={head} scope="col" className="px-2 py-1.5 text-right font-medium">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-hairline">
+          {[...summary.rows, summary.total].map((row) => {
+            const elsewhere = row.key !== 'total' && !row.departments.includes(department);
+            return (
+              <tr key={row.key} className={cn(row.key === 'total' && 'font-semibold', elsewhere && 'text-ink-secondary')}>
+                <th scope="row" className="px-3 py-1 text-left font-[inherit]">
+                  {row.package}
+                  {elsewhere ? <span className="ml-1.5 text-micro text-ink-muted">{row.departments.map((held) => DEPARTMENT_SHORT[held]).join(', ')}</span> : null}
+                </th>
+                <td className={cell}>{row.total}</td>
+                <td className={cell}>{row.received}</td>
+                <td className={cell}>{row.partial}</td>
+                <td className={cell}>{row.assumed}</td>
+                <td className={cell}>{row.pending}</td>
+                <td className={cell}>{row.percent}%</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ==================================================================== */
+/* Tender forms                                                          */
+/* ==================================================================== */
+
+/**
+ * The tender forms of a project, on Procurement's list: each tender's form
+ * to write out and send, and the rows a client marked "Not Applicable" on a
+ * form that came back, each for a lead or signer to take or set aside.
+ */
+function TenderForms({ project, mayDecide, onChanged }: { project: DdProject; mayDecide: boolean; onChanged: (next: DdProject) => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const tenders = useMemo(() => refChoices(project, { set: TENDER_TERMS }), [project]);
+  const forms = project.tenderForms ?? [];
+  const rows = [...tenders.map((tender) => ({ id: tender.id, label: tender.label, standing: true })), ...forms.filter((form) => !tenders.some((tender) => tender.id === form.record)).map((form) => ({ id: form.record, label: form.package ?? form.file, standing: false }))];
+  if (!rows.length) return null;
+
+  async function act(run: () => Promise<unknown>) {
+    setBusy(true);
+    try {
+      const out = await run();
+      if (out && typeof out === 'object' && 'project' in out) onChanged((out as { project: DdProject }).project);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not do that', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl ring-1 ring-inset ring-[var(--ring)]">
+      <div className="px-3 py-2 text-[13px] font-semibold text-ink-secondary">Tender forms</div>
+      <ul className="divide-y divide-hairline border-t border-hairline">
+        {rows.map((row) => {
+          const form = forms.find((held) => held.record === row.id);
+          return (
+            <li key={row.id} className="px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] text-ink">{row.label || 'Tender'}</span>
+                  <span className="block text-micro text-ink-muted">
+                    {form ? `Read from ${form.file}${form.responseBy ? ` · reply by ${day(form.responseBy)}` : ''}` : 'No form read into it'}
+                    {row.standing ? '' : ' · open Tender terms to accept what it offered'}
+                  </span>
+                </span>
+                <Button size="sm" variant="ghost" icon={<Download size={13} />} disabled={busy} onClick={() => void act(() => workspaceApi.saveTenderForm(project.id, row.id, `${project.reference}-tender-form`))}>
+                  Export the form
+                </Button>
+              </div>
+              {(form?.notApplicable ?? []).map((offer) => (
+                <div key={offer.id} className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="min-w-0 flex-1 text-[12px] text-ink-secondary">
+                    {offer.no} {offer.item}: marked Not Applicable on the form, row {offer.row}
+                  </span>
+                  {mayDecide ? (
+                    <>
+                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => void act(() => workspaceApi.decideTenderFormOffer(project.id, form!.id, offer.id, 'take'))}>
+                        Mark not applicable
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => workspaceApi.decideTenderFormOffer(project.id, form!.id, offer.id, 'set_aside'))}>
+                        Not this
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              ))}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 /* ==================================================================== */
 /* The card                                                              */
 /* ==================================================================== */
+
+type Only = PaperStanding | 'all' | 'unnamed' | 'undated';
 
 /**
  * Papers owed: every paper a department waits for, as one list by who owes it.
@@ -205,9 +624,10 @@ const draftOf = (item: ChecklistItem): ChecklistDraft => ({ title: item.title, s
  * The documents the checks expect, the lines of a list somebody sent and the
  * requests made by hand are three records and one list here. A line says
  * where it stands (not asked, asked for, answered and waiting to be
- * confirmed, in hand) and carries what can be done to it: ask, confirm a
- * reply, mark in hand. It is one department's list, shown on the Documents
- * of that department's functions.
+ * confirmed, partly in hand, to be assumed, in hand) and carries what can be
+ * done to it: ask, confirm a reply, mark in hand, say who owes it and by
+ * when. A tracked list is counted above it, package by package. It is one
+ * department's list, shown on the Documents of that department's functions.
  */
 export function PapersOwedCard({
   project,
@@ -231,7 +651,8 @@ export function PapersOwedCard({
   const toast = useToast();
   const me = useMe();
   const staff = me ? reachesEveryProject(me.role) : false;
-  const mayEdit = (desk: DepartmentKey | undefined): boolean => Boolean(me && desk && roleCanEdit(departmentRole(project, { email: me.email, workspaceRole: me.role }, desk)));
+  const roleAt = (desk: DepartmentKey | undefined) => (me && desk ? departmentRole(project, { email: me.email, workspaceRole: me.role }, desk) : undefined);
+  const mayEdit = (desk: DepartmentKey | undefined): boolean => roleCanEdit(roleAt(desk));
   const view = useMemo(() => papersOwed(project, { department, outside: !staff }), [project, department, staff]);
   const documents = useMemo(() => project.evidence.filter((e) => e.attachments.length > 0 && !e.supersededById), [project.evidence]);
   // The desk a list is loaded on, for somebody of the firm who may edit it.
@@ -245,15 +666,34 @@ export function PapersOwedCard({
   const [recipient, setRecipient] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [busy, setBusy] = useState(false);
-  // Show only the lines standing one way: what was not asked, what waits on others, what waits on a person here.
-  const [only, setOnly] = useState<PaperStanding | 'all'>('all');
-  const shown = (line: PaperLine): boolean => only === 'all' || line.standing === only;
+  // Show only the lines standing one way, or the ones with nobody named or no day; and only those asked for in one round.
+  const [only, setOnly] = useState<Only>('all');
+  const [round, setRound] = useState<string | null>(null);
+  // The last load made here, to be taken back whole; a list about to be removed whole; and how the lines ticked are to stand.
+  const [lastLoad, setLastLoad] = useState<ListLoaded | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [standing, setStanding] = useState<'' | 'in_hand' | 'partial' | 'assumed' | 'asked'>('');
+  const [assumer, setAssumer] = useState('');
+  // The project's parties, to pick who owes a paper from; and a name just used that is not one of them yet.
+  const parties = useMemo(() => refChoices(project, 'party').map((party) => party.label.split(',')[0]!.trim()), [project]);
+  const [newParty, setNewParty] = useState<string | null>(null);
+  const partyList = `parties-${department}`;
+  const lists = useMemo(() => checklistLoads(project).filter((held) => held.list && held.departments.includes(department)), [project, department]);
+  // The consultant's count, of one list at a time and of what this desk holds of it: two lists are never added into one table, and a chip never counts a line that is on another desk.
+  const [listPicked, setListPicked] = useState<string | null>(null);
+  const listShown = lists.find((held) => held.list === listPicked)?.list ?? lists[0]?.list;
+  const summary = useMemo(() => (view.tracked && listShown ? checklistSummary(project, { department, list: listShown, ...(round ? { round } : {}) }) : undefined), [project, department, view.tracked, round, listShown]);
+  const shown = (line: PaperLine): boolean =>
+    (only === 'all' || (only === 'unnamed' ? Boolean(line.unnamed) : only === 'undated' ? Boolean(line.undated) : line.standing === only)) && (!round || fold(line.round) === fold(round));
 
   const refresh = async () => onChanged(await api.getProject(project.id));
   const askable = (line: PaperLine): boolean =>
     line.standing === 'not_asked' && mayEdit(line.department) && (line.from === 'list' ? staff : line.from === 'checks' ? Boolean(line.requirement?.evidenceId) : false);
+  // A line of a list still owed can be given its party and its day, whether or not it was asked for.
+  const assignable = (line: PaperLine): boolean => line.from === 'list' && staff && mayEdit(line.department) && line.standing !== 'in_hand' && line.standing !== 'assumed';
   const all = view.parties.flatMap((party) => party.lines);
   const chosen = all.filter((line) => picked.has(line.key) && askable(line));
+  const toAssign = all.filter((line) => picked.has(line.key) && assignable(line));
   const unnamed = chosen.filter((line) => !line.party).length;
   const startable = startWorkstream && mayEdit(department) && !requirementSheet(project, { department }).total;
 
@@ -265,7 +705,7 @@ export function PapersOwedCard({
     });
   }
 
-  function fold(key: string) {
+  function foldGroup(key: string) {
     setClosed((was) => {
       const next = new Set(was);
       if (next.has(key)) next.delete(key);
@@ -313,9 +753,39 @@ export function PapersOwedCard({
     }
   }
 
+  /** Set the ticked lines together, in one act: who owes them, the day they are wanted by, and how they stand. */
+  async function assign() {
+    if (!recipient.trim() && !dueAt && !standing) {
+      toast('Name who owes them, the day they are wanted by, or how they stand.', 'warning');
+      return;
+    }
+    if (standing === 'assumed' && !assumer.trim()) {
+      toast('Name who is to assume.', 'warning');
+      return;
+    }
+    const owedBy = recipient.trim();
+    const ok = await change(
+      () =>
+        workspaceApi.assignChecklist(project.id, {
+          itemIds: toAssign.map((line) => line.checklist!.item.id),
+          ...(owedBy ? { owedBy } : {}),
+          // With "asked", the day given is the day they were asked for; otherwise it is the day they are wanted by.
+          ...(dueAt ? (standing === 'asked' ? { askedOn: dueAt } : { targetDate: dueAt }) : {}),
+          ...(standing ? { standing } : {}),
+          ...(standing === 'assumed' ? { assumer: assumer.trim() } : {}),
+        }),
+      `Set for ${toAssign.length} line${toAssign.length === 1 ? '' : 's'}.`,
+    );
+    if (!ok) return;
+    setPicked(new Set());
+    setStanding('');
+    // A name that is no party of the project yet is offered to be added, so the next line picks it.
+    if (owedBy && !parties.some((party) => fold(party) === fold(owedBy))) setNewParty(owedBy);
+  }
+
   async function copy() {
     try {
-      await navigator.clipboard.writeText(papersOwedText(view, day, only === 'all' || only === 'in_hand' ? {} : { only }));
+      await navigator.clipboard.writeText(papersOwedText(view, day, only === 'all' || only === 'in_hand' || only === 'assumed' || only === 'unnamed' || only === 'undated' ? {} : { only }));
       toast('Copied, to paste into a message.', 'good');
     } catch {
       toast('Could not copy.', 'warning');
@@ -335,6 +805,8 @@ export function PapersOwedCard({
       setBusy(false);
     }
   }
+
+  const tenderForms = staff && department === 'procurement' ? <TenderForms project={project} mayDecide={roleCanDecide(roleAt('procurement'))} onChanged={onChanged} /> : null;
 
   // An outside collaborator with nothing on their copy is shown no empty card.
   if (!view.total && !desk) return null;
@@ -367,19 +839,20 @@ export function PapersOwedCard({
   function row(line: PaperLine) {
     const editable = line.from === 'list' && staff && mayEdit(line.department);
     const expanded = open === line.key;
-    const canExpand = editable || line.from === 'checks' || Boolean(line.request && staff);
+    const canExpand = editable || line.from === 'checks' || Boolean(line.request && staff) || Boolean(line.checklist?.item.availability || line.checklist?.item.oldRef);
     const item = line.checklist?.item;
     const suggestion = line.checklist?.suggestion;
-    const said = [paperLineSaid(line, day), line.where, item?.note].filter(Boolean).join(' · ');
+    const said = [paperLineSaid(line, day, { tracked: view.tracked }), line.where, line.remark, item?.note].filter(Boolean).join(' · ');
+    const tick = askable(line) || assignable(line);
     return (
       <li key={line.key} className="px-3 py-2">
         <div className="flex items-start gap-2.5">
-          {askable(line) ? (
+          {tick ? (
             <input
               type="checkbox"
               checked={picked.has(line.key)}
               onChange={(e) => toggle([line.key], e.target.checked)}
-              aria-label={`Ask for ${line.title}`}
+              aria-label={`Select ${line.title}`}
               className="mt-0.5 h-4 w-4 shrink-0 rounded border-[var(--axis)] text-brand focus:ring-brand coarse:h-5 coarse:w-5"
             />
           ) : (
@@ -388,7 +861,10 @@ export function PapersOwedCard({
             </span>
           )}
           <button type="button" disabled={!canExpand} aria-expanded={canExpand ? expanded : undefined} onClick={() => (setOpen(expanded ? null : line.key), setLinked(''))} className="min-w-0 flex-1 text-left">
-            <span className={cn('block text-[13px]', line.standing === 'in_hand' ? 'text-ink-secondary' : 'text-ink')}>{line.title}</span>
+            <span className={cn('block text-[13px]', line.standing === 'in_hand' || line.standing === 'assumed' ? 'text-ink-secondary' : 'text-ink')}>
+              {line.ref ? <span className="mr-1.5 font-mono text-micro tabular-nums text-ink-muted">{line.ref}</span> : null}
+              {line.title}
+            </span>
             <span className={cn('block text-micro', line.overdue ? 'text-critical' : 'text-ink-muted')}>{said}</span>
           </button>
           <Badge tone={STANDING_TONE[line.standing]}>{PAPER_STANDING_LABEL[line.standing]}</Badge>
@@ -422,6 +898,12 @@ export function PapersOwedCard({
             ) : null}
           </div>
         ) : null}
+        {/* What the list keeps of the line beside its standing: what was to hand when it was asked for, and the number it had on an older copy. */}
+        {expanded && item && (item.availability || item.oldRef) ? (
+          <p className="mt-1.5 pl-[26px] text-[12px] text-ink-secondary" data-line-as-listed>
+            {[item.availability ? `Availability at request: ${item.availability}` : '', item.oldRef ? `Older serial: ${item.oldRef}` : ''].filter(Boolean).join(' · ')}
+          </p>
+        ) : null}
         {expanded && line.requirement ? (
           <ul className="mt-2 space-y-1 pl-[26px]">
             {line.requirement.checks.map((check) => (
@@ -435,52 +917,65 @@ export function PapersOwedCard({
           </ul>
         ) : null}
         {expanded && editable && item ? (
-          <LineForm
-            start={draftOf(item)}
-            busy={busy}
-            submit="Save"
-            onSubmit={(draft) =>
-              void change(() =>
-                workspaceApi.patchChecklistItem(project.id, item.id, { title: draft.title.trim(), stage: draft.stage?.trim() || null, package: draft.package?.trim() || null, owedBy: draft.owedBy?.trim() || null, note: draft.note?.trim() || null }),
-              ).then((ok) => {
-                if (ok) setOpen(null);
-              })
-            }
-          >
-            {line.standing === 'in_hand' ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => void change(() => workspaceApi.patchChecklistItem(project.id, item.id, line.checklist!.byHand ? { received: false } : { dismiss: line.checklist!.evidenceId }))}
-              >
-                {line.checklist!.byHand ? 'Reopen' : 'Not this document'}
-              </Button>
-            ) : (
-              <>
-                <Select value={linked} onChange={(e) => setLinked(e.target.value)} aria-label="The document" className="min-w-0 max-w-[14rem] flex-1">
-                  <option value="">No document</option>
-                  {documents.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.title}
-                    </option>
-                  ))}
-                </Select>
-                <Button size="sm" variant="secondary" disabled={busy} onClick={() => void change(() => workspaceApi.patchChecklistItem(project.id, item.id, { received: true, evidenceId: linked || undefined }), 'In hand.')}>
-                  Mark in hand
+          <>
+            <LineForm
+              start={draftOf(item)}
+              busy={busy}
+              submit="Save"
+              more
+              parties={partyList}
+              onSubmit={(draft) =>
+                void change(() =>
+                  workspaceApi.patchChecklistItem(project.id, item.id, {
+                    title: draft.title.trim(),
+                    stage: draft.stage?.trim() || null,
+                    package: draft.package?.trim() || null,
+                    owedBy: draft.owedBy?.trim() || null,
+                    note: draft.note?.trim() || null,
+                    targetDate: draft.targetDate?.trim() || null,
+                    remark: draft.remark?.trim() || null,
+                  }),
+                ).then((ok) => {
+                  if (ok) setOpen(null);
+                })
+              }
+            >
+              {line.standing === 'in_hand' ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => void change(() => workspaceApi.patchChecklistItem(project.id, item.id, line.checklist!.byHand ? { received: false } : { dismiss: line.checklist!.evidenceId }))}
+                >
+                  {line.checklist!.byHand ? 'Reopen' : 'Not this document'}
                 </Button>
-              </>
-            )}
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void change(() => workspaceApi.removeChecklistItem(project.id, item.id))}>
-              Remove
-            </Button>
-          </LineForm>
+              ) : (
+                <>
+                  <Select value={linked} onChange={(e) => setLinked(e.target.value)} aria-label="The document" className="min-w-0 max-w-[14rem] flex-1">
+                    <option value="">No document</option>
+                    {documents.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => void change(() => workspaceApi.patchChecklistItem(project.id, item.id, { received: true, evidenceId: linked || undefined }), 'In hand.')}>
+                    Mark in hand
+                  </Button>
+                </>
+              )}
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void change(() => workspaceApi.removeChecklistItem(project.id, item.id))}>
+                Remove
+              </Button>
+            </LineForm>
+            {line.standing === 'in_hand' ? null : <StandingForm project={project} line={line} busy={busy} change={change} />}
+          </>
         ) : null}
       </li>
     );
   }
 
-  /** A long group is read under the headings of its own record: the discipline a check sits in, or the stage and package of a list. */
+  /** A long group is read under the headings of its own record: the discipline a check sits in, or the stage, package and sections of a list. */
   function body(lines: PaperLine[]) {
     const heads = [...new Set(lines.map((line) => line.where ?? ''))];
     if (lines.length <= 8 || heads.length < 2) return <ul className="divide-y divide-hairline border-t border-hairline">{lines.map(row)}</ul>;
@@ -502,13 +997,14 @@ export function PapersOwedCard({
     const lines = party.lines.filter(shown);
     if (!lines.length) return null;
     const shut = closed.has(party.key);
-    const mine = lines.filter(askable).map((line) => line.key);
+    const mine = lines.filter((line) => askable(line) || assignable(line)).map((line) => line.key);
+    const toAsk = lines.filter(askable).length;
     const every = mine.length > 0 && mine.every((key) => picked.has(key));
-    const said = [party.answered ? `${party.answered} to confirm` : '', party.overdue ? `${party.overdue} overdue` : '', party.notAsked ? `${party.notAsked} not asked` : ''].filter(Boolean).join(' · ');
+    const said = [party.answered ? `${party.answered} to confirm` : '', party.overdue ? `${party.overdue} overdue` : '', party.partial ? `${party.partial} partial` : '', party.notAsked ? `${party.notAsked} not asked` : ''].filter(Boolean).join(' · ');
     return (
       <section key={party.key || 'nobody'} className="rounded-xl ring-1 ring-inset ring-[var(--ring)]">
         <div className="flex items-center gap-2 rounded-xl pr-2 hover:bg-sunken/60">
-          <button type="button" aria-expanded={!shut} onClick={() => fold(party.key)} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left coarse:min-h-11">
+          <button type="button" aria-expanded={!shut} onClick={() => foldGroup(party.key)} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left coarse:min-h-11">
             <ChevronRight size={14} className={cn('shrink-0 text-ink-muted transition-transform duration-quick ease-state', !shut && 'rotate-90')} aria-hidden />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-ink">{party.party ?? 'Nobody named'}</span>
@@ -518,7 +1014,7 @@ export function PapersOwedCard({
           </button>
           {mine.length ? (
             <Button size="sm" variant="ghost" onClick={() => toggle(mine, !every)}>
-              {every ? 'Clear' : `Select ${mine.length} to ask`}
+              {every ? 'Clear' : toAsk === mine.length ? `Select ${mine.length} to ask` : `Select ${mine.length}`}
             </Button>
           ) : null}
         </div>
@@ -527,13 +1023,25 @@ export function PapersOwedCard({
     );
   }
 
-  const filters: Array<{ key: PaperStanding | 'all'; label: string; n: number }> = [
+  const assumed = view.assumed.filter(shown);
+  const inHand = view.inHand.filter((line) => !round || fold(line.round) === fold(round));
+  const filters: Array<{ key: Only; label: string; n: number }> = [
     { key: 'all', label: 'All', n: view.total },
     { key: 'answered', label: PAPER_STANDING_LABEL.answered, n: view.answered },
+    { key: 'partial', label: PAPER_STANDING_LABEL.partial, n: view.partial },
     { key: 'asked', label: PAPER_STANDING_LABEL.asked, n: view.asked },
     { key: 'not_asked', label: PAPER_STANDING_LABEL.not_asked, n: view.notAsked },
+    { key: 'assumed', label: PAPER_STANDING_LABEL.assumed, n: view.assumed.length },
     { key: 'in_hand', label: PAPER_STANDING_LABEL.in_hand, n: view.inHand.length },
+    // Who owes it and by when, where a tracked list leaves either blank.
+    { key: 'unnamed', label: 'Nobody named', n: view.tracked ? view.nobodyNamed : 0 },
+    { key: 'undated', label: 'No date', n: view.tracked ? view.noDate : 0 },
   ];
+  const chip = (on: boolean) =>
+    cn(
+      'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] ring-1 ring-inset transition-colors duration-quick ease-state coarse:min-h-11',
+      on ? 'bg-ink text-surface ring-ink' : 'bg-surface text-ink-secondary ring-[var(--ring)] hover:text-ink',
+    );
 
   return (
     <Card>
@@ -555,29 +1063,192 @@ export function PapersOwedCard({
             </Button>
           </LineForm>
         ) : null}
-        {chosen.length ? (
+        <datalist id={partyList}>
+          {parties.map((party) => (
+            <option key={party} value={party} />
+          ))}
+        </datalist>
+        {lastLoad ? (
+          <div className="space-y-1 rounded-xl bg-sunken/60 p-2.5 ring-1 ring-inset ring-[var(--ring)]" role="status">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="min-w-0 flex-1 text-[13px] text-ink">
+                Loaded {lastLoad.added} {lastLoad.added === 1 ? 'line' : 'lines'} from {lastLoad.file ?? 'the list'}
+                {lastLoad.said ? <span className="text-ink-secondary"> · {lastLoad.said}</span> : null}
+              </p>
+              {lastLoad.load ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void change(() => workspaceApi.removeChecklistLoad(project.id, { load: lastLoad.load! }), 'Taken back.').then((ok) => {
+                      if (ok) setLastLoad(null);
+                    })
+                  }
+                >
+                  Undo
+                </Button>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => setLastLoad(null)}>
+                Dismiss
+              </Button>
+            </div>
+            {lastLoad.counted ? <p className="text-micro text-ink-muted">{countedSaid(lastLoad.counted)}</p> : null}
+            {lastLoad.counted ? <Skipped counted={lastLoad.counted} /> : null}
+          </div>
+        ) : null}
+        {newParty && desk ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-sunken/60 p-2.5 text-[13px] text-ink ring-1 ring-inset ring-[var(--ring)]">
+            <p className="min-w-0 flex-1">{newParty} is not one of the project’s parties yet.</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={() =>
+                void change(() => api.addFieldRecord(project.id, 'shared.parties', { name: newParty }), 'Added to the parties.').then((ok) => {
+                  if (ok) setNewParty(null);
+                })
+              }
+            >
+              Add to the parties
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setNewParty(null)}>
+              Not now
+            </Button>
+          </div>
+        ) : null}
+        {desk && lists.length ? (
+          <ul className="space-y-1">
+            {lists.map((held) => (
+              <li key={held.list} className="flex flex-wrap items-center gap-2 text-[12px] text-ink-secondary">
+                <span className="min-w-0 flex-1 truncate">
+                  {held.list} · {held.lines} {held.lines === 1 ? 'line' : 'lines'}
+                </span>
+                {removing === held.list ? (
+                  <>
+                    <span>Take all {held.lines} off, on every department’s list?</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void change(() => workspaceApi.removeChecklistLoad(project.id, { list: held.list! }), 'The list is taken off.').then(() => {
+                          setRemoving(null);
+                          setLastLoad(null);
+                        })
+                      }
+                    >
+                      Remove it
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setRemoving(null)}>
+                      Keep it
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => setRemoving(held.list!)}>
+                    Remove this list
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {summary ? (
+          <div className="space-y-2">
+            {lists.length > 1 ? (
+              <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Which list is counted">
+                {lists.map((held) => (
+                  <button key={held.list} type="button" role="tab" aria-selected={held.list === listShown} onClick={() => setListPicked(held.list!)} className={chip(held.list === listShown)}>
+                    {held.list}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <p className="text-[13px] font-medium text-ink" data-list-counted>
+              {listShown}: {summary.total.total} {summary.total.total === 1 ? 'line' : 'lines'} on this desk{round ? `, asked in ${round}` : ''}
+            </p>
+            {summary.elsewhere.length ? (
+              <p className="text-[12px] text-ink-secondary" data-list-elsewhere>
+                The rest of this list is on{' '}
+                {summary.elsewhere.map((held, at) => {
+                  const fn = checklistFunction(held.department);
+                  return (
+                    <span key={held.department}>
+                      {at ? ', ' : ''}
+                      {fn ? (
+                        <Link className="text-brand underline-offset-2 hover:underline" to={cockpitPath(project.id, 'workstream', { workstream: fn, section: 'documents' })}>
+                          {DEPARTMENT_SHORT[held.department]}
+                        </Link>
+                      ) : (
+                        DEPARTMENT_SHORT[held.department]
+                      )}{' '}
+                      ({held.lines} {held.lines === 1 ? 'line' : 'lines'})
+                    </span>
+                  );
+                })}
+                . They are counted there, not here.
+              </p>
+            ) : null}
+            <SummaryTable summary={summary} department={department} />
+            {summary.rounds.length ? (
+              <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Asked in">
+                <button type="button" role="tab" aria-selected={!round} onClick={() => setRound(null)} className={chip(!round)}>
+                  Every round
+                </button>
+                {summary.rounds.map((held) => (
+                  <button key={held.round} type="button" role="tab" aria-selected={fold(round ?? undefined) === fold(held.round)} onClick={() => setRound(held.round)} className={chip(fold(round ?? undefined) === fold(held.round))}>
+                    Asked in {held.round}
+                    <span className="font-mono tabular-nums">{held.total}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {chosen.length || toAssign.length ? (
           <div className="flex flex-wrap items-end gap-2 rounded-xl bg-sunken/60 p-2.5 ring-1 ring-inset ring-[var(--ring)]">
-            {unnamed ? (
-              <label className="min-w-[11rem] flex-1 text-micro text-ink-secondary">
-                Who is asked, for the {unnamed} nobody is named for
-                <Input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Name, or their firm" className="mt-1" />
+            <label className="min-w-[11rem] flex-1 text-micro text-ink-secondary">
+              {toAssign.length ? 'Who owes them' : unnamed ? `Who is asked, for the ${unnamed} nobody is named for` : 'One request goes to each party, naming everything it owes'}
+              <Input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Name, or their firm" list={partyList} className="mt-1" />
+            </label>
+            {toAssign.length ? (
+              <label className="text-micro text-ink-secondary">
+                Mark as
+                <Select value={standing} onChange={(e) => setStanding(e.target.value as typeof standing)} className="mt-1">
+                  <option value="">As they stand</option>
+                  <option value="in_hand">In hand</option>
+                  <option value="partial">Partial</option>
+                  <option value="assumed">To be assumed</option>
+                  <option value="asked">Asked for</option>
+                </Select>
               </label>
-            ) : (
-              <p className="min-w-[11rem] flex-1 text-[12px] text-ink-secondary">One request goes to each party, naming everything it owes.</p>
-            )}
+            ) : null}
+            {standing === 'assumed' ? (
+              <label className="text-micro text-ink-secondary">
+                Who assumes
+                <Input value={assumer} onChange={(e) => setAssumer(e.target.value)} list={partyList} className="mt-1" />
+              </label>
+            ) : null}
             <label className="text-micro text-ink-secondary">
-              By
+              {standing === 'asked' ? 'Asked on' : 'By'}
               <Input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="mt-1" />
             </label>
             <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
               Clear
             </Button>
-            <Button size="sm" variant="primary" icon={<Send size={13} />} loading={busy} onClick={() => void ask()}>
-              Ask for {chosen.length}
-            </Button>
+            {toAssign.length ? (
+              <Button size="sm" variant="secondary" loading={busy} onClick={() => void assign()}>
+                Set for {toAssign.length}
+              </Button>
+            ) : null}
+            {chosen.length ? (
+              <Button size="sm" variant="primary" icon={<Send size={13} />} loading={busy} onClick={() => void ask()}>
+                Ask for {chosen.length}
+              </Button>
+            ) : null}
           </div>
         ) : null}
-        {view.total > 8 ? (
+        {view.total > 8 || view.tracked ? (
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Show">
             {filters.filter((f) => f.key === 'all' || f.n).map((f) => (
               <button
@@ -586,10 +1257,7 @@ export function PapersOwedCard({
                 role="tab"
                 aria-selected={only === f.key}
                 onClick={() => (setOnly(f.key), f.key === 'in_hand' && setClosed((was) => new Set([...was].filter((key) => key !== 'in-hand'))))}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] ring-1 ring-inset transition-colors duration-quick ease-state coarse:min-h-11',
-                  only === f.key ? 'bg-ink text-surface ring-ink' : 'bg-surface text-ink-secondary ring-[var(--ring)] hover:text-ink',
-                )}
+                className={chip(only === f.key)}
               >
                 {f.label}
                 <span className="font-mono tabular-nums">{f.n}</span>
@@ -599,23 +1267,37 @@ export function PapersOwedCard({
         ) : null}
         {view.total ? (
           <div className="space-y-2">
-            {only === 'in_hand' ? null : view.parties.map(group)}
-            {view.inHand.length && (only === 'all' || only === 'in_hand') ? (
+            {only === 'in_hand' || only === 'assumed' ? null : view.parties.map(group)}
+            {assumed.length && (only === 'all' || only === 'assumed') ? (
               <section className="rounded-xl ring-1 ring-inset ring-[var(--ring)]">
-                <button type="button" aria-expanded={!closed.has('in-hand')} onClick={() => fold('in-hand')} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-sunken/60 coarse:min-h-11">
+                <button type="button" aria-expanded={!closed.has('assumed')} onClick={() => foldGroup('assumed')} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-sunken/60 coarse:min-h-11">
+                  <ChevronRight size={14} className={cn('shrink-0 text-ink-muted transition-transform duration-quick ease-state', !closed.has('assumed') && 'rotate-90')} aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold text-ink-secondary">To be assumed</span>
+                    <span className="block text-micro text-ink-muted">Will not come. Owed by nobody, and not in hand.</span>
+                  </span>
+                  <span className="font-mono text-micro tabular-nums text-ink-secondary">{assumed.length}</span>
+                </button>
+                {closed.has('assumed') ? null : <ul className="divide-y divide-hairline border-t border-hairline">{assumed.map(row)}</ul>}
+              </section>
+            ) : null}
+            {inHand.length && (only === 'all' || only === 'in_hand') ? (
+              <section className="rounded-xl ring-1 ring-inset ring-[var(--ring)]">
+                <button type="button" aria-expanded={!closed.has('in-hand')} onClick={() => foldGroup('in-hand')} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-sunken/60 coarse:min-h-11">
                   <ChevronRight size={14} className={cn('shrink-0 text-ink-muted transition-transform duration-quick ease-state', !closed.has('in-hand') && 'rotate-90')} aria-hidden />
                   <span className="flex-1 text-[13px] font-semibold text-ink-secondary">In hand</span>
-                  <span className="font-mono text-micro tabular-nums text-ink-secondary">{view.inHand.length}</span>
+                  <span className="font-mono text-micro tabular-nums text-ink-secondary">{inHand.length}</span>
                 </button>
-                {closed.has('in-hand') ? null : <ul className="divide-y divide-hairline border-t border-hairline">{view.inHand.map(row)}</ul>}
+                {closed.has('in-hand') ? null : <ul className="divide-y divide-hairline border-t border-hairline">{inHand.map(row)}</ul>}
               </section>
             ) : null}
           </div>
         ) : (
           <p className="text-[13px] text-ink-secondary">Nothing is asked for yet. Load the list of papers as it was sent, or add a line.</p>
         )}
+        {tenderForms}
         {/* What the checks would want and nobody has asked for: owed by nobody yet, counted nowhere, and one press away to ask for. */}
-        {view.expected.length && (only === 'all' || only === 'not_asked') ? (
+        {view.expected.length && (only === 'all' || only === 'not_asked') && !round ? (
           <details className="rounded-xl ring-1 ring-inset ring-[var(--ring)]">
             <summary className="flex cursor-pointer select-none items-center gap-2 rounded-xl px-3 py-2 hover:bg-sunken/60 coarse:min-h-11">
               <span className="flex-1 text-[13px] font-semibold text-ink-secondary">The checks also expect</span>
@@ -634,7 +1316,18 @@ export function PapersOwedCard({
           </div>
         ) : null}
       </CardBody>
-      {desk ? <LoadDialog project={project} department={desk} open={loading} onClose={() => setLoading(false)} onDone={onChanged} /> : null}
+      {desk ? (
+        <LoadDialog
+          project={project}
+          department={desk}
+          open={loading}
+          onClose={() => setLoading(false)}
+          onDone={(next, loaded) => {
+            onChanged(next);
+            setLastLoad(loaded);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }

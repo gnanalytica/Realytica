@@ -84,16 +84,37 @@ export function matchReadToRow(project: DdProject, read: NonNullable<ChatIngestF
  */
 export const READING_UNDER_WAY_MS = 15 * 60_000;
 
+/**
+ * How long a question about a dropped file ("a questionnaire, or a paper to
+ * file?") waits for its answer. Past it, nobody is taken to be about to
+ * answer: the file is held as a paper to file, which is the choice that
+ * changes nothing, and the question can still be answered from Documents.
+ */
+export const ANSWER_WAITED_FOR_MS = 10 * 60_000;
+
 export interface PaperInHand {
   fileName: string;
   storageKey: string;
   /** When its reading began. */
   since: string;
+  /** What the chat asked whether it is, where it asked. */
+  asked?: 'questionnaire' | 'photo';
+}
+
+export interface PapersInHand {
+  /** Being read now: a request could still be at work on it. */
+  reading: PaperInHand[];
+  /** Asked about, and the answer is still waited for. Nobody is reading it. */
+  asked: PaperInHand[];
+  /** Left behind unread by a request that ended. */
+  unread: PaperInHand[];
+  /** Held as a paper to file: a question nobody answered in time, or a paper a person set aside. Said in Documents, and on no banner. */
+  held: PaperInHand[];
 }
 
 /**
- * The papers dropped in the chat that are on no row yet: the ones still being
- * read, and the ones a request left behind unread.
+ * The papers dropped in the chat that are on no row yet, by where each
+ * stands.
  *
  * A drop is read a few papers at a time and goes on after the tab that
  * dropped it closes. A page opened meanwhile showed three papers of ten and
@@ -101,20 +122,32 @@ export interface PaperInHand {
  * record as its reading begins and the note goes as it lands, so what is
  * still noted is what is still to come: `reading` while a request could
  * still be at work on it, `unread` after.
+ *
+ * A file the chat asked about is not being read: nothing happens to it until
+ * a person says what it is. Its note said "being read" all the same, on every
+ * page, for as long as nobody answered. It is `asked` while an answer may
+ * still come, and `held` once the wait is over or a person has set it aside:
+ * held as a paper to file, which loses nothing, with the question still open
+ * to be answered where the papers are.
  */
-export function papersInHand(project: Pick<DdProject, 'chatProposals' | 'evidence'>, at: Date = new Date()): { reading: PaperInHand[]; unread: PaperInHand[] } {
+export function papersInHand(project: Pick<DdProject, 'chatProposals' | 'evidence'>, at: Date = new Date()): PapersInHand {
   const filed = new Set(project.evidence.flatMap((e) => e.attachments.map((a) => a.storageKey)));
-  const reading: PaperInHand[] = [];
-  const unread: PaperInHand[] = [];
+  const out: PapersInHand = { reading: [], asked: [], unread: [], held: [] };
   for (const card of project.chatProposals ?? []) {
-    const { readingSince, storageKey, fileName } = card.payload as { readingSince?: unknown; storageKey?: unknown; fileName?: unknown };
+    const { readingSince, storageKey, fileName, asked, setAsideAt } = card.payload as { readingSince?: unknown; storageKey?: unknown; fileName?: unknown; asked?: unknown; setAsideAt?: unknown };
     if (card.kind !== 'file_evidence' || card.status !== 'proposed' || typeof readingSince !== 'string' || typeof storageKey !== 'string' || filed.has(storageKey)) continue;
     const began = Date.parse(readingSince);
     if (Number.isNaN(began)) continue;
-    const paper = { fileName: typeof fileName === 'string' ? fileName : 'document', storageKey, since: readingSince };
-    (at.getTime() - began < READING_UNDER_WAY_MS ? reading : unread).push(paper);
+    const question = asked && typeof asked === 'object' ? (asked as { between?: unknown; at?: unknown }) : undefined;
+    const between = question?.between === 'questionnaire' || question?.between === 'photo' ? question.between : undefined;
+    const paper: PaperInHand = { fileName: typeof fileName === 'string' ? fileName : 'document', storageKey, since: readingSince, ...(between ? { asked: between } : {}) };
+    if (typeof setAsideAt === 'string') out.held.push(paper);
+    else if (between) {
+      const askedAt = typeof question?.at === 'string' ? Date.parse(question.at) : began;
+      (at.getTime() - (Number.isNaN(askedAt) ? began : askedAt) < ANSWER_WAITED_FOR_MS ? out.asked : out.held).push(paper);
+    } else (at.getTime() - began < READING_UNDER_WAY_MS ? out.reading : out.unread).push(paper);
   }
-  return { reading, unread };
+  return out;
 }
 
 /* ==================================================================== */

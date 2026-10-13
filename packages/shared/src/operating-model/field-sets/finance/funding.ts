@@ -167,6 +167,8 @@ export const FUNDING_SETS: FieldSet[] = [
     fn: FIN,
     title: 'Cash position',
     v: 1,
+    // Kept by the month. Where the figures come from, the balance the months start from and how a gap is covered go on; the day it is as at is the month's own.
+    periodic: { every: 'month', carry: ['figures_from', 'opening_balance', 'gap_cover'], due: { days: 7 }, issuer: 'lead' },
     optionSets: [
       options('cash_figures_from', 'Figures taken from', [
         ['package', 'Accounting package', 'good'],
@@ -195,7 +197,7 @@ export const FUNDING_SETS: FieldSet[] = [
       choice('figures_from', 'Figures taken from', 'cash_figures_from', { section: 'position', control: 'segmented' }),
       money('opening_balance', 'Opening balance', { ...SIGNED, section: 'position', from: 'Bank statement' }),
       rupees('net_to_date', 'Net cash to date', totalOf(SET.cashMonths, 'net'), { section: 'position' }),
-      rupees('closing_by_months', 'Closing balance, by the months', plus(f('opening_balance'), f('net_to_date')), { section: 'position' }),
+      rupees('closing_by_months', 'Closing balance, by the months', plus(f('opening_balance'), f('net_to_date')), { section: 'position', trend: { over: 'periods', mark: 'line', last: 12 } }),
       rupees('bank_total', 'Balances per the banks', totalOf('shared.accounts', 'bank_balance'), { section: 'position' }),
       rupees('months_less_banks', 'Months less the banks', minus(f('closing_by_months'), f('bank_total')), { section: 'position' }),
       rupees('collections_to_date', 'Collections to date', totalOf(SET.cashMonths, 'collections'), { section: 'plan' }),
@@ -226,6 +228,24 @@ export const FUNDING_SETS: FieldSet[] = [
     title: 'Cash by month',
     v: 1,
     records: { of: 'month', titleField: 'month', summaryFields: ['net', 'plan_net'] },
+    // Kept by the month: closed a week after it ends, by a lead. The month's collections are held against the receipts dated in it.
+    periodic: {
+      every: 'month',
+      by: 'month',
+      due: { days: 7 },
+      issuer: 'lead',
+      attribute: [{ field: 'collections', rows: { records: 'commercial.buyers.demands', table: 'settled_by' }, date: 'received_on', amount: 'amount', label: 'Receipts on demands', of: 'amount' }],
+      reasons: 'period_unexplained',
+    },
+    optionSets: [
+      options('period_unexplained', 'Why it is not explained', [
+        ['dated_in_another_period', 'Dated in another period'],
+        ['earlier_period_corrected', 'An earlier period corrected'],
+        ['outside_these_records', 'Outside these records'],
+        ['rounding', 'Rounding'],
+        ['not_yet_reconciled', 'Not yet reconciled', 'warning'],
+      ]),
+    ],
     sections: [
       { key: 'month', label: 'Month' },
       { key: 'in', label: 'Money in' },
@@ -259,6 +279,7 @@ export const FUNDING_SETS: FieldSet[] = [
     title: 'Forecast by week',
     v: 1,
     records: { of: 'week', titleField: 'week_beginning', summaryFields: ['net', 'closing'] },
+    periodic: { every: 'week', by: 'week_beginning', due: { days: 2 }, issuer: 'lead' },
     fields: [
       day('week_beginning', 'Week beginning'),
       money('receipts', 'Receipts due'),
@@ -440,6 +461,8 @@ export const FUNDING_SETS: FieldSet[] = [
     title: 'RERA certificates',
     v: 1,
     records: { of: 'certificate', titleField: 'kind', summaryFields: ['period_end', 'signed_on'] },
+    // One of each kind a quarter, signed by an outside professional: the same people sign the next, so they are carried.
+    periodic: { every: 'quarter', by: 'period_end', per: ['kind'], carry: ['signed_by', 'membership_no'], due: { rate: 'rera_quarterly_filing_days' }, issuer: 'consultant' },
     optionSets: [
       options('rera_certificate_kind', 'Certificate', [
         ['accountant_withdrawal', 'Accountant: withdrawal'],
@@ -469,6 +492,8 @@ export const FUNDING_SETS: FieldSet[] = [
     title: 'Annual statement of accounts',
     v: 1,
     records: { of: 'year', titleField: 'year_end', summaryFields: ['excess_withdrawn', 'year_standing'] },
+    // The auditor holds from year to year, and a total to date only grows: each opens from where it stood, said to be carried. A year's own figures open blank.
+    periodic: { every: 'year', by: 'year_end', carry: ['auditor', 'collected_to_date', 'withdrawn_to_date'], cumulative: ['collected_to_date', 'withdrawn_to_date'], due: { rate: 'rera_annual_report_months' }, issuer: 'consultant' },
     fields: [
       day('year_end', 'Financial year ending'),
       worked('report_due', 'Report due', addMonths(dateOf('year_end'), rate('rera_annual_report_months')), { yields: 'date' }),
@@ -506,6 +531,8 @@ export const FUNDING_SETS: FieldSet[] = [
     fn: FIN,
     title: 'Receivables',
     v: 1,
+    // Kept by the month. The three figures are running totals: they go on as last stated, and what moved in the month is each less the last.
+    periodic: { every: 'month', carry: ['agreement_value', 'demanded', 'collected'], cumulative: ['agreement_value', 'demanded', 'collected'], due: { days: 7 }, issuer: 'lead' },
     situations: [
       {
         key: 'sales_begun',

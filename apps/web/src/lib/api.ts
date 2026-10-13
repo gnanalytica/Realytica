@@ -1235,7 +1235,7 @@ export const api = {
   correctDocumentType: (projectId: string, evidenceId: string, documentType: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/correct`, { method: 'POST', body: JSON.stringify({ documentType }) }),
   /* --- Field sets: a function's sheets (docs/fields.md) --- */
-  setFieldValues: (projectId: string, body: { set: string; record?: string; values: Record<string, unknown> }) =>
+  setFieldValues: (projectId: string, body: { set: string; record?: string; period?: string; values: Record<string, unknown> }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/values`, { method: 'PUT', body: JSON.stringify(body) }),
   decideField: (projectId: string, body: { address: FieldAddress; decision: FieldValueDecision; value?: unknown; pick?: number; reason?: string; note?: string }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/decide`, { method: 'POST', body: JSON.stringify(body) }),
@@ -1245,6 +1245,9 @@ export const api = {
     request<{ project: DdProject; recordId?: string }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, values }) }),
   removeFieldRecord: (projectId: string, set: string, record: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, remove: record }) }),
+  /** Correct a party: put its name right, merge it into another that is the same party, or take it off the list. */
+  correctParty: (projectId: string, partyId: string, body: { name: string } | { into: string } | { remove: true }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/parties/${partyId}`, { method: 'POST', body: JSON.stringify(body) }),
   setSituation: (projectId: string, fn: string, key: string, on: boolean) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/situation`, { method: 'PUT', body: JSON.stringify({ fn, key, on }) }),
   setSectionNotApplicable: (projectId: string, set: string, section: string, reason: string | null) =>
@@ -1252,6 +1255,9 @@ export const api = {
   /** Put a line under Due soon off until a day, or with null bring it back. */
   snoozeNeed: (projectId: string, fn: string, key: string, until: string | null) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/snooze`, { method: 'PUT', body: JSON.stringify({ fn, key, until }) }),
+  /** One act on a set kept by period: open a period, issue it, open a revision of an issued one, or pick why a figure is unexplained. */
+  fieldPeriod: (projectId: string, body: { set: string; act: 'open' | 'issue' | 'revise' | 'reason'; record?: string; period?: string; name?: string; field?: string; reason?: string | null }) =>
+    request<{ project: DdProject; recordId?: string }>(`/projects/${projectId}/fields/period`, { method: 'POST', body: JSON.stringify(body) }),
   /** The firm's own fields: what it has added to the built-in sets, the sets it may add to, and whether this person may change them. */
   firmFields: () => request<FirmFieldsShown>('/firm-fields'),
   saveFirmFields: (pack: Pick<FirmFieldPack, 'optionSets' | 'add' | 'demote'>) => request<FirmFieldsShown>('/firm-fields', { method: 'PUT', body: JSON.stringify(pack) }),

@@ -157,10 +157,10 @@ describe('answering from the file', () => {
     // The receipt's own count: sixteen papers in the pack, none of them held.
     const pack = packCompleteness(project);
     assert.deepEqual([pack.received, pack.total], [0, 16]);
-    const said = `The priority pack is 16 papers and none is on file yet: Title extract; Title chain; Title schedule; Sale deed; Mother deed; Encumbrance; and 10 more.\nDrop any into the chat and I’ll read and file it.`;
+    const said = `The checks expect 16 papers and none is on file yet: Title extract; Title chain; Title schedule; Sale deed; Mother deed; Encumbrance; and 10 more.\nDrop any into the chat and I’ll read and file it.`;
     const answer = answerFromFile(project, 'What documents do I need?')!;
     assert.equal(answer.text, said);
-    assert.equal(answer.summary, 'Priority pack');
+    assert.equal(answer.summary, 'Papers the checks expect');
     assert.deepEqual(answer.navigate, { pane: 'evidence' });
     // The greeting's own choice sends these words, and "what's missing" is the same question.
     assert.equal(applyProjectChat(project, 'What documents do I need?').assistantTurn.text, said);
@@ -172,8 +172,8 @@ describe('answering from the file', () => {
     const filed = createProject({ name: 'One paper', type: 'residential', location: 'X', city: 'Bengaluru' }, 'RYT-F');
     addEvidence(filed, { title: 'Sale deed', kind: 'document', status: 'received' });
     const rest = answerFromFile(filed, 'What documents do I need?')!;
-    assert.equal(rest.text, '15 of the 16 priority papers are not on file yet: Title extract; Title chain; Title schedule; Mother deed; Encumbrance; Survey plan; and 9 more.\nDrop any into the chat and I’ll read and file it.');
-    assert.equal(rest.summary, 'Priority pack');
+    assert.equal(rest.text, '15 of the 16 papers the checks expect are not on file yet: Title extract; Title chain; Title schedule; Mother deed; Encumbrance; Survey plan; and 9 more.\nDrop any into the chat and I’ll read and file it.');
+    assert.equal(rest.summary, 'Papers the checks expect');
 
     // The whole pack on file and none waited for: nothing is outstanding.
     for (let n = 0; n < 20 && packCompleteness(filed).missing; n += 1) addEvidence(filed, { title: packCompleteness(filed).missingTitles[0]!, kind: 'document', status: 'received' });

@@ -17,10 +17,11 @@ import { waitingOnCanvas } from './cockpit';
 import { formatMoney } from './units';
 import { costReportDecisions } from './cost-report-compare';
 import { costReportIssuedBefore, costReportTotals, costReportsOf } from './cost-report';
+import { costPapersOf } from './cost-import';
 import { daySaid } from './said';
 import { scheduleWatch } from './milestone-schedule';
 import { DEPARTMENT_SHORT, menuDepartment } from './departments';
-import { PAPERS_OWED, paperPlace, papersHeldAt, papersOwed, type PaperLine, type PapersPlace } from './papers-owed';
+import { PAPERS_OWED, notAskedSaid, paperPlace, papersHeldAt, papersOwed, type PaperLine, type PapersPlace } from './papers-owed';
 import { projectDepartments } from './team';
 import type { DdProject } from './types';
 
@@ -101,11 +102,16 @@ export function projectBrief(project: DdProject, now: Date, opts: { outside?: bo
   // What needs a person: what waits to be accepted, replies to confirm, decisions to make, actions past their date.
   const decisions = (project.decisions ?? []).filter((decision) => decision.status === 'pending' || decision.status === 'proposed').length;
   const late = (project.actions ?? []).filter((action) => action.status !== 'closed' && (action.status === 'overdue' || Boolean(action.dueDate && action.dueDate.slice(0, 10) < today))).length;
+  // Rows a cost report offered to the Cost Report, on a paper still on the file: each waits for a lead or signer of Finance.
+  const costRows = costPapersOf(project)
+    .filter((paper) => project.evidence.some((row) => row.id === paper.evidenceId))
+    .reduce((sum, paper) => sum + paper.offers.filter((offer) => offer.status === 'offered').length, 0);
   lines.push({
     key: 'needs',
     label: 'Needs you',
     parts: [
       ...acceptParts(project, now),
+      ...(costRows ? [{ text: plural(costRows, 'cost row to accept', 'cost rows to accept'), open: BUDGET }] : []),
       ...repliesToConfirm(owing.filter((line) => line.standing === 'answered')),
       ...(decisions ? [{ text: plural(decisions, 'decision to make', 'decisions to make'), open: { pane: 'decisions' as const } }] : []),
       ...(late ? [{ text: plural(late, 'action overdue', 'actions overdue'), tone: 'critical' as const, open: { pane: 'actions' as const } }] : []),
@@ -159,7 +165,7 @@ export function projectBrief(project: DdProject, now: Date, opts: { outside?: bo
             ...(named.length > shown.length ? [{ text: `${named.length - shown.length} more`, open: at(named.slice(shown.length).flatMap((party) => party.lines)) }] : []),
           ]
         : [],
-      quiet: owed.notAsked ? `Nothing owed. ${plural(owed.notAsked, 'paper')} on the list, not asked for yet.` : owed.total ? `All ${owed.total} in hand.` : 'Nothing asked for yet. Load the list of papers on a department’s Documents.',
+      quiet: owed.notAsked ? notAskedSaid(owed.notAsked) : owed.total ? `All ${owed.total} in hand.` : 'Nothing asked for yet. Load the list of papers on a department’s Documents.',
       open: most,
     });
   }

@@ -10,6 +10,7 @@ import {
   chatLinkLabels,
   chatSessions,
   chatPlaceLabel,
+  chatOpening,
   chatPrompts,
   cockpitPath,
   isProjectCockpitPane,
@@ -60,7 +61,7 @@ import {
 } from '../../lib/reading';
 import { mustFitOneMessage, readyToSend } from '../../lib/site-capture';
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
-import { ReadingContinues } from '../../components/reading/ReadingContinues';
+import { DroppedHeld, ReadingContinues } from '../../components/reading/ReadingContinues';
 import { forgetReading, rememberReading } from '../../lib/reading-pending';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Spinner, cn, useToast } from '../../components/ui/kit';
@@ -986,6 +987,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const spec = LAYOUTS[layout];
   const fillRight = pane === 'graph';
   const next = useMemo(() => projectNextStep(project), [project]);
+  // What the chat opens with follows the stage: a project being built opens on what Overview opens on, not on the land's first step.
+  const opening = useMemo(() => chatOpening(project, new Date(), { outside: me?.role === 'collaborator' }), [project, me?.role]);
   // The records an answer can name, and the frame they sit in: a stage, a
   // department or a function the copilot quoted by its graph id reads as its
   // name, and one the frame no longer has is left out of the sentence.
@@ -1084,8 +1087,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       voice={voice}
       onCheckVoice={checkVoice}
       onOpenCommands={() => setCommandOpen(true)}
-      emptyTitle={next.title}
-      emptyHint={next.why}
+      emptyTitle={opening?.title ?? next.title}
+      emptyHint={opening?.hint ?? next.why}
       /*
         The pane is already in the request and was nowhere on the screen.
         Every question carries `viewContext: pane`, so the copilot has always
@@ -1245,7 +1248,16 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         <div ref={workScrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
           {/* Summary is analytics only — decide waiting on the function tabs. */}
           {/* Papers dropped before a reload, still being read: said here, each as it lands. */}
-          <ReadingContinues project={project} refresh={refresh} live={sending.some((message) => message.files.length > 0)} onOpenPaper={(evidenceId) => goPane('evidence', { evidenceId })} />
+          <ReadingContinues
+            project={project}
+            refresh={refresh}
+            live={sending.some((message) => message.files.length > 0)}
+            onOpenPaper={(evidenceId) => goPane('evidence', { evidenceId })}
+            onSay={(sentence) => void handleAsk(sentence)}
+            onChanged={setProject}
+          />
+          {/* A dropped file nobody said what to do with is answered here, where the papers are. */}
+          {pane === 'evidence' ? <DroppedHeld project={project} onSay={(sentence) => void handleAsk(sentence)} /> : null}
           {pane === 'department' ? null : (
             <WaitingHere
               project={project}

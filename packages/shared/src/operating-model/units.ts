@@ -266,6 +266,44 @@ export function formatMoney(amount: number, currency: FieldCurrency = 'INR', pre
   return `${amount < 0 ? '−' : ''}${sign}${Math.abs(amount).toLocaleString(locale, { maximumFractionDigits: precision })}`;
 }
 
+/** The unit a column of money is written in: every row of it the same. */
+export type MoneyUnit = 'crore' | 'lakh' | 'rupees';
+
+const MONEY_UNIT: Record<Exclude<MoneyUnit, 'rupees'>, { size: number; word: string }> = { crore: { size: 1e7, word: 'Cr' }, lakh: { size: 1e5, word: 'lakh' } };
+
+/**
+ * The unit for a column of amounts, chosen once for the column so no two
+ * rows of it are written differently: crore where the largest is a crore or
+ * more and none would print as nothing to two places of a crore; else lakh
+ * the same way; else to the rupee. Rupees only: another currency is written
+ * in full.
+ */
+export function moneyUnitFor(amounts: ReadonlyArray<number | null | undefined>, currency: FieldCurrency = 'INR'): MoneyUnit {
+  if (currency !== 'INR') return 'rupees';
+  const sizes = amounts.filter((amount): amount is number => typeof amount === 'number' && Number.isFinite(amount) && amount !== 0).map(Math.abs);
+  if (!sizes.length) return 'rupees';
+  const [most, least] = [Math.max(...sizes), Math.min(...sizes)];
+  // The least a unit shows to two places is half of its hundredth.
+  const fits = (unit: 'crore' | 'lakh') => most >= MONEY_UNIT[unit].size && least >= MONEY_UNIT[unit].size / 200;
+  return fits('crore') ? 'crore' : fits('lakh') ? 'lakh' : 'rupees';
+}
+
+/**
+ * An amount in the unit its column is written in: always two decimals in
+ * crore and lakh, so a column lines up, and to the rupee otherwise. The full
+ * figure belongs in the cell's title (`formatMoneyInFull`).
+ */
+export function formatMoneyIn(amount: number, unit: MoneyUnit, currency: FieldCurrency = 'INR'): string {
+  const { sign, locale } = CURRENCY_SIGN[currency];
+  const minus = amount < 0 ? '−' : '';
+  if (currency !== 'INR' || unit === 'rupees') return `${minus}${sign}${Math.abs(amount).toLocaleString(locale, { maximumFractionDigits: 0 })}`;
+  const { size, word } = MONEY_UNIT[unit];
+  const figure = (Math.abs(amount) / size).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Nothing is written as nothing, whatever the column's unit: "₹0", never "₹0.00 lakh" under "₹16.75 Cr".
+  if (Number(figure.replace(/,/g, '')) === 0) return `${sign}0`;
+  return `${minus}${sign}${figure} ${word}`;
+}
+
 /** An amount written out to the rupee, for where two amounts would read the same in lakh and crore. */
 export function formatMoneyInFull(amount: number, currency: FieldCurrency = 'INR'): string {
   const { sign, locale } = CURRENCY_SIGN[currency];

@@ -31,7 +31,9 @@ import { costRegister, costSummary, packagePosition, standingCertification } fro
 import { costReportPeriodOrder, costReportsOf, costReportTotals, type CostReportPeriod } from './cost-report';
 import { costReportChanges } from './cost-report-compare';
 import { findingIsOpen } from './engineering';
-import { scheduleWatch } from './milestone-schedule';
+import { actualPercentOn, buildingMilestones, earnedValue, plannedPercent, progressCurve, scheduleWatch } from './milestone-schedule';
+import { periodOfKey, type PeriodSpan } from './period-keys';
+import { PHOTO_FIGURES } from './photo-figures';
 import { milestoneExtensions, progressSummary } from './progress';
 import { tenderComparison, tenderStagesPastDue, tendersOf, variationOffersWaiting, type Tender } from './tenders';
 import { approachIsUsable } from './valuation-model';
@@ -44,19 +46,31 @@ export interface ProjectFigure {
   /** The part of the product that keeps it, as a person knows it. */
   from: string;
   /** What it is a figure of, where it is of one thing and not of the project. */
-  of?: 'package';
+  of?: 'package' | 'building';
+  /** The figure month by month, where its module keeps readings: what a trend over periods draws. */
+  series?(project: DdProject, at: Date): Array<{ period: PeriodSpan; value: number | null }>;
+  /** A figure of the record that asks for it: read from a field of a set that repeats, it is given that record's id with nothing named. */
+  own?: true;
   /** `shared` lasts one reading of the project, so several figures of one module work it out once. */
   read(project: DdProject, at: Date, of: string | undefined, shared: Map<string, unknown>): number | null;
 }
 
 const day = (value: string | undefined): number | null => dayNumber(value);
+/** Under this key in a reading's shared map: the project as it stands, where the figures are being read as at a past day. */
+export const LIVE = 'live project';
+/** The day a reading is of, as the schedule keeps days. */
+const today = (at: Date): string => at.toISOString().slice(0, 10);
 const known = (n: number | null | undefined): number | null => (typeof n === 'number' && Number.isFinite(n) ? n : null);
 const positive = (n: number | null | undefined): number | null => (typeof n === 'number' && n > 0 ? n : null);
 const total = (amounts: readonly number[]): number => Math.round(amounts.reduce((sum, n) => sum + n, 0) * 100) / 100;
 
 /** The cost report for the latest period, issued or not. */
 function latestReport(project: DdProject): CostReportPeriod | undefined {
-  return [...costReportsOf(project)].sort(costReportPeriodOrder).at(-1);
+  // A report a revision has replaced is kept as it was sent, and read by nothing.
+  return costReportsOf(project)
+    .filter((report) => report.status !== 'superseded')
+    .sort(costReportPeriodOrder)
+    .at(-1);
 }
 
 const ofLatestReport = (read: (report: CostReportPeriod, project: DdProject) => number | null) => (project: DdProject) => {
@@ -144,7 +158,43 @@ const contractOfPackage = (project: DdProject, packageId: string | undefined) =>
 
 export const PROJECT_FIGURES: Readonly<Record<string, ProjectFigure>> = {
   /* --- Progress and the schedule ------------------------------------- */
-  'progress.percent': { label: 'Progress, by the weight of the milestones', from: 'Milestones', read: (project, at) => progressSummary(project, at).percent },
+  'progress.percent': {
+    label: 'Progress, by the weight of the milestones',
+    from: 'Milestones',
+    read: (project, at) => progressSummary(project, at).percent,
+    series: (project, at) => progressCurve(project, at).flatMap((point) => (point.actual === null ? [] : [{ period: periodOfKey(point.month)!, value: point.actual }])),
+  },
+  // What was planned to be done by today, from each milestone's planned start and finish by its weight: never typed.
+  'progress.planned_percent': {
+    label: 'Planned progress to date, by the weight of the milestones',
+    from: 'Schedule',
+    read: (project, at) => plannedPercent(project, today(at)),
+    series: (project, at) => progressCurve(project, at).map((point) => ({ period: periodOfKey(point.month)!, value: point.planned })),
+  },
+  // Of one building where a link names it, of the whole project where none does: what a quarter's row reports for each building.
+  // Which milestones are the building's is asked of the project as it stands (`LIVE`): a building recorded today still has a last quarter.
+  'progress.building_percent': { label: 'Progress of the building, by the weight of its milestones', from: 'Milestones', of: 'building', read: (project, at, of, shared) => (of ? actualPercentOn(project, today(at), buildingMilestones((shared.get(LIVE) as DdProject | undefined) ?? project, of)) : null) },
+  'progress.building_planned_percent': { label: 'Planned progress of the building', from: 'Schedule', of: 'building', read: (project, at, of, shared) => (of ? plannedPercent(project, today(at), buildingMilestones((shared.get(LIVE) as DdProject | undefined) ?? project, of)) : null) },
+  // The work in money, where every milestone is tied to a work package with a budget. Null otherwise: a weight is not money.
+  'progress.planned_value': { label: 'Planned value', from: 'Schedule and cost register', read: (project, at) => earnedValue(project, today(at))?.planned ?? null },
+  'progress.earned_value': { label: 'Earned value', from: 'Schedule and cost register', read: (project, at) => earnedValue(project, today(at))?.earned ?? null },
+  'progress.schedule_index': {
+    label: 'Earned value over planned value',
+    from: 'Schedule and cost register',
+    read: (project, at) => {
+      const value = earnedValue(project, today(at));
+      return value && value.planned > 0 ? Math.round((value.earned / value.planned) * 100) / 100 : null;
+    },
+  },
+  'progress.cost_index': {
+    label: 'Earned value over what is certified',
+    from: 'Schedule and cost register',
+    read: (project, at) => {
+      const value = earnedValue(project, today(at));
+      const certified = costRegister(project).bills.length ? costSummary(project).certified : 0;
+      return value && certified > 0 ? Math.round((value.earned / certified) * 100) / 100 : null;
+    },
+  },
   'progress.milestones': { label: 'Milestones', from: 'Milestones', read: (project) => (project.milestones?.length ? project.milestones.length : null) },
   'progress.milestones_complete': { label: 'Milestones complete', from: 'Milestones', read: (project, at) => (project.milestones?.length ? progressSummary(project, at).complete : null) },
   'progress.milestones_late': { label: 'Milestones past their planned finish', from: 'Milestones', read: (project, at) => (project.milestones?.length ? progressSummary(project, at).late.length : null) },
@@ -301,6 +351,8 @@ export const PROJECT_FIGURES: Readonly<Record<string, ProjectFigure>> = {
   'cash_flow.peak_funding': { label: 'Peak funding need before finance', from: 'appraisal cash flow', read: (p) => known(appraisalCashFlow(p)?.peakFunding) },
   'cash_flow.peak_month': { label: 'Month of the peak', from: 'appraisal cash flow', read: (p) => known(appraisalCashFlow(p)?.peakDay) },
   'cash_flow.payback_month': { label: 'Month the money is back', from: 'appraisal cash flow', read: (p) => known(appraisalCashFlow(p)?.paybackDay) },
+
+  ...PHOTO_FIGURES,
 };
 
 /** A figure by its key, or null where there is none by that key or it cannot be told. `shared` is one reading's memo: pass the same map for every figure of that reading. */

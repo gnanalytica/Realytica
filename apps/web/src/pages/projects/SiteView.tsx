@@ -4,6 +4,7 @@ import { FileCheck2 } from 'lucide-react';
 import { REVENUE_MAP_CAVEAT, revenueMapEvidenceCode, revenueReads } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, Skeleton, useToast } from '../../components/ui/kit';
+import { FieldSheets } from '../../components/fields/FieldSheets';
 import SiteRecord from './SiteRecord';
 import type { ProjectOutlet } from './ProjectLayout';
 import { WorkstreamFrame } from './departments/WorkstreamPage';
@@ -110,6 +111,8 @@ export default function SiteView() {
         <p className="max-w-[70ch] text-[12px] text-ink-secondary">Where the site is, what is next to it, and what visits found.</p>
       </div>
       <WorkstreamFrame project={project} workstream="construction.site" setProject={setProject} compact />
+      {/* What the site's sheets need of a person, then the sheets: the photo stations and the round above them. */}
+      <FieldSheets project={project} fn="construction.site" onChanged={setProject} />
       <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
         <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
       </Suspense>

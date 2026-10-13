@@ -120,7 +120,7 @@ describe('a block of named fields', () => {
     assert.match(extent.value, /^1 acre 22 guntas \(6,272\.63 sqm\) \[\d\]$/, 'the unit as the deed wrote it');
     assert.equal(extent.standing, 'accepted');
     const note = (value: string) => resolved.footnotes!.find((held) => value.includes(`[${held.n}]`))!.text;
-    assert.match(note(extent.value), /^Sale deed 2019, p\. 3; accepted by lead@firm\.example on \d+ \w+ \d{4}$/, 'the paper and its page, and who accepted it');
+    assert.match(note(extent.value), /^Sale deed 2019, p\. 3; accepted by lead on \d+ \w+ \d{4}$/, 'the paper and its page, and who accepted it');
 
     const tenure = cell(resolved, 'Tenure');
     assert.match(tenure.value, /^Freehold \[\d\]$/);
@@ -129,7 +129,7 @@ describe('a block of named fields', () => {
     assert.equal(cell(resolved, 'Owners').standing, 'worked out');
     assert.match(cell(resolved, 'Owners').value, /^2/);
     assert.equal(cell(resolved, 'Possession verified on site').standing, 'entered');
-    assert.match(note(cell(resolved, 'Possession verified on site').value), /^Entered by lead@firm\.example on /);
+    assert.match(note(cell(resolved, 'Possession verified on site').value), /^Entered by lead on /);
     assert.deepEqual(cell(resolved, 'Seller'), { value: '—', standing: 'not recorded' });
 
     // The same content as lines, for whatever cannot draw a table; and one line for each row.
@@ -221,7 +221,7 @@ describe('a table of fields', () => {
     assert.deepEqual(resolved.table!.columns, ['Date', 'Event', 'To']);
     assert.deepEqual(resolved.table!.rows.map((row) => row.cells), [['11 Mar 2004', 'Sale', 'M. Rao'], ['20 Jun 2019', 'Sale', 'A. Rao']]);
     assert.match(resolved.note!, /^2 rows, entered \[1\]\.$/);
-    assert.match(resolved.footnotes![0]!.text, /^Entered by lead@firm\.example on /);
+    assert.match(resolved.footnotes![0]!.text, /^Entered by lead on /);
     assert.equal(resolveFieldBlock(project(), { kind: 'field_table', address: at('chain') }).note, 'Chain of title: no row is recorded yet.');
   });
 
@@ -243,7 +243,8 @@ describe('a chart of fields', () => {
     assert.deepEqual(resolved.chart, { mark: 'bar', x: 'Name', y: 'Share', points: [{ label: 'A. Rao', value: 60, said: resolved.chart!.points[0]!.said }, { label: 'B. Rao', value: 40, said: resolved.chart!.points[1]!.said }] });
     assert.match(resolved.chart!.points[0]!.said, /^60%/);
     assert.deepEqual(resolved.table!.rows.map((row) => row.cells[0]), ['A. Rao', 'B. Rao']);
-    assert.ok(!JSON.stringify(resolved).includes('99'), 'a share nobody accepted is not drawn');
+    // Looked for as a figure drawn and as a share printed: a record's own id is random, and may hold the two digits by chance.
+    assert.ok(!/"value":99\b|\b99%/.test(JSON.stringify(resolved)), 'a share nobody accepted is not drawn');
     assert.match(resolved.note!, /waits? for a person/);
     assert.match(resolveFieldBlock(project(), { kind: 'field_chart', records: OWNERS, x: 'name', y: 'share_pct' }).note!, /No owner is recorded yet/);
   });
@@ -258,11 +259,11 @@ describe('a function’s report template', () => {
     const template = functionReportTemplate(TEMPLATE)!;
     assert.deepEqual([template.fn, template.set, template.title], [FN, HOLDING, 'Land holding report']);
     assert.deepEqual(reportTemplateFaults(), []);
-    // Every department hands over at least one report its own file declares, and each is fields, tables, charts and capped notes: no section holds prose.
+    // Every department hands over at least one report its own file declares, and each is fields, tables, charts, photographs resolved by place and period, and capped notes: no section holds prose.
     const declared = functionReportTemplates().filter((template) => !template.id.endsWith('.checks'));
     assert.deepEqual([...new Set(declared.map((template) => workstreamDefinition(template.fn)!.department))].sort(), ['commercial', 'construction', 'design', 'finance', 'legal', 'procurement']);
     for (const template of declared) {
-      assert.ok(template.sections.every((section) => 'fields' in section || 'table' in section || 'records' in section || 'chart' in section || 'note' in section), template.id);
+      assert.ok(template.sections.every((section) => 'fields' in section || 'table' in section || 'records' in section || 'chart' in section || 'note' in section || 'photos' in section), template.id);
       assert.ok(template.sections.filter((section) => 'note' in section).length <= 1, `${template.id} has one note at most`);
     }
     // The functions that keep their fields on checks, in the departments that hand over a report, each have one.
@@ -475,7 +476,7 @@ describe('the status report and the owner pack', () => {
       ['Current forecast at completion', '₹44.5 Cr', 'entered'],
       ['Spent to date', '—', 'not recorded'],
     ]);
-    assert.match(cost.fields!.footnotes![0]!.text, /^Entered by lead@firm\.example on /);
+    assert.match(cost.fields!.footnotes![0]!.text, /^Entered by lead on /);
     assert.equal(after.sections.find((section) => section.key === 'time')!.fields, undefined);
     assert.deepEqual(after.sections.map((section) => section.parts), before.sections.map((section) => section.parts), 'what the pack already said is unchanged');
   });

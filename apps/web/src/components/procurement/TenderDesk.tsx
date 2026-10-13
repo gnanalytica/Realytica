@@ -19,7 +19,7 @@ import {
   TENDER_STAGES_OPTIONAL,
   TENDER_STAGE_LABEL,
   cockpitPath,
-  costRegister,
+  costRegister, packageAwaitsNoAward,
   departmentRole,
   indiaToday,
   moneySaid,
@@ -63,7 +63,8 @@ export function TenderDesk({ project, onChanged, marked }: { project: DdProject;
   const mayEdit = roleCanEdit(role);
   const mayDecide = roleCanDecide(role);
   const tenders = tendersOf(project);
-  const packages = costRegister(project).workPackages;
+  // A contingency, a fee, tax or a sub-total is a budget line nobody tenders: it is not offered a tender.
+  const packages = costRegister(project).workPackages.filter((pack) => !packageAwaitsNoAward(pack.name));
   const free = packages.filter((pack) => !tenders.some((tender) => tender.workPackageId === pack.id));
   const [picked, setPicked] = useState<string | null>(marked ?? null);
   const [starting, setStarting] = useState('');

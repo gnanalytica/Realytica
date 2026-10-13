@@ -80,6 +80,10 @@ const costStated = statedBySeveral({
   section: 'cost',
   tone: 'warning',
 });
+// Stated once for each drawdown, by each person who certifies it: the statement names the drawdown it was made for.
+costStated.set.v = 2;
+costStated.set.fields.push({ key: 'drawdown', label: 'For the drawdown', kind: 'ref', target: { set: SET.drawdowns }, required: false, since: 2 });
+costStated.set.periodic = { every: { event: SET.drawdowns, on: 'requested_on' }, by: 'drawdown', per: ['source'], due: { days: 15 }, issuer: 'consultant' };
 
 const LETTER_KIND = at(LEN, SET.letters, 'kind');
 /** Routing and the reserve are asked about once an escrow account is named: a facility without one has neither. */
@@ -566,7 +570,8 @@ export const LENDER_SETS: FieldSet[] = [
     fn: LEN,
     title: 'Drawdowns',
     v: 1,
-    records: { of: 'drawdown', titleField: 'tranche', summaryFields: ['disbursed_amount', 'drawdown_standing'] },
+    // A drawdown belongs to the period it was disbursed in, whenever it was entered.
+    records: { of: 'drawdown', titleField: 'tranche', summaryFields: ['disbursed_amount', 'drawdown_standing'], dated: 'disbursed_on' },
     sections: [
       { key: 'plan', label: 'Planned' },
       { key: 'request', label: 'Requested' },
@@ -692,8 +697,10 @@ export const LENDER_SETS: FieldSet[] = [
     id: SET.engineerReports,
     fn: LEN,
     title: 'Lender’s engineer’s reports',
-    v: 1,
+    v: 2,
     records: { of: 'report', titleField: 'report_no', summaryFields: ['visited_on', 'physical_progress', 'report_standing'] },
+    // One for each drawdown: the report the lender's engineer makes before the money is released.
+    periodic: { every: { event: SET.drawdowns, on: 'requested_on' }, by: 'drawdown', carry: ['engineer'], due: { days: 15 }, issuer: 'lender' },
     optionSets: [
       options('lender_work_quality', 'Quality of work', [
         ['good', 'Good', 'good'],
@@ -708,6 +715,7 @@ export const LENDER_SETS: FieldSet[] = [
     ],
     fields: [
       text('report_no', 'Report number', { section: 'report', ...FROM_ENGINEER }),
+      link('drawdown', 'For the drawdown', { set: SET.drawdowns }, { section: 'report', required: false, since: 2 }),
       link('engineer', 'Engineer', 'party', { section: 'report' }),
       day('report_date', 'Dated', { section: 'report', ...FROM_ENGINEER }),
       day('visited_on', 'Site visited on', { section: 'report', ...FROM_ENGINEER }),
@@ -888,6 +896,9 @@ export const LENDER_SETS: FieldSet[] = [
     fn: LEN,
     title: 'Loan position',
     v: 1,
+    // Kept by the month. How the lender classes the account, and a notice with its reply day and its matter, stand until restated.
+    // What is outstanding is a balance as at a day: read afresh each month, with last month's shown beside it.
+    periodic: { every: 'month', carry: ['account_class', 'notice_dated', 'reply_by', 'matter'], due: { days: 7 }, issuer: 'lead' },
     situations: [
       LENDER_FUNDED,
       { key: 'account_in_default', label: 'Recall or demand notice received', scope: 'function', derive: { records: SET.letters, is: 'any', where: { column: 'kind', is: 'equals', value: 'recall_notice' } } },
@@ -913,7 +924,7 @@ export const LENDER_SETS: FieldSet[] = [
       rupees('interest_paid', 'Interest paid to date', once(SET.facilities, 'sanctioned_amount', sumOf(SET.repayments, 'interest_paid')), { section: 'position' }),
       worked('days_past_due', 'Days past due', { op: 'records', set: SET.repayments, reduce: 'max', field: 'days_past_due' }, { section: 'position', unit: 'days', precision: 0 }),
       choice('account_class', 'Lender’s classification of the account', 'lender_account_class', { section: 'position', required: false, from: 'Lender’s statement' }),
-      money('outstanding_per_statement', 'Outstanding per the lender’s statement', { section: 'statement', from: 'Loan statement' }),
+      money('outstanding_per_statement', 'Outstanding per the lender’s statement', { section: 'statement', from: 'Loan statement', trend: { over: 'periods', mark: 'line', last: 12 } }),
       money('outstanding_per_books', 'Outstanding per the books', { section: 'statement', from: 'Loan ledger export' }),
       standing(
         'position_standing',

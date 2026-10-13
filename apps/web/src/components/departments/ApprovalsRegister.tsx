@@ -1,9 +1,11 @@
+import { ApprovalsNotRecorded } from './ApprovalsNotRecorded';
 import { useMemo } from 'react';
 import { CheckCircle2, CircleDashed, Clock, ShieldCheck, ShieldX, XCircle } from 'lucide-react';
 import {
   APPROVAL_STATUS_LABEL,
   SUB_STAGE_LABEL,
   approvalsRegister,
+  approvalsStanding,
   type ApprovalLine,
   type ApprovalStatus,
   type DdProject,
@@ -27,6 +29,7 @@ const STATUS_TONE: Record<ApprovalStatus, Tone> = {
   // Orange rather than red: a lapsed approval and one never obtained are both
   // blockers, and the bar above has to tell them apart.
   missing: 'serious',
+  not_recorded: 'neutral',
   not_yet_due: 'neutral',
   if_applicable: 'neutral',
 };
@@ -36,6 +39,7 @@ const STATUS_ICON: Record<ApprovalStatus, typeof CheckCircle2> = {
   expiring: Clock,
   expired: XCircle,
   missing: XCircle,
+  not_recorded: CircleDashed,
   not_yet_due: CircleDashed,
   if_applicable: CircleDashed,
 };
@@ -135,6 +139,7 @@ function Composition({ lines }: { lines: ApprovalLine[] }) {
     { key: 'expiring', label: 'Expiring', n: lines.filter((l) => l.status === 'expiring').length, tone: 'warning' },
     { key: 'expired', label: 'Lapsed', n: lines.filter((l) => l.status === 'expired').length, tone: 'critical' },
     { key: 'missing', label: 'Missing', n: lines.filter((l) => l.status === 'missing').length, tone: 'serious' },
+    { key: 'not_recorded', label: 'Not recorded', n: lines.filter((l) => l.status === 'not_recorded').length, tone: 'neutral' },
     { key: 'later', label: 'Not yet due or if applicable', n: lines.filter((l) => l.status === 'not_yet_due' || l.status === 'if_applicable').length, tone: 'neutral' },
   ];
   const total = Math.max(1, lines.length);
@@ -184,7 +189,10 @@ export function ApprovalsRegister({
   project,
   onOpenDocument,
   marked,
+  onChanged,
 }: {
+  /** The project as a change here leaves it: saying the approvals are held elsewhere. */
+  onChanged?: (project: DdProject) => void;
   project: DdProject;
   onOpenDocument: (evidenceId: string) => void;
   /** An approval a link named, by its key: its line is lit and brought into view. */
@@ -198,7 +206,8 @@ export function ApprovalsRegister({
 
   return (
     <div className="space-y-4">
-      <ConstructionGate lines={lines} />
+      {/* Nothing recorded of the approvals yet: one quiet line, and no gate is said to be shut. */}
+      {approvalsStanding(project) === 'recorded' ? <ConstructionGate lines={lines} /> : <ApprovalsNotRecorded project={project} onChanged={onChanged ?? (() => undefined)} here />}
       <section ref={register} className="overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-[var(--ring)]">
         <header className="flex flex-wrap items-start justify-between gap-2 border-b border-hairline px-4 py-3">
           <div className="flex min-w-0 items-start gap-2.5">
@@ -209,7 +218,7 @@ export function ApprovalsRegister({
                 <InfoTip label="What each approval needs is read from its document: the issuing authority, the reference, the date and the validity. An approval is expected once the project reaches the step it is needed by." />
               </div>
               <p className="mt-0.5 text-xs text-ink-secondary">
-                {held} of {lines.length} on file{attention ? ` · ${attention} need attention` : ''}
+                {held ? `${held} of ${lines.length} on file` : 'None on file yet'}{attention ? ` · ${attention} need attention` : ''}
               </p>
             </div>
           </div>

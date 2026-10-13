@@ -43,14 +43,14 @@ import { projectLinks } from './links';
 import { ownedBy } from './my-work';
 import { paperPlace, requestPlace, type PapersPlace } from './papers-owed';
 import { departmentOfPaper } from './review';
-import { departmentRole, projectDepartments } from './team';
+import { departmentRole, personSaid, projectDepartments } from './team';
 import { documentWorkstream } from './vault';
 
 /* ==================================================================== */
 /* The record                                                            */
 /* ==================================================================== */
 
-export type TellEventKind = 'paper_filed' | 'value_accepted' | 'value_changed' | 'line_answered' | 'request_answered' | 'request_replied';
+export type TellEventKind = 'paper_filed' | 'value_accepted' | 'value_changed' | 'line_answered' | 'request_answered' | 'request_replied' | 'period_due';
 
 /** One thing a person did that others should hear of, as the trail wrote it. */
 export interface TellEvent {
@@ -99,6 +99,9 @@ export interface TellNotice {
   was?: string;
   /** The page the value is on. */
   page?: number;
+  /** A period that is due (`tell-periods.ts`): the set kept by period and the period's key. `now` is its one line. */
+  setId?: string;
+  period?: string;
   readAt?: string;
   /** When it was put in a message to leave the app, or passed over because the person had quieted the project. */
   batchedAt?: string;
@@ -599,10 +602,13 @@ export function tellSaid(project: DdProject, notice: TellNotice): TellLine | und
   const row = notice.evidenceId ? project.evidence.find((held) => held.id === notice.evidenceId) : undefined;
   const why = notice.why.filter((reason) => onCopy(project, reason));
   const decides = why.some((reason) => reason.because === 'decides');
-  const base = { id: notice.id, projectId: project.id, projectName: project.name, projectReference: project.reference, kind: notice.kind, at: notice.at, by: notice.by, read: Boolean(notice.readAt), ...(row ? { evidenceId: row.id } : {}) };
+  const base = { id: notice.id, projectId: project.id, projectName: project.name, projectReference: project.reference, kind: notice.kind, at: notice.at, by: personSaid(project, notice.by), read: Boolean(notice.readAt), ...(row ? { evidenceId: row.id } : {}) };
   const checkTitle = (id: string | undefined) => allChecks(project).find((check) => check.id === id)?.title;
   const reasonOf = <B extends TellWhy['because']>(because: B) => why.find((reason): reason is Extract<TellWhy, { because: B }> => reason.because === because);
   const namedOn = (record: Extract<TellWhy, { because: 'named' }>['record']) => why.find((reason): reason is Extract<TellWhy, { because: 'named' }> => reason.because === 'named' && reason.record === record);
+
+  // A period that has ended and is not issued: the set's one line, put together when the notice was written.
+  if (notice.kind === 'period_due') return notice.now ? { ...base, title: `Due: ${notice.now}`, action: 'Fill what is missing and issue it.' } : undefined;
 
   if (notice.kind === 'paper_filed') {
     if (!row) return undefined;
@@ -684,6 +690,7 @@ const KIND_COUNTED: Record<TellEventKind, [string, string]> = {
   line_answered: ['paper owed now in hand', 'papers owed now in hand'],
   request_answered: ['request answered', 'requests answered'],
   request_replied: ['reply to a request', 'replies to requests'],
+  period_due: ['period due', 'periods due'],
 };
 
 /** How many of each kind, in a line: "10 papers filed, 2 values changed". */

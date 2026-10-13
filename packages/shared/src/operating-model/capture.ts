@@ -121,6 +121,43 @@ export interface CaptureFacts {
   caption?: string;
   /** The site visit this was taken on, when it was taken on one. */
   visitId?: string;
+  /** Where on the project it was taken, as links to what the project keeps. The free-text `zone` stays readable beside it. */
+  place?: PhotoPlace;
+  /** The photo station it is a shot of (`photo-stations.ts`). */
+  stationId?: string;
+  /** How its station and place came to be set. */
+  placed?: PhotoPlacing;
+}
+
+/**
+ * Where on the project a photograph was taken: links into the records the
+ * project already keeps, and an element off the list a model picks from.
+ * Every part optional. A building and a unit are records of the shared sets,
+ * a milestone is one of the schedule's, a floor is a short word a person
+ * writes ("Level 3"), and none of it is a sentence.
+ */
+export interface PhotoPlace {
+  building?: string;
+  floor?: string;
+  unit?: string;
+  milestone?: string;
+  element?: import('./photo-picks').PhotoElement;
+}
+
+/**
+ * How a photograph came by its station and place. `picked` is the station a
+ * person chose on the phone as they shot it, `near` is the one station whose
+ * recorded point the photograph's own position fell within a set distance
+ * of, and `person` is somebody setting it afterwards. Nothing here is a
+ * model's: a model's pick of an element is offered, and is this only once a
+ * person takes it.
+ */
+export interface PhotoPlacing {
+  how: 'picked' | 'near' | 'person';
+  by: string;
+  at: string;
+  /** `near` only: how far from the station's point, in metres. */
+  metres?: number;
 }
 
 /** True when the file itself carried the position, rather than a person typing it. */
@@ -199,7 +236,7 @@ export const CAPTURE_OFF_SITE_M = 2_000;
  * `exif`. A client that could claim `latLngSource: 'exif'` could dress a typed
  * guess as the camera's own record.
  */
-export interface CaptureFactsInput extends Omit<CaptureFacts, 'lat' | 'lng' | 'takenAt' | 'takenAtSource' | 'latLngSource'> {
+export interface CaptureFactsInput extends Omit<CaptureFacts, 'lat' | 'lng' | 'takenAt' | 'takenAtSource' | 'latLngSource' | 'place' | 'stationId' | 'placed'> {
   lat?: number | null;
   lng?: number | null;
   takenAt?: string | null;

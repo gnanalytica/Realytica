@@ -1555,7 +1555,7 @@ const BUDGET: FieldSet[] = [
         tier: 'situational',
         cases: [
           { when: rule('require', ['progress_gap'], 'There is no cost progress to hold against physical progress yet.', 'low'), label: 'No cost progress yet', tone: 'neutral' },
-          { when: rule('at_most', ['progress_gap', 'progress_gap_limit'], 'Cost and physical progress are {a} apart; {b} at most.', 'medium'), label: 'Cost and progress apart', tone: 'warning' },
+          { when: rule('at_most', ['progress_gap', 'progress_gap_limit'], 'The share of the budget paid and the share of the work done differ by {a}; {b} at most.', 'medium'), label: 'Money paid and work done differ', tone: 'warning' },
         ],
         otherwise: { label: 'Aligned', tone: 'good' },
       },

@@ -15,6 +15,7 @@
 
 import type { DdProject } from './types';
 import { recordAuditEvent } from './operations';
+import { standingRecords, standingText } from './standing-records';
 import { addMilestones, milestoneExtensions, plannedFinishAfterExtensions, setMilestonePercent, type Milestone, type MilestoneExtensions } from './progress';
 
 /** A milestone is looked at this many days before its planned finish. */
@@ -321,6 +322,8 @@ export interface MilestoneWatch {
   level?: ScheduleLevel;
   /** The warning in one line, when there is one. */
   say?: string;
+  /** Read as at a past day: nothing was reported of it on or before that day. It carries no warning. */
+  unread?: true;
 }
 
 const days = (n: number): string => `${n} day${n === 1 ? '' : 's'}`;
@@ -372,6 +375,8 @@ export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: M
     out.expectedPercent = today >= plannedFinish ? 100 : today <= plannedStart ? 0 : Math.round((daysFrom(plannedStart, today) / span) * 100);
   }
   if (percent >= 100) return out;
+  // Read as at a past day with nothing reported of it by then: nothing is known of it, so it is neither late nor behind.
+  if (milestone.unread) return { ...out, unread: true };
 
   const projected = projectedFinish(progressReadings(project, milestone), percent, today);
   if (projected) {
@@ -395,6 +400,46 @@ export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: M
   return out;
 }
 
+/**
+ * How many days after its planned finish an open milestone stands to finish:
+ * by its own rate where it has one, and by the days already gone where its
+ * date has passed. Nothing where it is on time.
+ */
+function milestoneSlip(m: MilestoneWatch): number {
+  // Nothing is known of a milestone with no reading by the day asked of: it is counted as slipping by nothing.
+  if (m.unread) return 0;
+  return Math.max(m.projectedDaysLate ?? 0, m.daysToFinish !== undefined && m.daysToFinish < 0 ? -m.daysToFinish : 0);
+}
+
+/**
+ * When each open milestone finishes as the work is going, by its id: the one
+ * figure projected completion, the summary line and the extension-of-time
+ * flag are all read from.
+ *
+ * A milestone with a rate finishes where its readings put it. One with no
+ * rate is taken at its planned date, or today once that has passed, moved by
+ * the most any open milestone planned to finish before it is slipping:
+ * work that follows waits on it, as an extension of time is carried. So a
+ * schedule with a milestone running late never gives a completion on time.
+ * Nothing where no milestone is slipping and none has a rate.
+ */
+export function projectedFinishes(open: readonly MilestoneWatch[], today: string): Map<string, string> | undefined {
+  if (!open.some((m) => m.projectedFinish || milestoneSlip(m) > 0)) return undefined;
+  const out = new Map<string, string>();
+  for (const m of open) {
+    if (m.projectedFinish) {
+      out.set(m.id, m.projectedFinish);
+      continue;
+    }
+    const planned = m.plannedFinish;
+    const carried = planned ? Math.max(0, ...open.filter((other) => other.id !== m.id && other.plannedFinish && other.plannedFinish < planned).map(milestoneSlip)) : 0;
+    // Its planned date moved by what it waits on, and never a day already gone.
+    const moved = planned ? dayOf(dayNumber(planned) + carried) : today;
+    out.set(m.id, moved > today ? moved : today);
+  }
+  return out;
+}
+
 export interface ScheduleWatch {
   milestones: MilestoneWatch[];
   /** The latest planned finish among the milestones, as extensions of time granted have moved it. */
@@ -405,7 +450,7 @@ export interface ScheduleWatch {
   extensionDays?: number;
   /** Days granted on contracts whose packages serve no milestone, which therefore move nothing here. */
   extensionUnplaced?: number;
-  /** Where the readings so far put the last milestone's finish, at the current rate. Only when some milestone has a rate. */
+  /** The latest finish over the open milestones as the work is going (`projectedFinishes`). Only when some milestone has a rate or is slipping. */
   projectedCompletion?: string;
   /** How many days after planned completion that is, when it is after. */
   projectedDaysLate?: number;
@@ -430,11 +475,12 @@ export function scheduleWatch(project: Pick<DdProject, 'milestones' | 'siteLog'>
     out.extensionDays = daysFrom(before, plannedCompletion);
   }
 
-  if (open.some((m) => m.projectedFinish)) {
-    // A milestone with no rate is taken at its planned date, or at today once that has passed.
-    const finishes = open.map((m) => m.projectedFinish ?? (m.plannedFinish && m.plannedFinish > today ? m.plannedFinish : today));
-    out.projectedCompletion = finishes.sort().at(-1)!;
-    if (out.projectedCompletion > plannedCompletion) out.projectedDaysLate = daysFrom(plannedCompletion, out.projectedCompletion);
+  const projected = projectedFinishes(open, today);
+  const latest = projected ? [...projected.values()].sort().at(-1)! : undefined;
+  // A finish of today is no projection: it is what an overdue milestone with no rate is floored at.
+  if (latest && (latest > today || open.some((m) => m.projectedFinish))) {
+    out.projectedCompletion = latest;
+    if (latest > plannedCompletion) out.projectedDaysLate = daysFrom(plannedCompletion, latest);
   }
   const overrun = plannedCompletion < today && open.length > 0;
   out.extensionLikely = Boolean(out.projectedDaysLate) || overrun;
@@ -447,4 +493,169 @@ export function scheduleWatch(project: Pick<DdProject, 'milestones' | 'siteLog'>
     .filter(Boolean)
     .join(' ');
   return out;
+}
+
+/* ==================================================================== */
+/* Planned against actual, over time                                     */
+/* ==================================================================== */
+
+/**
+ * How much of a milestone was planned to be done by the end of a day: none
+ * before its planned start, all of it from its planned finish, and in a
+ * straight line between. With no planned start it is none until the day it
+ * is planned to finish. Undefined with no planned finish: a milestone nobody
+ * has dated is planned for no day.
+ */
+export function plannedFraction(milestone: Pick<Milestone, 'plannedStart' | 'plannedFinish'>, day: string, finish = milestone.plannedFinish?.slice(0, 10)): number | undefined {
+  if (!finish) return undefined;
+  if (day >= finish) return 1;
+  const start = milestone.plannedStart?.slice(0, 10);
+  if (!start || start >= finish || day < start) return 0;
+  return daysFrom(start, day) / daysFrom(start, finish);
+}
+
+/**
+ * The milestones of one building, by their ids. A building is linked to as
+ * its shared record; a milestone names the project's own phase or block. They
+ * are the same one where the ids match, or where the record and the phase
+ * are called the same.
+ */
+export function buildingMilestones(project: Pick<DdProject, 'milestones'> & Partial<Pick<DdProject, 'assets' | 'fieldSheets'>>, building: string): Set<string> {
+  // The record's name as it stands: what somebody only offered names nothing.
+  const name = standingText(standingRecords(project, 'shared.buildings').find((record) => record.id === building), 'name') ?? '';
+  const assets = new Set((project.assets ?? []).filter((asset) => asset.id === building || (name && asset.name.trim().toLowerCase() === name.trim().toLowerCase())).map((asset) => asset.id));
+  return new Set((project.milestones ?? []).filter((milestone) => milestone.assetId === building || (milestone.assetId !== undefined && assets.has(milestone.assetId))).map((milestone) => milestone.id));
+}
+
+/** The milestones a figure is of: all of them, or only those named. */
+function milestonesOf(project: Pick<DdProject, 'milestones'>, only?: ReadonlySet<string>): Milestone[] {
+  const all = project.milestones ?? [];
+  return only ? all.filter((milestone) => only.has(milestone.id)) : all;
+}
+
+/**
+ * The share of the work planned to be done by the end of a day, by the
+ * weight of the milestones, each held to its planned finish as the
+ * extensions granted have moved it. Null with no milestones, and null while
+ * any milestone has no planned finish: a plan with a hole in it gives no
+ * planned percent, never a low one.
+ */
+export function plannedPercent(project: Pick<DdProject, 'milestones'> & Partial<Pick<DdProject, 'fieldSheets' | 'cost'>>, day: string, only?: ReadonlySet<string>): number | null {
+  const milestones = milestonesOf(project, only);
+  const weight = milestones.reduce((total, milestone) => total + milestone.weight, 0);
+  if (!(weight > 0)) return null;
+  const extensions = milestoneExtensions(project);
+  let planned = 0;
+  for (const milestone of milestones) {
+    const fraction = plannedFraction(milestone, day, plannedFinishAfterExtensions(milestone, extensions));
+    if (fraction === undefined) return null;
+    planned += milestone.weight * fraction;
+  }
+  return Math.round((planned / weight) * 1000) / 10;
+}
+
+/** The share of the work reported done by the end of a day, by the weight of the milestones: each at what was last reported of it on or before that day. Null with no milestones. */
+export function actualPercentOn(project: Pick<DdProject, 'milestones' | 'siteLog'>, day: string, only?: ReadonlySet<string>): number | null {
+  const milestones = milestonesOf(project, only);
+  const weight = milestones.reduce((total, milestone) => total + milestone.weight, 0);
+  if (!(weight > 0)) return null;
+  const done = milestones.reduce((total, milestone) => {
+    const readings = progressReadings(project, milestone);
+    // A milestone with nothing ever reported of it day by day is where it stands; one with readings is at the last by the day.
+    const percent = readings.length ? (readings.filter((reading) => reading.on <= day).at(-1)?.percent ?? 0) : milestone.percent;
+    return total + milestone.weight * percent;
+  }, 0);
+  return Math.round((done / weight) * 10) / 10;
+}
+
+/** One month of planned against actual. */
+export interface ProgressCurvePoint {
+  /** The month, as `YYYY-MM`. */
+  month: string;
+  /** Its last day: the day both figures are of. */
+  on: string;
+  /** Planned by then, by weight. Null where the plan cannot say. */
+  planned: number | null;
+  /** Reported by then, by weight. Null for a month that has not ended. */
+  actual: number | null;
+}
+
+/** The most months a curve draws. */
+export const PROGRESS_CURVE_MONTHS_MOST = 60;
+
+/**
+ * Planned against actual, month by month: the S-curve.
+ *
+ * From the month the plan begins, or the first progress was reported, to the
+ * month the plan ends. Each month is read at its last day: what was planned
+ * by then, by the weight of the milestones, and what had been reported by
+ * then. A month that has not ended has a planned figure and no actual one;
+ * the month in hand is read as at today. Nothing with no milestones. `only`
+ * narrows it to some milestones: those of one building.
+ */
+export function progressCurve(project: Pick<DdProject, 'milestones' | 'siteLog'> & Partial<Pick<DdProject, 'fieldSheets' | 'cost'>>, now: Date, only?: ReadonlySet<string>): ProgressCurvePoint[] {
+  const milestones = milestonesOf(project, only);
+  if (!milestones.length) return [];
+  const today = now.toISOString().slice(0, 10);
+  const days = [
+    ...milestones.flatMap((milestone) => [milestone.plannedStart?.slice(0, 10), milestone.plannedFinish?.slice(0, 10), ...progressReadings(project, milestone).map((reading) => reading.on)]),
+  ].filter((day): day is string => Boolean(day));
+  if (!days.length) return [];
+  const [first, last] = [days.reduce((a, b) => (a < b ? a : b)), days.reduce((a, b) => (a > b ? a : b))];
+  const end = last > today ? last : today;
+  const out: ProgressCurvePoint[] = [];
+  let [year, month] = [Number(first.slice(0, 4)), Number(first.slice(5, 7)) - 1];
+  while (out.length < PROGRESS_CURVE_MONTHS_MOST) {
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+    const key = lastDay.slice(0, 7);
+    // The month in hand is read as at today: its last day has not come.
+    const on = key === today.slice(0, 7) ? today : lastDay;
+    out.push({ month: key, on, planned: plannedPercent(project, on, only), actual: on <= today ? actualPercentOn(project, on, only) : null });
+    if (lastDay >= end) break;
+    month += 1;
+    if (month > 11) [year, month] = [year + 1, 0];
+  }
+  return out;
+}
+
+/** The work measured in money: what was planned to be done by a day, what has been done, and what it has cost. */
+export interface EarnedValue {
+  /** The budget of the work packages the milestones are measured by. */
+  budget: number;
+  /** Planned value: each milestone's budget by how much of it was planned to be done by the day. */
+  planned: number;
+  /** Earned value: each milestone's budget by how much of it is reported done. */
+  earned: number;
+}
+
+/**
+ * Earned value, where it can be told honestly.
+ *
+ * A milestone's weight is a share of the work somebody judged; it is not
+ * money. So the work is measured in money only where every milestone is
+ * tied to a work package (the package names the milestone its work is
+ * measured against) and every such package has a budget. Then a milestone's
+ * budget is the sum of its packages', planned value is that budget by how
+ * much of the milestone was planned to be done by the day, and earned value
+ * is that budget by how much is reported done. Undefined otherwise: where
+ * one milestone has no package there is no earned value, and none is shown.
+ */
+export function earnedValue(project: Pick<DdProject, 'milestones'> & Partial<Pick<DdProject, 'fieldSheets' | 'cost'>>, day: string): EarnedValue | undefined {
+  const milestones = project.milestones ?? [];
+  if (!milestones.length) return undefined;
+  const packages = project.cost?.workPackages ?? [];
+  const extensions = milestoneExtensions(project);
+  const out: EarnedValue = { budget: 0, planned: 0, earned: 0 };
+  for (const milestone of milestones) {
+    const tied = packages.filter((pack) => pack.milestoneId === milestone.id);
+    if (!tied.length || tied.some((pack) => pack.budget === undefined)) return undefined;
+    const fraction = plannedFraction(milestone, day, plannedFinishAfterExtensions(milestone, extensions));
+    if (fraction === undefined) return undefined;
+    const budget = tied.reduce((total, pack) => total + (pack.budget ?? 0), 0);
+    out.budget += budget;
+    out.planned += budget * fraction;
+    out.earned += (budget * milestone.percent) / 100;
+  }
+  const paisa = (amount: number): number => Math.round(amount * 100) / 100;
+  return { budget: paisa(out.budget), planned: paisa(out.planned), earned: paisa(out.earned) };
 }

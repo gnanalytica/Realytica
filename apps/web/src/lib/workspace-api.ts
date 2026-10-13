@@ -9,12 +9,18 @@
  */
 
 import type {
+  MilestonePhotoWaiver,
   AnswerProof,
   AnswerSource,
   CertifiedReadout,
   CertifiedReport,
   ChecklistDraft,
   ChecklistPatch,
+  ChecklistSetInput,
+  FieldAddress,
+  ListLoadReport,
+  PackageDesk,
+  TenderFormReport,
   BillCertification,
   BillLine,
   CostBill,
@@ -23,6 +29,8 @@ import type {
   CostReportBasicPrice,
   CostReportPackageRow,
   CostReportPeriod,
+  CostImportPreview,
+  CostOfferCorrection,
   CostReportTotals,
   CostReportVariation,
   CostSummary,
@@ -42,6 +50,7 @@ import type {
   ProjectLink,
   ScheduleSkippedRow,
   TeamMember,
+  PhotoPlace,
 } from '@realytica/shared';
 import { fetchWithAuth, request } from './api';
 
@@ -73,6 +82,51 @@ export interface PairedDevice {
   createdAt: string;
   lastSeenAt?: string;
   push: boolean;
+}
+
+/** A list as it is sent to be loaded, or to be looked at first. */
+export type ListSend = ({ file: File } | { text: string }) & { department: DepartmentKey; desks?: Record<string, string>; record?: string };
+
+/** What a list is, and what loading it would do. */
+/** What a sheet held against what was made of it: its rows, the lines and the sections among them, and what became neither. */
+export interface ListCounted {
+  rows: number;
+  lines: number;
+  sections: number;
+  skipped: Array<{ row: number; text: string; reason: string }>;
+}
+
+export interface ListPreview {
+  kind: 'plain' | 'tracked' | 'tender_form';
+  counted?: ListCounted;
+  lines?: number;
+  list?: string;
+  desks?: PackageDesk[];
+  report?: ListLoadReport | TenderFormReport;
+  said?: string;
+}
+
+export interface ListLoaded {
+  project: DdProject;
+  kind: 'plain' | 'tracked' | 'tender_form';
+  added: number;
+  skipped: number;
+  said?: string;
+  /** The file it was read from, and the id of the load where it added lines: what Undo takes back. */
+  file?: string;
+  load?: string;
+  counted?: ListCounted;
+}
+
+function listBody(input: ListSend, preview: boolean): RequestInit {
+  if (!('file' in input)) return json({ ...input, ...(preview ? { preview: true } : {}) });
+  const form = new FormData();
+  form.append('file', input.file);
+  form.append('department', input.department);
+  if (input.desks) form.append('desks', JSON.stringify(input.desks));
+  if (input.record) form.append('record', input.record);
+  if (preview) form.append('preview', '1');
+  return { method: 'POST', body: form };
 }
 
 export const workspaceApi = {
@@ -109,7 +163,8 @@ export const workspaceApi = {
   addMilestones: (projectId: string, body: { template?: boolean; rows?: Array<{ name: string; weight: number; plannedFinish?: string; assetId?: string }> }) =>
     request<{ project: DdProject; milestones: Milestone[] }>(`/projects/${projectId}/milestones`, json(body)),
 
-  updateMilestone: (projectId: string, milestoneId: string, patch: { percent?: number; name?: string; weight?: number; plannedFinish?: string | null }) =>
+  /** `photoWaiver` is why it is complete with a required photograph not taken: a pick from the list, by a lead or signer of Construction. */
+  updateMilestone: (projectId: string, milestoneId: string, patch: { percent?: number; on?: string; name?: string; weight?: number; plannedFinish?: string | null; photoWaiver?: MilestonePhotoWaiver }) =>
     request<{ project: DdProject; milestone: Milestone }>(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 
   removeMilestone: (projectId: string, milestoneId: string) =>
@@ -167,6 +222,10 @@ export const workspaceApi = {
       amountPaid?: number | null;
       anticipatedCost?: number | null;
       note?: string | null;
+      certified?: number | null;
+      awardedTo?: string | null;
+      variations?: number | null;
+      kind?: 'contingency' | 'fee' | null;
     },
   ) =>
     request<{ project: DdProject; report: CostReportPeriod; row: CostReportPackageRow; totals: CostReportTotals }>(
@@ -240,20 +299,49 @@ export const workspaceApi = {
       { method: 'DELETE' },
     ),
 
-  importCostReport: (projectId: string, reportId: string, input: { file: File } | { text: string }) => {
+  /**
+   * A cost table, pasted or as a file. Without `confirm` nothing is written: what comes back is what it would do, the lines it read
+   * as headings and totals, and whether the rows add up to the table's own total. With it, the same table is imported.
+   */
+  previewCostImport: (projectId: string, reportId: string, input: { file: File } | { text: string }) => {
     if ('file' in input) {
       const body = new FormData();
       body.append('file', input.file);
-      return request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number }>(
-        `/projects/${projectId}/cost-reports/${reportId}/import`,
-        { method: 'POST', body },
-      );
+      return request<{ preview: CostImportPreview; check: string }>(`/projects/${projectId}/cost-reports/${reportId}/import`, { method: 'POST', body });
     }
-    return request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number }>(
-      `/projects/${projectId}/cost-reports/${reportId}/import`,
-      json({ text: input.text }),
-    );
+    return request<{ preview: CostImportPreview; check: string }>(`/projects/${projectId}/cost-reports/${reportId}/import`, json({ text: input.text }));
   },
+
+  importCostReport: (projectId: string, reportId: string, input: { file: File } | { text: string }) => {
+    type Imported = { project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number; check: string };
+    if ('file' in input) {
+      const body = new FormData();
+      body.append('file', input.file);
+      body.append('confirm', 'true');
+      return request<Imported>(`/projects/${projectId}/cost-reports/${reportId}/import`, { method: 'POST', body });
+    }
+    return request<Imported>(`/projects/${projectId}/cost-reports/${reportId}/import`, json({ text: input.text, confirm: true }));
+  },
+
+  /** Accept one row a cost report offered onto a draft Cost Report, with any cells corrected first. A lead or signer of Finance. */
+  acceptCostOffer: (projectId: string, reportId: string, evidenceId: string, offerId: string, corrected: CostOfferCorrection = {}) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportPackageRow; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/offers/${evidenceId}/${offerId}/accept`,
+      json(corrected),
+    ),
+
+  /** Accept every row still offered from one page of a cost report. Rows a person has to look at are left, and counted. */
+  acceptCostOffersOnPage: (projectId: string, reportId: string, evidenceId: string, page: number) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; accepted: number; left: number }>(
+      `/projects/${projectId}/cost-reports/${reportId}/offers/${evidenceId}/accept-page`,
+      json({ page }),
+    ),
+
+  setAsideCostOffer: (projectId: string, evidenceId: string, offerId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/cost-papers/${evidenceId}/offers/${offerId}/set-aside`, json({})),
+
+  /** Set a dropped file aside: kept as a paper to file, said on no banner, still answerable from Documents. */
+  setDroppedAside: (projectId: string, storageKey: string) => request<{ project: DdProject }>(`/projects/${projectId}/dropped/set-aside`, json({ storageKey })),
 
   addCostContract: (
     projectId: string,
@@ -426,20 +514,63 @@ export const workspaceApi = {
 
   sitePhotoUrl: (projectId: string, entryId: string, index: number) => `/api/projects/${projectId}/site-log/${entryId}/photos/${index}`,
 
-  /** Load a checklist onto a department's desk: an .xlsx, .csv, .tsv or .txt file, or the list pasted as text. */
-  importChecklist: (projectId: string, input: ({ file: File } | { text: string }) & { department: DepartmentKey }) => {
-    type Loaded = { project: DdProject; added: number; skipped: number };
-    if (!('file' in input)) return request<Loaded>(`/projects/${projectId}/checklist/import`, json(input));
-    const form = new FormData();
-    form.append('file', input.file);
-    form.append('department', input.department);
-    return request<Loaded>(`/projects/${projectId}/checklist/import`, { method: 'POST', body: form });
+  /** Say where a photograph was taken: a station, a place, or both. `null` takes one away. */
+  setPhotoPlace: (projectId: string, body: ({ evidenceId: string } | { entryId: string; index: number }) & { stationId?: string | null; place?: PhotoPlace | null }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/photos/place`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  /**
+   * Load a list onto a department's desk: an .xlsx, .csv, .tsv or .txt file, or the list pasted as text. A tracked list
+   * goes to the desks its packages belong to (`desks` answers differently, a package's name to a function's key) and
+   * updates the lines an earlier copy put there; a tender form is read into the Tender terms record named by `record`.
+   */
+  importChecklist: (projectId: string, input: ListSend) => request<ListLoaded>(`/projects/${projectId}/checklist/import`, listBody(input, false)),
+
+  /** What loading that list would do, with nothing changed: the kind of list it is, where its packages would go, and what would move. */
+  previewChecklist: (projectId: string, input: ListSend) => request<ListPreview>(`/projects/${projectId}/checklist/import`, listBody(input, true)),
+
+  /** Several lines of a list set together in one act: who owes them, the day they are wanted by, and how they stand. */
+  assignChecklist: (projectId: string, body: { itemIds: string[] } & ChecklistSetInput) => request<{ project: DdProject; changed: number }>(`/projects/${projectId}/checklist/assign`, json(body)),
+
+  /** Take a whole load back, or a whole list off. */
+  removeChecklistLoad: (projectId: string, which: { load: string } | { list: string }) => request<{ project: DdProject; removed: number }>(`/projects/${projectId}/checklist/remove`, json(which)),
+
+  /** Take a row a client marked not applicable on a tender form, or set it aside. */
+  decideTenderFormOffer: (projectId: string, formId: string, offerId: string, decision: 'take' | 'set_aside') =>
+    request<{ project: DdProject }>(`/projects/${projectId}/tender-forms/${formId}/offers/${offerId}`, json({ decision })),
+
+  /** Saves the tender form for one tender, filled from what stands on its sheet, as a workbook to send to the client. */
+  saveTenderForm: async (projectId: string, recordId: string, name: string): Promise<void> => {
+    const res = await fetchWithAuth(`/api/projects/${projectId}/tender-terms/${recordId}/form`);
+    if (!res.ok) {
+      const said = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(said?.error ?? `The form could not be written: ${res.status}`);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   },
 
   addChecklistItem: (projectId: string, body: ChecklistDraft & { department: DepartmentKey }) => request<{ project: DdProject; itemId: string }>(`/projects/${projectId}/checklist`, json(body)),
 
   /** Change a line; `received` marks it in hand or takes that back, `evidenceId` names the document, `dismiss` refuses an offered one. */
-  patchChecklistItem: (projectId: string, itemId: string, body: ChecklistPatch & { received?: boolean; evidenceId?: string; dismiss?: string }) =>
+  patchChecklistItem: (
+    projectId: string,
+    itemId: string,
+    body: ChecklistPatch & {
+      received?: boolean;
+      evidenceId?: string;
+      dismiss?: string;
+      /** Partly in hand, with what is still wanted; `false` takes it back. */
+      partial?: false | { wanted?: string | null };
+      /** It will not come: who assumes, and the fields it stands in for. `false` takes it back. */
+      assumed?: false | { assumer: string; fields?: Array<{ address: FieldAddress; value: string | number | boolean }> };
+    },
+  ) =>
     request<{ project: DdProject }>(`/projects/${projectId}/checklist/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   removeChecklistItem: (projectId: string, itemId: string) => request<{ project: DdProject }>(`/projects/${projectId}/checklist/${itemId}`, { method: 'DELETE' }),

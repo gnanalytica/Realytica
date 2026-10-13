@@ -274,7 +274,7 @@ describe('a unit and its sale', () => {
     const sales = page(p, 'commercial.inventory');
     assert.ok(sales.exceptions.some((e) => e.kind === 'rule' && e.text === '1 unit holds an advance above the cap the Act sets before a registered agreement.'));
     assert.deepEqual(sales.shared.map((s) => s.set.id).sort(), ['shared.parties', 'shared.units'], 'the units are listed on the Sales page, as the project’s');
-    assert.deepEqual(sales.exceptions.filter((e) => e.kind === 'missing').map((e) => `${e.sheet}: ${e.label}`), ['Enquiries and site visits: Leads are kept in', 'Enquiries and site visits: Counts last read on', 'Enquiries and site visits: Enquiries and visits by week'], 'the sheets worked out from the units ask for nothing');
+    assert.deepEqual(sales.exceptions.filter((e) => e.kind === 'missing').map((e) => `${e.sheet}: ${e.label}`), ['Enquiries and site visits: Leads are kept in', 'Enquiries and site visits: Counts last read on', 'Enquiries and site visits: Enquiries to date', 'Enquiries and site visits: Site visits to date'], 'the sheets worked out from the units ask for nothing');
 
     // The absorption check's typed figure is compared with the register.
     const check = p.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks)).find((c) => c.definitionId === 'commercial_market.absorption');
@@ -637,11 +637,14 @@ describe('enquiries', () => {
   it('holds counts by week and by source, never a lead', () => {
     const p = project();
     withUnits(p);
-    write(p, 'commercial.inventory.enquiries', { kept_in: 'a CRM', last_read: '2026-10-01', weeks: [{ week: '2026-09-28', enquiries: 40, qualified: 22, visits: 12 }, { week: '2026-10-05', enquiries: 60, qualified: 30, visits: 13 }] });
+    // The counts are running totals read off the CRM. A week is an issue of the sheet, not a row of a table typed by hand.
+    write(p, 'commercial.inventory.enquiries', { kept_in: 'a CRM', last_read: '2026-10-01', enquiries: 100, qualified: 52, visits: 25 });
     const funnel = sheet(p, 'commercial.inventory.enquiries');
     assert.deepEqual(['enquiries', 'visits', 'enquiry_to_visit_pct', 'units_sold', 'visit_to_sale_pct', 'days_since_read'].map(funnel.value), [100, 25, 25, 2, 8, 11]);
     assert.deepEqual(funnel.said(), ['The counts were last read 11 days ago.']);
-    assert.equal(funnel.view('weeks').def.display, 'chart');
+    const enquiries = fieldCatalog().sets.get('commercial.inventory.enquiries')!;
+    assert.equal(enquiries.fields.find((def) => def.key === 'weeks')!.retired, true, 'the table of weeks is no longer asked');
+    assert.deepEqual([enquiries.periodic!.every, enquiries.periodic!.cumulative], ['week', ['enquiries', 'qualified', 'visits']]);
     const keys = fieldCatalog().sets.get('commercial.inventory.enquiries')!.fields.flatMap((def) => [def.key, ...(def.columns ?? []).map((column) => column.key)]);
     assert.ok(!keys.some((key) => /name|phone|email|note|message|follow/.test(key)), 'no lead, no contact and no message is a field');
     assert.equal(funnel.shown('consent_recorded'), 'hidden');

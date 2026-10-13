@@ -9,15 +9,19 @@
  *
  * Editing a draft updates those rows and keeps matching work packages on the
  * cost register so the graph and checks stay coherent. Issuing freezes the
- * period: print reads what stood then; further edits need a new draft or an
- * explicit reopen.
+ * period: print reads what stood then, and an issued report is never edited.
+ * A correction is a revision: a draft opened beside the issued report, which
+ * goes on being the one that is read until the revision is issued and takes
+ * its place. The first is kept as it was sent.
  */
 
 import type { DdProject } from './types';
 import { addWorkPackages, costRegister, moneySaid, updateWorkPackage } from './cost';
+import type { CostRowKind } from './cost-table';
 import { recordAuditEvent } from './operations';
 
-export type CostReportStatus = 'draft' | 'issued';
+/** `superseded`: issued, and since replaced by a revision that was issued in its turn. Kept as it was sent, and read by nothing. */
+export type CostReportStatus = 'draft' | 'issued' | 'superseded';
 
 /** One work package on a Cost Report: the four figures the exec sheets share. */
 export interface CostReportPackageRow {
@@ -33,6 +37,18 @@ export interface CostReportPackageRow {
   /** What the package is now expected to cost at completion. */
   anticipatedCost: number;
   note?: string;
+  /** Certified to date: the value of work the certifier has certified. A figure of its own, beside what has been paid. */
+  certified?: number;
+  /** Who the package was awarded to, as the report names them. */
+  awardedTo?: string;
+  /** Variations approved to date on the package. */
+  variations?: number;
+  /** Not a work package to be awarded: money set aside, or the consultant's own fee. */
+  kind?: CostRowKind;
+  /** The paper the row was accepted from: its page, and the line as the page writes it. */
+  from?: { evidenceId: string; page: number; quote: string };
+  /** The row made its work package: there was none of its name before it. Taking the row off takes the package with it, where nothing else uses it. */
+  madePackage?: true;
 }
 
 /** Why the project cost moved: a variation drawn against contingency or the budget. */
@@ -88,6 +104,10 @@ export interface CostReportPeriod {
   updatedBy: string;
   issuedAt?: string;
   issuedBy?: string;
+  /** The issued report this one corrects. Until this one is issued the other stands. */
+  revises?: string;
+  /** On a superseded report: the revision that took its place. */
+  supersededBy?: string;
 }
 
 export interface CostReportTotals {
@@ -95,6 +115,10 @@ export interface CostReportTotals {
   poIssued: number;
   amountPaid: number;
   anticipatedCost: number;
+  /** Certified to date over the rows that state it. Absent where none does. */
+  certified?: number;
+  /** Variations approved to date over the rows that state them. Absent where none does. */
+  variations?: number;
   /** anticipated − budget; negative is under budget. */
   anticipatedVariance: number;
   /** poIssued − budget. */
@@ -179,9 +203,10 @@ export function costReportOf(project: Pick<DdProject, 'costReports'>, reportId: 
   return held;
 }
 
-function assertDraft(report: CostReportPeriod): void {
-  if (report.status === 'issued') {
-    throw new Error('This Cost Report is issued. Reopen it before changing figures, or start a new period.');
+/** Refuses, in a sentence, a change to a report that is issued. */
+export function assertCostReportDraft(report: CostReportPeriod): void {
+  if (report.status !== 'draft') {
+    throw new Error('This Cost Report is issued, and is not edited. Open a revision of it to change figures, or start a new period.');
   }
 }
 
@@ -190,11 +215,17 @@ export function costReportTotals(report: Pick<CostReportPeriod, 'rows'>): CostRe
   const poIssued = sum(report.rows.map((r) => r.poIssued));
   const amountPaid = sum(report.rows.map((r) => r.amountPaid));
   const anticipatedCost = sum(report.rows.map((r) => r.anticipatedCost));
+  const stated = (pick: (row: CostReportPackageRow) => number | undefined): number | undefined =>
+    report.rows.some((r) => pick(r) !== undefined) ? sum(report.rows.map((r) => pick(r) ?? 0)) : undefined;
+  const certified = stated((r) => r.certified);
+  const variations = stated((r) => r.variations);
   return {
     budget,
     poIssued,
     amountPaid,
     anticipatedCost,
+    ...(certified !== undefined ? { certified } : {}),
+    ...(variations !== undefined ? { variations } : {}),
     anticipatedVariance: toThePaisa(anticipatedCost - budget),
     commitmentVariance: toThePaisa(poIssued - budget),
     ...(poIssued > 0 ? { paidOfIssued: amountPaid / poIssued } : {}),
@@ -241,6 +272,11 @@ function rowFields(
     amountPaid?: number;
     anticipatedCost?: number;
     note?: string | null;
+    certified?: number | null;
+    awardedTo?: string | null;
+    variations?: number | null;
+    kind?: CostRowKind | null;
+    from?: CostReportPackageRow['from'];
   },
   actor: string,
   held?: CostReportPackageRow,
@@ -262,6 +298,15 @@ function rowFields(
     actor,
   );
   const note = input.note === null ? undefined : input.note !== undefined ? input.note.trim() || undefined : held?.note;
+  // Null takes a figure off the row; left out, what the row holds stays.
+  const optional = (given: number | null | undefined, kept: number | undefined, label: string): number | undefined =>
+    given === null ? undefined : given !== undefined ? moneyOrZero(given, label) : kept;
+  const certified = optional(input.certified, held?.certified, 'Certified to date');
+  const variations = input.variations === null ? undefined : input.variations !== undefined ? signedMoney(input.variations, 'Variations') : held?.variations;
+  const awardedTo = input.awardedTo === null ? undefined : input.awardedTo !== undefined ? input.awardedTo.replace(/\s+/g, ' ').trim().slice(0, 200) || undefined : held?.awardedTo;
+  const kind = input.kind === null ? undefined : (input.kind ?? held?.kind);
+  if (kind !== undefined && kind !== 'contingency' && kind !== 'fee') throw new Error('A row is a work package, a contingency or a fee.');
+  const from = input.from ?? held?.from;
   return {
     ...mirrored,
     budget,
@@ -269,6 +314,11 @@ function rowFields(
     amountPaid,
     anticipatedCost,
     ...(note ? { note } : {}),
+    ...(certified !== undefined ? { certified } : {}),
+    ...(awardedTo ? { awardedTo } : {}),
+    ...(variations !== undefined ? { variations } : {}),
+    ...(kind ? { kind } : {}),
+    ...(from ? { from } : {}),
   };
 }
 
@@ -338,6 +388,10 @@ export function startCostReport(project: DdProject, input: StartCostReportInput,
         poIssued: held.poIssued,
         amountPaid: held.amountPaid,
         anticipatedCost: held.anticipatedCost,
+        ...(held.certified !== undefined ? { certified: held.certified } : {}),
+        ...(held.awardedTo ? { awardedTo: held.awardedTo } : {}),
+        ...(held.variations !== undefined ? { variations: held.variations } : {}),
+        ...(held.kind ? { kind: held.kind } : {}),
       });
     }
   } else if (input.seedPackages !== false) {
@@ -389,15 +443,22 @@ export type CostReportRowInput = {
   amountPaid?: number;
   anticipatedCost?: number;
   note?: string | null;
+  certified?: number | null;
+  awardedTo?: string | null;
+  variations?: number | null;
+  kind?: CostRowKind | null;
+  from?: CostReportPackageRow['from'];
 };
 
 export function addCostReportPackage(project: DdProject, reportId: string, input: CostReportRowInput, actor: string): CostReportPackageRow {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
+  const before = new Set(costRegister(project).workPackages.map((pack) => pack.id));
   const row: CostReportPackageRow = { id: newId('crp'), ...rowFields(project, input, actor) };
   if (report.rows.some((r) => r.workPackageId === row.workPackageId)) {
     throw new Error('That work package is already on this Cost Report.');
   }
+  if (!before.has(row.workPackageId)) row.madePackage = true;
   report.rows = [...report.rows, row];
   report.updatedAt = nowIso();
   report.updatedBy = actor;
@@ -423,7 +484,7 @@ export function updateCostReportRow(
   actor: string,
 ): CostReportPackageRow {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const at = report.rows.findIndex((r) => r.id === rowId);
   const held = report.rows[at];
   if (!held) throw new Error('No package row by that id.');
@@ -437,8 +498,13 @@ export function updateCostReportRow(
     anticipatedCost:
       patch.anticipatedCost === null ? 0 : patch.anticipatedCost !== undefined ? patch.anticipatedCost : held.anticipatedCost,
     note: patch.note === null ? null : patch.note !== undefined ? patch.note : held.note,
+    ...(patch.certified !== undefined ? { certified: patch.certified } : {}),
+    ...(patch.awardedTo !== undefined ? { awardedTo: patch.awardedTo } : {}),
+    ...(patch.variations !== undefined ? { variations: patch.variations } : {}),
+    ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+    ...(patch.from ? { from: patch.from } : {}),
   };
-  const next: CostReportPackageRow = { id: held.id, ...rowFields(project, nextInput, actor, held) };
+  const next: CostReportPackageRow = { id: held.id, ...rowFields(project, nextInput, actor, held), ...(held.madePackage ? { madePackage: true as const } : {}) };
   report.rows[at] = next;
   report.updatedAt = nowIso();
   report.updatedBy = actor;
@@ -455,7 +521,7 @@ export function updateCostReportRow(
 
 export function removeCostReportPackage(project: DdProject, reportId: string, rowId: string, actor: string): void {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const held = report.rows.find((r) => r.id === rowId);
   if (!held) throw new Error('No package row by that id.');
   report.rows = report.rows.filter((r) => r.id !== rowId);
@@ -468,11 +534,36 @@ export function removeCostReportPackage(project: DdProject, reportId: string, ro
     entityId: report.id,
     oldValue: held.name,
   });
+  // A package the row itself made, that nothing else uses, goes with the row: its name is not left in the tenders' and the tender terms' lists.
+  if (held.madePackage && !workPackageUsed(project, held.workPackageId)) {
+    const register = costRegister(project);
+    const pack = register.workPackages.find((other) => other.id === held.workPackageId);
+    if (pack) {
+      register.workPackages = register.workPackages.filter((other) => other.id !== pack.id);
+      recordAuditEvent(project, { actor, action: 'remove_work_package', entityType: 'work_package', entityId: pack.id, oldValue: `${pack.name}, with the Cost Report row that made it` });
+    }
+  }
+}
+
+/**
+ * Whether anything on the project refers to a work package: a row of any
+ * Cost Report, a variation logged against it, a contract, a bill's line, a
+ * tender, or a field that links to it (a tender's terms, a package plan, a
+ * transfer between packages).
+ */
+export function workPackageUsed(project: DdProject, workPackageId: string): boolean {
+  const register = costRegister(project);
+  if (costReportsOf(project).some((report) => report.rows.some((row) => row.workPackageId === workPackageId) || (report.variations ?? []).some((line) => line.workPackageId === workPackageId))) return true;
+  if (register.contracts.some((contract) => contract.workPackageIds.includes(workPackageId))) return true;
+  if (register.bills.some((bill) => bill.lines.some((line) => line.workPackageId === workPackageId))) return true;
+  if (project.procurement?.tenders.some((tender) => tender.workPackageId === workPackageId)) return true;
+  // A link from a field holds the package's id as its value: on a sheet, or on a record of one.
+  return JSON.stringify(project.fieldSheets ?? {}).includes(`"${workPackageId}"`);
 }
 
 export function setCostReportNote(project: DdProject, reportId: string, note: string | null, actor: string): CostReportPeriod {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const trimmed = note?.trim();
   if (trimmed) report.note = trimmed;
   else delete report.note;
@@ -492,7 +583,7 @@ export function setCostReportChangeReason(
   actor: string,
 ): CostReportPeriod {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   // A package taken off the register since the last report is still a line of what moved: "removed", and why.
   const pack =
     costRegister(project).workPackages.find((p) => p.id === workPackageId) ??
@@ -522,9 +613,15 @@ export function setCostReportChangeReason(
 /** Freeze the period for print. Further figure edits are refused until reopened. */
 export function issueCostReport(project: DdProject, reportId: string, actor: string): CostReportPeriod {
   const report = costReportOf(project, reportId);
-  if (report.status === 'issued') throw new Error('This Cost Report is already issued.');
+  if (report.status !== 'draft') throw new Error('This Cost Report is already issued.');
   if (!report.rows.length) throw new Error('Add at least one package before issuing the Cost Report.');
   const at = nowIso();
+  // A revision issued takes the place of the report it corrects, which is kept as it was sent.
+  const corrected = report.revises ? costReportsOf(project).find((held) => held.id === report.revises && held.status === 'issued') : undefined;
+  if (corrected) {
+    corrected.status = 'superseded';
+    corrected.supersededBy = report.id;
+  }
   report.status = 'issued';
   report.issuedAt = at;
   report.issuedBy = actor;
@@ -546,23 +643,48 @@ export function issueCostReport(project: DdProject, reportId: string, actor: str
   return report;
 }
 
-/** Return an issued report to draft so figures can change again. */
+/**
+ * Open a revision of an issued Cost Report. The issued report stays as it
+ * was sent and goes on being the one that is read. A draft is kept beside it
+ * with the same period and a copy of its figures, to be corrected and issued
+ * in its turn; where one is open already it is handed back and no second is
+ * made. Returns the draft.
+ */
 export function reopenCostReport(project: DdProject, reportId: string, actor: string): CostReportPeriod {
-  const report = costReportOf(project, reportId);
-  if (report.status !== 'issued') throw new Error('Only an issued Cost Report can be reopened.');
-  report.status = 'draft';
-  delete report.issuedAt;
-  delete report.issuedBy;
-  report.updatedAt = nowIso();
-  report.updatedBy = actor;
+  const issued = costReportOf(project, reportId);
+  if (issued.status === 'superseded') throw new Error('A later revision of this Cost Report has been issued. Revise that one.');
+  if (issued.status !== 'issued') throw new Error('Only an issued Cost Report can be reopened.');
+  const open = costReportsOf(project).find((held) => held.revises === issued.id && held.status === 'draft');
+  if (open) return open;
+  const at = nowIso();
+  const draft: CostReportPeriod = {
+    id: newId('crep'),
+    label: issued.label,
+    from: issued.from,
+    to: issued.to,
+    status: 'draft',
+    rows: issued.rows.map((row) => ({ ...row })),
+    ...(issued.variations ? { variations: issued.variations.map((line) => ({ ...line })) } : {}),
+    ...(issued.basicPriceAdjustments ? { basicPriceAdjustments: issued.basicPriceAdjustments.map((line) => ({ ...line })) } : {}),
+    ...(issued.photoEvidenceIds ? { photoEvidenceIds: [...issued.photoEvidenceIds] } : {}),
+    ...(issued.note ? { note: issued.note } : {}),
+    ...(issued.changeReasons ? { changeReasons: { ...issued.changeReasons } } : {}),
+    createdAt: at,
+    createdBy: actor,
+    updatedAt: at,
+    updatedBy: actor,
+    revises: issued.id,
+  };
+  reportsOf(project).push(draft);
   recordAuditEvent(project, {
     actor,
     action: 'reopen_cost_report',
     entityType: 'cost_report',
-    entityId: report.id,
-    newValue: report.label,
+    entityId: draft.id,
+    oldValue: issued.id,
+    newValue: issued.label,
   });
-  return report;
+  return draft;
 }
 
 
@@ -616,7 +738,7 @@ export function addCostReportVariation(
   actor: string,
 ): CostReportVariation {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const row: CostReportVariation = { id: newId('crv'), ...variationFields(project, input) };
   report.variations = [...(report.variations ?? []), row];
   touchReport(report, actor);
@@ -638,7 +760,7 @@ export function updateCostReportVariation(
   actor: string,
 ): CostReportVariation {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const at = (report.variations ?? []).findIndex((v) => v.id === variationId);
   const held = report.variations?.[at];
   if (!held) throw new Error('No variation by that id.');
@@ -664,7 +786,7 @@ export function updateCostReportVariation(
 
 export function removeCostReportVariation(project: DdProject, reportId: string, variationId: string, actor: string): void {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const held = (report.variations ?? []).find((v) => v.id === variationId);
   if (!held) throw new Error('No variation by that id.');
   report.variations = (report.variations ?? []).filter((v) => v.id !== variationId);
@@ -722,7 +844,7 @@ export function addCostReportBasicPrice(
   actor: string,
 ): CostReportBasicPrice {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const row: CostReportBasicPrice = { id: newId('crb'), ...basicPriceFields(input) };
   report.basicPriceAdjustments = [...(report.basicPriceAdjustments ?? []), row];
   touchReport(report, actor);
@@ -744,7 +866,7 @@ export function updateCostReportBasicPrice(
   actor: string,
 ): CostReportBasicPrice {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const at = (report.basicPriceAdjustments ?? []).findIndex((v) => v.id === lineId);
   const held = report.basicPriceAdjustments?.[at];
   if (!held) throw new Error('No basic price line by that id.');
@@ -769,7 +891,7 @@ export function updateCostReportBasicPrice(
 
 export function removeCostReportBasicPrice(project: DdProject, reportId: string, lineId: string, actor: string): void {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const held = (report.basicPriceAdjustments ?? []).find((v) => v.id === lineId);
   if (!held) throw new Error('No basic price line by that id.');
   report.basicPriceAdjustments = (report.basicPriceAdjustments ?? []).filter((v) => v.id !== lineId);
@@ -779,7 +901,7 @@ export function removeCostReportBasicPrice(project: DdProject, reportId: string,
 /** Pin progress photographs (vault evidence ids) onto this Cost Report. */
 export function setCostReportPhotos(project: DdProject, reportId: string, evidenceIds: readonly string[], actor: string): CostReportPeriod {
   const report = costReportOf(project, reportId);
-  assertDraft(report);
+  assertCostReportDraft(report);
   const unique = [...new Set(evidenceIds.map((id) => id.trim()).filter(Boolean))];
   for (const id of unique) {
     if (!(project.evidence ?? []).some((e) => e.id === id && e.attachments.length)) {
@@ -797,154 +919,4 @@ export function setCostReportPhotos(project: DdProject, reportId: string, eviden
     newValue: `${unique.length} photograph${unique.length === 1 ? '' : 's'}`,
   });
   return report;
-}
-
-export interface CostReportImportRow {
-  code?: string;
-  name: string;
-  budget?: number;
-  poIssued?: number;
-  amountPaid?: number;
-  anticipatedCost?: number;
-}
-
-/**
- * Read a Cost Report ledger from tabular text (CSV / TSV / pasted sheet).
- * Looks for a header row naming Package (or Name), Budget, PO / Committed,
- * Paid, and Anticipated (aliases accepted).
- */
-export function parseCostReportTable(text: string): CostReportImportRow[] {
-  const lines = text
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .map((l) => l.trimEnd())
-    .filter((l) => l.trim());
-  if (!lines.length) throw new Error('That file has no rows.');
-  const delim = lines[0]!.includes('\t') ? '\t' : ',';
-  const split = (line: string): string[] => {
-    if (delim === '\t') return line.split('\t').map((c) => c.trim());
-    const cells: string[] = [];
-    let cur = '';
-    let q = false;
-    for (let i = 0; i < line.length; i += 1) {
-      const ch = line[i]!;
-      if (ch === '"') {
-        if (q && line[i + 1] === '"') {
-          cur += '"';
-          i += 1;
-        } else q = !q;
-      } else if (ch === ',' && !q) {
-        cells.push(cur.trim());
-        cur = '';
-      } else cur += ch;
-    }
-    cells.push(cur.trim());
-    return cells;
-  };
-  const rows = lines.map(split);
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
-  const header = rows[0]!.map(norm);
-  const find = (...aliases: string[]) => {
-    for (const a of aliases) {
-      const i = header.indexOf(norm(a));
-      if (i >= 0) return i;
-    }
-    return -1;
-  };
-  const iName = find('package', 'name', 'workpackage', 'description');
-  const iCode = find('code', 'ref', 'item');
-  const iBudget = find('budget', 'approved', 'sanctioned');
-  const iPo = find('poissued', 'po', 'committed', 'commitment', 'orders');
-  const iPaid = find('amountpaid', 'paid', 'payment');
-  const iAnt = find('anticipated', 'anticipatedcost', 'forecast', 'eac');
-  if (iName < 0) throw new Error('The sheet needs a Package or Name column.');
-  if (iBudget < 0 && iPo < 0 && iPaid < 0 && iAnt < 0) {
-    throw new Error('The sheet needs at least one money column: Budget, PO issued, Paid or Anticipated.');
-  }
-  const money = (raw: string | undefined): number | undefined => {
-    if (raw === undefined || !raw.trim()) return undefined;
-    const n = Number(raw.replace(/[,₹$€\s]/g, '').replace(/^\((.*)\)$/, '-$1'));
-    if (!Number.isFinite(n)) throw new Error(`“${raw}” is not an amount.`);
-    return n;
-  };
-  const out: CostReportImportRow[] = [];
-  for (const cells of rows.slice(1)) {
-    const name = (cells[iName] ?? '').trim();
-    if (!name) continue;
-    const code = iCode >= 0 ? (cells[iCode] ?? '').trim() || undefined : undefined;
-    const budget = iBudget >= 0 ? money(cells[iBudget]) : undefined;
-    const poIssued = iPo >= 0 ? money(cells[iPo]) : undefined;
-    const amountPaid = iPaid >= 0 ? money(cells[iPaid]) : undefined;
-    const anticipatedCost = iAnt >= 0 ? money(cells[iAnt]) : undefined;
-    out.push({
-      name,
-      ...(code ? { code } : {}),
-      ...(budget !== undefined ? { budget } : {}),
-      ...(poIssued !== undefined ? { poIssued } : {}),
-      ...(amountPaid !== undefined ? { amountPaid } : {}),
-      ...(anticipatedCost !== undefined ? { anticipatedCost } : {}),
-    });
-  }
-  if (!out.length) throw new Error('No package rows found under that header.');
-  return out;
-}
-
-/** Apply imported ledger rows onto a draft Cost Report (add or update by name/code). */
-export function importCostReportRows(
-  project: DdProject,
-  reportId: string,
-  rows: ReadonlyArray<CostReportImportRow>,
-  actor: string,
-): { added: number; updated: number } {
-  const report = costReportOf(project, reportId);
-  assertDraft(report);
-  let added = 0;
-  let updated = 0;
-  for (const row of rows) {
-    const match = report.rows.find(
-      (r) =>
-        (row.code && r.code && r.code.toLowerCase() === row.code.toLowerCase()) ||
-        r.name.trim().toLowerCase() === row.name.trim().toLowerCase(),
-    );
-    if (match) {
-      updateCostReportRow(
-        project,
-        reportId,
-        match.id,
-        {
-          ...(row.code !== undefined ? { code: row.code } : {}),
-          name: row.name,
-          ...(row.budget !== undefined ? { budget: row.budget } : {}),
-          ...(row.poIssued !== undefined ? { poIssued: row.poIssued } : {}),
-          ...(row.amountPaid !== undefined ? { amountPaid: row.amountPaid } : {}),
-          ...(row.anticipatedCost !== undefined ? { anticipatedCost: row.anticipatedCost } : {}),
-        },
-        actor,
-      );
-      updated += 1;
-    } else {
-      addCostReportPackage(
-        project,
-        reportId,
-        {
-          name: row.name,
-          ...(row.code ? { code: row.code } : {}),
-          budget: row.budget ?? 0,
-          poIssued: row.poIssued ?? 0,
-          amountPaid: row.amountPaid ?? 0,
-          anticipatedCost: row.anticipatedCost ?? row.budget ?? 0,
-        },
-        actor,
-      );
-      added += 1;
-    }
-  }
-  recordAuditEvent(project, {
-    actor,
-    action: 'import_cost_report_rows',
-    entityType: 'cost_report',
-    entityId: reportId,
-    newValue: `${added} added, ${updated} updated`,
-  });
-  return { added, updated };
 }

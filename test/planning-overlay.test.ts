@@ -6,12 +6,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  OVERLAY_STANDING_LABEL,
   checkAdvise,
+  compareProjectGis,
   compareProjectPlanning,
+  createProject,
   fetchableReferenceWorks,
   handleChatSides,
   landUseSittingOf,
   lookupReferences,
+  planningMapsFor,
   portalForCheck,
   seedDemoProject,
   serializePlanningOverlay,
@@ -59,7 +63,7 @@ describe('planning overlay', () => {
     const read = compareProjectPlanning(project, { sitting: { checkId: seated.check.id } });
     assert.equal(read.notGeometry, true);
     assert.equal(read.notEvidence, true);
-    assert.equal(read.inForce.id, 'ref_rmp_2015');
+    assert.equal(read.inForce?.id, 'ref_rmp_2015');
     assert.ok(read.flags.some((f) => f.code === 'not_geometry'));
     // The locality table's zoning is illustrative, so it is not offered at all.
     assert.equal(read.locality, undefined);
@@ -96,6 +100,28 @@ describe('planning overlay', () => {
     assert.match(serializeReferenceHits(hits), /not this project's evidence/i);
     const withdrawn = lookupReferences('RMP 2031 withdrawn OpenCity');
     assert.ok(withdrawn.some((h) => h.id === 'ref_rmp_2031_withdrawn' && h.standing === 'withdrawn'));
+  });
+
+  it('tells a project outside Bengaluru that no plan is on file for its city, and nothing of Bengaluru’s', () => {
+    const project = createProject({ name: 'Hillview Residences', type: 'residential', location: 'Hillview Road', city: 'Mysuru', currentStage: 'construction' }, 'RYT-PL1');
+    const read = compareProjectPlanning(project);
+    assert.equal(read.inForce, undefined);
+    assert.equal(read.noPlan, 'No plan on file for Mysuru.');
+    assert.ok(read.flags.some((flag) => flag.code === 'no_plan' && flag.text.startsWith('No plan on file for Mysuru.')));
+    assert.deepEqual(planningMapsFor(project, null), { realm: 'elsewhere', sittings: [], liveOverlays: [], refused: [] });
+    const gis = compareProjectGis(project, {});
+    const told = [serializePlanningOverlay(read), ...read.flags.map((flag) => flag.text), ...gis.hits.map((hit) => hit.text)].join('\n');
+    assert.doesNotMatch(told, /Bengaluru|Bangalore|BBMP|BDA|BMRDA|RMP|GBA|DPPlans/, told);
+    assert.match(told, /No plan on file for Mysuru\./);
+    // A project in Bengaluru, and one whose city nobody gave, are told as before.
+    const there = createProject({ name: 'Lakeside Homes', type: 'residential', location: 'Koramangala', city: 'Bengaluru' }, 'RYT-PL2');
+    assert.equal(compareProjectPlanning(there).inForce?.id, 'ref_rmp_2015');
+    assert.equal(planningMapsFor(there, null).realm, 'bda');
+  });
+
+  it('prints an overlay hit’s standing in words, never its key', () => {
+    for (const label of Object.values(OVERLAY_STANDING_LABEL)) assert.doesNotMatch(label, /_/);
+    assert.equal(OVERLAY_STANDING_LABEL.statute_needed, 'Needs the official record');
   });
 
   it('compare_planning queues an obtain card without writing registers', async () => {

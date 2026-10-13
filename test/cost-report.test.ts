@@ -164,7 +164,7 @@ describe('cost report period', () => {
     assert.equal(pack.name, 'Structure');
   });
 
-  it('refuses edits once issued, and allows them again after reopen', () => {
+  it('refuses edits once issued, and is corrected by a revision kept beside it', () => {
     const p = project();
     const report = startCostReport(p, { month: '2026-08-01', seedPackages: false }, 'tester');
     const row = addCostReportPackage(p, report.id, { name: 'Civil', budget: 100 }, 'tester');
@@ -173,9 +173,22 @@ describe('cost report period', () => {
     assert.throws(() => updateCostReportRow(p, report.id, row.id, { budget: 200 }, 'tester'), /issued/i);
     assert.throws(() => addCostReportPackage(p, report.id, { name: 'MEP', budget: 50 }, 'tester'), /issued/i);
     assert.throws(() => removeCostReportPackage(p, report.id, row.id, 'tester'), /issued/i);
-    reopenCostReport(p, report.id, 'tester');
-    updateCostReportRow(p, report.id, row.id, { budget: 200 }, 'tester');
-    assert.equal(costReportOf(p, report.id).rows[0]!.budget, 200);
+    // Reopening leaves the issued report as it was sent and opens a draft beside it for the same month.
+    const revision = reopenCostReport(p, report.id, 'tester');
+    assert.notEqual(revision.id, report.id);
+    assert.deepEqual([revision.status, revision.revises, revision.from, revision.to], ['draft', report.id, report.from, report.to]);
+    assert.equal(reopenCostReport(p, report.id, 'tester').id, revision.id, 'asked again, the same draft');
+    updateCostReportRow(p, revision.id, revision.rows[0]!.id, { budget: 200 }, 'tester');
+    assert.equal(costReportOf(p, report.id).status, 'issued', 'the issued one still stands');
+    assert.equal(costReportOf(p, report.id).rows[0]!.budget, 100, 'and holds what it was issued with');
+    assert.throws(() => updateCostReportRow(p, report.id, row.id, { budget: 300 }, 'tester'), /issued/i);
+    // Issued in its turn, the revision takes its place; the first is kept, and read by nothing.
+    issueCostReport(p, revision.id, 'tester');
+    assert.deepEqual([costReportOf(p, report.id).status, costReportOf(p, report.id).supersededBy, costReportOf(p, report.id).rows[0]!.budget], ['superseded', revision.id, 100]);
+    assert.equal(costReportOf(p, revision.id).status, 'issued');
+    assert.throws(() => reopenCostReport(p, report.id, 'tester'), /Revise that one/);
+    const later = startCostReport(p, { month: '2026-09-01' }, 'tester');
+    assert.equal(later.rows[0]!.budget, 200, 'the next month starts from the revision');
   });
 
   it('will not issue an empty report', () => {

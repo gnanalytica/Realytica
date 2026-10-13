@@ -31,6 +31,13 @@ export interface Milestone {
   /** What was reported and on which day, one a day, oldest first: the rate a projected finish is read from. */
   readings?: Array<{ on: string; percent: number }>;
   completedOn?: string;
+  /** On a reading as at a past day only (`projectAsAt`): nothing was reported of it on or before that day, and it is not dated as done by then. Never stored. */
+  unread?: true;
+  /**
+   * It was marked complete with a required photograph not taken, and a lead or signer of Construction said why by a
+   * pick from `MILESTONE_PHOTO_WAIVERS` (`photo-stations.ts`). Never a sentence. Gone once the milestone is reopened.
+   */
+  photoWaiver?: { reason: string; by: string; at: string };
   updatedAt: string;
   updatedBy: string;
 }
@@ -42,6 +49,10 @@ export interface SiteLogPhoto {
   takenAt?: string;
   point?: GeoPoint;
   caption?: string;
+  /** Where on the project it was taken, the station it is a shot of, and how those were set (`photo-stations.ts`). */
+  place?: import('./capture').PhotoPlace;
+  stationId?: string;
+  placed?: import('./capture').PhotoPlacing;
 }
 
 export interface SiteLogEntry {
@@ -97,8 +108,26 @@ export function addMilestones(project: DdProject, rows: ReadonlyArray<{ name: st
   return added;
 }
 
-/** How many days of readings a milestone keeps. */
-const READINGS_KEPT = 120;
+/** How many days of readings a milestone keeps day by day. Older than this, it keeps the first and each month's last. */
+export const READINGS_KEPT_DAYS = 120;
+
+/**
+ * A milestone's readings as they are kept: every one of the last hundred
+ * and twenty days, and of what is older the first ever reported and the
+ * last of each month. Nothing older is thrown away outright, so a curve can
+ * still be drawn through a job that runs for years, and what was reported at
+ * a month's end can still be read.
+ */
+export function thinReadings(readings: ReadonlyArray<{ on: string; percent: number }>, today: string): Array<{ on: string; percent: number }> {
+  const ordered = [...readings].sort((a, b) => a.on.localeCompare(b.on));
+  const cut = new Date(Date.parse(`${today.slice(0, 10)}T00:00:00Z`) - READINGS_KEPT_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const old = ordered.filter((reading) => reading.on <= cut);
+  if (old.length <= 1) return ordered;
+  const lastOfMonth = new Map<string, { on: string; percent: number }>();
+  for (const reading of old) lastOfMonth.set(reading.on.slice(0, 7), reading);
+  const kept = new Set<{ on: string; percent: number }>([old[0]!, ...lastOfMonth.values()]);
+  return ordered.filter((reading) => reading.on > cut || kept.has(reading));
+}
 
 /**
  * Record how far along a milestone is. `on` is the day the reading is of,
@@ -108,12 +137,24 @@ export function setMilestonePercent(project: DdProject, milestoneId: string, per
   const m = (project.milestones ?? []).find((x) => x.id === milestoneId);
   if (!m) throw new Error('No milestone by that id.');
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new Error('Progress is a percentage between 0 and 100.');
-  m.percent = Math.round(percent);
-  m.readings = [...(m.readings ?? []).filter((r) => r.on !== on), { on, percent: m.percent }].sort((a, b) => a.on.localeCompare(b.on)).slice(-READINGS_KEPT);
+  // A reading is placed at the day it describes. Where the milestone stands now is what the latest day says:
+  // an entry filed late for an earlier day (a phone that synced afterwards) is kept at its day and lowers nothing.
+  // A milestone with no readings yet, written on a later day than this one describes, is taken as read on the day it was written.
+  const written = m.updatedAt.slice(0, 10);
+  const held = m.readings?.length ? m.readings : m.percent > 0 && on < written ? [{ on: written, percent: m.percent }] : [];
+  m.readings = thinReadings([...held.filter((r) => r.on !== on), { on, percent: Math.round(percent) }], at.slice(0, 10));
+  m.percent = m.readings.at(-1)!.percent;
   m.updatedAt = at;
   m.updatedBy = actor;
-  if (m.percent === 100 && !m.completedOn) m.completedOn = at.slice(0, 10);
-  if (m.percent < 100) delete m.completedOn;
+  // Done on the day the reading that took it to 100% is of: a reading dated in the past finishes it then, not on the day it was typed.
+  if (m.percent === 100 && !m.completedOn) {
+    const run = [...m.readings].reverse().findIndex((reading) => reading.percent < 100);
+    m.completedOn = (run < 0 ? m.readings[0]! : m.readings[m.readings.length - run]!).on;
+  }
+  if (m.percent < 100) {
+    delete m.completedOn;
+    delete m.photoWaiver;
+  }
   return m;
 }
 

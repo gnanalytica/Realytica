@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { before, describe, it } from 'node:test';
 import {
+  COST_LEDGER_COLUMNS,
   LETTER_TEMPLATES,
   PHOTO_NOTE_MOST,
   addAction,
@@ -38,6 +39,7 @@ import {
   setPhotoNote,
   structuredProposal,
 } from '@realytica/shared';
+import { costRowsTool } from '../packages/agents/src/agents/cost-rows';
 import { buildExtractionTool } from '../packages/agents/src/agents/document-intelligence';
 import { fileSweepTool } from '../packages/agents/src/agents/file-sweep';
 import { lawChangeTool } from '../packages/agents/src/agents/law-watch';
@@ -104,6 +106,13 @@ const ANSWERS: Array<{ tool: string; file: string; schema: unknown; free: Record
   },
   { tool: 'record_page_values', file: 'packages/agents/src/agents/page-check.ts', schema: secondReadingTool().parameters, free: { '.values[].value': 'value', '.values[].unit': 'value', '.values[].originalValue': 'value', '.values[].words': 'quote' } },
   { tool: 'name_form_blanks', file: 'packages/agents/src/agents/template-fields.ts', schema: templateFieldsTool().parameters, free: { '.blanks[].key': 'key' } },
+  // The rows of a cost report's tables: a package's name and each figure as the page writes it, held to the page's words and waiting on a person.
+  {
+    tool: 'record_cost_rows',
+    file: 'packages/agents/src/agents/cost-rows.ts',
+    schema: costRowsTool(COST_LEDGER_COLUMNS).parameters,
+    free: { '.rows[].name': 'name', '.rows[].awardedTo': 'name', '.rows[].budget': 'value', '.rows[].awarded': 'value', '.rows[].certified': 'value', '.rows[].paid': 'value', '.rows[].anticipated': 'value', '.rows[].variations': 'value' },
+  },
   { tool: 'propose_plan', file: 'packages/agents/src/agents/plan-proposal.ts', schema: planProposalTool().parameters, free: { '.steps[].only': 'key', '.steps[].report': 'key', '.steps[].period': 'value', '.steps[].playbook': 'key' } },
   // The chat's tools that leave something behind. The rest only read.
   { tool: 'propose_update', file: 'packages/agents/src/tools/project-tools.ts', schema: chat.propose_update, free: { ...address('.about.fields[]'), '.about.records[]': 'key', '.payloadJson': 'payload' } },
@@ -136,6 +145,7 @@ const TOOL_FILES: Record<string, string> = {
   'packages/agents/src/agents/document-intelligence.ts': 'record_document_extraction',
   'packages/agents/src/agents/page-check.ts': 'record_page_values',
   'packages/agents/src/agents/template-fields.ts': 'name_form_blanks',
+  'packages/agents/src/agents/cost-rows.ts': 'record_cost_rows',
   'packages/agents/src/agents/plan-proposal.ts': 'propose_plan',
   'packages/agents/src/tools/project-tools.ts': 'the chat’s tools: those that leave something behind are above, the rest only read',
   'apps/api/src/flows/handlers.ts': 'record_verdict',

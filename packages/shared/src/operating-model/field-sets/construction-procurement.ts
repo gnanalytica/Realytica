@@ -18,6 +18,8 @@ import type { CheckFieldDef, FieldAddress, FieldReportTemplate, FieldSet, ShowWh
 import { withLinks, type SetLinks } from './builders';
 import { CONSTRUCTION_SETS } from './construction-procurement/construction';
 import { PROCUREMENT_SETS } from './construction-procurement/procurement';
+import { SITE_SETS } from './construction-procurement/site';
+import { TENDER_TERMS_SETS } from './construction-procurement/tender-terms';
 
 export { CONSTRUCTION_PROCUREMENT_RULE_ROWS } from './construction-procurement/rule-rows';
 
@@ -44,6 +46,7 @@ const MONTHLY_REPORT: FieldReportTemplate = {
     { heading: 'Delay events', records: 'construction.progress.delay_events', columns: ['event', 'kind', 'event_on', 'ended_on', 'days', 'notice'] },
     { heading: 'Decisions awaited', records: 'construction.progress.decisions', columns: ['decision', 'from', 'needed_by', 'decided_on', 'standing'] },
     { heading: 'Quality', fields: each('construction.quality', 'construction.quality.standing', ['pours', 'samples_failing', 'tests_failing', 'inspections', 'first_pass_pct', 'ncrs_raised', 'ncrs_open', 'critical_open', 'work_on_hold']) },
+    { heading: 'Site photographs, this month beside the last', photos: { show: 'period_and_last', most: 12 } },
     { heading: 'Safety', fields: each('construction.safety', 'construction.safety.statistics', ['workforce', 'inducted_pct', 'incidents', 'lti_count', 'near_misses', 'manhours', 'ltifr', 'days_lost', 'actions_open']) },
     { heading: 'Buying', fields: ['packages_awarded', 'variations_pending', 'securities_expiring'] },
     { heading: 'Project manager’s remarks', note: { maxLength: 800, hint: 'What a reader should know that no field holds, in the project manager’s own words.' } },
@@ -125,4 +128,4 @@ const LINKS: SetLinks[] = [
   },
 ];
 
-export const CONSTRUCTION_PROCUREMENT_FIELD_SETS: FieldSet[] = withLinks([...CONSTRUCTION_SETS, ...PROCUREMENT_SETS], LINKS);
+export const CONSTRUCTION_PROCUREMENT_FIELD_SETS: FieldSet[] = withLinks([...CONSTRUCTION_SETS, ...SITE_SETS, ...PROCUREMENT_SETS, ...TENDER_TERMS_SETS], LINKS);

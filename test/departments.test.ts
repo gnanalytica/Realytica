@@ -203,10 +203,13 @@ describe('the menu', () => {
 describe('approvals and the construction gate', () => {
   it('reads what is held from the documents, and what is missing from the stage', () => {
     const p = project('construction');
-    const before = approvalsRegister(p);
-    assert.equal(before.find((l) => l.kind.key === 'commencement')!.status, 'missing');
-    assert.deepEqual(constructionGate(p).open, false);
+    // With no approval recorded at all, nothing is said to be missing: the register has simply not been kept yet.
+    assert.equal(approvalsRegister(p).find((l) => l.kind.key === 'commencement')!.status, 'not_recorded');
+    assert.deepEqual(constructionGate(p), { open: true, missing: [], unrecorded: true });
     approval(p, 'Sanctioned building plan', [['sanction_date', '2024-01-10'], ['sanction_number', 'BBMP/123']]);
+    // Once one is on file the register is kept, and what is needed and absent is missing.
+    assert.equal(approvalsRegister(p).find((l) => l.kind.key === 'commencement')!.status, 'missing');
+    assert.deepEqual(constructionGate(p).open, false);
     approval(p, 'Commencement certificate', [['issued_on', '2024-02-01']]);
     assert.equal(approvalsRegister(p).find((l) => l.kind.key === 'plan_sanction')!.status, 'in_force');
     assert.equal(constructionGate(p).open, true);
@@ -266,6 +269,8 @@ describe('progress and the site log', () => {
     assert.equal(logSiteEntry(p, input, 'site').duplicate, false);
     assert.equal(logSiteEntry(p, input, 'site').duplicate, true, 'the same phone entry twice files once');
     assert.equal(progressSummary(p).percent, 10);
+    // The approvals register is kept (a RERA certificate is on file), so work logged without the two that allow it is raised.
+    approval(p, 'RERA registration certificate', [['rera_approved_on', '2025-01-10']]);
     const raised = syncAlerts(p).map((a) => a.title);
     assert.ok(raised.includes('Work logged without the approvals that allow it'));
     assert.ok(raised.some((t) => t.startsWith('From site:')));

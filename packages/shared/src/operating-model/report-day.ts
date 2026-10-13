@@ -34,6 +34,7 @@
  */
 
 import { roleCanDecide, roleCanEdit } from './departments';
+import { periodsDue } from './field-periods';
 import { meetingDay } from './meetings';
 import { generateReport, recordAuditEvent } from './operations';
 import { ownerPack, ownerPackTitle, type OwnerPack } from './owner-pack';
@@ -389,14 +390,29 @@ export function noteReportsTold(project: DdProject, lines: readonly PreparedRepo
   }
 }
 
-/** What the people named are told of reports just prepared: a subject and a few lines, naming the reports and saying they wait for a person. */
-export function reportsReadySaid(project: DdProject, lines: readonly PreparedReport[]): { subject: string; text: string } {
+/** The periods a project's sets are behind on, each as one line: the set, the period, how full it is and when it is or was due. */
+export function periodsDueSaid(project: DdProject, now = new Date()): string[] {
+  return periodsDue(project, now).map((due) => `${due.title}, ${due.said}`);
+}
+
+/**
+ * What the people named are told of reports just prepared: a subject and a few lines, naming the reports and saying
+ * they wait for a person. Below them, the periods the project's sets are behind on, so the same notice says what is
+ * to close before the reports are read.
+ */
+export function reportsReadySaid(project: DdProject, lines: readonly PreparedReport[], now = new Date()): { subject: string; text: string } {
   const names = lines.map((line) => {
     const period = { from: line.from, to: line.to };
     return `${TIMED_REPORT_LABEL[line.kind]}, ${reportPeriodSaid(period, quarterYearOf(project))}`;
   });
+  const due = periodsDueSaid(project, now);
   return {
     subject: `${project.name}: ${names.length === 1 ? 'a report is' : `${names.length} reports are`} ready to check`,
-    text: [`Prepared on the report day for ${project.name} (${project.reference}):`, ...names.map((name) => `- ${name}`), 'Nothing has been issued or sent to anybody outside the firm. Each waits on the Reports page for a person to read and issue it.'].join('\n'),
+    text: [
+      `Prepared on the report day for ${project.name} (${project.reference}):`,
+      ...names.map((name) => `- ${name}`),
+      'Nothing has been issued or sent to anybody outside the firm. Each waits on the Reports page for a person to read and issue it.',
+      ...(due.length ? ['', `${due.length === 1 ? 'One period is' : `${due.length} periods are`} not issued yet:`, ...due.map((line) => `- ${line}`)] : []),
+    ].join('\n'),
   };
 }

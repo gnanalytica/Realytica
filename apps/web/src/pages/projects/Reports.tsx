@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { Navigate, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
-import { DEPARTMENT_SHORT, REPORT_KIND_LABEL, cockpitPath, functionReportTemplates, preparedReportSaid, statusReportPeriodSaid, workstreamDefinition, type ReportKind } from '@realytica/shared';
+import { DEPARTMENT_SHORT, REPORT_KIND_LABEL, cockpitPath, dayAfter, functionReportTemplates, indiaToday, periodOfDay, periodShift, preparedReportSaid, statusReportPeriodSaid, workstreamDefinition, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { useMe } from '../../lib/useMe';
@@ -35,6 +35,12 @@ export default function Reports() {
     [],
   );
   const [template, setTemplate] = useState(templates[0]?.id ?? '');
+  // A function's report may be made for a month that has ended: its fields are then read as at that month's last day.
+  const [forMonth, setForMonth] = useState('');
+  const months = useMemo(() => {
+    const this_month = periodOfDay('month', indiaToday(new Date()))!;
+    return [1, 2, 3, 4, 5, 6].map((back) => periodShift(this_month, -back));
+  }, []);
   const wording = useAsync(() => api.reportSettings(), []);
   const me = useMe();
   const [params, setParams] = useSearchParams();
@@ -60,6 +66,7 @@ export default function Reports() {
       const report = await api.generateReport(project.id, {
         kind,
         ...(kind === 'function' ? { template } : {}),
+        ...(kind === 'function' && forMonth ? { period: { from: `${forMonth}-01T00:00:00.000Z`, to: `${dayAfter(months.find((month) => month.key === forMonth)!.to, 1)}T00:00:00.000Z` } } : {}),
         assessmentIds: assessmentId && kind !== 'function' ? [assessmentId] : undefined,
         generatedBy: me?.name ?? me?.email ?? 'operator',
       });
@@ -199,6 +206,18 @@ export default function Reports() {
                 {templates.map((row) => (
                   <option key={row.id} value={row.id}>
                     {row.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+          {kind === 'function' ? (
+            <Field label="Read as at" hint="For a month that has ended, every field is read as it stood on the month’s last day, and the report says so.">
+              <Select value={forMonth} onChange={(e) => setForMonth(e.target.value)}>
+                <option value="">The record as it stands now</option>
+                {months.map((month) => (
+                  <option key={month.key} value={month.key}>
+                    The end of {month.label}
                   </option>
                 ))}
               </Select>

@@ -24,12 +24,28 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import {
   addFieldRecord,
+  addMilestones,
+  gatherPeriodsDue,
+  markMilestonePercent,
+  startSheetPeriod,
+  attachEvidenceFile,
+  assumeChecklistItem,
+  loadTenderForm,
+  loadTrackedList,
+  parseTenderFormRows,
+  readSheet,
   createChatProposal,
   addEvidence,
+  logSiteEntry,
+  placeEntryShots,
+  setShotPlace,
   addressKey,
   fieldCatalog,
   generateReport,
   insertReportBlock,
+  issuePeriod,
+  issueSheetPeriod,
+  revisePeriod,
   issueReport,
   projectView,
   recordCheckFields,
@@ -78,8 +94,8 @@ interface Held {
   reach: string[];
 }
 
-/** Every function whose checks sit in a scope, by `docs/departments.md`: what a grant of every scope names. Procurement's are left out, since `allScopes` does not name Procurement. */
-const EVERY_SCOPED = ['legal.title', 'legal.contracts', 'legal.approvals', 'finance.valuation', 'finance.feasibility', 'finance.budget', 'design.drawings', 'construction.progress', 'construction.quality', 'construction.safety', 'commercial.market', 'commercial.handover'];
+/** Every function whose checks sit in a scope, by `docs/departments.md`: what a grant of every scope names. Procurement's are left out, since `allScopes` does not name Procurement. The Site record's photo stations also need the site record area, which the one grant of every scope below holds. */
+const EVERY_SCOPED = ['legal.title', 'legal.contracts', 'legal.approvals', 'finance.valuation', 'finance.feasibility', 'finance.budget', 'design.drawings', 'construction.progress', 'construction.quality', 'construction.site', 'construction.safety', 'commercial.market', 'commercial.handover'];
 
 const HELD: Held[] = [
   { name: 'an advocate on Legal', email: 'advocate@chambers.example', role: 'contributor', allScopes: false, scopeKeys: ['legal'], areas: [], reach: ['legal.title', 'legal.contracts'] },
@@ -120,6 +136,8 @@ let routes: string[] = [];
 let checkIds: string[] = [];
 let ownerReports: { budget: GeneratedReport; lenders: GeneratedReport; frozen: GeneratedReport };
 let unitId = '';
+let stationId = '';
+let shotId = '';
 const realFetch = globalThis.fetch;
 
 const call = (method: string, route: string, email: string, body?: unknown) =>
@@ -265,11 +283,36 @@ before(async () => {
   add('procurement.boq.evaluations', { approver: bidder });
   assert.deepEqual(setFieldValues(project, { set: 'finance.budget.contingency' }, { contingency_original: 12_345_678 }, OWNER).rejected, []);
   assert.deepEqual(setFieldValues(project, { set: 'finance.valuation.conclusion' }, { book_value: 987_654_321, liquidation_value: 555_444_333 }, OWNER).rejected, []);
+  // A figure the lender's sheet held before the one it holds now: kept as the field's history, and cut with the field.
+  assert.deepEqual(setFieldValues(project, { set: 'finance.lenders.position' }, { outstanding_per_statement: 777_999_111 }, OWNER).rejected, []);
   assert.deepEqual(setFieldValues(project, { set: 'finance.lenders.position' }, { outstanding_per_statement: 777_123_456 }, OWNER).rejected, []);
+  assert.equal(project.fieldSheets!['finance.lenders.position']!.values.outstanding_per_statement!.history![0]!.value, 777_999_111);
+  marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777999111'] });
+  // The lender's sheet issued for a month, and a figure typed since: what the month was issued with is kept in the issue alone.
+  issueSheetPeriod(project, 'finance.lenders.position', { actor: OWNER }, {}, { period: '2026-08', at: new Date('2026-09-03T06:00:00.000Z') });
+  assert.deepEqual(setFieldValues(project, { set: 'finance.lenders.position' }, { outstanding_per_statement: 777_555_444 }, OWNER).rejected, []);
+  assert.equal(project.fieldSheets!['finance.lenders.position']!.periods![0]!.values.outstanding_per_statement!.value, 777_123_456);
+  marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777555444'] });
   marked.push({ fn: 'procurement.boq', set: 'procurement.boq.earnest_money', forms: ['5432101'] });
   marked.push({ fn: 'finance.budget', set: 'finance.budget.contingency', forms: ['12345678'] });
   marked.push({ fn: 'finance.valuation', set: 'finance.valuation.conclusion', forms: ['987654321', '555444333'] });
   marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777123456'] });
+
+  // A month of cash issued, and a revision opened beside it: both are Finance's records, and go where Finance's sheets go.
+  const cashMonth = add('finance.funding.cash_months', { month: '2026-08-01', collections: 612_345_678, contractors: 1 });
+  issuePeriod(project, 'finance.funding.cash_months', cashMonth, { actor: OWNER, name: 'Zq7 Issuer Named' });
+  const revised = revisePeriod(project, 'finance.funding.cash_months', cashMonth, OWNER);
+  assert.deepEqual(setFieldValues(project, { set: 'finance.funding.cash_months', record: revised.id }, { collections: 612_999_876 }, OWNER).rejected, []);
+  marked.push({ fn: 'finance.funding', set: 'finance.funding.cash_months', forms: ['612345678', '612999876', 'Zq7 Issuer Named'] });
+  // A period that fell due, told to the firm's own person who issues it: the notice names Finance's set, and is nobody else's.
+  // The lender's sheet, issued once, is behind too; and the notice of the photograph round is written further down, once a station is kept.
+  const told = gatherPeriodsDue(project, [{ email: OWNER, workspaceRole: 'owner' }], new Date());
+  assert.ok(told.some((notice) => notice.setId === 'finance.funding.cash_months') && told.some((notice) => notice.setId === 'finance.lenders.position'));
+  marked.push({ fn: 'finance.funding', set: 'finance.funding.cash_months', forms: ['period_due:finance.funding.cash_months'], buyer: true });
+  marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['period_due:finance.lenders.position'], buyer: true });
+  // A sheet started on its first period by a named person, with what it holds: Commercial's, and gone with Commercial's sheets.
+  startSheetPeriod(project, 'commercial.buyers.collections', OWNER, {}, { period: '2026-09', at: new Date('2026-09-10T06:00:00.000Z') });
+  assert.equal(project.fieldSheets!['commercial.buyers.collections']!.open!.key, '2026-09');
 
   // What this round added that carries data. An approved variation Finance has not taken: its amount is Procurement's, and
   // the procurement route tells it as waiting on Finance.
@@ -285,6 +328,52 @@ before(async () => {
   deed.documentType = 'Sale deed';
   project.chatProposals.push(createChatProposal('add_action', 'Zq7 follow the deed', 'Raised from the paper.', 'Adds an action.', { title: 'Zq7 follow the deed' }, OWNER, { citedEvidenceIds: [deed.id], cites: [{ evidenceId: deed.id, page: 2, quote: 'Zq7 the words of the deed itself' }] }));
   marked.push({ fn: 'legal.title', set: 'a card’s cited words', forms: ['Zq7 the words of the deed itself'], buyer: true });
+  // A consultant's tracked list: who is chased, in which round, what came back and who assumes. The firm's own, as every
+  // list is, and so is the value a line makes a field assume: a copy with the field on it reads the field empty.
+  const tender = add('procurement.boq.tender_terms', { contract_months: 19 });
+  loadTrackedList(
+    project,
+    'procurement',
+    [{ title: 'Zq7 Listed Paper', list: 'Zq7 Tracked List', ref: '9.9.1', package: 'Zq7 Package', round: 'Zq7 Round Two', remark: 'Zq7 remark from the client', owedBy: 'Zq7 Owing Party', status: 'assumed', assumer: 'Zq7 Assumer Named' }],
+    OWNER,
+  );
+  assumeChecklistItem(project, project.checklist!.find((line) => line.ref === '9.9.1')!.id, { assumer: 'Zq7 Assumer Named', fields: [{ address: { fn: 'procurement.boq', set: 'procurement.boq.tender_terms', field: 'min_bill_value', record: tender }, value: 913_572_468 }] }, OWNER);
+  assert.equal(readSheet(project, 'procurement.boq.tender_terms', tender)!.fields.find((view) => view.def.key === 'min_bill_value')!.state, 'assumed');
+  for (const form of ['Zq7 Listed Paper', 'Zq7 Round Two', 'Zq7 remark from the client', 'Zq7 Owing Party', 'Zq7 Assumer Named', '913572468']) marked.push({ fn: 'procurement.boq', set: 'a line of a tracked list', forms: [form], buyer: true });
+  // A client's tender form: the answers it offers wait on the Tender terms record, which goes where Procurement's sheets
+  // go; who the client is and what it marked not applicable are kept with the form, for the firm alone.
+  const formRead = parseTenderFormRows([
+    ['Client:', 'Zq7 Client Named', 'Response required by:', '20/10/2090'],
+    ['S.No', 'Information / Document Required', 'Details to be Provided', 'Client Response', 'Document Attached', 'Remarks'],
+    ['7.6', 'Payment terms', 'Billing frequency, minimum bill value, certification and payment period in days', 'Monthly; certified in 7 days and paid within 8765432 days'],
+    ['4.1', 'Materials supplied by the client', 'Cement, steel, others or none', 'Not Applicable'],
+    ['7.4', 'Defects liability period', 'Months', ''],
+  ])!;
+  const formLoaded = loadTenderForm(project, formRead, { file: 'Zq7 Form File.xlsx', record: tender, actor: OWNER, today: '2090-01-02' });
+  assert.deepEqual([formLoaded.offered, formLoaded.notApplicable, formLoaded.unanswered], [4, 1, 1]);
+  marked.push({ fn: 'procurement.boq', set: 'procurement.boq.tender_terms', forms: ['8765432', 'Zq7 Form File.xlsx'] });
+  marked.push({ fn: 'procurement.boq', set: 'a tender form', forms: ['Zq7 Client Named'], buyer: true });
+
+  // Photographs tied to a place. A station is the Site record's: handed with the site record area and the scope its checks sit in.
+  // A filed photograph a narrower grant may hold by its own scope carries the station it is a shot of and the unit it was taken in.
+  // A shot still in the site log, with the caption typed on the phone, is the firm's.
+  stationId = add('construction.site.stations', { label: 'Zq7 Station Stair', every: 'month' });
+  const shot = addEvidence(project, { title: 'Zq7 Shot Filed', kind: 'photograph', status: 'received' }, OWNER);
+  shotId = shot.id;
+  shot.scopeInstanceIds = [project.assessments.flatMap((assessment) => assessment.scopes).find((scope) => scope.scopeKey === 'legal')!.id];
+  attachEvidenceFile(project, shot.id, { fileName: 'zq7-shot.png', mimeType: 'image/png', sizeBytes: 10, storageKey: 'zq7-shot.png', capture: { takenAt: new Date().toISOString(), takenAtSource: 'stated' } }, OWNER);
+  setShotPlace(project, { evidenceId: shot.id }, { stationId, place: { unit: unitId } }, OWNER);
+  const lastMonth = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
+  const siteEntry = logSiteEntry(project, { clientId: 'zq7-phone-entry-1', date: lastMonth, photos: [{ storageKey: `site_${project.id}_zq7.png`, fileName: 'Zq7-site-shot.png', mimeType: 'image/png', caption: 'Zq7 Caption From Site', stationId }] }, OWNER).entry;
+  assert.equal(placeEntryShots(project, siteEntry), 1);
+  marked.push({ fn: 'construction.site', set: 'construction.site.stations', forms: ['Zq7 Station Stair', stationId] });
+  // A milestone that station is needed for, completed without its photograph by a pick from the list: the pick and who made it stay on the milestone.
+  const [needsShot] = addMilestones(project, [{ name: 'Zq7 Milestone Stair', weight: 1 }], OWNER);
+  add('construction.site.stations', { label: 'Zq7 Station Unshot', every: 'month', milestone: needsShot!.id, needed: true });
+  marked.push({ fn: 'construction.site', set: 'construction.site.stations', forms: ['Zq7 Station Unshot'] });
+  assert.throws(() => markMilestonePercent(project, needsShot!.id, 100, OWNER), /Zq7 Station Unshot/);
+  assert.equal(markMilestonePercent(project, needsShot!.id, 100, OWNER, { waiver: 'no_access', mayWaive: true }).photoWaiver!.reason, 'no_access');
+  marked.push({ fn: 'construction.site', set: 'the site log’s own photograph', forms: ['Zq7 Caption From Site', 'Zq7-site-shot.png'], buyer: true });
 
   // A marked value on one check of every scope the project has.
   const catalog = fieldCatalog();
@@ -320,6 +409,8 @@ before(async () => {
   // A handover request names who it is for: frozen, the row keeps the name it read that day.
   add('commercial.handover.requests', { request_no: 'Zq7-SR-1', unit: unitId, contractor: buyer });
   insertReportBlock(project, frozen.id, { heading: 'Requests', source: { kind: 'field_table', records: 'commercial.handover.requests', columns: ['request_no', 'contractor'] } }, OWNER);
+  // The stations' photographs for the period: frozen, each row names its station and the photograph it prints.
+  insertReportBlock(project, frozen.id, { heading: 'Station photographs', source: { kind: 'station_photographs', photos: { show: 'period_and_last', most: 12 } } }, OWNER);
   issueReport(project, frozen.id, OWNER, { name: 'A. Signer' });
   const lenders = generateReport(project, { kind: 'executive_dd', generatedBy: OWNER }, OWNER);
   ownerReports = { budget, lenders, frozen };
@@ -692,6 +783,44 @@ describe('a report, for somebody working from a grant who holds the Reports area
       assert.equal(headings.includes('Contingency'), who.reach.includes('finance.budget'), `${who.name}: Budget’s contingency`);
       assert.ok(!headings.includes('Requests'), `${who.name}: a frozen row that names a buyer`);
       assert.ok(!JSON.stringify(seen).includes('Zq7 Buyer Marked'));
+      // A frozen row of a station's photographs goes only where the station does, and never with a shot that is still in the site log.
+      const photos = seen.body.blocks.find((block) => block.heading === 'Station photographs')!;
+      const stations = (photos.frozenTable?.rows ?? []).filter((row) => row.cells[0] === 'Zq7 Station Stair');
+      assert.equal(stations.length, who.reach.includes('construction.site') ? 1 : 0, `${who.name}: the station’s frozen rows`);
+      assert.deepEqual(stations.map((row) => [row.evidenceIds, row.sitePhoto]), who.reach.includes('construction.site') ? [[[shotId], undefined]] : [], `${who.name}: the row kept is the one whose photograph is on their copy`);
     }
+    const whole = stored.body.blocks.find((block) => block.heading === 'Station photographs')!.frozenTable!.rows.filter((row) => row.cells[0] === 'Zq7 Station Stair');
+    assert.deepEqual(whole.map((row) => Boolean(row.sitePhoto)), [true, false], 'the stored report froze both: last period’s shot from the site log, and this period’s filed one');
+  });
+});
+
+describe('a photograph’s station and place, on a grant’s copy', () => {
+  it('are kept only where the copy holds the station and the unit they name, on a photograph the grant holds by its own scope', async () => {
+    const full = project.evidence.find((row) => row.id === shotId)!.attachments[0]!.capture!;
+    assert.deepEqual([full.stationId, full.place?.unit], [stationId, unitId], 'the firm’s own file holds both');
+    let held = 0;
+    for (const who of HELD) {
+      const body = (await (await call('GET', at(), who.email)).json()) as DdProject;
+      const row = body.evidence.find((one) => one.id === shotId);
+      if (!row) continue;
+      held += 1;
+      const capture = row.attachments[0]!.capture!;
+      const stations = (body.fieldSheets?.['construction.site.stations']?.records ?? []).some((record) => record.id === stationId);
+      const units = (body.fieldSheets?.['shared.units']?.records ?? []).some((record) => record.id === unitId);
+      assert.equal(stations, who.reach.includes('construction.site'), `${who.name}: the station is on the copy with the Site record and on no other`);
+      assert.equal(capture.stationId, stations ? stationId : undefined, `${who.name}: the photograph’s station`);
+      assert.equal(capture.place?.unit, units ? unitId : undefined, `${who.name}: the photograph’s unit`);
+      assert.deepEqual(body.siteLog ?? [], [], `${who.name}: no entry of the site log`);
+      // The site endpoint tells of the stations due from the same copy.
+      const site = (await (await call('GET', at('/site'), who.email)).json()) as { stations: Array<{ id: string }>; log: unknown[] };
+      assert.equal(site.log.length, 0, `${who.name}: the site endpoint hands over no entry`);
+      if (!stations) assert.deepEqual(site.stations, [], `${who.name}: and tells of no station`);
+    }
+    assert.ok(held >= 2, 'more than one grant holds the photograph itself, so the cut is tested and not the absence');
+    // The site log's photograph is not served to somebody whose copy has no site log, whoever knows its address.
+    const entry = project.siteLog!.find((one) => one.clientId === 'zq7-phone-entry-1')!;
+    assert.equal((await call('GET', at(`/site-log/${entry.id}/photos/0`), OWNER)).status, 404, 'no bytes were stored for it: the firm’s own person is told so');
+    for (const who of HELD) assert.equal((await (await call('GET', at(`/site-log/${entry.id}/photos/0`), who.email)).text()).includes('missing from storage'), false, `${who.name}: is not told the photograph exists`);
+    for (const who of HELD) assert.equal((await call('GET', at(`/stations/${stationId}/guide`), who.email)).status, 404, `${who.name}: is served no guide`);
   });
 });

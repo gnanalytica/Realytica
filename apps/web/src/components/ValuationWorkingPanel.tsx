@@ -23,6 +23,7 @@
  * fine.
  */
 
+import { amount } from '../lib/format';
 import {
   INPUT_SOURCE_STRENGTH,
   VALUATION_METHOD_LABEL,
@@ -34,8 +35,7 @@ import {
 import { Badge, InfoTip, cn, Why } from './ui/kit';
 
 function money(n: number, currency: string) {
-  if (currency === 'INR') return `₹${Math.round(n).toLocaleString('en-IN')}`;
-  return `${currency} ${Math.round(n).toLocaleString()}`;
+  return amount(n, currency);
 }
 
 /** Where an input came from, in the words a reader needs. */

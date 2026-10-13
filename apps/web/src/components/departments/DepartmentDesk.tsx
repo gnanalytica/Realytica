@@ -1,3 +1,4 @@
+import { daySaid } from '@realytica/shared';
 import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Camera, ClipboardList, Download, FileOutput, FileStack, MapPin, ShieldAlert, Smartphone, Upload } from 'lucide-react';
@@ -19,6 +20,7 @@ import {
   type DepartmentKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { personNamed } from '../../lib/format';
 import { EvidenceDropZone } from '../EvidenceDropZone';
 import { useMe } from '../../lib/useMe';
 import { Button, Card, CardBody, CardHeader, StatTile, cn, useToast } from '../ui/kit';
@@ -226,12 +228,12 @@ export function DepartmentDesk({
               <ul className="divide-y divide-hairline rounded-xl ring-1 ring-inset ring-[var(--ring)]">
                 {log.slice(0, 8).map((entry) => (
                   <li key={entry.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2">
-                    <span className="font-mono text-micro tabular-nums text-ink-secondary">{entry.date}</span>
+                    <span className="font-mono text-micro tabular-nums text-ink-secondary">{daySaid(entry.date)}</span>
                     <span className="min-w-0 flex-1 truncate text-[13px] text-ink" title={entry.workDone}>
                       {entry.workDone || 'No note'}
                     </span>
                     <span className="text-micro text-ink-muted">
-                      {entry.author}
+                      {personNamed(project, entry.author)}
                       {entry.photos.length ? ` · ${entry.photos.length} photo${entry.photos.length === 1 ? '' : 's'}` : ''}
                       {entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}
                     </span>

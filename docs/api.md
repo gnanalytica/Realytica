@@ -10,7 +10,7 @@ Writes on a project need a role that allows them: workspace `write` capability f
 |---|---|---|
 | GET | `/projects` | The projects the caller reaches, with stage, health, alerts and the current engagement |
 | POST | `/projects` | Create one: name, type, location, city, `currentStage`, `departments`, optional first `engagement` |
-| GET, PATCH, DELETE | `/projects/:id` | Read, change particulars, delete (with its documents and graph) |
+| GET, PATCH, DELETE | `/projects/:id` | Read, change particulars, delete (with its documents and graph). `PATCH` also takes `approvalsElsewhere: boolean`: the approvals are kept somewhere other than here, so an empty register is not read as approvals missing; `false` takes that back. |
 | POST | `/projects/:id/stage` | Move the project or a phase to a step; the history keeps the reason |
 | GET | `/portfolio` | The firm's projects, decisions waiting, requests out, the next 14 days. Each request row carries `open`: the Documents part of the department it belongs to (`{ pane, extra }`), or `{ firm: 'requests' }` for a request that belongs to no department |
 
@@ -40,13 +40,18 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 | Method | Path | |
 |---|---|---|
 | POST | `/cost-reports` | Start a month's Cost Report: `{ month? }` (any day in it; this month when left out) or `{ from, to }`, `label?`, `note?`, `seedPackages?` (unless `false`, rows from the last report issued for an earlier period, or from the register's work packages when there is none) |
-| PATCH | `/cost-reports/:reportId` | `{ note?, photoEvidenceIds? }`, or `{ issue: true }` or `{ reopen: true }` (*decides*) |
+| PATCH | `/cost-reports/:reportId` | `{ note?, photoEvidenceIds? }`, or `{ issue: true }` or `{ reopen: true }` (*decides*). `reopen` opens a revision: a draft beside the issued report, which stays as it was issued. The answer's `report` is the draft, with `revises` naming the issued one; where a draft is open already it is that one. Issued in its turn, the revision takes the first's place and the first is `superseded` |
 | POST | `/cost-reports/:reportId/packages` | A ledger row: `{ name, code?, workPackageId?, budget?, poIssued?, amountPaid?, anticipatedCost?, note? }` |
+| PATCH | `/cost-reports/:reportId/packages/:rowId` also takes | `certified?`, `awardedTo?`, `variations?`, `kind?` (`contingency` or `fee`): what a consultant's report states of a package. `null` takes one off |
 | PATCH, DELETE | `/cost-reports/:reportId/packages/:rowId` | Change or remove a row |
 | PUT | `/cost-reports/:reportId/change-reasons/:workPackageId` | `{ reason }`: one line on why the package moved since the last issued report, or `null` to clear it. Draft only |
 | POST, PATCH, DELETE | `/cost-reports/:reportId/variations`, `…/variations/:variationId` | The variation log |
 | POST, PATCH, DELETE | `/cost-reports/:reportId/basic-prices`, `…/basic-prices/:lineId` | Basic price adjustments |
-| POST | `/cost-reports/:reportId/import` | Multipart `file` (.csv or .xlsx, 4 MB) or `text`, a pasted table → rows added or updated by code or name, with `added` and `updated` |
+| POST | `/cost-reports/:reportId/import` | Multipart `file` (.csv or .xlsx, 4 MB) or `text`, a pasted cost table as a consultant lays it out. Without `confirm` nothing is written: the answer is `{ preview, check }`, where `preview` holds the rows it would take (each `add` or `update`), `read.lines` (the lines read as a heading, sub-total, total, GST or grand total, never packages), `read.checks` and `read.addsUp` (the rows against the table's own total, to the rupee; `null` where it states none) and `check` is the mismatch in a sentence, empty where there is none. With `confirm: true` the same table is imported: rows added, or updated by name, with `added` and `updated` |
+| POST | `/cost-reports/:reportId/offers/:evidenceId/:offerId/accept` | *Decides.* Accepts one row a cost report filed as a paper offered, onto the draft. The body corrects cells first: any of `name`, `budget`, `poIssued`, `amountPaid`, `anticipatedCost`, `certified`, `variations`, `awardedTo`, `kind`. A row with no figure placed is refused until one is typed |
+| POST | `/cost-reports/:reportId/offers/:evidenceId/accept-page` | *Decides.* `{ page }`: accepts every row still offered from that page, and answers `accepted` and `left`. A row whose figures were not placed, one with a figure that could not be read and one a model read that was not found on the page are left |
+| POST | `/cost-papers/:evidenceId/offers/:offerId/set-aside` | *Decides.* Sets an offered row aside; a later reading of the paper does not offer it again |
+| POST | `/dropped/set-aside` | `{ storageKey }`: sets aside a file dropped in the chat that is on no row (one the chat asked about, or one a reading left behind). It is kept, listed under Documents, and said on no notice. The firm's own people |
 | POST, PATCH | `/cost/contracts`, `/cost/contracts/:contractId` | `{ contractor, title, value, reference?, workPackageIds?, retentionPercent? }` |
 | DELETE | `/cost/contracts/:contractId` | *Decides.* Only while it has no bills |
 | POST | `/cost/bills` | `{ contractId, number, date, periodFrom?, periodTo?, statedTotal?, evidenceId?, lines? }` |
@@ -63,13 +68,15 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 | Method | Path | |
 |---|---|---|
 | POST | `/projects/:id/milestones` | `{ template: true }` for the usual nine, or `{ rows: [{ name, weight, plannedFinish? }] }` |
-| PATCH, DELETE | `/projects/:id/milestones/:milestoneId` | `{ percent?, name?, weight?, plannedFinish? }` |
+| PATCH, DELETE | `/projects/:id/milestones/:milestoneId` | `{ percent?, name?, weight?, plannedFinish?, photoWaiver? }`. Marking a milestone 100 while a photo station it needs has no shot this period is refused: **409** `{ error, photosWanting: [station labels] }`. `photoWaiver` (`no_access`, `covered`, `station_gone`, `unsafe`, `shot_elsewhere`) completes it all the same, and takes a lead or signer in Construction; sent alone on a milestone already complete, it records why for that completion. |
 | POST | `/projects/:id/milestones/import` | A schedule: multipart `file` (CSV, TSV or .xlsx, 4 MB) or `{ text }`, a header row then a row a milestone → `{ project, added, updated, unchanged, skipped: [{ line, name, reason }] }`. A milestone named again keeps its recorded progress. |
 | GET | `/cron/alerts` | The daily timer, outside sign-in: needs `Authorization: Bearer <CRON_SECRET>`, else 401. Brings every project's alerts up to date, then runs every other timed job; see [Timed routes](#timed-routes). Safe to call twice. |
-| GET | `/projects/:id/site` | The site app's whole view: project, role, milestones, progress, construction gate, recent log, construction alerts |
+| GET | `/projects/:id/site` | The site app's whole view: project, role, milestones, progress, construction gate, recent log, construction alerts, and the photo stations not photographed this period (`stations`) |
 | POST | `/projects/:id/site-log/photos` | Multipart `photos` (up to 6, 4 MB each) → `{ photos: [{ storageKey, fileName, mimeType }] }` |
-| POST | `/projects/:id/site-log` | `{ clientId, date, weather?, manpower?, workDone?, milestoneUpdates?, issues?, photos?, point? }`. Idempotent on `clientId`: a resend answers 200 with `duplicate: true`. |
+| POST | `/projects/:id/site-log` | `{ clientId, date, weather?, manpower?, workDone?, milestoneUpdates?, issues?, photos?, point? }`. Idempotent on `clientId`: a resend answers 200 with `duplicate: true`. A photograph may carry `stationId`, the photo station picked for it; one that carries none is given the one station within 30 m of where it was taken, or none. |
 | GET | `/projects/:id/site-log/:entryId/photos/:index` | A photograph's bytes |
+| GET | `/projects/:id/stations/:stationId/guide` | The bytes of a station's last shot before this period, to frame the next against. 404 where it has none |
+| PUT | `/projects/:id/photos/place` | `{ evidenceId } or { entryId, index }` with `stationId?` and `place?: { building?, floor?, unit?, milestone?, element? }`: a person says where a photograph was taken. `null` takes a station or a place away. Lead, contributor or signer in the photograph's department |
 
 ## Pairing phones
 
@@ -82,7 +89,7 @@ Under `/projects/:id`. Entering needs a lead, contributor or signer in Finance; 
 | GET | `/devices` | Your phones (every phone, for an admin) |
 | DELETE | `/devices/:id` | Revoke one |
 
-A device token reaches only `GET /projects`, `GET /projects/:id/site`, the site log and its photos, milestone progress, alert reads and its own pairing; anything else is a 403.
+A device token reaches only `GET /projects`, `GET /projects/:id/site`, the site log and its photos, a station's guide, milestone progress, alert reads and its own pairing; anything else is a 403.
 
 ## Alerts, links, documents, the graph
 
@@ -113,7 +120,8 @@ Deciding where a value read off a document stands needs a lead or signer in the 
 | POST | `/projects/:id/evidence/:evidenceId/facts/review` | `{ keys, decision: "accept" \| "reject" \| "reopen", edit?, take? }`. The department whose function holds the document. |
 | POST | `/projects/:id/proposals/:proposalId/fields` | `{ keys, decision: "accept" \| "reject", values? }` on a card of check values. The check's department. |
 | POST | `/projects/:id/checks/:checkId/fields/:key/pick` | `{ proposalId }`, or `null` to keep what the check holds. The check's department. |
-| PUT | `/projects/:id/fields/values` | `{ set, record?, values }`. What a person types into a function's sheet. All or nothing. A role that edits in the function's department. |
+| PUT | `/projects/:id/fields/values` | `{ set, record?, period?, values }`. What a person types into a function's sheet. All or nothing. A role that edits in the function's department. A record that is an issued period answers **400**: it is revised, not edited. `period` names a period of a sheet kept by period whose revision is open: the values go to the revision, and the sheet itself is not touched. |
+| POST | `/projects/:id/fields/period` | `{ set, act, record?, period?, name?, field?, reason? }` on a set kept by period. `act: "open"` opens the period today falls in, or `period` (`2026-09`, `FY2026-Q2`, `2026-W41`, `FY2026`, `evt:<record>`), from the last with what the set carries, and answers `recordId`; asked twice it makes nothing twice. A first period on a set that keeps several instances a period opens a row for each kind it declares, or for each building. On a sheet held once, `"open"` starts it on its first period (today's, or `period` where that has begun), which is what begins its due cycle; asked of a sheet already started it changes nothing, unless `period` names an earlier period that has ended: that period is then opened beside the sheet, to be filled and issued late ("Also keep September"). `"issue"` issues `record`, or for a sheet the period that last ended (or `period`), under the caller's name, or `name` where the set's issuer is an outside party. A period that has ended is frozen as at its last day, whenever it is issued; a figure the record's history does not reach is frozen as it reads and marked `asNow`. `"revise"` opens a revision of an issued `record`, or of a sheet's `period`. `"reason"` picks from the set's list why `field` moved beyond what its rows explain, or with `null` takes the pick back. Opening and picking need a role that edits in the function's department; issuing and revising a lead or signer, and the signer alone where the set says so. **404** where the caller's grant does not reach the function. |
 | POST | `/projects/:id/fields/decide` | `{ address, decision, value?, pick?, reason?, note? }`. `decision` is `accept`, `keep`, `set_aside`, `dispute`, `not_applicable` or `reopen`. A lead or signer of the function's department, but for `dispute`. |
 | POST | `/projects/:id/fields/accept-paper` | `{ fn, evidenceId }`. Accepts every value one paper offered to a function's sheets, but for the ones a person has to name. |
 | POST | `/projects/:id/fields/records` | `{ set, values }` adds a record to a set that repeats; `{ set, remove }` takes one off its list. |
@@ -129,7 +137,7 @@ Deciding where a value read off a document stands needs a lead or signer in the 
 
 `POST /projects/:id/fields/decide` on a check's address settles the card the value waits on, and settling the card settles the field: there is one store. `GET /projects/:id/checks/:checkId/fields` also returns `shown` (each key as `shown`, `folded` or `hidden`), `notInPlay`, `situations` and `fn`, so a check screen asks only what its approach brings into play.
 
-Reports: `POST /projects/:id/reports` takes `kind: "function"` with `template`, the id of a function's report template (listed in [departments.md](departments.md)); **400** for a template that does not exist. A report block's source may be `fields` (`addresses`, `layout`), `field_table` (`address` or `records`, `columns`) or `field_chart` (`address` or `records`, `x`, `y`, `mark`). Editing the text of a block frozen from fields, or a note past its cap of 2,000 characters, answers **400**.
+Reports: `POST /projects/:id/reports` takes `kind: "function"` with `template`, the id of a function's report template (listed in [departments.md](departments.md)); **400** for a template that does not exist. With `period: { from, to }` as well, a function's report is made for that period: every section that reads fields is read as the project stood when the period's last day ended in India (`asAt` on its source), says "Figures as at 30 Sep 2026.", and prints "as now" beside anything the record's history does not reach. A report block's source may be `fields` (`addresses`, `layout`), `field_table` (`address` or `records`, `columns`) or `field_chart` (`address` or `records`, `x`, `y`, `mark`; or `periods`, the id of a set kept by period, with `y` its field and `moved` to draw what each period added), each with `asAt?`, a day as `YYYY-MM-DD`. Editing the text of a block frozen from fields, or a note past its cap of 2,000 characters, answers **400**.
 
 Photographs: `PUT /projects/:id/photographs/note` `{ evidenceId, fileId, text }` keeps a person's own capped note on a photograph, beside what was picked for it.
 
@@ -229,7 +237,7 @@ Outside sign-in, each needing `Authorization: Bearer <CRON_SECRET>`, else 401. V
 
 | Method | Path | |
 |---|---|---|
-| GET | `/cron/alerts` | Once a day, 01:30 UTC. In order: `alerts` `{ projects, changed, raised, resolved, failed }`, `tell` `{ projects, messages, notices, mailed, pushed, failed }`, `drive` `{ projects, read, takenIn, changed, skipped, waiting, failed, busy, notReached, notSetUp }`, `reportDay` `{ projects, prepared, told, failed }`, `webhookRetry` `{ due, delivered, failed, gaveUp, endpointsFailing, told }`, `lawWatch` `{ firms, looked, changed, failed }`, `fileSweep` `{ projects, due, swept, raised, dropped, repeats, overCeiling, deferred, failed, tokens, noModel }`. The law watch writes to no project |
+| GET | `/cron/alerts` | Once a day, 01:30 UTC. In order: `alerts` `{ projects, changed, raised, resolved, failed }`, `periodsDue` `{ projects, told, notices, failed }` (a notice for each period that has ended and is not issued, to whoever issues its set and whoever opened it, once for the period and the person), `tell` `{ projects, messages, notices, mailed, pushed, failed }`, `drive` `{ projects, read, takenIn, changed, skipped, waiting, failed, busy, notReached, notSetUp }`, `reportDay` `{ projects, prepared, told, failed }`, `webhookRetry` `{ due, delivered, failed, gaveUp, endpointsFailing, told }`, `lawWatch` `{ firms, looked, changed, failed }`, `fileSweep` `{ projects, due, swept, raised, dropped, repeats, overCeiling, deferred, failed, tokens, noModel }`. The law watch writes to no project |
 | GET | `/cron/often` | Every ten minutes: `tell` and `webhookRetry` |
 | GET | `/cron/hourly` | Every hour: `drive` |
 
@@ -243,7 +251,7 @@ Outside sign-in, each needing `Authorization: Bearer <CRON_SECRET>`, else 401. V
 | GET | `/tell` | The caller's own notices across every project they reach, newest first (at most 200), with unread, the projects they have quieted, and `channels { email, push }`. A notice of a paper owed or a request carries `open`, the same place a request row does |
 | POST | `/tell/read` | `{ ids: string[] (1 to 500) \| 'all' }` — marks the caller's own notices read; 404 when ids are named and none is theirs |
 | PUT | `/tell/quiet/:projectId` | `{ quiet: boolean }` — quiets a project's mail and push for the caller, or stops; 404 for a project they cannot reach |
-| GET | `/analytics/portfolio` | The firm's projects side by side: forecast against budget from each project's last issued Cost Report with the movement since the one before, planned against projected completion and extension-of-time flags, papers owed by party, open alerts by kind, and what waits on the owner. Every figure carries the rows it counts (at most 200, with a `more` count), each with its source and where it opens |
+| GET | `/analytics/portfolio` | The firm's projects side by side: forecast against budget from each project's last issued Cost Report with the movement since the one before, planned against projected completion and extension-of-time flags, the schedule month by month as progress planned against progress made (`schedule.lines[].curve`), units sold period by period on the projects that have issued their week's stock (`sales.lines`), papers owed by party, open alerts by kind, and what waits on the owner. Every figure carries the rows it counts (at most 200, with a `more` count), each with its source and where it opens |
 | GET | `/analytics/departments?project=<id>` | One project by department: decisions waiting for acceptance and the oldest's age, actions open and overdue, requests out and their age. 400 without a project id, 404 for a project that is not the firm's |
 | GET | `/analytics/people` | `{ generatedAt, people }`: for each person the caller may read, open work, overdue work, what they accepted in the last 30 days, and the median days a thing waited. People are listed by name; nothing ranks or scores them. All three analytics routes answer 403 to a collaborator, and a viewer gets an empty `people` list |
 | GET | `/setup` | Read-only. Everything that can be connected or scheduled, as it stands: `{ firm: SetupRow[], projects: [{ id, name, reference, rows: SetupRow[] }] }`, a row being `{ key, label, standing: 'working' \| 'not_set_up' \| 'failing' \| 'not_used', says, needs?, settings?, error?, open? }`. The firm's rows are mail, requests by email and by WhatsApp, Google Drive, the timer, the AI model and the law sources, and for a firm admin API keys and webhooks; a project's are its Drive folder and its report day. Firm members only; a collaborator gets 403 |

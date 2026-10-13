@@ -91,6 +91,8 @@ function built(reference = 'RYT-SW1'): DdProject {
   const khata = addEvidence(p, { title: 'Khata extract', kind: 'document', status: 'received' }, LEAD);
   khata.documentType = 'Khata certificate and extract';
   khata.facts = [value('extent_khata', 4046, '4,046 sq m', 1), { ...value('survey_numbers', '41/3', '41/3', 1), review: 'proposed', source: 'model', proof: 'page_text' }];
+  // The approvals register is kept: the commencement certificate is recorded as not obtained, so what work depends on is missing.
+  addEvidence(p, { title: 'Commencement certificate', kind: 'approval', status: 'missing' }, LEAD).documentType = 'Commencement certificate';
   const [plinth] = addMilestones(p, [{ name: 'Plinth', weight: 5, plannedFinish: '2026-10-31' }], LEAD);
   plinth!.plannedStart = '2026-09-01';
   plinth!.percent = 20;

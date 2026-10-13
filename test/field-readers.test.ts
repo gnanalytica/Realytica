@@ -35,12 +35,20 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   { file: 'packages/shared/src/operating-model/check-fields.ts', has: 'const held = check.fields ?? {};', why: 'a check’s own reading: `held` is everything stored, for the screen, and `values` beside it is only what stands' },
   { file: 'packages/shared/src/operating-model/check-waiting.ts', has: 'const own = check.fields ?? {};', why: 'lays the values waiting on a check’s cards over what it stores, each marked proposed: a reading for the field system, which asks `fieldStands` of every one' },
 
+  { file: 'packages/shared/src/operating-model/field-periods.ts', why: 'the periods of a set: a record’s period and what tells it from another are read through `standingField`; what waits on it is counted, never read, before an issue is allowed; an issued record is copied whole into its revision; every figure compared comes through `resolveFields`' },
+
+  { file: 'packages/shared/src/operating-model/sheet-periods.ts', why: 'a sheet’s periods: an issue copies what the sheet stores and freezes a reading made by `readSheet`; what waits is counted, never read; the sheet is then cleared through `stand`; every figure compared or drawn comes through `resolveFields` or from what was frozen' },
+  { file: 'packages/shared/src/operating-model/as-at.ts', why: 'turns the stored sheets and checks back to a past day, each value through `fieldAsAt`, which hands on only what stood: the reading it makes is then read by the field system like any project' },
+
+  { file: 'packages/shared/src/operating-model/report-observations.ts', why: 'offering a report’s observations: it asks only whether the same words were offered before, waiting, standing or set aside, so that a paper read again offers nothing twice. It acts on no value and says none' },
+
   // Working out from a check's values goes through `withComputed`, which drops what does not stand before any formula runs.
   { file: 'packages/shared/src/operating-model/operations.ts', has: 'withComputed(fields, check.fields ?? {})', why: 'the tolerance readings: `withComputed` reads only what stands' },
   { file: 'packages/shared/src/operating-model/valuation-run.ts', has: 'withComputed(def?.fields ?? [], check.fields ?? {})', why: 'the valuation’s inputs: `withComputed` reads only what stands' },
 
   // Writing is not reading.
-  { file: 'packages/shared/src/operating-model/operations.ts', has: 'check.fields = { ...(check.fields ?? {}), ...accepted };', why: 'records a person’s values onto the check, keeping the keys it did not touch' },
+  { file: 'packages/shared/src/operating-model/operations.ts', has: 'const held = { ...(check.fields ?? {}) };', why: 'records a person’s values onto the check, keeping the keys it did not touch: each is put there by `stand`, which keeps what the field held before' },
+  { file: 'packages/shared/src/operating-model/operations.ts', has: 'check.fields = held;', why: 'the same write, put back on the check' },
   { file: 'packages/shared/src/operating-model/review.ts', has: 'const written = outcome.check.fields?.[k];', why: 'the value just accepted off a card, read back to keep the public source it was read from' },
   { file: 'packages/shared/src/operating-model/review.ts', has: "outcome.check.fields![k] = { ...written, state: 'accepted', origin", why: 'writes that source beside the value just accepted' },
 
@@ -65,6 +73,10 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   // Asking whether anything is kept at all, not what it says.
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(sheet.values).length > 0', why: 'whether a project keeps any sheet value at all, so a status report knows to carry a field section: no value is read, and the section itself is resolved through `readSheet`' },
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(check.fields ?? {}).length > 0', why: 'the same question of a project’s checks: a count of keys, never a value' },
+
+  // Asking whether anything points at a thing before it is taken away or renamed: a guard on a write, which acts on no value.
+  { file: 'packages/shared/src/operating-model/cost-report.ts', has: 'JSON.stringify(project.fieldSheets ?? {})', why: 'whether any field, standing or waiting, links to a work package, before the package is taken off with the Cost Report row that made it: a link that only waits still must not be left pointing at nothing' },
+  { file: 'packages/shared/src/operating-model/party-edits.ts', why: 'correcting the parties: it finds every link to a party, standing or waiting, so a merge moves them all and a removal is refused while any is left; a name is read only where `fieldStands` says it stands, and nothing is worked out from any value' },
 
   // Copying a project for somebody whose grant does not reach all of it. Nothing is acted on: what is copied is read again by the field system.
   { file: 'packages/shared/src/operating-model/project-view.ts', why: 'cuts the stored sheets to what a grant reaches and strips the citations of papers it does not, standing or not' },

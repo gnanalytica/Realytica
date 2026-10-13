@@ -1,20 +1,33 @@
+import { ApprovalsNotRecorded } from './ApprovalsNotRecorded';
 import { useMemo, useRef, useState } from 'react';
 import { Camera, HardHat, Smartphone, Upload, Users } from 'lucide-react';
 import {
+  MILESTONE_PHOTO_WAIVERS,
+  MILESTONE_PHOTO_WAIVER_LABEL,
   constructionGate,
   daySaid,
+  milestonePhotoChecklist,
+  milestonePhotoStanding,
+  milestonePhotosRefusal,
+  milestonePhotosWanting,
   departmentRole,
+  fieldTrend,
+  indiaToday,
+  progressReadings,
   progressSummary,
   roleCanDecide,
   roleCanEdit,
   scheduleWatch,
   type DdProject,
   type Milestone,
+  type MilestonePhotoWaiver,
   type MilestoneWatch,
   type ScheduleSkippedRow,
   type SiteLogEntry,
 } from '@realytica/shared';
-import { person } from '../../lib/format';
+import { personNamed } from '../../lib/format';
+import { Sparkline } from '../CheckFields';
+import { TrendChart } from '../fields/TrendChart';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
@@ -30,7 +43,7 @@ function Ring({ percent }: { percent: number | null }) {
       <circle cx="42" cy="42" r={r} fill="none" stroke="var(--surface-3)" strokeWidth="9" />
       <circle cx="42" cy="42" r={r} fill="none" stroke="rgb(var(--brand-rgb))" strokeWidth="9" strokeLinecap="round" strokeDasharray={`${share * c} ${c}`} transform="rotate(-90 42 42)" />
       <text x="42" y="47" textAnchor="middle" fontSize="17" fontWeight="600" fill="var(--text-primary)">
-        {percent === null ? '—' : `${Math.round(percent)}%`}
+        {percent === null ? '—' : `${percent}%`}
       </text>
     </svg>
   );
@@ -70,7 +83,20 @@ function MilestoneRow({
   const toast = useToast();
   const [value, setValue] = useState(String(milestone.percent));
   const [busy, setBusy] = useState(false);
+  // The day the reading is of: today, unless a person says it was seen on an earlier day and is being typed now.
+  const today = indiaToday(new Date());
+  const [on, setOn] = useState(today);
+  const earlier = on < today;
   const moved = milestone.baselineFinish && milestone.baselineFinish !== milestone.plannedFinish;
+  const readings = useMemo(() => progressReadings(project, milestone), [project, milestone]);
+  // The photographs it needs before it reads complete: the stations with none this period, and how a completion already made stands.
+  const wanting = useMemo(() => (milestone.percent < 100 ? milestonePhotosWanting(project, milestone.id) : []), [project, milestone.id, milestone.percent]);
+  const check = useMemo(() => milestonePhotoChecklist(project).find((held) => held.milestoneId === milestone.id), [project, milestone.id]);
+  const standing = check?.complete && check.short ? milestonePhotoStanding(check) : undefined;
+  const short = check?.complete && check.short && !check.waived ? check.stations.filter((station) => !station.have) : [];
+  // Asked to be marked complete with a photograph missing: it is not sent, and the stations are named.
+  const [refused, setRefused] = useState(false);
+  const stopped = refused && wanting.length > 0 ? wanting : short;
 
   async function save(patch: Parameters<typeof workspaceApi.updateMilestone>[2]) {
     setBusy(true);
@@ -94,6 +120,7 @@ function MilestoneRow({
           {watch?.extensionDays ? ` (moved ${watch.extensionDays} ${watch.extensionDays === 1 ? 'day' : 'days'} by extensions granted, from ${daySaid(milestone.plannedFinish)})` : ''}
           {moved ? ` (first planned ${daySaid(milestone.baselineFinish)})` : ''}
           {milestone.completedOn ? ` · done ${daySaid(milestone.completedOn)}` : ''}
+          {standing ? <span data-milestone-photos className={check?.waived ? undefined : 'font-medium text-critical'}>{` · ${standing}`}</span> : null}
           {!milestone.completedOn && watch?.expectedPercent !== undefined ? ` · expected ${watch.expectedPercent}% today` : ''}
         </p>
       </div>
@@ -102,6 +129,8 @@ function MilestoneRow({
           {watch.level === 'late' ? 'Late' : watch.level === 'behind' ? 'Behind' : 'Late at the current rate'}
         </Badge>
       ) : null}
+      {/* What was reported of it, day by day, as a small line where there are three readings or more. */}
+      {readings.length >= 3 ? <Sparkline points={readings.map((reading) => reading.percent)} label={`${milestone.name}: ${readings.length} readings from ${daySaid(readings[0]!.on)} to ${daySaid(readings[readings.length - 1]!.on)}`} /> : null}
       <div className="h-1.5 w-32 overflow-hidden rounded-full bg-sunken">
         <div className={cn('h-full rounded-full', milestone.percent >= 100 ? 'bg-good' : 'bg-brand')} style={{ width: `${milestone.percent}%` }} />
       </div>
@@ -111,12 +140,15 @@ function MilestoneRow({
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(value);
-            if (Number.isFinite(n) && n >= 0 && n <= 100 && n !== milestone.percent) void save({ percent: n });
+            if (!Number.isFinite(n) || n < 0 || n > 100 || (n === milestone.percent && !earlier) || !on || on > today) return;
+            if (Math.round(n) === 100 && wanting.length && !earlier) setRefused(true);
+            else void save({ percent: n, ...(earlier ? { on } : {}) }).then(() => setOn(today));
           }}
         >
           <Input aria-label={`${milestone.name} percent complete`} type="number" min={0} max={100} value={value} onChange={(e) => setValue(e.target.value)} className="h-8 w-16 text-right" />
-          <span className="text-[12px] text-ink-muted">%</span>
-          <Button size="sm" type="submit" loading={busy} disabled={Number(value) === milestone.percent}>
+          <span className="text-[12px] text-ink-muted">% on</span>
+          <Input aria-label={`The day this reading of ${milestone.name} is of`} title="The day the reading is of. Pick an earlier day for progress seen then and typed now." type="date" max={today} value={on} onChange={(e) => setOn(e.target.value)} className="h-8 w-[8.5rem]" />
+          <Button size="sm" type="submit" loading={busy} disabled={(Number(value) === milestone.percent && !earlier) || !on || on > today}>
             Save
           </Button>
         </form>
@@ -131,6 +163,36 @@ function MilestoneRow({
         >
           Remove
         </button>
+      ) : null}
+      {stopped.length ? (
+        <div role="alert" data-milestone-refused className="basis-full rounded-lg border border-hairline bg-sunken px-3 py-2 text-[12px] text-ink">
+          <p>{refused && wanting.length ? milestonePhotosRefusal(milestone.name, wanting) : `Complete, with ${stopped.length === 1 ? 'a required photograph' : `${stopped.length} required photographs`} not taken: ${stopped.map((station) => station.label).join(', ')}.`}</p>
+          {mayRemove ? (
+            <label className="mt-1.5 flex flex-wrap items-center gap-2 text-ink-secondary">
+              Complete without {stopped.length === 1 ? 'it' : 'them'}, because
+              <select
+                aria-label={`Why ${milestone.name} is complete without its photographs`}
+                value=""
+                disabled={busy}
+                onChange={(event) => {
+                  if (!event.target.value) return;
+                  setRefused(false);
+                  void save({ percent: 100, photoWaiver: event.target.value as MilestonePhotoWaiver });
+                }}
+                className="h-8 rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11"
+              >
+                <option value="">Pick why…</option>
+                {MILESTONE_PHOTO_WAIVERS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {MILESTONE_PHOTO_WAIVER_LABEL[reason]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="mt-1 text-ink-muted">A lead or signer of Construction can pick why it is complete without {stopped.length === 1 ? 'it' : 'them'}.</p>
+          )}
+        </div>
       ) : null}
     </li>
   );
@@ -248,6 +310,8 @@ export function ProgressBoard({
   const [importing, setImporting] = useState(false);
   const summary = useMemo(() => progressSummary(project), [project]);
   const schedule = useMemo(() => scheduleWatch(project, new Date()), [project]);
+  // Planned against actual, month by month: the readings the milestones keep, drawn against what their dates planned.
+  const curve = useMemo(() => fieldTrend(project, { set: 'construction.progress.programme', field: 'actual_percent' }), [project]);
   const gate = useMemo(() => constructionGate(project), [project]);
   const role = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, 'construction') : undefined;
   const mayEdit = roleCanEdit(role);
@@ -269,13 +333,16 @@ export function ProgressBoard({
 
   return (
     <div ref={board} className="space-y-4">
-      {!gate.open ? (
+      {gate.unrecorded ? (
+        // Nothing recorded of the approvals: one quiet line with the two ways on, never a warning against an empty register.
+        <ApprovalsNotRecorded project={project} onChanged={onChanged} />
+      ) : !gate.open ? (
         <Callout tone={log.length ? 'critical' : 'warning'} title={log.length ? 'Work is being logged before it is allowed' : 'Not cleared to build yet'}>
           Not on file: {gate.missing.join(', ')}. See Legal › Approvals.
         </Callout>
       ) : null}
       <Card>
-        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${daySaid(summary.lastEntry.date)} by ${person(summary.lastEntry.author)}` : 'Nothing logged from site yet'} />
+        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${daySaid(summary.lastEntry.date)} by ${personNamed(project, summary.lastEntry.author)}` : 'Nothing logged from site yet'} />
         <CardBody className="flex flex-wrap items-center gap-6">
           <Ring percent={summary.percent} />
           <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-2 text-[13px] sm:grid-cols-4">
@@ -302,6 +369,17 @@ export function ProgressBoard({
             Pair a phone for the site log
           </Button>
         </CardBody>
+        {curve ? (
+          <CardBody className="border-t border-hairline">
+            <div data-progress-curve>
+              <p className="text-[12px] font-medium text-ink">Planned against actual, by month</p>
+              <div className="mt-1 max-w-xl">
+                <TrendChart trend={curve} width={520} height={120} />
+              </div>
+              <p className="mt-1 text-[12px] text-ink-muted">{curve.said}</p>
+            </div>
+          </CardBody>
+        ) : null}
       </Card>
 
       <Card>
@@ -369,7 +447,7 @@ export function ProgressBoard({
                 <li key={entry.id} data-marked={entry.id === marked ? '' : undefined} className={cn('rounded-lg p-3', entry.id === marked ? MARKED_ROW : 'bg-sunken/50')}>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <p className="font-mono text-[12px] font-semibold text-ink">{daySaid(entry.date)}</p>
-                    <p className="text-[12px] text-ink-secondary">{entry.author}</p>
+                    <p className="text-[12px] text-ink-secondary">{personNamed(project, entry.author)}</p>
                     {entry.weather ? <Badge tone="neutral">{entry.weather}</Badge> : null}
                     {entry.manpower.length ? (
                       <span className="flex items-center gap-1 text-[12px] text-ink-secondary">

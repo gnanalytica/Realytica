@@ -31,7 +31,7 @@ to the pairing screen (unsent work stays on the phone — see below).
 | Pair this phone | Scan or type the code; choose a different server for development. |
 | Projects | Every project the person can see, building projects first. Pull to refresh. |
 | Site home | Progress ring, "x of y milestones done", the approvals warning, late milestones, construction alerts, **Log today**, milestones (tap to update), recent entries with photos. |
-| Log the day | One scrolling form: date, weather, people on site by trade, work done, milestone changes, problems, photos with captions, the phone's location. |
+| Log the day | One scrolling form: date, weather, people on site by trade, work done, milestone changes, problems, the photo stations due this period (each with its last shot shown faintly, to frame the next), photos with captions, the phone's location. |
 | Outbox | What is waiting to send, what the server refused and why, **Send now**. |
 | Settings | Who is signed in, the server, notifications, sign out. |
 

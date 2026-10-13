@@ -53,6 +53,8 @@ const LEAD = 'lead@example.com';
 /** Monday 12 October 2026. */
 const NOW = new Date('2026-10-12T10:00:00.000Z');
 const SEPTEMBER = ownerPackPeriod({ month: '2026-09' });
+/** The month the packs below are made in: still running, so the schedule is read as it stands on the day. */
+const OCTOBER = ownerPackPeriod({ month: '2026-10' });
 
 function project(): DdProject {
   return createProject({ name: 'Lakeshore Block C', type: 'residential', location: 'Lakeshore Road', city: 'Mysuru', currentStage: 'construction' }, 'RYT-OP1', LEAD);
@@ -177,15 +179,16 @@ describe('where the project stands, and time', () => {
   }
 
   it('gives the stage, percent complete, planned and projected completion at the current rate, and the extension of time', () => {
-    const lines = partOf(ownerPack(scheduled(), SEPTEMBER, NOW), 'standing').lines;
+    const lines = partOf(ownerPack(scheduled(), OCTOBER, NOW), 'standing').lines;
     assert.deepEqual(
       lines.map((line) => line.what),
       [
         'Stage: Under construction.',
         '26.3% complete: 1 of 7 milestones finished, each weighted by its share of the work.',
         'Planned completion: 30 Jun 2027.',
-        'Projected completion at the current rate: 30 Jun 2027, no later than the planned date.',
-        'No extension of time is indicated.',
+        // The superstructure finishes 94 days late at its rate, and the finishes, with no rate of their own, wait on it.
+        'Projected completion at the current rate: 2 Oct 2027, about 94 days after the planned date.',
+        'An extension of time is likely: at the current rate the work finishes about 94 days late.',
       ],
     );
     // Each figure says what it was read from, and how fresh that is.
@@ -197,26 +200,41 @@ describe('where the project stands, and time', () => {
     const p = scheduled();
     p.milestones!.find((m) => m.name === 'Finishes')!.plannedFinish = '2027-04-30';
     p.milestones!.find((m) => m.name === 'Finishes')!.plannedStart = '2027-03-01';
-    const pack = ownerPack(p, SEPTEMBER, NOW);
+    const pack = ownerPack(p, OCTOBER, NOW);
     assert.deepEqual(said(partOf(pack, 'standing')).slice(2), [
       'Planned completion: 30 Apr 2027.',
-      'Projected completion at the current rate: 2 Jun 2027, about 33 days after the planned date.',
-      'An extension of time is likely: at the current rate the work finishes about 33 days late.',
+      'Projected completion at the current rate: 2 Aug 2027, about 94 days after the planned date.',
+      'An extension of time is likely: at the current rate the work finishes about 94 days late.',
     ]);
-    assert.deepEqual(said(partOf(pack, 'decisions')), ['Extension of time: at the current rate the work finishes about 33 days after the planned completion of 30 Apr 2027.']);
+    assert.deepEqual(said(partOf(pack, 'decisions')), ['Extension of time: at the current rate the work finishes about 94 days after the planned completion of 30 Apr 2027.']);
+  });
+
+  it('for a month that has ended, reads how far along the work was when its last day ended, and says the day', () => {
+    const p = scheduled();
+    const pack = ownerPack(p, SEPTEMBER, NOW);
+    assert.equal(pack.asAt, '2026-09-30');
+    assert.equal(ownerPack(p, OCTOBER, NOW).asAt, undefined, 'a month still running is read as it stands');
+    const lines = partOf(pack, 'standing').lines;
+    // Excavation 100, Foundation 30 (its 85 was reported on 5 October), Plinth 10, Superstructure 4, by weight.
+    assert.equal(lines[1]!.what, '12.4% complete: 1 of 7 milestones finished, each weighted by its share of the work.');
+    assert.equal(lines[1]!.source, 'the schedule: 7 milestones on the progress board, last reported 28 Sep 2026');
+    assert.deepEqual(said(partOf(pack, 'time', 'Late')), ['Foundation: 10 days late, 30% done.']);
+    // What was reported in October changes nothing in September's pack.
+    setMilestonePercent(p, p.milestones!.find((m) => m.name === 'Foundation')!.id, 100, 'site@firm.example', '2026-10-12T09:00:00.000Z');
+    assert.deepEqual(partOf(ownerPack(p, SEPTEMBER, NOW), 'standing').lines, lines);
   });
 
   it('says there is no projection where no unfinished milestone has a rate', () => {
     const p = project();
     milestone(p, 'Foundation', 1, undefined, '2026-12-01', [['2026-10-01', 20]]);
-    assert.deepEqual(said(partOf(ownerPack(p, SEPTEMBER, NOW), 'standing')).slice(3), [
+    assert.deepEqual(said(partOf(ownerPack(p, OCTOBER, NOW), 'standing')).slice(3), [
       'No completion is projected: no unfinished milestone has progress reported on two days to take a rate from.',
       'No extension of time is indicated.',
     ]);
   });
 
   it('lists the milestones late, behind or slipping, each with its one-line warning, the late first', () => {
-    const part = partOf(ownerPack(scheduled(), SEPTEMBER, NOW), 'time', 'Late');
+    const part = partOf(ownerPack(scheduled(), OCTOBER, NOW), 'time', 'Late');
     assert.deepEqual(
       part.lines.map((line) => [line.what, line.when, line.overdue ?? false]),
       [
@@ -229,7 +247,7 @@ describe('where the project stands, and time', () => {
   });
 
   it('lists what is due in the next thirty days, to the day, and nothing finished or already past', () => {
-    const part = partOf(ownerPack(scheduled(), SEPTEMBER, NOW), 'time', 'Due in the next 30 days');
+    const part = partOf(ownerPack(scheduled(), OCTOBER, NOW), 'time', 'Due in the next 30 days');
     // 11 November is thirty days from 12 October; 12 November is thirty-one.
     assert.deepEqual(said(part), ['Plinth: planned to finish 20 Oct 2026, now at 35%.', 'Masonry: planned to finish 11 Nov 2026, now at 0%.']);
     assert.deepEqual(part.lines.map((line) => line.source), ['the milestone, last reported 8 Oct 2026', 'the milestone, with no progress reported yet']);
@@ -250,8 +268,10 @@ describe('cost in an owner pack', () => {
     assert.deepEqual(
       part.lines.map((line) => [line.what, line.source]),
       [
-        ['Now: forecast ₹1,960 against a budget of ₹1,700, ₹260 over.', 'Cost Report September 2026, issued 30 Sep 2026 by lead@example.com'],
-        ['At the last report: forecast ₹1,700 against a budget of ₹1,700, on budget. The forecast has moved +₹260 since.', 'Cost Report August 2026, issued 31 Aug 2026 by lead@example.com'],
+        ['Now: forecast ₹1,960 against a budget of ₹1,700, ₹260 over.', 'Cost Report September 2026, issued 30 Sep 2026 by lead'],
+        ['At the last report: forecast ₹1,700 against a budget of ₹1,700, on budget. The forecast has moved +₹260 since.', 'Cost Report August 2026, issued 31 Aug 2026 by lead'],
+        // The line an owner reads a cost report for, worked out from the ledger at the rule row's rate and said to be unchecked.
+        ['With GST at 18% (rate not checked): forecast ₹2,312.8 against a budget of ₹2,006.', 'Cost Report September 2026, issued 30 Sep 2026 by lead'],
       ],
     );
   });
@@ -292,7 +312,7 @@ describe('cost in an owner pack', () => {
   it('says there is nothing to compare a first report with, and still gives its forecast and its bills', () => {
     const { p } = costed();
     const pack = ownerPack(p, ownerPackPeriod({ month: '2026-08' }), NOW);
-    assert.deepEqual(said(partOf(pack, 'cost', 'Forecast')), ['Now: forecast ₹1,700 against a budget of ₹1,700, on budget.', 'No Cost Report was issued before August 2026, so there is no earlier forecast to set beside it.']);
+    assert.deepEqual(said(partOf(pack, 'cost', 'Forecast')), ['Now: forecast ₹1,700 against a budget of ₹1,700, on budget.', 'No Cost Report was issued before August 2026, so there is no earlier forecast to set beside it.', 'With GST at 18% (rate not checked): forecast ₹2,006 against a budget of ₹2,006.']);
     assert.deepEqual(
       ['Largest', 'Unexplained'].map((heading) => [partOf(pack, 'cost', heading).lines.length, partOf(pack, 'cost', heading).empty]),
       [[0, 'Nothing to compare with: this is the first Cost Report issued.'], [0, 'Nothing to compare with: this is the first Cost Report issued.']],
@@ -316,25 +336,29 @@ describe('cost in an owner pack', () => {
     assert.equal(said(partOf(pack, 'cost', 'Forecast'))[1], 'At the last report: forecast ₹1,000 against a budget of ₹1,000, on budget. The forecast has not moved since.');
   });
 
-  it('reads the report whose period takes in a day of the pack’s, to the day', () => {
+  it('reads the latest report issued for a period that ends on or before the pack’s last day, to the day', () => {
     const { p, august, september } = costed();
     const reads = (from: string, to: string) => ownerPackCostReport(p, ownerPackPeriod({ from, to }))?.id;
-    assert.equal(reads('2026-09-30', '2026-10-31'), september, 'the last day of September is a day of the report');
-    assert.equal(reads('2026-10-01', '2026-10-31'), undefined, 'the day after is not');
-    assert.equal(reads('2026-07-01', '2026-08-01'), august, 'the first day of August is a day of the report');
-    assert.equal(reads('2026-07-01', '2026-07-31'), undefined, 'the day before is not');
-    assert.equal(reads('2026-08-15', '2026-09-15'), september, 'of two it takes in, the later');
+    assert.equal(reads('2026-09-30', '2026-10-31'), september, 'September has ended by the pack’s last day');
+    assert.equal(reads('2026-10-01', '2026-10-31'), september, 'a pack for October reads September’s while October’s is not issued, so one pack shows cost and time');
+    assert.equal(reads('2026-09-01', '2026-09-30'), september, 'the last day of September is the pack’s last day');
+    assert.equal(reads('2026-09-01', '2026-09-29'), august, 'a day short of it, September has not ended: the one before is read');
+    assert.equal(reads('2026-07-01', '2026-08-30'), undefined, 'a report for a period that ends later is never read into an earlier pack');
+    assert.equal(reads('2026-07-01', '2026-07-31'), undefined, 'none had ended by then');
   });
 
-  it('says in one line that no Cost Report is issued for the period, and never gives a draft’s figures', () => {
+  it('says which report it reads where none is issued for the period, and never gives a draft’s figures', () => {
     const { p } = costed();
     const october = startCostReport(p, { month: '2026-10-01' }, LEAD);
     updateCostReportRow(p, october.id, costReportOf(p, october.id).rows[0]!.id, { anticipatedCost: 7777 }, LEAD);
     const pack = ownerPack(p, ownerPackPeriod({ month: '2026-10' }), NOW);
-    assert.deepEqual(partsOf(pack, 'cost'), [{ lines: [], empty: "No Cost Report has been issued for October 2026. The one for October 2026 is a draft, and a draft's figures are not given. The last one issued is September 2026." }]);
+    const forecast = said(partOf(pack, 'cost', 'Forecast'));
+    assert.equal(forecast[0], 'No Cost Report is issued for October 2026 (the one for it is a draft, and a draft’s figures are not given). What follows is the latest issued before it: September 2026, for the period to 30 Sep 2026.');
+    assert.match(forecast[1]!, /^As at September 2026: forecast /);
     assert.doesNotMatch(JSON.stringify(pack), /7,777/);
-    // Nor do its packages ask the owner for anything.
-    assert.deepEqual(said(partOf(pack, 'decisions')), []);
+    // With no report issued at all, it says so in one line.
+    const bare = createProject({ name: 'Lake Road offices', type: 'commercial', location: 'Lake Road', city: 'Kadamba', currentStage: 'construction' }, 'RYT-L9');
+    assert.deepEqual(partsOf(ownerPack(bare, ownerPackPeriod({ month: '2026-10' }), NOW), 'cost'), [{ lines: [], empty: 'No Cost Report has been issued for October 2026.' }]);
   });
 });
 
@@ -344,17 +368,66 @@ describe('the decisions an owner pack asks for', () => {
     meet(p, ['Site meeting', 'Date: 9 September 2026', 'Open: Who bears the cost of the longer crane hire.'], 1);
     addDecision(p, { title: 'Approve the upgraded lobby stone', decisionType: 'other', decisionMaker: 'The owner', rationale: 'Asked by the architect.', status: 'pending' }, LEAD);
     addDecision(p, { title: 'Proceed with piling', decisionType: 'proceed', decisionMaker: 'The owner', rationale: 'Settled.', status: 'approved' }, LEAD);
-    const lines = partOf(ownerPack(p, SEPTEMBER, NOW), 'decisions').lines;
+    const section = ownerPack(p, SEPTEMBER, NOW).sections.find((held) => held.key === 'decisions')!;
+    // By kind, each kind under its own heading.
     assert.deepEqual(
-      lines.map((line) => [line.what, line.who, line.source]),
+      section.parts.map((part) => [part.heading, part.lines.map((line) => [line.what, line.who, line.source])]),
       [
-        ['Over budget: A · Structure, forecast ₹1,180 against a budget of ₹1,000, ₹180 over.', undefined, 'Cost Report September 2026, issued 30 Sep 2026 by lead@example.com'],
-        ['Over budget: B · Facade, forecast ₹580 against a budget of ₹500, ₹80 over.', undefined, 'Cost Report September 2026, issued 30 Sep 2026 by lead@example.com'],
-        ['Not awarded: C · Lifts, budget ₹200, no PO issued.', undefined, 'Cost Report September 2026, issued 30 Sep 2026 by lead@example.com'],
-        ['To be decided: “Who bears the cost of the longer crane hire”.', undefined, 'the meeting of 9 Sep 2026, its notes on file'],
-        ['To be decided: “Approve the upgraded lobby stone”.', 'The owner', 'the decision register'],
+        [
+          'Over budget',
+          [
+            ['Over budget: A · Structure, forecast ₹1,180 against a budget of ₹1,000, ₹180 over.', undefined, 'Cost Report September 2026, issued 30 Sep 2026 by lead'],
+            ['Over budget: B · Facade, forecast ₹580 against a budget of ₹500, ₹80 over.', undefined, 'Cost Report September 2026, issued 30 Sep 2026 by lead'],
+          ],
+        ],
+        ['Packages to award', [['Not awarded: C · Lifts, budget ₹200, no PO issued.', undefined, 'Cost Report September 2026, issued 30 Sep 2026 by lead']]],
+        [
+          'Open decisions',
+          [
+            ['To be decided: “Who bears the cost of the longer crane hire”.', undefined, 'the meeting of 9 Sep 2026, its notes on file'],
+            ['To be decided: “Approve the upgraded lobby stone”.', 'The owner', 'the decision register'],
+          ],
+        ],
       ],
     );
+    assert.equal(section.source, 'Cost Report September 2026, issued 30 Sep 2026 by lead and the decision register');
+  });
+
+  it('asks for an award only of work to be let, the largest first, a few on the page and the rest behind more', () => {
+    const p = project();
+    addWorkPackages(
+      p,
+      [
+        { name: 'Civil works', budget: 9_000 },
+        { name: 'Design contingency', budget: 800 },
+        { name: 'Project management supervision fee', budget: 700 },
+        { name: 'Consultancy fees', budget: 600 },
+        { name: 'Provisional sum for rock', budget: 500 },
+        { name: 'GST', budget: 1_500 },
+        { name: 'Lifts', budget: 1_200 },
+        { name: 'Facade', budget: 2_400 },
+        { name: 'Electrical', budget: 1_800 },
+        { name: 'Plumbing', budget: 1_100 },
+        { name: 'Fire fighting', budget: 900 },
+        { name: 'Landscape', budget: 300 },
+      ],
+      LEAD,
+    );
+    const report = startCostReport(p, { month: '2026-09-01' }, LEAD);
+    updateCostReportRow(p, report.id, costReportOf(p, report.id).rows.find((row) => row.name === 'Civil works')!.id, { poIssued: 8_800 }, LEAD);
+    issueCostReport(p, report.id, LEAD);
+    const part = partOf(ownerPack(p, SEPTEMBER, NOW), 'decisions', 'Packages to award');
+    assert.deepEqual(said(part), [
+      'Not awarded: Facade, budget ₹2,400, no PO issued.',
+      'Not awarded: Electrical, budget ₹1,800, no PO issued.',
+      'Not awarded: Lifts, budget ₹1,200, no PO issued.',
+      'Not awarded: Plumbing, budget ₹1,100, no PO issued.',
+      'Not awarded: Fire fighting, budget ₹900, no PO issued.',
+    ]);
+    assert.deepEqual(part.more!.map((line) => line.what), ['Not awarded: Landscape, budget ₹300, no PO issued.']);
+    assert.equal(part.note, '6 packages not awarded, ₹7,700 of budget in all.');
+    const all = [...part.lines, ...part.more!].map((line) => line.what).join(' ');
+    assert.doesNotMatch(all, /contingency|fee|Provisional|GST/i, 'a contingency, a fee, an allowance and a tax await no award');
   });
 });
 
@@ -437,7 +510,13 @@ describe('the papers owed, in an owner pack', () => {
     );
     addChecklistItems(p, 'finance', [{ title: 'Bank guarantee', owedBy: 'northgate builders' }], LEAD);
     raiseChecklistRequests(p, { department: 'construction', itemIds: [p.checklist!.find((item) => item.title === 'Lift shop drawings')!.id], dueAt: '2026-10-06' }, LEAD);
-    const parts = partsOf(ownerPack(p, SEPTEMBER, NOW), 'papers');
+    const [summary, ...parts] = partsOf(ownerPack(p, SEPTEMBER, NOW), 'papers');
+    // On the page, a line a party; the papers themselves are detail, behind “more”.
+    assert.deepEqual(
+      [summary!.heading, said(summary!)],
+      ['By who owes them', ['Northgate Builders: 3 papers on the list, not yet asked for.', 'Lift vendor: 1 paper owed, 1 overdue, the oldest since 6 Oct 2026.', 'Nobody named: 1 paper on the list, not yet asked for.']],
+    );
+    assert.ok(parts.every((part) => part.detail));
     assert.deepEqual(
       parts.map((part) => [part.heading, part.lines.map((line) => [line.what, line.source])]),
       [
@@ -461,7 +540,7 @@ describe('the papers owed, in an owner pack', () => {
     const sheet = requirementSheet(p);
     const first = sheet.groups[0]!.items[0]!;
     addRequest(p, { title: first.title, recipient: 'The developer', dueAt: '2026-11-01', evidenceId: first.evidenceId, send: true }, LEAD);
-    const parts = partsOf(ownerPack(p, SEPTEMBER, NOW), 'papers');
+    const parts = partsOf(ownerPack(p, SEPTEMBER, NOW), 'papers').filter((part) => part.detail);
     assert.ok(sheet.total > OWNER_PACK_PAPERS_SHOWN + 1, 'the checks expect more papers than a party lists');
     assert.deepEqual(parts.map((part) => part.heading), ['The developer · 1', `Nobody named · ${sheet.total - 1}`]);
     assert.deepEqual(said(parts[0]!), [`${first.title}: asked for, due 1 Nov 2026.`]);

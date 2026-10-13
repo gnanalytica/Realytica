@@ -27,7 +27,7 @@ import { absentDetail, isTicked, lineDoubt, lineKey, lineSource, readInTurn, rea
 type StateKey = 'TS' | 'KA';
 
 const STATE_OPTIONS: { value: StateKey; label: string }[] = [
-  { value: 'KA', label: 'Karnataka — Bengaluru region' },
+  { value: 'KA', label: 'Karnataka' },
   { value: 'TS', label: 'Telangana' },
 ];
 

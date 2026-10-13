@@ -1,3 +1,4 @@
+import { monthYear } from '../../lib/format';
 import { useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { bearingDegrees, haversineMetres } from '@realytica/shared';
@@ -26,7 +27,7 @@ function metres(m: number): string {
 /** "2023-05", as Google gives it, to "May 2023". Anything else is shown as it came. */
 function monthOf(imageDate: string): string {
   const [year, month] = imageDate.split('-').map(Number);
-  return year && month ? new Date(year, month - 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : imageDate;
+  return year && month ? monthYear(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`) : imageDate;
 }
 
 /**

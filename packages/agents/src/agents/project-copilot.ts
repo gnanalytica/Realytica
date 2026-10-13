@@ -17,7 +17,7 @@
  */
 
 import type { AgentStep, ChatAnswerCard, ChatAnswerPicks, ChatChoice, ChatPlace, ChatProposal, CockpitPathExtra, CopilotTurn, DdProject, MemContext, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
-import { CHAT_OUTCOMES, MEM_MARK_KINDS, chatAnswerCard, chatAnswerSaid, chatAnswerText, chatPicksFrom, chatPlaceLine, memMarkSaid, sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
+import { CHAT_OUTCOMES, CHAT_QUESTIONS, CHAT_QUESTION_SHAPES, MEM_MARK_KINDS, chatAnswerCard, chatAnswerSaid, chatAnswerText, chatPicksFrom, chatPlaceLine, chatQuestionAnswer, memMarkSaid, sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import { agentCapability, describeError } from '../client';
 import { basicChatModel } from '../config';
@@ -41,6 +41,28 @@ export const ANSWER_LANGUAGE_RULE =
   'The person may ask in Hindi, Kannada, Tamil, Telugu or any other language. Read the question in its own language. You write no answer in any language: you pick fields, records and marks, and the reply is printed from the record as the record holds it.';
 
 export const ANSWER_TOOL = 'answer_with_fields';
+
+/**
+ * The tool for the questions a person running a project asks: what is
+ * pending from a party, what changed in cost, what is late, what needs me,
+ * what is due, a cost figure by name. The model picks the shape and the
+ * party, package or figure. The server makes the card from the functions the
+ * screens read (`chatQuestionAnswer`), so a model composes no figure and the
+ * chat cannot say other than the page.
+ */
+export const QUESTION_TOOL = 'answer_question';
+
+export const QUESTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['shape'],
+  properties: {
+    shape: { type: 'string', enum: [...CHAT_QUESTION_SHAPES], description: CHAT_QUESTION_SHAPES.map((shape) => `${shape}: ${CHAT_QUESTIONS[shape].asks}`).join(' ') },
+    party: { type: 'string', description: 'papers_pending: the party or consultant the question names, in the person’s words. Leave out for every party.' },
+    figure: { type: 'string', description: 'figure: budget, forecast, paid, po issued or certified, or a field’s own label.' },
+    of: { type: 'string', description: 'figure: the package it is asked of, in the person’s words. Leave out for the whole report.' },
+  },
+} as const;
 
 /**
  * The rule for a function's fields, in one paragraph.
@@ -71,7 +93,8 @@ You never write an answer. You look things up with tools, and you answer by PICK
 
 How a turn goes:
 1. Read before you pick. get_project and get_sitting for where the file stands; get_fields for a function's field sheets (each field comes with its address); get_check_fields for a check's fields; search_registers for findings, risks, actions, decisions and papers by id; search_papers for what a paper says that no field holds (each passage comes with a mark, p1, p2 and on). A question may come with memory lines, each under a mark (m1, m2 and on).
-2. End every turn with exactly one call to ${ANSWER_TOOL}:
+1a. Some questions are answered for you. What is pending or owed from a party or consultant, what changed in cost and why, what is late or behind and when the work finishes, what waits on the person, what is due this period, and a cost figure by name (budget, forecast, paid, PO issued, certified): call ${QUESTION_TOOL} with the shape and the party, package or figure the person named, and stop. It is the only way to answer these. The reply is made from the same figures the pages show. Do not look these figures up, add them or pick fields for them yourself.
+2. End every other turn with exactly one call to ${ANSWER_TOOL}:
    - fields: the addresses (set, field, and record where the set repeats) of the fields that answer the question, copied from get_fields or get_check_fields.
    - records: the ids of the findings, risks, actions, decisions, milestones, checks or papers that answer it.
    - facts: the marks of the memory lines that answer it.
@@ -151,6 +174,8 @@ export interface RunProjectCopilotParams {
   model?: string;
   /** Give the model a way to hand the question to the senior model instead of answering it. */
   canHandOver?: boolean;
+  /** The person asking works from a grant. The firm's papers owed and what waits on its people are not theirs to be told. */
+  outside?: boolean;
 }
 
 export interface RunProjectCopilotResult {
@@ -235,7 +260,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
   const bag: ProjectAgentCollectors = { proposals: [], navigations: [], toolCalls: [], choices: [] };
   const model = params.model ?? route.model;
   const handOver = { reason: '' };
-  const answered: { picks?: ChatAnswerPicks } = {};
+  const answered: { picks?: ChatAnswerPicks; ruled?: ChatAnswerCard } = {};
   const tools: LlmClientTool[] = [
     ...createProjectTools(project, actor, bag, {
       sitting: params.sitting,
@@ -263,6 +288,20 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
           }),
         ]
       : []),
+    betaTool({
+      name: QUESTION_TOOL,
+      description: 'Answer one of the questions a person running a project asks, by its shape. The reply is made by the system from the project’s own lists, Cost Report and schedule. Call it once, and nothing after it.',
+      inputSchema: QUESTION_SCHEMA,
+      run: async (input) => {
+        const shape = CHAT_QUESTION_SHAPES.find((known) => known === input.shape);
+        if (!shape) return 'No such shape. Use answer_with_fields.';
+        if (params.outside && (shape === 'papers_pending' || shape === 'needs_me')) return 'Not available to this person. Use answer_with_fields with outcome not_on_record.';
+        // Only the shape and the names are read. The figures are the record's, worked out here.
+        answered.ruled = chatQuestionAnswer(project, { shape, ...(input.party?.trim() ? { party: input.party.trim() } : {}), ...(input.figure?.trim() ? { figure: input.figure.trim() } : {}), ...(input.of?.trim() ? { of: input.of.trim() } : {}) }).card;
+        bag.toolCalls.push({ name: QUESTION_TOOL, summary: shape.replace(/_/g, ' ') });
+        return 'Answered. Stop now.';
+      },
+    }),
     betaTool({
       name: ANSWER_TOOL,
       description: 'Answer the question by picking what answers it: field addresses, record ids, the marks of memory lines and of passages. The reply is printed from the record. Call it once, last.',
@@ -328,8 +367,9 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     });
     // The answer is what was picked, looked up on the record. A model that picked nothing answered nothing, whatever it wrote.
     const picks = answered.picks ?? chatPicksFrom(undefined);
-    const card = chatAnswerCard(project, picks, { remembered: params.remembered, passages: bag.passages });
-    card.said = chatAnswerSaid(card, { question, proposals: bag.proposals.length, choices: bag.choices.length, navigations: bag.navigations.length });
+    // A question of a known shape was answered by the server from the functions the screens read: that card is the answer, whatever else was picked.
+    const card = answered.ruled ?? chatAnswerCard(project, picks, { remembered: params.remembered, passages: bag.passages });
+    if (!answered.ruled) card.said = chatAnswerSaid(card, { question, proposals: bag.proposals.length, choices: bag.choices.length, navigations: bag.navigations.length });
     const text = chatAnswerText(card);
     const note = memMarkSaid(project, picks.mark);
     // What the answer cites: the records and papers its rows are, and those named in the text code printed.

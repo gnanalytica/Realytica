@@ -125,6 +125,14 @@ export interface GisOverlayHit {
   featureId?: string;
 }
 
+/** A hit's standing in words a page prints. The key itself is never shown. */
+export const OVERLAY_STANDING_LABEL: Record<GisOverlayHit['standing'], string> = {
+  context: 'Context',
+  survey: 'Survey',
+  record: 'Record',
+  statute_needed: 'Needs the official record',
+};
+
 export interface GisOverlayRead {
   notStatute: true;
   notEvidence: true;
@@ -507,7 +515,7 @@ function waterHits(
   return hits;
 }
 
-function landuseHit(pin: PlanningOverlayPin | null, features: GisContextFeature[]): GisOverlayHit | undefined {
+function landuseHit(pin: PlanningOverlayPin | null, features: GisContextFeature[], bengaluru = true): GisOverlayHit | undefined {
   if (!pin) return undefined;
   const origin = { lat: pin.lat, lng: pin.lng };
   for (const f of features) {
@@ -519,7 +527,7 @@ function landuseHit(pin: PlanningOverlayPin | null, features: GisContextFeature[
       severity: 'info',
       standing: 'context',
       featureId: f.id,
-      text: `OSM landuse at the pin is “${label}”. That is not the RMP 2015 hatch for this survey number. File the BDA/LPA extract on the land-use check.`,
+      text: `OSM landuse at the pin is “${label}”. That is not the ${bengaluru ? 'RMP 2015' : 'master plan'} hatch for this survey number. File the ${bengaluru ? 'BDA/LPA' : 'local planning authority’s'} extract on the land-use check.`,
     };
   }
   return undefined;
@@ -595,13 +603,15 @@ export function compareProjectGis(
       code: 'not_rmp',
       severity: 'info',
       standing: 'statute_needed',
-      text: 'This overlay intersects the pin (and a supplied survey sketch, if any) with OpenStreetMap and OpenCity civic layers (GBA wards, BBMP lakes). It does not georeference RMP map sheets. The land-use hatch still has to be read from the sheet or a certified extract.',
+      text: planning.inForce
+        ? 'This overlay intersects the pin (and a supplied survey sketch, if any) with OpenStreetMap and OpenCity civic layers (GBA wards, BBMP lakes). It does not georeference RMP map sheets. The land-use hatch still has to be read from the sheet or a certified extract.'
+        : `This overlay intersects the pin (and a supplied survey sketch, if any) with OpenStreetMap. ${planning.noPlan} The land-use hatch has to be read from the local planning authority’s sheet or a certified extract.`,
     },
     {
       code: 'not_drain_class',
       severity: 'info',
       standing: 'context',
-      text: 'OSM water is not the current BBMP/BDA drain map. Lake and rajakaluve class — and which buffer binds — is revised by NGT and court directions. Do not treat a blue OSM polygon as that classification.',
+      text: `OSM water is not the ${planning.inForce ? 'current BBMP/BDA' : 'local authority’s'} drain map. Lake and rajakaluve class — and which buffer binds — is revised by NGT and court directions. Do not treat a blue OSM polygon as that classification.`,
     },
   ];
 
@@ -659,7 +669,7 @@ export function compareProjectGis(
   }
 
   hits.push(...waterHits(pin, outlines, osmFeatures));
-  const landuse = landuseHit(pin, osmFeatures);
+  const landuse = landuseHit(pin, osmFeatures, Boolean(planning.inForce));
   if (landuse) hits.push(landuse);
 
   if (extra?.civic?.error) {
@@ -716,7 +726,8 @@ export function compareProjectGis(
     });
   }
 
-  const dpplansHint = pin
+  // A third-party viewer of Bengaluru's plan, and Bengaluru's withdrawn draft, are named only where Bengaluru's plan is the one in force.
+  const dpplansHint = pin && planning.inForce
     ? `DPPlans is a paid third-party viewer, not the sanctioned sheet. You can search ${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)} there yourself; do not scrape or file their JPEG as this project's extract.`
     : undefined;
   if (dpplansHint) {
@@ -724,7 +735,7 @@ export function compareProjectGis(
   }
 
   const hay = [project.location, project.siteAddress, project.city, project.name].filter(Boolean).join(' ');
-  const matchedSheets = matchNamedResources(extra?.withdrawnSheets ?? [], hay);
+  const matchedSheets = planning.inForce ? matchNamedResources(extra?.withdrawnSheets ?? [], hay) : [];
   const withdrawnSheets = matchedSheets.map((s) => ({ ...s, standing: 'withdrawn' as const }));
   for (const sheet of withdrawnSheets) {
     hits.push({

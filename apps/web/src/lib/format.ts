@@ -1,4 +1,4 @@
-import { daySaid, formatMoney, looksLikeDay, percentSaid, type CurrencyCode, type ConfidenceBand, type DocumentKind } from '@realytica/shared';
+import { daySaid, formatMoney, formatMoneyIn, formatMoneyInFull, looksLikeDay, moneyUnitFor, percentSaid, personSaid, type CurrencyCode, type ConfidenceBand, type DdProject, type DocumentKind, type FieldCurrency, type MoneyUnit } from '@realytica/shared';
 
 // English-language UI, so euro figures use an English euro locale (en-IE) rather
 // than nl-NL — "€7.140/m²" in Dutch grouping reads as seven euros to everyone else.
@@ -36,6 +36,78 @@ export function money(value: number | null | undefined, currency: CurrencyCode, 
   }).format(value);
 }
 
+/** The currencies the one formatter writes. Anything else is written in full with its code before it. */
+const WRITTEN: readonly string[] = ['INR', 'EUR', 'USD', 'AED'];
+
+/**
+ * A price, a rate or a total in words, in whatever currency a record names.
+ * The one rupee formatter writes it (`formatMoney`): to the rupee below a
+ * lakh, in lakh and crore to two places above. No page builds an amount out
+ * of a sign and `toLocaleString` for itself; `test/format-lint.test.ts` fails
+ * on one that does.
+ */
+export function amount(value: number | null | undefined, currency: string = 'INR'): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  if (WRITTEN.includes(currency)) return formatMoney(Math.round(value), currency as FieldCurrency, currency === 'INR' ? 2 : 0);
+  return `${value < 0 ? '\u2212' : ''}${currency} ${grouped(Math.abs(Math.round(value)))}`;
+}
+
+/** A whole figure with its thousands marked, where no unit of money is meant: an area, a count. */
+export function grouped(value: number, places = 0): string {
+  return value.toLocaleString('en-IN', { maximumFractionDigits: places });
+}
+
+/**
+ * A column of money: the unit every row of it is written in, chosen once
+ * from all its amounts (its total among them), and each cell's words with
+ * the figure in full for its title. Crore and lakh are to two places.
+ */
+export function moneyColumn(amounts: ReadonlyArray<number | null | undefined>, currency: string = 'INR'): { unit: MoneyUnit; cell: (value: number | null | undefined) => { text: string; title: string } } {
+  const written = WRITTEN.includes(currency) ? (currency as FieldCurrency) : undefined;
+  const unit = written ? moneyUnitFor(amounts, written) : 'rupees';
+  return {
+    unit,
+    cell: (value) => {
+      if (value === null || value === undefined || Number.isNaN(value)) return { text: '—', title: '' };
+      if (!written) return { text: amount(value, currency), title: amount(value, currency) };
+      return { text: formatMoneyIn(value, unit, written), title: formatMoneyInFull(value, written) };
+    },
+  };
+}
+
+/** "Oct 2026": the month a day is in, written as every day is. */
+export function monthYear(when: string | Date | null | undefined): string {
+  const said = when instanceof Date || when ? daySaid(when) : '';
+  const parts = said.split(' ');
+  return parts.length === 3 ? `${parts[1]} ${parts[2]}` : said;
+}
+
+/** "13 Oct": a day with its year left off, where the year is plain from the page. */
+export function dayMonth(when: string | Date | null | undefined): string {
+  const said = when instanceof Date || when ? daySaid(when) : '';
+  const parts = said.split(' ');
+  return parts.length === 3 ? `${parts[0]} ${parts[1]}` : said;
+}
+
+/** "13 Oct 2026, 14:05": a moment, as the day is written everywhere, with the time it was in India. */
+export function dayTime(when: string | Date | null | undefined): string {
+  if (!when) return '—';
+  const at = when instanceof Date ? when : new Date(when);
+  if (Number.isNaN(at.getTime())) return String(when);
+  if (isAbsentTimestamp(at.getTime())) return 'Shipped with the build';
+  const local = new Date(at.getTime() + 330 * 60_000);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${daySaid(at)}, ${two(local.getUTCHours())}:${two(local.getUTCMinutes())}`;
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** The day of the week a day falls on, as a word. A day written as a day (`2026-10-13`) is that day wherever it is read. */
+export function weekday(when: string | Date): string {
+  const at = when instanceof Date ? new Date(when.getTime() + 330 * 60_000) : new Date(`${when.slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(at.getTime()) ? '' : WEEKDAYS[at.getUTCDay()]!;
+}
+
 function trim(n: number): string {
   const r = n >= 100 ? Math.round(n) : Math.round(n * 10) / 10;
   return String(r);
@@ -43,8 +115,7 @@ function trim(n: number): string {
 
 export function perSqm(value: number | null | undefined, currency: CurrencyCode): string {
   if (value === null || value === undefined) return '—';
-  const symbol = currency === 'INR' ? '₹' : '€';
-  return `${symbol}${Math.round(value).toLocaleString(LOCALE[currency])}/m²`;
+  return `${amount(value, currency)}/m²`;
 }
 
 /** A percentage: at most two decimals, and its sign against the figure. */
@@ -113,11 +184,20 @@ export function readingSaid(display: string): string {
 /**
  * Who did something, as a page says it. With sign-in off every request is
  * the machine's own operator, whose address is not a person's and is not
- * printed: it reads "the local operator".
+ * printed: whoever is at the machine did it, so it reads "you".
  */
 export function person(who: string | null | undefined): string {
   if (!who) return '';
-  return /@localhost$/i.test(who.trim()) ? 'the local operator' : who;
+  return /@localhost$/i.test(who.trim()) ? 'you' : who;
+}
+
+/**
+ * Who typed, accepted, issued or took something, as a line names them: the
+ * name the project's team gives them, else the name part of their address.
+ * No line prints an address.
+ */
+export function personNamed(project: Pick<DdProject, 'team'> | undefined, who: string | null | undefined): string {
+  return person(personSaid(project, who ?? undefined));
 }
 
 export function relativeTime(iso: string | null | undefined): string {

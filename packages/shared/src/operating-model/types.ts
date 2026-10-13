@@ -351,6 +351,8 @@ export interface FieldAddress {
   field: string;
   column?: string;
   record?: string;
+  /** One period of a set kept by period, by its key (`2026-09`, `FY2026-Q2`): the field as that period holds it. Absent, the open one. */
+  period?: string;
 }
 
 export type Dimension = 'area' | 'length' | 'volume' | 'mass' | 'money' | 'time' | 'count' | 'ratio';
@@ -586,7 +588,11 @@ export interface FieldSet {
   fields: CheckFieldDef[];
   rules: CheckInsightRule[];
   sections?: FieldSection[];
-  records?: { of: string; titleField: string; summaryFields: string[] };
+  /**
+   * `dated` names the date field that says which day a record describes (a drawdown's disbursal, a receipt's day), where
+   * the set has more than one date: a period holds the records that describe a day in it, whenever they were typed.
+   */
+  records?: { of: string; titleField: string; summaryFields: string[]; dated?: string };
   /** The situations this set's fields answer to. Declared here so a catalog is one file. */
   situations?: Situation[];
   /** The shared lists this set's fields choose from. */
@@ -601,6 +607,8 @@ export interface FieldSet {
   sheets?: DepthSheet[];
   /** The reports this set's function hands over, each an ordered list of sections. See `report-fields.ts`. */
   reports?: FieldReportTemplate[];
+  /** Kept by period: opened from the last, compared with it, due, and issued by a named person (`field-periods.ts`). */
+  periodic?: Periodic;
 }
 
 /**
@@ -616,9 +624,27 @@ export type FieldReportSection =
   | { heading: string; fields: Array<string | FieldAddress>; layout?: 'list' | 'table' }
   | { heading: string; table: string | FieldAddress; columns?: string[] }
   | { heading: string; records: string; columns?: string[] }
-  | { heading: string; chart: { of: string | FieldAddress | { records: string }; x: string; y: string; mark?: 'bar' | 'line' } }
+  /** `of: { periods }` draws one field of a set kept by period, period by period: `y` is the field, `x` is not read, and `moved` draws what each period added to a running total. */
+  | { heading: string; chart: { of: string | FieldAddress | { records: string } | { periods: string }; x: string; y: string; mark?: 'bar' | 'line'; moved?: true } }
   | { heading: string; note: { maxLength: number; hint?: string } }
+  | { heading: string; photos: ReportPhotosAsk }
   | { heading: string; register: ReportBoundSource };
+
+/**
+ * The photographs a report section prints, by place and period: the shots of
+ * named stations, or of every station at a place, for the period the report
+ * is of, alone or beside the period before. Resolved by code
+ * (`photo-report.ts`); nobody ticks them.
+ */
+export interface ReportPhotosAsk {
+  stations?: string[];
+  place?: import('./capture').PhotoPlace;
+  show: 'period' | 'period_and_last';
+  /** The most stations printed. */
+  most: number;
+  /** The length of a period. A month where left out. */
+  every?: 'week' | 'month' | 'quarter';
+}
 
 /** A report a function hands over: its sections in order. A person may then arrange them. */
 export interface FieldReportTemplate {
@@ -668,6 +694,120 @@ export type FieldOrigin =
   | { kind: 'person' }
   | { kind: 'default'; from: DefaultRule['from']; cite?: string };
 
+/**
+ * A value a field held before the one it holds now: what stood, who made it
+ * stand and from when, and when it stopped standing. Only what stood is kept:
+ * a value somebody offered, one in dispute and a usual value standing in
+ * never enter. A table keeps how many rows it had, never the rows.
+ */
+export interface FieldPast {
+  value: string | number | boolean | string[] | null;
+  /** A table's rows, counted. */
+  rows?: number;
+  entered?: { value: number; unit: string; text?: string };
+  state: 'accepted' | 'typed' | 'not_applicable' | 'empty';
+  /** Where it came from, its quoted words cut to 80 characters. */
+  origin?: FieldOrigin;
+  /** Who made it stand, and when. */
+  by: string;
+  at: string;
+  /** When it stopped standing. */
+  until: string;
+  /** Entries that came after this one were thinned out: between `until` and the next entry kept, the record no longer says what stood. */
+  thinnedAfter?: true;
+}
+
+/**
+ * How often a set is kept: by the week, the month, the quarter or the year, or
+ * once for each record of another set (a lender's engineer reports once for
+ * each drawdown). `on` names that record's own day, which the instance is due
+ * from.
+ */
+export type PeriodEvery = 'week' | 'month' | 'quarter' | 'year' | { event: string; on?: string };
+
+/**
+ * Rows that explain a figure of a period: dated rows of a table or of another
+ * set's records, summed where their day falls inside the period. They explain
+ * how far the figure moved since the last period (`movement`, the default) or
+ * the period's own amount (`amount`: the month's collections against the
+ * receipts dated in it). What they leave is "unexplained".
+ */
+export interface PeriodAttribute {
+  field: string;
+  rows: FormulaRows;
+  date: string;
+  amount: string;
+  label: string;
+  of?: 'movement' | 'amount';
+}
+
+/**
+ * A set kept by period (docs/fields.md, Periods).
+ *
+ * On a set that repeats, with `by`, each record is one period's instance: the
+ * month a cash record is for, the quarter a certificate covers. On a sheet
+ * held once, the sheet is the open period and each period issued is kept
+ * beside it, frozen (`StoredFieldSheet.periods`).
+ */
+export interface Periodic {
+  every: PeriodEvery;
+  /** On a set that repeats: the field that names the period. A date, the year as written, or for `event` the link to the event's record. */
+  by?: string;
+  /** On a set that repeats: fields that tell one instance from another inside a period (the certificate's kind, the building). */
+  per?: string[];
+  /** Keys copied from the last instance when a new one is opened; the rest open blank. */
+  carry?: string[];
+  /** Keys that are running totals: what moved in the period is this less the last. */
+  cumulative?: string[];
+  /** When the period is due after it ends: so many days, or a rule row that gives the days or months. */
+  due: { days: number } | { rate: string };
+  /** Who issues it: a lead of the department (a signer may too), its signer, or an outside party whose name is then given. */
+  issuer: 'lead' | 'signer' | OwedRole;
+  attribute?: PeriodAttribute[];
+  /** The option set a person picks from for what the rows do not explain. Never prose. */
+  reasons?: string;
+}
+
+/** One field of a period as it read when the period was issued: its value, how it printed, and the footnote it carried. */
+export interface FrozenField {
+  value: CheckFieldValue['value'];
+  said: string;
+  footnote?: string;
+  /** The paper the footnote cites, so a copy that does not hold the paper does not hold the footnote. */
+  evidenceId?: string;
+  /** Worked out, a standing or a mirror: nobody entered it. */
+  derived?: true;
+  tone?: Tone;
+  /**
+   * Frozen as it read on the day of issue, not as at the period's last day: the record's history did not reach that
+   * day for it, or the module that keeps the figure keeps no past. The day its history begins, or `AS_NOW_NO_HISTORY`.
+   */
+  asNow?: string;
+}
+
+/** One issued period of a sheet held once: every field as it read at issue. The open period is the sheet itself. */
+export interface FieldPeriod {
+  /** `2026-09`, `FY2026-Q2`, `2026-W41`. */
+  key: string;
+  /** Its first and last day, inclusive. */
+  from: string;
+  to: string;
+  status: 'open' | 'issued';
+  /** What the sheet stored of the period: the typed and accepted fields. */
+  values: Record<string, CheckFieldValue>;
+  /** Every field in play at issue, the worked-out ones among them. */
+  frozen?: Record<string, FrozenField>;
+  openedAt: string;
+  openedBy: string;
+  issuedAt?: string;
+  issuedBy?: string;
+  issuedName?: string;
+  /** The issue of the same period this one corrects, by its `issuedAt`. */
+  revises?: string;
+  /** What a person picked for a figure's unexplained movement, by field key. */
+  reasons?: Record<string, string>;
+}
+
 /** One record of a set that repeats. */
 export interface FieldRecord {
   id: string;
@@ -676,6 +816,16 @@ export interface FieldRecord {
   by: string;
   /** Taken off the list. Kept, with who took it off. */
   removed?: { by: string; at: string };
+  /** On a set kept by period: issued by a named person. An issued record is never edited; a correction is a revision kept beside it. */
+  issued?: { by: string; at: string; name?: string };
+  /** Every field as it read at issue, the worked-out ones among them. */
+  frozen?: Record<string, FrozenField>;
+  /** The issued record this one corrects. Until this one is issued the other stands; once it is, this one does. */
+  revises?: string;
+  /** The fields filled from the last period when this one was opened, and the period they came from. */
+  carried?: { from: string; at: string; keys: string[] };
+  /** What a person picked for a figure's unexplained movement, by field key. */
+  reasons?: Record<string, string>;
 }
 
 /** What a project holds for one field set. */
@@ -684,6 +834,12 @@ export interface StoredFieldSheet {
   records?: FieldRecord[];
   /** Sections marked not applicable, each with the reason. */
   na?: Record<string, { reason: NaReason | string; note?: string; by: string; at: string }>;
+  /** On a sheet kept by period: the periods issued, each frozen. The sheet itself is the open one. */
+  periods?: FieldPeriod[];
+  /** The period the sheet is open on, and what it carried from the last. */
+  open?: { key: string; openedAt: string; openedBy: string; carried?: { from: string; keys: string[] }; reasons?: Record<string, string> };
+  /** On a reading of the project as at a past day: the issued period that covers the day, whose frozen fields are what the sheet reads. Never stored. */
+  asIssued?: Pick<FieldPeriod, 'key' | 'frozen' | 'issuedAt' | 'issuedBy' | 'issuedName'>;
 }
 
 /** A line under Due soon put off by a person until a day. It comes back that day, or sooner if it starts failing. */
@@ -732,9 +888,18 @@ export type CheckFormula =
    * A figure another part of the product already works out: progress from
    * the milestones, the last day on the site log, a package's award. Read,
    * never entered here (`field-figures.ts`). `of` names one of this set's own
-   * links, where the figure is of one thing: a work package.
+   * links, where the figure is of one thing: a work package, a building.
+   * `asAt` names one of this holder's own dates: the figure is then read as
+   * the project stood when that day ended, where the day has gone by (the
+   * progress a quarter's row reports is the progress at the quarter's end).
    */
-  | { op: 'figure'; key: string; of?: string }
+  | { op: 'figure'; key: string; of?: string; asAt?: string }
+  /**
+   * How far a figure of this holder has moved: what it is now less what it was. `last_period` is since the last period
+   * issued of a set kept by period; `{ days }` is since so many days ago, read from the record as it stood then. No
+   * answer where the record does not reach that far: a movement nobody can tell is not nought.
+   */
+  | { op: 'moved'; key: string; since: 'last_period' | { days: number } }
   /** Over the records of a set that repeats: how many there are, or one numeric field of theirs summed. */
   | { op: 'records'; set: string; reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct'; field?: string }
   /**
@@ -855,7 +1020,7 @@ export interface CheckFieldDef {
   cases?: Array<{ when: CheckInsightRule; label: string; tone: Tone }>;
   otherwise?: { label: string; tone: Tone };
   /** `evidence` only: how the file is shown. */
-  viewer?: 'pdf' | 'image' | 'drawing' | 'deed' | 'ifc';
+  viewer?: 'pdf' | 'image' | 'drawing' | 'deed' | 'ifc' | 'series';
   /** `table` only: drawn as a timeline, as two columns matched, or as a chart. */
   display?: 'timeline' | 'match' | 'chart';
   /**
@@ -881,6 +1046,12 @@ export interface CheckFieldDef {
   retired?: true;
   /** The version of its set that introduced it. */
   since?: number;
+  /**
+   * How the field is drawn over time, inside the popover its label opens: a line or bars, one point a period (`periods`,
+   * on a set kept by period or a figure that keeps readings) or one for each value it has held (`history`). `against`
+   * names a second field of the same holder drawn beside it: planned against actual. `last` keeps the latest so many.
+   */
+  trend?: { over: 'history' | 'periods'; mark: 'line' | 'bar'; against?: string; last?: number };
   /** The kinds of paper that state it, by the register's document type. A paper of one of these kinds filed on the project offers its value here. */
   fromTypes?: string[];
   /** The key a paper's reading files the value under, where it is not this field's own. */
@@ -956,7 +1127,16 @@ export interface CheckFieldValue {
   /** A worked-out zero that is a sum over nothing entered: no rule fires on it and no standing is drawn from it. Never stored: set when the value is resolved. */
   overNothing?: boolean;
   /** What the field held when it was marked not applicable: put back as it was when the field is asked again. */
-  was?: Omit<CheckFieldValue, 'was'>;
+  was?: Omit<CheckFieldValue, 'was' | 'history'>;
+  /** What stood here before, newest first, at most twenty-four (`field-history.ts`). Written only by `stand`. */
+  history?: FieldPast[];
+  /** From when the value held has stood, where that is neither `acceptedAt` nor `at`: kept after a dispute, asked again after not applicable. */
+  since?: string;
+  /**
+   * On a reading of the project as at a past day: the record does not reach that day for this value, and it is today's.
+   * The day history of it begins. Never stored: set by `projectAsAt`, and carried onto whatever is worked out from it.
+   */
+  asNow?: string;
 }
 
 /**
@@ -1541,8 +1721,12 @@ export type ReportBoundSourceKind =
   | 'observations'
   | 'questionnaire'
   | 'requirement_sheet'
+  /** The count a consultant keeps at the foot of a tracked list: by package, how many papers are received, partial, to be assumed and pending. */
+  | 'information_status'
   | 'risk_summary'
   | 'site_photographs'
+  /** The photographs of stations or of a place for a period, alone or beside the period before: resolved by code. */
+  | 'station_photographs'
   /** The three sections of a status report: what changed in a period, what is waiting, what comes next. */
   | 'status_changed'
   | 'status_waiting'
@@ -1593,6 +1777,18 @@ export interface ReportBoundSource {
   x?: string;
   y?: string;
   mark?: 'bar' | 'line';
+  /** `field_chart`: a set kept by period, by its id, in place of a table or records. The chart draws its field `y` period by period. */
+  periods?: string;
+  /** `field_chart` over periods: draw what each period added to a running total, in place of the total. */
+  moved?: boolean;
+  /**
+   * Fields, tables and charts of fields: the day the section is read as at, as `YYYY-MM-DD`. Absent, it reads the
+   * record as it stands. A report made for a period sets it to the period's last day. On `station_photographs` it is
+   * the day whose period the photographs are of.
+   */
+  asAt?: string;
+  /** `station_photographs`: which stations or place, and whether the period before is printed beside. The period is `from` and `to` where given, else the one today falls in. */
+  photos?: ReportPhotosAsk;
 }
 
 export type ReportBlockOrigin = 'derived' | 'authored';
@@ -1678,6 +1874,8 @@ export interface ReportTable {
     recordId?: string;
     /** Photographs and documents that stand behind the row, printed after the table. */
     evidenceIds?: string[];
+    /** A photograph still only in the site log, where the row is one: the entry and its place in it. */
+    sitePhoto?: { entryId: string; index: number };
     /** The row's words are a model's wording of the line code wrote. */
     worded?: boolean;
     /** The field the row prints, on a block that reads fields. */
@@ -2619,6 +2817,8 @@ export interface DdProject {
   requests?: ProjectRequest[];
   /** The project's own checklist of papers, loaded from a list somebody sent. Absent on a project that has none. */
   checklist?: import('./checklist').ChecklistItem[];
+  /** The tender forms loaded, each with the Tender terms record it fills and the rows a client marked not applicable that wait on a person. */
+  tenderForms?: import('./tender-form').TenderFormLoaded[];
   /** The day of the month reports are prepared on without being asked, and what the timer has prepared. Absent on a project that never set one. */
   reportDay?: import('./report-day').ReportDay;
   /** Owner packs kept as they read when prepared, each waiting to be issued or issued and frozen. */
@@ -2724,6 +2924,12 @@ export interface DdProject {
    * unanswered and the check says so.
    */
   karnataka?: KarnatakaAttributes;
+  /**
+   * A person said the project's approvals are held outside this record. While
+   * nothing is recorded of them here, nothing is said to be missing
+   * (`approvalsStanding`). Gone once they say otherwise.
+   */
+  approvalsElsewhere?: { by: string; at: string };
   /** Last property-screen snapshot. The engine writes registers; this is the headline. */
   lastScreen?: ProjectScreenSnapshot;
   /**
@@ -2815,6 +3021,10 @@ export interface DdProject {
    * any more is kept as it is.
    */
   fieldSheets?: Record<string, StoredFieldSheet>;
+  /** The moment from which every change to a field's standing value is kept as history: the project's making, or its first change after history was kept. Before it, a past day reads as now and says so. */
+  historyFrom?: string;
+  /** On a reading of the project as at a past day (`projectAsAt`): the day. Never stored, and never on the project itself. */
+  asAt?: string;
   /** The situations in play, by key. A function's own is kept under `<fn>:<key>`. */
   situations?: Record<string, SituationState>;
   /** Lines under Due soon a person put off, by the line's key. Absent on a project where nobody has. */
@@ -2829,6 +3039,8 @@ export interface DdProject {
   cost?: import('./cost').CostRegister;
   /** Finance › Budget: monthly Cost Reports — the editable figure of record for cost monitoring. See `cost-report.ts`. */
   costReports?: import('./cost-report').CostReportPeriod[];
+  /** Finance › Budget: cost reports filed as papers, each with the rows its tables offer to the Cost Report and what a person decided of them. See `cost-import.ts`. */
+  costPapers?: import('./cost-import').CostPaper[];
   /** Procurement › Tenders: each work package from tender papers to a signed contract, with its bidders. Withheld from a grant that does not name Procurement. See `tenders.ts`. */
   procurement?: import('./tenders').ProcurementRegister;
   /** What the team should hear about; raised and resolved from the project's state. */
@@ -2935,6 +3147,8 @@ export interface PatchProjectInput {
    * of a property when it is two.
    */
   karnataka?: KarnatakaAttributes;
+  /** The approvals are held outside this record (true), or are to be recorded here after all (false). */
+  approvalsElsewhere?: boolean;
 }
 
 export interface CreateAssetInput {
@@ -3078,7 +3292,7 @@ export interface GenerateReportInput {
   kind: ReportKind;
   assessmentIds?: string[];
   generatedBy: string;
-  /** For a status report: the period it covers, and who it is written for. The week so far when left out. */
+  /** For a status report: the period it covers, and who it is written for. The week so far when left out. For a function's report: the period it is for, whose last day its fields are read as at. */
   period?: { from: string; to: string };
   audience?: string;
   /** For a function's report: the template it is laid out from, by id. */

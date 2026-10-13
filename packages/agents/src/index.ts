@@ -25,6 +25,7 @@ export * from './agents/voice-note';
 export * from './transcribe';
 export * from './agents/status-wording';
 export * from './agents/template-fields';
+export * from './agents/cost-rows';
 export * from './agents/plan-proposal';
 export * from './agents/review-answers';
 export * from './agents/outgoing-draft';

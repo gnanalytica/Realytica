@@ -33,12 +33,15 @@ import { waitingOnCanvas } from './cockpit';
 import { functionOfDocument, papersOwedOpen } from './chat-places';
 import { checklistOwed } from './checklist';
 import { requirementSheet } from './requirement-sheet';
-import { compareCostReports, costReportDecisions } from './cost-report-compare';
-import { costReportIssuedBefore, costReportPeriodOrder, costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
+import { costReportDecisions, packageAwaitsNoAward } from './cost-report-compare';
+import { costReportPeriodOrder, costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
 import { costRegister, moneySaid } from './cost';
+import { costPapersOf } from './cost-import';
+import { fieldsNeeding } from './field-sheets';
+import { COST_REPORT_PERIODS, periodSeries } from './sheet-periods';
 import { scheduleWatch, type ScheduleLevel } from './milestone-schedule';
 import { openAlerts, type AlertSeverity } from './alerts';
-import { DEPARTMENT_SHORT, functionDepartment, menuDepartment, menuDepartmentsOf, workstreamOfCheck, type DepartmentKey } from './departments';
+import { DEPARTMENT_SHORT, functionDepartment, menuDepartment, menuDepartmentsOf, workstreamDefinition, workstreamOfCheck, type DepartmentKey } from './departments';
 import { departmentRole, projectDepartments } from './team';
 import { allChecks } from './engagements';
 import { documentWorkstream } from './vault';
@@ -184,6 +187,23 @@ export interface AcrossScheduleLine {
   extensionLikely: boolean;
   /** Milestones late, behind or slipping. */
   warned: AnalyticsFigure;
+  /** Progress planned against progress made, month by month, the latest last (`ACROSS_SCHEDULE_SERIES`). Absent where the schedule gives no months. */
+  curve?: Array<{ key: string; label: string; planned: number | null; actual: number | null }>;
+  /** The latest month that has a figure made, in a line: "September 2026: 42% made against 48% planned". */
+  curveSaid?: string;
+}
+
+/** Units sold on one project, period by period (`ACROSS_SOLD_SERIES`). */
+export interface AcrossSalesLine {
+  projectId: string;
+  projectName: string;
+  /** Each period the stock sheet issued, then the sheet as it reads now, the latest last. */
+  points: Array<{ key: string; label: string; value: number | null; open: boolean }>;
+  /** The latest count. */
+  sold: number | null;
+  /** The latest less the one before, and which period that was. */
+  movement?: number;
+  previousLabel?: string;
 }
 
 /** What one party owes, on every project. `party` is absent for the papers nobody is named for. */
@@ -215,6 +235,10 @@ export interface AcrossProjects {
     lines: AcrossScheduleLine[];
     extensions: AnalyticsFigure;
   };
+  /** Units sold by period, on the projects that keep the week's stock by period. */
+  sales: {
+    lines: AcrossSalesLine[];
+  };
   papers: {
     owed: number;
     parties: AcrossParty[];
@@ -243,6 +267,25 @@ const ALERT_SEVERITY_ORDER: Record<AlertSeverity, number> = { critical: 0, warni
 
 const LEVEL_SAID: Record<ScheduleLevel, string> = { late: 'Late', behind: 'Behind', slipping: 'Slipping' };
 
+/**
+ * The figures read across projects period by period, each by the address a set kept by period answers to
+ * (`periodSeries`). A short list, and no code of its own for any of them: the Cost Report's forecast and its budget.
+ */
+export const ACROSS_SERIES = [
+  { set: COST_REPORT_PERIODS, field: 'anticipatedCost' },
+  { set: COST_REPORT_PERIODS, field: 'budget' },
+] as const;
+
+/** Progress planned and progress made, month by month: the two figures of the programme a schedule line is drawn from. */
+export const ACROSS_SCHEDULE_SERIES = [
+  { set: 'construction.progress.programme', field: 'planned_percent' },
+  { set: 'construction.progress.programme', field: 'actual_percent' },
+] as const;
+/** Units sold, week by week, where the project keeps the week's stock. */
+export const ACROSS_SOLD_SERIES = { set: 'commercial.inventory.stock', field: 'units_sold' } as const;
+/** The most periods a line across projects carries. */
+export const ACROSS_SERIES_MOST = 12;
+
 function lastIssued(project: Pick<DdProject, 'costReports'>): CostReportPeriod | undefined {
   return costReportsOf(project)
     .filter((report) => report.status === 'issued')
@@ -266,6 +309,7 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
   const costLines: AcrossCostLine[] = [];
   const notIssued: AnalyticsRow[] = [];
   const scheduleLines: AcrossScheduleLine[] = [];
+  const salesLines: AcrossSalesLine[] = [];
   const extensions: AnalyticsRow[] = [];
   const parties = new Map<string, { party?: string; rows: AnalyticsRow[] }>();
   const alertKinds = new Map<string, { rows: AnalyticsRow[]; critical: number; worst: number }>();
@@ -288,8 +332,10 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
     const report = lastIssued(project);
     if (report) {
       const totals = costReportTotals(report);
-      const previous = costReportIssuedBefore(project, report);
-      const comparison = previous ? compareCostReports(previous, report, costRegister(project).bills) : undefined;
+      // The forecast and the budget month by month, as any figure kept by period is read (`ACROSS_SERIES`): the last point is this
+      // report's, and the one before it is what the forecast has moved from.
+      const [forecast, budget] = ACROSS_SERIES.map((address) => periodSeries(project, address, now));
+      const [latest, before] = [forecast!.at(-1), forecast!.at(-2)];
       const source = reportSaid(report);
       const asks = costReportDecisions(report);
       const overBudget = asks.overBudget.map((pack) => ({
@@ -304,13 +350,14 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
         currency: project.currency,
         reportId: report.id,
         reportLabel: report.label,
-        budget: totals.budget,
-        forecast: totals.anticipatedCost,
+        budget: budget!.at(-1)?.value ?? totals.budget,
+        forecast: latest?.value ?? totals.anticipatedCost,
         over: totals.anticipatedVariance,
-        ...(comparison && previous ? { movement: comparison.totals.figures.anticipatedCost.change, previousLabel: previous.label } : {}),
+        ...(latest && before && latest.value !== null && before.value !== null ? { movement: Math.round((latest.value - before.value) * 100) / 100, previousLabel: before.period.label } : {}),
         overBudget: figure(overBudget),
       });
       decisions.push(...overBudget);
+      // A contingency, a fee or an allowance awaits no award: only work to be let waits on the owner.
       for (const pack of asks.unawarded) {
         decisions.push({ ...base(project), title: `Not awarded: ${pack.code ? `${pack.code} ` : ''}${pack.name}`, detail: `Budget ${money(pack.budget)}, no PO issued`, source, ...BUDGET_PLACE });
       }
@@ -339,8 +386,15 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
           source: 'the milestone on the progress board',
           ...PROGRESS_PLACE,
         }));
+      // Planned against made, month by month, as any figure kept by period is read.
+      // The months that have begun: the plan runs on past today, and what is not yet due to be made is no line here.
+      const [planned, made] = ACROSS_SCHEDULE_SERIES.map((address) => periodSeries(project, address, now).filter((point) => point.period.from <= today).slice(-ACROSS_SERIES_MOST));
+      const curve = (made ?? []).map((point) => ({ key: point.period.key, label: point.period.label, planned: planned?.find((held) => held.period.key === point.period.key)?.value ?? null, actual: point.value }));
+      const latest = [...curve].reverse().find((point) => point.actual !== null);
       scheduleLines.push({
         ...base(project),
+        ...(curve.length ? { curve } : {}),
+        ...(latest ? { curveSaid: `${latest.label}: ${latest.actual}% made${latest.planned !== null ? ` against ${latest.planned}% planned` : ''}` } : {}),
         milestones: watch.milestones.length,
         ...(watch.plannedCompletion ? { plannedCompletion: watch.plannedCompletion } : {}),
         ...(watch.projectedCompletion ? { projectedCompletion: watch.projectedCompletion } : {}),
@@ -360,6 +414,19 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
         extensions.push(row);
         decisions.push(row);
       }
+    }
+
+    /* ---- Units sold ---- */
+    const sold = periodSeries(project, ACROSS_SOLD_SERIES, now, undefined, ACROSS_SERIES_MOST);
+    // Only where the week's stock has been issued at least once: a count with no past is no series.
+    if (sold.some((point) => point.status === 'issued')) {
+      const [last, before] = [sold.at(-1)!, sold.at(-2)];
+      salesLines.push({
+        ...base(project),
+        points: sold.map((point) => ({ key: point.period.key, label: point.period.label, value: point.value, open: point.status === 'open' })),
+        sold: last.value,
+        ...(before && last.value !== null && before.value !== null ? { movement: last.value - before.value, previousLabel: before.period.label } : {}),
+      });
     }
 
     /* ---- Papers owed ---- */
@@ -457,6 +524,7 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
       lines: scheduleLines.sort((a, b) => Number(b.extensionLikely) - Number(a.extensionLikely) || (b.projectedDaysLate ?? 0) - (a.projectedDaysLate ?? 0) || a.projectName.localeCompare(b.projectName)),
       extensions: figure(extensions),
     },
+    sales: { lines: salesLines.sort((a, b) => a.projectName.localeCompare(b.projectName)) },
     papers: {
       owed,
       parties: [...parties.values()]
@@ -560,6 +628,24 @@ export function departmentAnalytics(project: DdProject, now: Date): DepartmentAn
       pane: entry.pane,
       ...(entry.extra ? { extra: entry.extra } : {}),
     });
+  }
+
+  // What a paper or a form offered onto a function's sheets, and the situations it proposed: the same count Overview's "Needs you" makes (`projectBrief`), under the department that keeps the function, so the two never disagree.
+  for (const row of fieldsNeeding(project, now)) {
+    const offered = row.counts.proposed + row.counts.situation;
+    if (!offered) continue;
+    const held = bucket(functionDepartment(row.fn));
+    held.waitingCount += offered;
+    held.waiting.push({ ...base(project), title: workstreamDefinition(row.fn)?.label ?? row.fn, detail: `${plural(offered, 'value', 'values')} offered on its sheets`, source: 'the function’s sheets', pane: 'workstream', extra: { workstream: row.fn, section: 'sheet' } });
+  }
+  // Rows a cost report offered to the Cost Report, on a paper still on the file.
+  const costRows = costPapersOf(project)
+    .filter((paper) => papers.has(paper.evidenceId))
+    .reduce((sum, paper) => sum + paper.offers.filter((offer) => offer.status === 'offered').length, 0);
+  if (costRows) {
+    const held = bucket('finance');
+    held.waitingCount += costRows;
+    held.waiting.push({ ...base(project), title: 'Cost Report', detail: `${plural(costRows, 'row', 'rows')} a cost report offered`, source: 'the cost report on file', pane: 'workstream', extra: { workstream: 'finance.budget' } });
   }
 
   /* ---- Actions ---- */

@@ -104,7 +104,7 @@ describe('Law and Liaison’s catalog', () => {
       'legal.contracts.attorneys',
       'legal.contracts.sale_agreement',
     ]);
-    assert.deepEqual(byFn('legal.rera'), ['legal.rera.registration', 'legal.rera.phases', 'legal.rera.compliance', 'legal.rera.filings']);
+    assert.deepEqual(byFn('legal.rera'), ['legal.rera.registration', 'legal.rera.phases', 'legal.rera.compliance', 'legal.rera.progress_quarters', 'legal.rera.filings']);
     assert.deepEqual(byFn('legal.handover'), ['legal.handover.conveyance']);
     assert.deepEqual(byFn('legal.approvals'), [
       'legal.approvals.register',

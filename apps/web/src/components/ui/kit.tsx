@@ -81,7 +81,8 @@ export function toneChip(tone: Tone): string {
 
 export function Card({ className, children, as: As = 'section' }: { className?: string; children: ReactNode; as?: 'section' | 'div' | 'article' }) {
   return (
-    <As className={cn('rounded-2xl bg-surface ring-1 ring-[var(--ring)] shadow-card print-block', className)}>
+    // `min-w-0`: a card in a grid or a row never grows to the width of what is in it. A wide table scrolls inside it.
+    <As className={cn('min-w-0 max-w-full rounded-2xl bg-surface ring-1 ring-[var(--ring)] shadow-card print-block', className)}>
       {children}
     </As>
   );
@@ -228,7 +229,90 @@ export function Meter({
 }
 
 export function CardBody({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('p-4', className)}>{children}</div>;
+  return <div className={cn('min-w-0 p-4', className)}>{children}</div>;
+}
+
+/**
+ * A table that may be wider than its card: it scrolls sideways inside the
+ * card, with its first column held in place, at every width. The page never
+ * scrolls sideways for it and no column is cut off. (`.table-scroll` in
+ * `index.css`; a table straight inside any `overflow-x-auto` box on a card
+ * gets the same held first column.)
+ */
+export function WideTable({ className, children }: { className?: string; children: ReactNode }) {
+  return <div className={cn('table-scroll', className)}>{children}</div>;
+}
+
+/**
+ * One amount in a cell or a line: the words the one formatter gives, with the
+ * figure in full as its title. In a table, take `cell` from `moneyColumn`
+ * (`lib/format`) so every row of the column is written in one unit.
+ */
+export function Money({ text, title, className }: { text: string; title?: string; className?: string }) {
+  return (
+    <span title={title || undefined} className={cn('whitespace-nowrap tabular-nums', className)}>
+      {text}
+    </span>
+  );
+}
+
+/**
+ * Asked once before anything is issued: what is frozen, and who is named as
+ * the issuer. Issuing is never one press. `lines` are said as they are given;
+ * none is written here.
+ */
+export function ConfirmIssue({
+  open,
+  what,
+  issuer,
+  lines = [],
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  /** What is issued, as a name: "September 2026 of Loan position". */
+  what: string;
+  /** Who it is issued under, as the page names a person. */
+  issuer: string;
+  /** What else the issuer should see before it is frozen: one line each. */
+  lines?: string[];
+  busy?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Issue ${what}?`}
+      width="sm"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Not yet
+          </Button>
+          <Button variant="primary" loading={busy} onClick={onConfirm} data-confirm-issue>
+            Issue
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-2 text-[13px] leading-relaxed text-ink">
+        <p>Every figure on it is frozen as it reads now. After this it is read only; a correction is a revision kept beside it.</p>
+        <p>
+          Issued by <span className="font-semibold">{issuer}</span>, today.
+        </p>
+        {lines.length ? (
+          <ul className="space-y-1 border-t border-hairline pt-2 text-[12px] text-ink-secondary">
+            {lines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </Modal>
+  );
 }
 
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {

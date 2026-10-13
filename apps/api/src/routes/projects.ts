@@ -79,6 +79,15 @@ import {
   checkFieldsShown,
   fieldCatalogFor,
   snoozeNeed,
+  openPeriod,
+  issuePeriod,
+  revisePeriod,
+  setPeriodReason,
+  issueSheetPeriod,
+  reviseSheetPeriod,
+  startSheetPeriod,
+  setSheetPeriodReason,
+  periodOfKey,
   findCheck,
   recordCheckFields,
   SHARED_FN,
@@ -97,6 +106,9 @@ import {
   type ReportBoundSource,
   fieldSet,
   removeFieldRecord,
+  removeParty,
+  renameParty,
+  mergeParties,
   roleCanEdit,
   setFieldValues,
   setSectionNotApplicable,
@@ -175,6 +187,8 @@ import {
   linkRecordIds,
   memAsksForLint,
   memAsksMemory,
+  CHAT_NOT_ANSWERED,
+  chatQuestionAsked,
   memContextText,
   memLintLine,
   memSaidUnder,
@@ -243,8 +257,9 @@ import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
 import { PAPERS_AT_ONCE, together } from '../documents/together';
-import { droppedUnread, isNotReadYetCard, notReadYetCard } from '../documents/dropped';
+import { droppedUnread, isNotReadYetCard, noteAsked, notReadYetCard, wasAsked } from '../documents/dropped';
 import { droppedAnswer, droppedChoices, takenInSaid, unsureSaid, whatWasDropped, type Dropped } from '../documents/questionnaire-drop';
+import { offerModelRowsOfPaper, offerRowsOfPaper, readCostPictures, rowsOfferedSaid } from '../documents/offers';
 import type { ReadQuestionnaire } from '../documents/questionnaire-file';
 import { wordsOfDocx } from '../documents/docx-outline';
 import { capturedFrom, fileSitePhoto, readSitePhoto, takeVoiceNote, type DropCaptured } from '../documents/site-drop';
@@ -304,9 +319,11 @@ import {
   decideFieldBodySchema,
   acceptPaperFieldsBodySchema,
   fieldRecordBodySchema,
+  partyCorrectionBodySchema,
   situationBodySchema,
   sectionNaBodySchema,
   snoozeNeedBodySchema,
+  fieldPeriodBodySchema,
   insertReportBlockBodySchema,
   moveReportBlockBodySchema,
   retuneReportBlockBodySchema,
@@ -1668,7 +1685,8 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * from the facts, and looked for before every other rule, so that one
    * which reads a single value off the file does not answer in its place.
    */
-  const askedOfMemory = !notes && memoryLint === undefined && !sitting?.decision ? memAsksMemory(question) : undefined;
+  // Not one of the questions answered from the functions the screens read: "what changed in cost since last month" is the Cost Report's to answer, and memory's only where no such rule has it.
+  const askedOfMemory = !notes && memoryLint === undefined && !sitting?.decision && !chatQuestionAsked(question) ? memAsksMemory(question) : undefined;
   const memorySaid = askedOfMemory ? await memoryAnswer(seen, askedOfMemory, { question, place, sitting }).catch(() => undefined) : undefined;
   const deterministic = Boolean(notes) || nothingLeftToRead || memoryLint !== undefined || memorySaid !== undefined || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
   const stream = beginNdjson(res);
@@ -1746,6 +1764,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
         viewContext: parsed.data.viewContext,
         place,
         history: canvas.conversation,
+        outside: canvas !== project,
         memory: [unseen, memoryText, remembered ? memContextText(remembered) : ''].filter(Boolean).join('\n\n') || undefined,
         // The lines by their marks: an answer picks marks, and code prints the lines.
         remembered,
@@ -1913,7 +1932,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
           modelReader: capability.available,
         });
         const by = (tried.assistantTurn.toolCalls ?? []).map((call) => call.name);
-        if (by.includes('next_step')) [named, sought] = [held, byItsWords];
+        if (by.includes('next_step') || by.includes(CHAT_NOT_ANSWERED)) [named, sought] = [held, byItsWords];
         // What could be added, offered for a word of the question ("assessment", "report"), is no answer of the rules' own either: it carries the wizard's name, or none where every card it would raise is waiting already. The value the question names is said in its place, and no page is asked.
         else if (by.includes('wizard') || (!by.length && !tried.commands.length)) named = held;
       } catch {
@@ -1972,6 +1991,9 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * dropped where it is written.
    */
   sayWhatIsMissing(seen, question, result);
+  // A reply that says in its own line that it cannot answer, with the nearest things to open, is not said a second time above itself.
+  // Only where no model is set up: a model that failed is still said to have, since asking again may help.
+  if (!capability.available && result.assistantTurn.toolCalls?.some((call) => call.name === CHAT_NOT_ANSWERED)) unanswered = undefined;
   if (fromMemory) {
     // The answer came from memory: the turn keeps the facts it lists, each with the place of its tag in the words as they now stand.
     const at = result.assistantTurn.text.lastIndexOf(fromMemory.text);
@@ -2545,6 +2567,10 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     if (sorted.as === 'unsure' || !sorted.read) {
       const between = sorted.as === 'unsure' ? sorted.between : 'questionnaire';
       unsure.push({ index, fileName: row.fileName, between });
+      // Asked about, and so not being read: its note says so, and a page opened meanwhile does not say it is on its way.
+      noteAsked(new Set([project, canvas]), row.storageKey, between);
+      project.updatedAt = new Date().toISOString();
+      await store.save();
       reading({ type: 'reading', event: 'read', key: row.storageKey, facts: [], failure: `Not read yet: ${between === 'photo' ? 'a photograph of the site' : 'a questionnaire'}, or a paper to file? Say which in the chat.` });
       return 'asked';
     }
@@ -2560,7 +2586,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
    * instance, so the paper lands on the file as it stands now. A paper that
    * could not be put there is left for the turn to file with the rest.
    */
-  const land = async (paper: ChatIngestFile, index: number): Promise<void> => {
+  const land = async (paper: ChatIngestFile, index: number, bytes?: Buffer): Promise<void> => {
     try {
       // Each page's text beside its file, so a later question can be answered from the whole paper.
       await keepPageTexts(project.id, [paper]);
@@ -2571,8 +2597,20 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       // How much of the file was read goes with the file, onto its row.
       keepReadings(canvas, [paper]);
       if (canvas !== project) keepReadings(project, [paper]);
+      // A cost report's rows and a report's observations are offered as it lands: to the Cost Report, to Technical. Each waits for a person.
+      let rows = offerRowsOfPaper(canvas, evidenceId, paper);
       project.updatedAt = new Date().toISOString();
       await store.save();
+      // Tables that are pictures, where a model is set up: it is shown those pages once the paper is safely on the file.
+      if (evidenceId && bytes && rows.askModel?.length) {
+        const answered = await readCostPictures(paper, bytes, rows.askModel);
+        if (answered) {
+          await store.syncProject(project.id, { force: true });
+          rows = offerModelRowsOfPaper(canvas, evidenceId, paper, answered);
+          project.updatedAt = new Date().toISOString();
+          await store.save();
+        }
+      }
       read[index] = { ...paper, landed: true };
       landedOn[index] = evidenceId;
       const row = evidenceId ? canvas.evidence.find((e) => e.id === evidenceId) : undefined;
@@ -2584,7 +2622,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
           id: randomUUID(),
           at: new Date().toISOString(),
           kind: 'tool_result',
-          label: `${paper.fileName} is on the file${waiting ? `, ${plural(waiting, 'value')} waiting` : paper.readFailure ? ', unread' : ''}`,
+          label: `${paper.fileName} is on the file${waiting ? `, ${plural(waiting, 'value')} waiting` : paper.readFailure ? ', unread' : ''}${rowsOfferedSaid(rows) ? `, ${rowsOfferedSaid(rows)}` : ''}`,
         },
       });
     } catch (err) {
@@ -2625,7 +2663,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
        * just read, and before a model is asked or anything is put on a row.
        */
       // What a person said the file is: pressed for a file held earlier, or typed with the file as it is dropped again.
-      const said = fields.dropAs?.get(storageKey) ?? (fields.saidOf?.fileName === row.fileName ? fields.saidOf.as : undefined);
+      // A file the chat asked about once, read again with no answer given, is a paper: the question is not put twice.
+      const said = fields.dropAs?.get(storageKey) ?? (fields.saidOf?.fileName === row.fileName ? fields.saidOf.as : undefined) ?? (file.storageKey && wasAsked(project, storageKey) ? 'paper' : undefined);
       const what = await whatWasDropped({
         project,
         paper,
@@ -2718,7 +2757,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     read[index] = paper;
     // Notes of a meeting are no paper: the turn keeps them as a meeting, or asks. Their pages are still kept, with the turn.
     if (notes !== 'no') return 'read';
-    await link(row.fileName, () => land(paper, index));
+    await link(row.fileName, () => land(paper, index, file.buffer));
     return 'read';
   });
   await landing;
@@ -3438,7 +3477,7 @@ async function fieldSeat(req: Request, res: Response, fn: string | undefined): P
   }
   const me = principalOf(req);
   const person = { email: me.email, workspaceRole: me.role };
-  return { project, options: { mayDecide: decidesFor(req, project), mayEdit: (department) => roleCanEdit(departmentRole(project, person, department)) } };
+  return { project, options: { mayDecide: decidesFor(req, project), mayEdit: (department) => roleCanEdit(departmentRole(project, person, department)), roleIn: (department) => departmentRole(project, person, department) } };
 }
 
 function failField(res: Response, err: unknown): void {
@@ -3457,7 +3496,7 @@ projectsRouter.put('/:projectId/fields/values', async (req, res) => {
   const seat = await fieldSeat(req, res, set?.fn);
   if (!seat || !set) return;
   try {
-    const outcome = setFieldValues(seat.project, { set: set.id, record: parsed.data.record }, parsed.data.values, actorOf(req), seat.options);
+    const outcome = setFieldValues(seat.project, { set: set.id, record: parsed.data.record, ...(parsed.data.period ? { period: parsed.data.period } : {}) }, parsed.data.values, actorOf(req), seat.options);
     if (outcome.rejected.length) {
       res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
       return;
@@ -3556,6 +3595,39 @@ projectsRouter.post('/:projectId/fields/records', async (req, res) => {
   }
 });
 
+/**
+ * Correcting a party on the project's People page: its name put right
+ * (`name`), merged into another that is the same party (`into`), or taken
+ * off the list (`remove`), which is refused with what refers to it while
+ * anything does. A rename is for whoever edits the project's people; a merge
+ * and a removal take a record off, and are for a lead or signer.
+ */
+projectsRouter.post('/:projectId/parties/:partyId', async (req, res) => {
+  const parsed = partyCorrectionBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success || [parsed.data.name, parsed.data.into, parsed.data.remove].filter((given) => given !== undefined).length !== 1) {
+    res.status(400).json({ error: 'Send a new name, the party to merge it into, or that it is to be removed.' });
+    return;
+  }
+  const seat = await fieldSeat(req, res, SHARED_FN);
+  if (!seat) return;
+  try {
+    const partyId = req.params.partyId!;
+    if (parsed.data.name !== undefined) {
+      const out = renameParty(seat.project, partyId, parsed.data.name, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, `Renamed a party to ${out.name}.`);
+    } else if (parsed.data.into !== undefined) {
+      const out = mergeParties(seat.project, parsed.data.into, partyId, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, `Merged a duplicate party into ${out.name}.`);
+    } else {
+      removeParty(seat.project, partyId, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, 'Took a party off the list.');
+    }
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
 /** Put a situation in play or take it out. Taking it out deletes nothing. */
 projectsRouter.put('/:projectId/fields/situation', async (req, res) => {
   const parsed = situationBodySchema.safeParse(req.body);
@@ -3606,6 +3678,81 @@ projectsRouter.put('/:projectId/fields/snooze', async (req, res) => {
     snoozeNeed(seat.project, parsed.data.fn, parsed.data.key, parsed.data.until, actorOf(req), seat.options);
     await persistPaneWrite(req, seat.project, parsed.data.until ? `Put a line off until ${parsed.data.until}.` : 'Brought a line back.');
     res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/**
+ * A set kept by period: open a period from the last (a sheet held once is started on its first), issue one under a
+ * name, open a revision beside an issued one, or pick from the set's list why a figure's movement is not explained.
+ * Who may do each is asked of the department role: whoever edits opens or starts a period and picks a reason; a lead
+ * or signer issues and revises.
+ */
+projectsRouter.post('/:projectId/fields/period', async (req, res) => {
+  const parsed = fieldPeriodBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const set = fieldSet(parsed.data.set);
+  const seat = await fieldSeat(req, res, set?.fn);
+  if (!seat || !set) return;
+  try {
+    const { act, record, period, name, field, reason } = parsed.data;
+    let said: string;
+    let recordId = record;
+    if (!set.records) {
+      // A sheet held once is its own open period: it is issued, a period it issued is revised, and a reason is picked on the sheet.
+      if (act === 'issue') {
+        const issued = issueSheetPeriod(seat.project, set.id, { actor: actorOf(req), ...(name?.trim() ? { name } : {}) }, seat.options, { ...(period ? { period } : {}) });
+        said = `Issued ${periodOfKey(issued.key)?.label ?? issued.key} of ${set.title}.`;
+      } else if (act === 'revise') {
+        if (!period) {
+          res.status(400).json({ error: 'Say which period.' });
+          return;
+        }
+        reviseSheetPeriod(seat.project, set.id, period, actorOf(req), seat.options);
+        said = `Opened a revision of an issued period of ${set.title}.`;
+      } else if (act === 'reason') {
+        if (!field) {
+          res.status(400).json({ error: 'Say which figure.' });
+          return;
+        }
+        setSheetPeriodReason(seat.project, set.id, field, reason ?? null, actorOf(req), seat.options);
+        said = `Picked why a figure of ${set.title} moved.`;
+      } else {
+        // A sheet nobody has kept by period yet is started on its first: today's, or one named. From there it is due each period.
+        const started = startSheetPeriod(seat.project, set.id, actorOf(req), seat.options, { ...(period ? { period } : {}) });
+        said = `Started ${set.title} on ${started.label}.`;
+      }
+      await persistPaneWrite(req, seat.project, said);
+      res.json({ project: seat.project });
+      return;
+    }
+    if (act === 'open') {
+      const opened = openPeriod(seat.project, set.id, actorOf(req), seat.options, { ...(period ? { period } : {}) });
+      recordId = opened.records[0]?.id;
+      said = opened.made ? `Opened ${opened.period.label} on ${set.title}.` : `${opened.period.label} is already open on ${set.title}.`;
+    } else if (!record) {
+      res.status(400).json({ error: 'Say which period.' });
+      return;
+    } else if (act === 'issue') {
+      issuePeriod(seat.project, set.id, record, { actor: actorOf(req), ...(name?.trim() ? { name } : {}) }, seat.options);
+      said = `Issued a period of ${set.title}.`;
+    } else if (act === 'revise') {
+      recordId = revisePeriod(seat.project, set.id, record, actorOf(req), seat.options).id;
+      said = `Opened a revision of an issued period of ${set.title}.`;
+    } else {
+      if (!field) {
+        res.status(400).json({ error: 'Say which figure.' });
+        return;
+      }
+      setPeriodReason(seat.project, set.id, record, field, reason ?? null, actorOf(req), seat.options);
+      said = `Picked why a figure of ${set.title} moved.`;
+    }
+    await persistPaneWrite(req, seat.project, said);
+    res.json({ project: seat.project, ...(recordId ? { recordId } : {}) });
   } catch (err) {
     failField(res, err);
   }

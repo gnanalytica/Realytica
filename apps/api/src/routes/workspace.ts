@@ -10,7 +10,12 @@
  * PUT    /team/:email                     a person's role in each department
  * DELETE /team/:email
  * POST   /workstreams/:key/checks         put a workstream's checks on the project record
- * POST   /checklist/import                load a checklist: pasted text, a CSV/TSV or an .xlsx
+ * POST   /checklist/import                load a list: pasted text, a CSV/TSV or an .xlsx. A tracked list updates its own
+ *                                         lines; a tender form is read into Tender terms. `preview` says what it would do
+ * POST   /checklist/assign                set several lines together: who owes them, the day, and how they stand
+ * POST   /checklist/remove                take a whole load back, or a whole list off
+ * GET    /tender-terms/:recordId/form     the tender form for one tender, filled from its sheet, as a workbook
+ * POST   /tender-forms/:formId/offers/:offerId  take or set aside a row a client marked not applicable
  * POST   /checklist                       add one line
  * PATCH  /checklist/:itemId               rename, move, mark in hand, confirm or refuse a match
  * DELETE /checklist/:itemId
@@ -34,6 +39,8 @@
  * POST   /site-log                        a day's entry from site (idempotent on the phone's id)
  * POST   /site-log/photos                 photographs for an entry, before it is filed
  * GET    /site-log/:entryId/photos/:index
+ * GET    /stations/:stationId/guide        a station's last shot before this period, to frame the next against
+ * PUT    /photos/place                    a person says where a photograph was taken: a station, a place, or both
  * POST   /alerts/read
  * POST   /links                           a link a person draws between two records
  * DELETE /links/:linkId
@@ -69,9 +76,13 @@ import {
   costReportTotals,
   costSummary,
   importCostReportRows,
+  acceptCostOffer,
+  acceptCostOffersOnPage,
+  costCheckSaid,
+  previewCostReportImport,
+  setAsideCostOffer,
   importSchedule,
   issueCostReport,
-  parseCostReportTable,
   parseScheduleTable,
   recordPayment,
   reopenCostReport,
@@ -105,6 +116,12 @@ import {
   fileCertifiedReport,
   graphImpact,
   logSiteEntry,
+  PHOTO_ELEMENTS,
+  PLACE_FLOOR_MOST,
+  placeEntryShots,
+  setShotPlace,
+  stationRound,
+  stationsDue,
   markAlertsRead,
   MILESTONE_TEMPLATE,
   noteProjectEdit,
@@ -138,7 +155,9 @@ import {
   removeQuestion,
   removeQuestionnaire,
   ANSWER_SOURCES,
-  setMilestonePercent,
+  MILESTONE_PHOTO_WAIVERS,
+  MilestonePhotosWanting,
+  markMilestonePercent,
   setProjectDepartments,
   setTeamMember,
   stageTimeline,
@@ -152,11 +171,27 @@ import {
 import {
   addChecklistItem,
   addChecklistItems,
+  assignChecklistItems,
+  assumeChecklistItem,
+  removeChecklistLoad,
   CHECKLIST_LIMITS,
+  csvCells,
+  decideTenderFormOffer,
+  departmentOfFunction,
   dismissChecklistMatch,
+  listLoadSaid,
+  loadTenderForm,
+  loadTrackedList,
+  markChecklistPartial,
+  packageDesks,
   parseChecklist,
   parseChecklistSheets,
+  parseTenderFormSheets,
+  parseTrackedSheets,
   patchChecklistItem,
+  placeDrafts,
+  tenderFormExport,
+  tenderFormSaid,
   raiseChecklistRequests,
   receiveChecklistItem,
   removeChecklistItem,
@@ -174,6 +209,8 @@ import { QUESTIONNAIRE_FILE_SAID, QuestionnaireTooLarge, WorkbookPartsTooLarge, 
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 import { withSentFileName } from '../uploads';
 import { tableTextOf } from '../documents/table-file';
+import { setDroppedAside } from '../documents/dropped';
+import { tenderFormXlsx } from '../documents/tender-form-file';
 
 type Params = { projectId: string };
 
@@ -498,6 +535,10 @@ projectWorkspaceRouter.post<Params>('/milestones', async (req, res) => {
 
 const milestonePatch = z.object({
   percent: z.number().min(0).max(100).optional(),
+  /** The day the reading is of, where it is an earlier day than today: progress seen on site and typed afterwards. */
+  on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Why it is complete with a required photograph not taken: a pick from the list, by a lead or signer of Construction. */
+  photoWaiver: z.enum(MILESTONE_PHOTO_WAIVERS).optional(),
   name: z.string().trim().min(1).max(120).optional(),
   weight: z.number().positive().max(1000).optional(),
   plannedFinish: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
@@ -515,7 +556,14 @@ projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:mil
   }
   try {
     const actor = actorOf(principalOf(req));
-    if (parsed.data.percent !== undefined) setMilestonePercent(project, milestone.id, parsed.data.percent, actor);
+    // Marked complete with a required photograph not taken, it is refused with the stations named, unless a lead or signer picks why.
+    if (parsed.data.percent !== undefined || parsed.data.photoWaiver) {
+      markMilestonePercent(project, milestone.id, parsed.data.percent ?? milestone.percent, actor, {
+        ...(parsed.data.photoWaiver ? { waiver: parsed.data.photoWaiver } : {}),
+        ...(parsed.data.on ? { on: parsed.data.on } : {}),
+        mayWaive: roleCanDecide(roleIn(req, project, 'construction')),
+      });
+    }
     if (parsed.data.name) milestone.name = parsed.data.name;
     if (parsed.data.weight) milestone.weight = parsed.data.weight;
     if (parsed.data.plannedFinish === null) delete milestone.plannedFinish;
@@ -526,6 +574,10 @@ projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:mil
     await store.save();
     res.json({ project, milestone });
   } catch (err) {
+    if (err instanceof MilestonePhotosWanting) {
+      res.status(409).json({ error: err.message, photosWanting: err.stations });
+      return;
+    }
     failed(res, err, 'Could not change the milestone');
   }
 });
@@ -634,19 +686,20 @@ projectWorkspaceRouter.patch<Params & { reportId: string }>('/cost-reports/:repo
   try {
     const actor = actorOf(principalOf(req));
     if (issue) issueCostReport(project, req.params.reportId, actor);
-    else if (reopen) reopenCostReport(project, req.params.reportId, actor);
-    const heldAfter = () => costReportOf(project, req.params.reportId);
+    // Reopening opens a revision beside the issued report, which stays as it was sent: what follows is done to the revision.
+    const reportId = reopen ? reopenCostReport(project, req.params.reportId, actor).id : req.params.reportId;
+    const heldAfter = () => costReportOf(project, reportId);
     if (note !== undefined) {
       if (issue || reopen) {
-        if (heldAfter().status === 'draft') setCostReportNote(project, req.params.reportId, note, actor);
+        if (heldAfter().status === 'draft') setCostReportNote(project, reportId, note, actor);
       } else {
-        setCostReportNote(project, req.params.reportId, note, actor);
+        setCostReportNote(project, reportId, note, actor);
       }
     }
     if (parsed.data.photoEvidenceIds !== undefined) {
-      if (heldAfter().status === 'draft') setCostReportPhotos(project, req.params.reportId, parsed.data.photoEvidenceIds, actor);
+      if (heldAfter().status === 'draft') setCostReportPhotos(project, reportId, parsed.data.photoEvidenceIds, actor);
     }
-    const report = costReportOf(project, req.params.reportId);
+    const report = costReportOf(project, reportId);
     touch(project);
     await store.save();
     res.json({ project, report, totals: costReportTotals(report) });
@@ -665,6 +718,14 @@ const costReportRow = z.object({
   anticipatedCost: moneyField.optional(),
   note: z.string().max(2000).nullable().optional(),
 });
+
+/** What a consultant's report states of a package besides the four figures: its own optional members of a row. Null takes one off. */
+const costReportRowMore = {
+  certified: moneyField.nullable().optional(),
+  awardedTo: z.string().trim().max(200).nullable().optional(),
+  variations: z.number().finite().min(-1e13).max(1e13).nullable().optional(),
+  kind: z.enum(['contingency', 'fee']).nullable().optional(),
+};
 
 projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:reportId/packages', async (req, res) => {
   const project = load(req, res);
@@ -710,6 +771,7 @@ const costReportRowPatch = z.object({
   amountPaid: moneyField.nullable().optional(),
   anticipatedCost: moneyField.nullable().optional(),
   note: z.string().max(2000).nullable().optional(),
+  ...costReportRowMore,
 });
 
 projectWorkspaceRouter.patch<Params & { reportId: string; rowId: string }>('/cost-reports/:reportId/packages/:rowId', async (req, res) => {
@@ -944,15 +1006,121 @@ projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:repor
       res.status(400).json({ error: 'Upload a CSV/Excel file or paste the ledger table.' });
       return;
     }
-    const rows = parseCostReportTable(text);
-    const result = importCostReportRows(project, req.params.reportId, rows, actorOf(principalOf(req)));
+    // Read first, and shown: the rows it would take, the lines it read as headings and totals, and whether the rows add up to the
+    // table's own total. Nothing is written until the person confirms what they were shown.
+    const preview = previewCostReportImport(project, req.params.reportId, text);
+    const check = costCheckSaid(preview.read, project.currency);
+    const confirmed = req.body?.confirm === true || req.body?.confirm === 'true';
+    if (!confirmed) {
+      res.json({ preview, check });
+      return;
+    }
+    if (!preview.rows.length) throw new Error('No package rows were found in that table.');
+    const result = importCostReportRows(project, req.params.reportId, preview.rows.map(({ line: _line, quote: _quote, on: _on, unplaced: _unplaced, problems: _problems, ...row }) => row), actorOf(principalOf(req)), preview.read);
     const report = costReportOf(project, req.params.reportId);
     touch(project);
     await store.save();
-    res.json({ project, report, totals: costReportTotals(report), ...result });
+    res.json({ project, report, totals: costReportTotals(report), ...result, check });
   } catch (err) {
     failed(res, err, 'Could not import that ledger');
   }
+});
+
+/*
+ * Rows a cost report filed as a paper offers to the Cost Report. Accepting is
+ * a decision, as accepting any offered value is: a lead or signer of Finance.
+ * A row may be corrected as it is accepted; nothing offered is written before.
+ */
+const offeredCell = z.number().finite().min(-1e13).max(1e13);
+const costOfferAccept = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  budget: moneyField.optional(),
+  poIssued: moneyField.optional(),
+  amountPaid: moneyField.optional(),
+  anticipatedCost: moneyField.optional(),
+  certified: moneyField.optional(),
+  variations: offeredCell.optional(),
+  awardedTo: z.string().trim().max(200).optional(),
+  kind: z.enum(['contingency', 'fee']).nullable().optional(),
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string; evidenceId: string; offerId: string }>('/cost-reports/:reportId/offers/:evidenceId/:offerId/accept', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  const parsed = costOfferAccept.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the cells to correct, each an amount or a name.' });
+    return;
+  }
+  try {
+    const row = acceptCostOffer(project, req.params.evidenceId, req.params.offerId, req.params.reportId, actorOf(principalOf(req)), parsed.data);
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not accept that row');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string; evidenceId: string }>('/cost-reports/:reportId/offers/:evidenceId/accept-page', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  const page = z.object({ page: z.number().int().min(1).max(5000) }).safeParse(req.body);
+  if (!page.success) {
+    res.status(400).json({ error: 'Say which page.' });
+    return;
+  }
+  try {
+    const result = acceptCostOffersOnPage(project, req.params.evidenceId, page.data.page, req.params.reportId, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    if (result.accepted) {
+      touch(project);
+      await store.save();
+    }
+    res.json({ project, report, totals: costReportTotals(report), ...result });
+  } catch (err) {
+    failed(res, err, 'Could not accept the rows of that page');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { evidenceId: string; offerId: string }>('/cost-papers/:evidenceId/offers/:offerId/set-aside', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  try {
+    const offer = setAsideCostOffer(project, req.params.evidenceId, req.params.offerId, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, offer });
+  } catch (err) {
+    failed(res, err, 'Could not set that row aside');
+  }
+});
+
+/**
+ * Set a dropped file aside: one the chat asked about and nobody answered, or
+ * one a reading left behind. It is kept and held as a paper to file, is said
+ * on no banner, and is still answerable from Documents.
+ */
+projectWorkspaceRouter.post<Params>('/dropped/set-aside', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!staffOnly(req, res)) return;
+  const body = z.object({ storageKey: z.string().min(1).max(400) }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'Say which file.' });
+    return;
+  }
+  if (!setDroppedAside(project, body.data.storageKey)) {
+    res.status(404).json({ error: 'No dropped file by that name is waiting.' });
+    return;
+  }
+  touch(project);
+  await store.save();
+  res.json({ project });
 });
 
 /* ==================================================================== */
@@ -1249,7 +1417,9 @@ projectWorkspaceRouter.get<Params>('/site', (req, res) => {
   // Whether a write would actually go through: the department role, and the
   // workspace-wide write gate every project write passes first.
   const canLog = roleCanEdit(role) && can(principalOf(req).role, 'write');
-  const log = [...(project.siteLog ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  // The reader's own copy: the site's day-by-day entries and the photo stations are not handed to everybody who may open the project.
+  const copy = viewFor(req, project).project;
+  const log = [...(copy.siteLog ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   const timeline = stageTimeline(project);
   res.json({
     project: { id: project.id, name: project.name, reference: project.reference, location: project.location, city: project.city, stage: timeline.current, stageLabel: timeline.stages.find((s) => s.key === timeline.currentStage)?.label, siteCoordinate: project.siteCoordinate ?? null },
@@ -1258,9 +1428,11 @@ projectWorkspaceRouter.get<Params>('/site', (req, res) => {
     milestones: project.milestones ?? [],
     progress: progressSummary(project),
     gate: constructionGate(project),
-    log: log.slice(0, 30).map((e) => ({ ...e, photos: e.photos.map((p, i) => ({ index: i, fileName: p.fileName, caption: p.caption, takenAt: p.takenAt, point: p.point })) })),
+    log: log.slice(0, 30).map((e) => ({ ...e, photos: e.photos.map((p, i) => ({ index: i, fileName: p.fileName, caption: p.caption, takenAt: p.takenAt, point: p.point, stationId: p.stationId })) })),
+    // The stations not photographed this period, each with the last shot to frame the next against. Read from the reader's own copy.
+    stations: stationsDue(copy, new Date()),
     // The reader's own copy of the alerts: somebody working from a grant is not told of an action or a meeting withheld from them.
-    alerts: openAlerts(viewFor(req, project).project).filter((a) => a.department === 'construction').slice(0, 20),
+    alerts: openAlerts(copy).filter((a) => a.department === 'construction').slice(0, 20),
   });
 });
 
@@ -1274,7 +1446,7 @@ const siteLogSchema = z.object({
   milestoneUpdates: z.array(z.object({ milestoneId: z.string().max(80), percent: z.number().min(0).max(100) })).max(60).optional(),
   issues: z.array(z.object({ title: z.string().trim().min(1).max(200), severity: z.enum(['low', 'medium', 'high']).optional(), note: z.string().trim().max(1000).optional() })).max(40).optional(),
   photos: z
-    .array(z.object({ storageKey: z.string().max(200), fileName: z.string().max(200), mimeType: z.string().max(80), takenAt: z.string().max(40).optional(), point: point.optional(), caption: z.string().max(400).optional() }))
+    .array(z.object({ storageKey: z.string().max(200), fileName: z.string().max(200), mimeType: z.string().max(80), takenAt: z.string().max(40).optional(), point: point.optional(), caption: z.string().max(400).optional(), stationId: z.string().max(80).optional() }))
     .max(40)
     .optional(),
   point: point.optional(),
@@ -1299,6 +1471,8 @@ projectWorkspaceRouter.post<Params>('/site-log', async (req, res) => {
     const me = principalOf(req);
     const { entry, duplicate } = logSiteEntry(project, parsed.data, me.name ? `${me.name} (${me.email})` : me.email);
     if (!duplicate) {
+      // Each photograph is given its station by code: the one picked on the phone, else the one station its own position is within the set distance of.
+      placeEntryShots(project, entry);
       noteProjectEdit(project, `Site log for ${entry.date}: ${entry.workDone.slice(0, 120) || 'entry filed'}${entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}.`, { actor: actorOf(me) });
       touch(project);
       await store.save();
@@ -1350,7 +1524,8 @@ projectWorkspaceRouter.post<Params>('/site-log/photos', photoUpload.array('photo
 projectWorkspaceRouter.get<Params & { entryId: string; index: string }>('/site-log/:entryId/photos/:index', async (req, res) => {
   const project = load(req, res);
   if (!project) return;
-  const entry = (project.siteLog ?? []).find((e) => e.id === req.params.entryId);
+  // Found on the reader's own copy: a site entry is not somebody's to open because they know its id.
+  const entry = (viewFor(req, project).project.siteLog ?? []).find((e) => e.id === req.params.entryId);
   const photo = entry?.photos[Number(req.params.index)];
   if (!photo) {
     res.status(404).json({ error: 'No such photograph.' });
@@ -1365,6 +1540,74 @@ projectWorkspaceRouter.get<Params & { entryId: string; index: string }>('/site-l
   res.setHeader('Cache-Control', 'private, max-age=86400');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.end(bytes);
+});
+
+/**
+ * The last shot of a station before this period, for the phone to frame the
+ * next one against. Read from the reader's own copy, so a station or a file
+ * they are not handed is not there to be asked for.
+ */
+projectWorkspaceRouter.get<Params & { stationId: string }>('/stations/:stationId/guide', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const copy = viewFor(req, project).project;
+  const guide = stationRound(copy, new Date()).rows.find((row) => row.station.id === req.params.stationId)?.guide;
+  const file = guide?.evidenceId
+    ? copy.evidence.find((row) => row.id === guide.evidenceId)?.attachments.find((held) => held.id === guide.fileId)
+    : guide?.siteLog
+      ? (copy.siteLog ?? []).find((entry) => entry.id === guide.siteLog!.entryId)?.photos[guide.siteLog.index]
+      : undefined;
+  const bytes = file ? await storageAdapter.getDocument(project.id, file.storageKey) : null;
+  if (!file || !bytes) {
+    res.status(404).json({ error: 'No earlier photograph of that station.' });
+    return;
+  }
+  res.setHeader('Content-Type', file.mimeType);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(bytes);
+});
+
+const placeSchema = z
+  .object({
+    building: z.string().max(80).optional(),
+    floor: z.string().trim().min(1).max(PLACE_FLOOR_MOST).optional(),
+    unit: z.string().max(80).optional(),
+    milestone: z.string().max(80).optional(),
+    element: z.enum(PHOTO_ELEMENTS).optional(),
+  })
+  .strict();
+const shotPlaceSchema = z
+  .object({
+    evidenceId: z.string().max(80).optional(),
+    entryId: z.string().max(80).optional(),
+    index: z.number().int().min(0).max(39).optional(),
+    stationId: z.string().max(80).nullable().optional(),
+    place: placeSchema.nullable().optional(),
+  })
+  .strict()
+  .refine((body) => Boolean(body.evidenceId) !== (body.entryId !== undefined && body.index !== undefined), 'Name one photograph: a filed one by its id, or a site entry and the photograph’s place in it.')
+  .refine((body) => body.stationId !== undefined || body.place !== undefined, 'Say the station, the place, or both.');
+
+/** A person says where a photograph was taken: a station, a place, or both. `null` takes one away. */
+projectWorkspaceRouter.put<Params>('/photos/place', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = shotPlaceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Validation failed' });
+    return;
+  }
+  const { evidenceId, entryId, index, stationId, place } = parsed.data;
+  if (!allowed(req, res, project, evidenceId ? evidenceDepartment(project, evidenceId) : 'construction', 'edit')) return;
+  try {
+    setShotPlace(project, evidenceId ? { evidenceId } : { entryId: entryId!, index: index! }, { ...(stationId !== undefined ? { stationId } : {}), ...(place !== undefined ? { place } : {}) }, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not set that place');
+  }
 });
 
 /* ==================================================================== */
@@ -2028,13 +2271,30 @@ const checklistLineSchema = z.object({
   note: z.string().trim().max(CHECKLIST_LIMITS.note).optional(),
 });
 
-/** The lines of a list as it was sent: a workbook's sheets, a CSV or TSV file's rows, or text. */
-async function readChecklist(file: Express.Multer.File | undefined, pasted: string) {
-  if (!file) return parseChecklist(pasted);
+/** A list as it was sent: a workbook's sheets, or the rows of a CSV or TSV file or of a paste, with the text they came from. */
+interface ListSent {
+  /** The file's own name, as a value read from it cites it. */
+  file: string;
+  name: string;
+  sheets: Array<{ name: string; rows: string[][] }>;
+  text?: string;
+  csv?: boolean;
+}
+
+/** Text as rows of cells: tabs where there are any, as a paste from a spreadsheet has, else commas. */
+function textRows(text: string): string[][] {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  const tabbed = lines.some((line) => line.includes('\t'));
+  return lines.map((line) => (tabbed ? line.split('\t') : csvCells(line)));
+}
+
+async function listSent(file: Express.Multer.File | undefined, pasted: string): Promise<ListSent> {
+  if (!file) return { file: 'Pasted list', name: 'Pasted list', sheets: [{ name: 'Pasted list', rows: textRows(pasted) }], text: pasted };
   const name = (file.originalname || '').toLowerCase();
+  const said = (file.originalname || 'List').replace(/\.[a-z0-9]{1,5}$/i, '');
   if (name.endsWith('.xlsx')) {
     try {
-      return parseChecklistSheets(await workbookSheets(file.buffer));
+      return { file: file.originalname || said, name: said, sheets: await workbookSheets(file.buffer, { keepEmpty: true }) };
     } catch (err) {
       if (err instanceof WorkbookPartsTooLarge) throw new Error(err.message);
       if (err instanceof QuestionnaireTooLarge) throw new Error('That workbook is too large to open: its sheets hold more than 4 MB.');
@@ -2042,7 +2302,28 @@ async function readChecklist(file: Express.Multer.File | undefined, pasted: stri
     }
   }
   if (!/\.(?:csv|tsv|txt|md)$/.test(name)) throw new Error('A list is read from an .xlsx, .csv, .tsv or .txt file, or from pasted text.');
-  return parseChecklist(file.buffer.toString('utf8'), { csv: name.endsWith('.csv') });
+  const text = file.buffer.toString('utf8');
+  return { file: file.originalname || said, name: said, sheets: [{ name: said, rows: textRows(text) }], text, csv: name.endsWith('.csv') };
+}
+
+/** The functions a firm names for a list's packages as it loads it: a package's name to a function's key. */
+function desksGiven(sent: unknown): Record<string, string> {
+  let given: unknown = sent;
+  if (typeof sent === 'string' && sent.trim()) {
+    try {
+      given = JSON.parse(sent);
+    } catch {
+      throw new Error('Send the packages and their functions as JSON.');
+    }
+  }
+  if (!given || typeof given !== 'object' || Array.isArray(given)) return {};
+  const out: Record<string, string> = {};
+  for (const [pack, fn] of Object.entries(given as Record<string, unknown>).slice(0, 40)) {
+    if (typeof fn !== 'string' || !fn) continue;
+    if (!workstreamDefinition(fn)) throw new Error(`"${fn.slice(0, 60)}" is not a function.`);
+    out[pack.slice(0, CHECKLIST_LIMITS.label)] = fn;
+  }
+  return out;
 }
 
 projectWorkspaceRouter.post<Params>('/checklist/import', checklistUpload.single('file'), async (req, res) => {
@@ -2054,17 +2335,70 @@ projectWorkspaceRouter.post<Params>('/checklist/import', checklistUpload.single(
     return;
   }
   if (!mayChangeChecklist(req, res, project, asked.data)) return;
+  const preview = req.body?.preview === true || req.body?.preview === '1' || req.body?.preview === 'true';
+  const actor = actorOf(principalOf(req));
+  // One load is one step: every line it adds carries its id, so the whole of it can be taken back.
+  const loadId = `load_${randomUUID().slice(0, 12)}`;
   try {
-    const drafts = await readChecklist(req.file as Express.Multer.File | undefined, typeof req.body?.text === 'string' ? req.body.text.slice(0, 400_000) : '');
+    const sent = await listSent(req.file as Express.Multer.File | undefined, typeof req.body?.text === 'string' ? req.body.text.slice(0, 400_000) : '');
+    // A form of answers: read into the Tender terms sheet, each answer offered for a person to accept.
+    const form = parseTenderFormSheets(sent.sheets);
+    if (form) {
+      if (asked.data !== 'procurement' && !mayChangeChecklist(req, res, project, 'procurement')) return;
+      const report = loadTenderForm(project, form, { file: sent.file, record: typeof req.body?.record === 'string' ? req.body.record : undefined, actor, dryRun: preview, load: loadId });
+      const said = tenderFormSaid(report);
+      if (preview) {
+        res.json({ kind: 'tender_form', report, said });
+        return;
+      }
+      noteProjectEdit(project, `Loaded the tender form ${sent.name}: ${said}.`, { actor });
+      touch(project);
+      await store.save();
+      res.status(201).json({ project, kind: 'tender_form', added: report.owed.added.length, skipped: 0, report, said, file: sent.file, ...(report.owed.added.length ? { load: loadId } : {}) });
+      return;
+    }
+    // A tracked list: its lines go to the desks their packages belong to, and a later copy updates them.
+    const tracked = parseTrackedSheets(sent.sheets);
+    if (tracked) {
+      // A list stays on the desk it is loaded on: a package goes to another function only where whoever loads it says so.
+      const desks = packageDesks(tracked.packages, desksGiven(req.body?.desks)).map((desk) => ({ ...desk, lines: tracked.drafts.filter((draft) => (draft.package ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === desk.package.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()).length }));
+      const placed = placeDrafts(tracked.drafts, desks);
+      for (const department of new Set(placed.map((draft) => draft.department ?? asked.data))) {
+        if (department !== asked.data && !mayChangeChecklist(req, res, project, department)) return;
+      }
+      const report = loadTrackedList(project, asked.data, placed, actor, { dryRun: preview, load: loadId });
+      const said = listLoadSaid(report);
+      // What the sheet held against what was made of it, so a count that does not add up is seen.
+      const counted = { rows: tracked.rows, lines: tracked.drafts.length, sections: tracked.sections, skipped: tracked.skipped };
+      if (preview) {
+        res.json({ kind: 'tracked', list: tracked.list, lines: tracked.drafts.length, desks, report, said, counted });
+        return;
+      }
+      touch(project);
+      await store.save();
+      res.status(201).json({ project, kind: 'tracked', added: report.added.length, skipped: report.unchanged, desks, report, said, counted, file: sent.file, ...(report.added.length ? { load: loadId } : {}) });
+      return;
+    }
+    const drafts = sent.text !== undefined ? parseChecklist(sent.text, { csv: sent.csv }) : parseChecklistSheets(sent.sheets);
+    if (preview) {
+      res.json({ kind: 'plain', lines: drafts.length });
+      return;
+    }
     if (!drafts.length) {
       res.status(400).json({ error: 'No lines were found. Attach a file, or paste the list one paper to a line.' });
       return;
     }
-    const { added, skipped } = addChecklistItems(project, asked.data, drafts, actorOf(principalOf(req)));
+    const { added, skipped, skippedTitles } = addChecklistItems(project, asked.data, drafts, actor, { load: loadId });
     touch(project);
     await store.save();
-    res.status(201).json({ project, added: added.length, skipped });
+    res.status(201).json({ project, kind: 'plain', added: added.length, skipped, counted: { rows: drafts.length, lines: added.length, sections: 0, skipped: skippedTitles.map((text) => ({ row: 0, text, reason: 'already on the list' })) }, file: sent.file, ...(added.length ? { load: loadId } : {}) });
   } catch (err) {
+    // A fault in reading a file is said in a sentence. An error's own text is a programmer's, and is never shown.
+    if (err instanceof TypeError || err instanceof RangeError || err instanceof ReferenceError || err instanceof SyntaxError) {
+      console.error('[checklist/import]', err);
+      res.status(400).json({ error: 'That file could not be read as a list. Send it as an .xlsx, a .csv or pasted rows; if it is one of those, its layout is one this does not read yet.' });
+      return;
+    }
     failed(res, err, 'Could not read that list');
   }
 });
@@ -2095,6 +2429,25 @@ const checklistPatchSchema = z.object({
   package: checklistLabel.nullable().optional(),
   owedBy: checklistLabel.nullable().optional(),
   note: z.string().trim().max(CHECKLIST_LIMITS.note).nullable().optional(),
+  /** The day it is wanted by, the round it was asked in, and a few words on what came back. */
+  targetDate: z.string().trim().max(24).nullable().optional(),
+  round: checklistLabel.nullable().optional(),
+  remark: z.string().trim().max(CHECKLIST_LIMITS.remark).nullable().optional(),
+  /** Partly in hand, with what is still wanted; `false` takes it back. */
+  partial: z.union([z.literal(false), z.object({ wanted: z.string().trim().max(CHECKLIST_LIMITS.remark).nullable().optional() })]).optional(),
+  /** It will not come: who assumes, and the fields it stands in for with the value each is assumed at. `false` takes it back. */
+  assumed: z
+    .union([
+      z.literal(false),
+      z.object({
+        assumer: checklistLabel.min(1),
+        fields: z
+          .array(z.object({ address: z.object({ fn: z.string().max(80), set: z.string().max(120), field: z.string().max(80), record: z.string().max(80).optional() }), value: z.union([z.string().max(200), z.number(), z.boolean()]) }))
+          .max(CHECKLIST_LIMITS.assumedFields)
+          .optional(),
+      }),
+    ])
+    .optional(),
   /** In hand by a person's word, with the document where one is named; `false` takes it back. */
   received: z.boolean().optional(),
   evidenceId: z.string().min(1).max(80).optional(),
@@ -2111,10 +2464,21 @@ projectWorkspaceRouter.patch<Params & { itemId: string }>('/checklist/:itemId', 
     res.status(400).json({ error: 'Send what changes on the line.' });
     return;
   }
-  const { received, evidenceId, dismiss, ...patch } = parsed.data;
+  const { received, evidenceId, dismiss, partial, assumed, ...patch } = parsed.data;
   const actor = actorOf(principalOf(req));
+  // A value assumed for a field stands in that field's function: whoever sets it has to be able to type there too.
+  for (const field of assumed ? (assumed.fields ?? []) : []) {
+    const department = departmentOfFunction(field.address.fn);
+    if (!department) {
+      res.status(400).json({ error: 'That is not a field of a sheet.' });
+      return;
+    }
+    if (!allowed(req, res, project, department, 'edit')) return;
+  }
   try {
     if (Object.keys(patch).length) patchChecklistItem(project, req.params.itemId, patch, actor);
+    if (partial !== undefined) markChecklistPartial(project, req.params.itemId, partial === false ? null : partial, actor);
+    if (assumed !== undefined) assumeChecklistItem(project, req.params.itemId, assumed === false ? null : assumed, actor);
     if (dismiss) dismissChecklistMatch(project, req.params.itemId, dismiss, actor);
     if (received === false) reopenChecklistItem(project, req.params.itemId, actor);
     else if (received || evidenceId) receiveChecklistItem(project, req.params.itemId, { evidenceId }, actor);
@@ -2137,6 +2501,109 @@ projectWorkspaceRouter.delete<Params & { itemId: string }>('/checklist/:itemId',
     res.json({ project });
   } catch (err) {
     failed(res, err, 'Could not remove that line');
+  }
+});
+
+const checklistAssignSchema = z.object({
+  itemIds: z.array(z.string().min(1).max(80)).min(1).max(CHECKLIST_LIMITS.items),
+  owedBy: checklistLabel.nullable().optional(),
+  targetDate: z.string().trim().max(24).nullable().optional(),
+  /** How every line picked is made to stand. */
+  standing: z.enum(['in_hand', 'partial', 'assumed', 'asked']).optional(),
+  wanted: z.string().trim().max(CHECKLIST_LIMITS.remark).nullable().optional(),
+  assumer: checklistLabel.optional(),
+  askedOn: z.string().trim().max(24).nullable().optional(),
+});
+
+const checklistRemoveSchema = z.object({ load: z.string().min(1).max(80).optional(), list: checklistLabel.optional() }).refine((sent) => Boolean(sent.load) !== Boolean(sent.list));
+
+/** A whole load taken back, or a whole list taken off, by somebody who may edit on every desk its lines are on. */
+projectWorkspaceRouter.post<Params>('/checklist/remove', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = checklistRemoveSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say which load, or which list.' });
+    return;
+  }
+  const mine = (project.checklist ?? []).filter((item) => (parsed.data.load ? item.load === parsed.data.load : (item.list ?? '').toLowerCase() === parsed.data.list!.toLowerCase()));
+  if (!mine.length) {
+    res.status(404).json({ error: 'No line of that is on the list.' });
+    return;
+  }
+  for (const department of new Set(mine.map((item) => item.department))) if (!mayChangeChecklist(req, res, project, department)) return;
+  try {
+    const gone = removeChecklistLoad(project, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, removed: gone.length });
+  } catch (err) {
+    failed(res, err, 'Could not take that off');
+  }
+});
+
+/** Who owes several lines, and the day they are wanted by, set in one act. */
+projectWorkspaceRouter.post<Params>('/checklist/assign', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = checklistAssignSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the lines, and who owes them, the day they are wanted by or how they stand.' });
+    return;
+  }
+  const departments = new Set((project.checklist ?? []).filter((item) => parsed.data.itemIds.includes(item.id)).map((item) => item.department));
+  if (!departments.size) {
+    res.status(404).json({ error: 'Those lines are not on the list.' });
+    return;
+  }
+  for (const department of departments) if (!mayChangeChecklist(req, res, project, department)) return;
+  try {
+    const { itemIds, ...set } = parsed.data;
+    const items = assignChecklistItems(project, itemIds, set, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, changed: items.length });
+  } catch (err) {
+    failed(res, err, 'Could not set that on those lines');
+  }
+});
+
+/** The tender form for one tender, filled from what stands on its sheet: a workbook to send to the client. */
+projectWorkspaceRouter.get<Params & { recordId: string }>('/tender-terms/:recordId/form', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!staffOnly(req, res)) return;
+  if (!roleIn(req, project, 'procurement')) {
+    res.status(403).json({ error: 'That needs a place in Procurement.' });
+    return;
+  }
+  try {
+    const bytes = await tenderFormXlsx(tenderFormExport(project, req.params.recordId));
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${`${project.reference}-tender-form`.replace(/[^A-Za-z0-9._ -]+/g, ' ').trim()}.xlsx"`);
+    res.send(bytes);
+  } catch (err) {
+    failed(res, err, 'Could not write that form');
+  }
+});
+
+/** A row a client marked not applicable: taken, which marks its fields not applicable, or set aside. A lead or signer of Procurement decides. */
+projectWorkspaceRouter.post<Params & { formId: string; offerId: string }>('/tender-forms/:formId/offers/:offerId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!staffOnly(req, res) || !allowed(req, res, project, 'procurement', 'decide')) return;
+  const decision = req.body?.decision;
+  if (decision !== 'take' && decision !== 'set_aside') {
+    res.status(400).json({ error: 'Say which: take it, or set it aside.' });
+    return;
+  }
+  try {
+    decideTenderFormOffer(project, req.params.formId, req.params.offerId, decision, actorOf(principalOf(req)), { mayDecide: decidesFor(req, project) });
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not decide that');
   }
 });
 

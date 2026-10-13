@@ -17,6 +17,7 @@ import {
   SEVERITY_LABEL,
   type DdTypeKey,
   type ScopeKey,
+  PHOTO_ELEMENTS,
 } from '@realytica/shared';
 
 const keys = <T extends string>(record: Record<T, unknown> | Array<{ key: T }>): [T, ...T[]] => {
@@ -363,6 +364,7 @@ export const reportBoundSourceSchema = z.object({
     'checks',
     'valuation',
     'changes_since_previous',
+    'station_photographs',
     'status_changed',
     'status_waiting',
     'status_next',
@@ -387,6 +389,17 @@ export const reportBoundSourceSchema = z.object({
   x: z.string().min(1).max(80).optional(),
   y: z.string().min(1).max(80).optional(),
   mark: z.enum(['bar', 'line']).optional(),
+  // Photographs by place and period: which stations or place, whether the period before is beside it, and how many at most.
+  photos: z
+    .object({
+      stations: z.array(z.string().min(1).max(80)).max(24).optional(),
+      place: z.object({ building: z.string().max(80).optional(), floor: z.string().trim().min(1).max(40).optional(), unit: z.string().max(80).optional(), milestone: z.string().max(80).optional(), element: z.enum(PHOTO_ELEMENTS).optional() }).strict().optional(),
+      show: z.enum(['period', 'period_and_last']),
+      most: z.number().int().min(1).max(24),
+      every: z.enum(['week', 'month', 'quarter']).optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export const insertReportBlockBodySchema = z.object({
@@ -463,6 +476,8 @@ export const patchProjectBodySchema = z.object({
    */
   parcelId: parcelIdSchema.optional(),
   tenure: tenureSchema.optional(),
+  /** The approvals are held outside this record, as a person says. */
+  approvalsElsewhere: z.boolean().optional(),
   actor: actorSchema,
 });
 
@@ -756,7 +771,8 @@ export const waitingAcceptBodySchema = z.object({
 
 const fieldAddressSchema = z.object({ fn: z.string().max(80), set: z.string().min(1).max(120), field: z.string().min(1).max(80), record: z.string().max(80).optional() });
 
-export const setFieldValuesBodySchema = z.object({ set: z.string().min(1).max(120), record: z.string().max(80).optional(), values: z.record(z.string(), z.unknown()) });
+/** `period`: on a sheet kept by period, the period whose open revision the values are for. Absent, the sheet itself. */
+export const setFieldValuesBodySchema = z.object({ set: z.string().min(1).max(120), record: z.string().max(80).optional(), period: z.string().max(40).optional(), values: z.record(z.string(), z.unknown()) });
 
 export const decideFieldBodySchema = z.object({
   address: fieldAddressSchema,
@@ -769,10 +785,22 @@ export const decideFieldBodySchema = z.object({
 
 export const acceptPaperFieldsBodySchema = z.object({ fn: z.string().min(1).max(80), evidenceId: z.string().min(1).max(120) });
 
+/** How a party is corrected: a new name, the party it is to be merged into, or that it is to be removed. One of the three. */
+export const partyCorrectionBodySchema = z.object({ name: z.string().trim().min(1).max(200).optional(), into: z.string().min(1).max(120).optional(), remove: z.literal(true).optional() });
 export const fieldRecordBodySchema = z.object({ set: z.string().min(1).max(120), values: z.record(z.string(), z.unknown()).default({}), remove: z.string().max(80).optional() });
 
 export const situationBodySchema = z.object({ fn: z.string().min(1).max(80), key: z.string().min(1).max(80), on: z.boolean() });
 
 /** A line under Due soon put off until a day, or with `null` brought back. */
 export const snoozeNeedBodySchema = z.object({ fn: z.string().min(1).max(80), key: z.string().min(1).max(400), until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() });
+/** One act on a set kept by period: open a period, issue it under a name, open a revision of an issued one, or pick why a figure's movement is unexplained. */
+export const fieldPeriodBodySchema = z.object({
+  set: z.string().min(1).max(120),
+  act: z.enum(['open', 'issue', 'revise', 'reason']),
+  record: z.string().min(1).max(80).optional(),
+  period: z.string().min(1).max(100).optional(),
+  name: z.string().max(120).optional(),
+  field: z.string().min(1).max(80).optional(),
+  reason: z.string().max(60).nullable().optional(),
+});
 export const sectionNaBodySchema = z.object({ set: z.string().min(1).max(120), section: z.string().max(80), reason: z.string().max(40).nullable(), note: z.string().max(120).optional() });

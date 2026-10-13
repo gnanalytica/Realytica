@@ -3,9 +3,9 @@
  * adjustments, progress photographs, and CSV/Excel intake.
  */
 
-import { useMemo, useRef, useState } from 'react';
-import { Upload } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import {
+  costAmount,
   moneySaid,
   projectPhotos,
   type CostReportBasicPrice,
@@ -16,7 +16,9 @@ import {
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, Input, Select, cn, useToast } from '../ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Input, Money, Select, cn, useToast } from '../ui/kit';
+import { moneyColumn } from '../../lib/format';
+import { LedgerImport } from './LedgerImport';
 
 function money(amount: number, currency: DdProject['currency']): string {
   return moneySaid(amount, currency);
@@ -63,11 +65,14 @@ function VariationLog({
   const packageNames = new Map(report.rows.map((r) => [r.workPackageId, [r.code, r.name].filter(Boolean).join(' · ')]));
   const rows = report.variations ?? [];
   const total = rows.reduce((s, r) => s + r.amount, 0);
+  const amounts = moneyColumn([...rows.map((row) => row.amount), total], project.currency);
 
   async function add() {
-    const n = Number(amount.replace(/[, ]/g, ''));
+    // An amount with its unit is read ("4.2 lakh"); a saving is typed with a minus or in brackets.
+    const read = costAmount(amount);
+    const n = typeof read === 'number' ? read : Number.NaN;
     if (!description.trim() || !Number.isFinite(n)) {
-      toast('Give a description and an amount.', 'critical');
+      toast(description.trim() ? `“${amount.trim()}” is not an amount. Type the figure, with commas if you like, or with its unit, as in 4.2 lakh.` : 'Give a description and an amount.', 'critical');
       return;
     }
     setBusy(true);
@@ -96,7 +101,7 @@ function VariationLog({
   return (
     <Card>
       <CardHeader title="Variation log" subtitle="Cause of project cost increment" />
-      <CardBody className="space-y-3">
+      <CardBody className="space-y-3 overflow-x-auto">
         {mayEdit ? (
           <div className="flex flex-wrap items-end gap-2 rounded-lg bg-sunken p-2.5">
             <label className="min-w-[14rem] flex-1 text-[12px] text-ink-secondary">
@@ -146,7 +151,7 @@ function VariationLog({
                   ) : null}
                 </td>
                 <td className="py-1.5 pr-2 text-ink-secondary">{row.contingencyDrawn ? 'Contingency' : 'Budget'}</td>
-                <td className="py-1.5 text-right tabular-nums">{money(row.amount, project.currency)}</td>
+                <td className="py-1.5 text-right"><Money {...amounts.cell(row.amount)} /></td>
                 {mayEdit ? (
                   <td className="py-1.5 pl-2">
                     <button
@@ -171,7 +176,7 @@ function VariationLog({
                 <td className="pt-2" colSpan={2}>
                   Total
                 </td>
-                <td className="pt-2 text-right tabular-nums">{money(total, project.currency)}</td>
+                <td className="pt-2 text-right"><Money {...amounts.cell(total)} /></td>
                 {mayEdit ? <td /> : null}
               </tr>
             </tfoot>
@@ -202,6 +207,7 @@ function BasicPriceSheet({
   const [current, setCurrent] = useState('');
   const [qty, setQty] = useState('');
   const rows = report.basicPriceAdjustments ?? [];
+  const amounts = moneyColumn(rows.map((row) => row.amount), project.currency);
 
   async function add() {
     const t = Number(tender.replace(/[, ]/g, ''));
@@ -287,7 +293,7 @@ function BasicPriceSheet({
                 <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.tenderRate, project.currency)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.currentRate, project.currency)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{row.quantity ?? '—'}</td>
-                <td className="py-1.5 text-right tabular-nums">{row.amount !== undefined ? money(row.amount, project.currency) : '—'}</td>
+                <td className="py-1.5 text-right"><Money {...amounts.cell(row.amount)} /></td>
                 {mayEdit ? (
                   <td className="py-1.5 pl-2">
                     <button
@@ -402,65 +408,3 @@ function PhotoThumb({ projectId, evidenceId, fileId }: { projectId: string; evid
   );
 }
 
-function LedgerImport({
-  project,
-  report,
-  onChanged,
-}: {
-  project: DdProject;
-  report: CostReportPeriod;
-  onChanged: (p: DdProject) => void;
-}) {
-  const toast = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function run(input: { file: File } | { text: string }) {
-    setBusy(true);
-    try {
-      const res = await workspaceApi.importCostReport(project.id, report.id, input);
-      onChanged(res.project);
-      toast(`Imported: ${res.added} added, ${res.updated} updated.`, 'good');
-      setText('');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not import', 'critical');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader title="Import ledger" subtitle="CSV, Excel, or a pasted table with Package / Budget / PO / Paid / Anticipated columns" />
-      <CardBody className="space-y-2">
-        <div className="flex flex-wrap gap-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,.tsv,.txt,.xlsx"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void run({ file });
-              e.target.value = '';
-            }}
-          />
-          <Button size="sm" icon={<Upload size={14} />} loading={busy} onClick={() => fileRef.current?.click()}>
-            Upload file
-          </Button>
-        </div>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={4}
-          placeholder={'Package,Budget,PO issued,Paid,Anticipated\nCivil,370000000,376000000,269100000,378000000'}
-          className="w-full resize-y rounded-lg bg-surface px-3 py-2 font-mono text-[12px] text-ink outline-none ring-1 ring-inset ring-[var(--ring)] focus-visible:ring-2 focus-visible:ring-brand"
-        />
-        <Button size="sm" loading={busy} disabled={!text.trim()} onClick={() => void run({ text })}>
-          Import pasted table
-        </Button>
-      </CardBody>
-    </Card>
-  );
-}

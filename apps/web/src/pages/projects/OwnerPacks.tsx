@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CalendarClock, FileText } from 'lucide-react';
 import {
+  PACK_MONTH,
   QUARTER_YEAR_DEFAULT,
   TIMED_REPORTS,
   TIMED_REPORT_LABEL,
@@ -31,7 +33,17 @@ export function OwnerPacks({ project, setProject, marked }: { project: DdProject
   const toast = useToast();
   const [shown, setShown] = useState<ReportDayShown | null>(null);
   const [span, setSpan] = useState<ReportEvery>('month');
-  const [month, setMonth] = useState(() => indiaToday(new Date()).slice(0, 7));
+  // A link from the chat may name the month to open (`month:2026-09`): it is picked here, ready to open.
+  const linked = marked?.startsWith(PACK_MONTH) ? marked.slice(PACK_MONTH.length) : '';
+  const [month, setMonth] = useState(() => linked || indiaToday(new Date()).slice(0, 7));
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!linked) return;
+    setSpan('month');
+    setMonth(linked);
+    // Asked for by its month, the pack itself is what opens: the paper, in this tab, in place of this page with a month picked. Back returns to where the person was.
+    navigate(`/projects/${project.id}/owner-pack/print?month=${linked}`, { replace: true });
+  }, [linked, navigate, project.id]);
   const year = quarterYearOf(project);
   const quarters = useMemo(() => quartersBefore(new Date(), year), [year]);
   // The last quarter that has ended, until another is picked.

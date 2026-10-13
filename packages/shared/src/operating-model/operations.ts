@@ -6,10 +6,12 @@ import { reconcileChecklistRequests } from './checklist';
 import { REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
-import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
+import { formatFieldValue, isBlank, readCheckFields, standingField, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
+import { stand } from './field-history';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
+import { stationPhotosFault } from './photo-report';
 import { fieldSourceFault, freezeFieldBlock, functionReportTemplate, isFieldSource, isFrozenFieldBlock, projectHoldsFields, reportNoteCap, statusFieldsBlock, templateBlocks, thawFieldBlock, type TemplateBlock } from './report-fields';
-import { statusTitle, statusWeekSoFar } from './status-report';
+import { statusPeriodSaid, statusTitle, statusWeekSoFar } from './status-report';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
 import { CAPTURE_OFF_SITE_M, captureDistanceM, describeCapture, isGeotagged, type CaptureFacts, type CaptureFactsInput, type CapturePurpose } from './capture';
 import { readSheetFit, type SheetFitReading, type SheetKind, type SheetRecord } from './geo-sheet';
@@ -762,15 +764,26 @@ export function recordCheckFields(
   }
 
   if (rejected.length === 0) {
-    check.fields = { ...(check.fields ?? {}), ...accepted };
+    // What each field held is kept as it gives way (`stand`), and the trail says what it held and what it holds.
+    const held = { ...(check.fields ?? {}) };
+    const said = (values: Record<string, CheckFieldValue | undefined>) =>
+      Object.keys(accepted)
+        .map((key) => `${key}: ${isBlank(values[key]) ? 'nothing' : formatFieldValue(byKey.get(key)!, values[key], optionSetById).slice(0, 60)}`)
+        .join('; ')
+        .slice(0, 240);
+    const before = said(Object.fromEntries(Object.keys(accepted).map((key) => [key, standingField(held[key])])));
+    for (const [key, value] of Object.entries(accepted)) stand(held, key, value, { at, by: actor });
+    check.fields = held;
     check.updatedAt = at;
     touch(project, at);
+    project.historyFrom ??= at;
     audit(project, {
       actor,
       action: 'record_check_fields',
       entityType: 'check',
       entityId: check.id,
-      newValue: Object.keys(accepted).join(', '),
+      oldValue: before,
+      newValue: said(accepted),
       at,
     });
   }
@@ -1835,7 +1848,11 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   // A function's report is laid out by the template declared beside its fields.
   const template = input.kind === 'function' ? functionReportTemplate(input.template) : undefined;
   if (input.kind === 'function' && !template) throw new Error('Name the function report to write: there is no template by that name.');
-  const rows: TemplateBlock[] = template ? templateBlocks(template) : reportTemplate(input.kind, period);
+  // A function's report made for a period reads its fields as at the period's last day, where that day has gone by, and
+  // prints the photographs of that period beside the one before it.
+  const made = template && input.period && Date.parse(input.period.to) > Date.parse(input.period.from) ? input.period : undefined;
+  const asAt = made ? new Date(Date.parse(made.to) - 1).toISOString().slice(0, 10) : undefined;
+  const rows: TemplateBlock[] = template ? templateBlocks(template).map((row) => (asAt && row.source && (isFieldSource(row.source.kind) || row.source.kind === 'station_photographs') ? { ...row, source: { ...row.source, asAt } } : row)) : reportTemplate(input.kind, period);
   // A status report on a project that keeps fields also says which were recorded in its period.
   if (period && projectHoldsFields(project)) rows.push(statusFieldsBlock(period));
   const blocks: ReportBlock[] = rows.map((row) => ({
@@ -1852,7 +1869,7 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   const report: GeneratedReport = {
     id: id('rpt'),
     kind: input.kind,
-    title: period ? statusTitle(project, period, input.audience) : `${template?.title ?? REPORT_KIND_LABEL[input.kind]} — ${project.name}`,
+    title: period ? statusTitle(project, period, input.audience) : `${template?.title ?? REPORT_KIND_LABEL[input.kind]} — ${project.name}${made ? `, ${statusPeriodSaid(made)}` : ''}`,
     ...(template ? { templateId: template.id } : {}),
     status: 'generated',
     assessmentIds,
@@ -1901,7 +1918,7 @@ function blockIn(report: GeneratedReport, blockId: string): ReportBlock {
 /** A source a block may read: one of the closed set, and for fields, ones that are declared. */
 function readableSource(source: ReportBoundSource): void {
   if (!isReportBoundSource(source.kind)) throw new Error(`"${source.kind}" is not something a report block can read.`);
-  const fault = fieldSourceFault(source);
+  const fault = fieldSourceFault(source) ?? (source.kind === 'station_photographs' ? stationPhotosFault(source) : undefined);
   if (fault) throw new Error(fault);
 }
 

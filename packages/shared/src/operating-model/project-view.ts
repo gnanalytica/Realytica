@@ -29,9 +29,12 @@
 
 import { alertsOfCopy } from './alerts';
 import { scopesOfWorkstreams, workstreamDefinition } from './departments';
+import { historyOnCopy } from './field-history';
 import { fieldCatalog, sharedSetsOf } from './field-registry';
 import { CUSTOMER_SETS } from './field-sets/sales-marketing';
 import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
+import { stationPhotosOfCopy } from './photo-report';
+import { STATIONS_SET } from './photo-stations';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
 import { fieldReportsOfCopy } from './report-fields';
 import { reportsOfCopy } from './status-report';
@@ -43,6 +46,7 @@ import type {
   DecisionRecord,
   EvidenceRecord,
   FindingRecord,
+  FrozenField,
   RiskRecord,
   ScopeInstance,
 } from './types';
@@ -97,10 +101,11 @@ export function fullView(project: DdProject): ProjectView {
   return { project, complete: true, withheld: [], writableCheckIds: writable };
 }
 
-/** The functions whose sheets hold what an area of the grant hands over: the budget's figures and the valuation's. A scope alone does not open them. */
+/** The functions whose sheets hold what an area of the grant hands over: the budget's figures, the valuation's, and the site record's photo stations. A scope alone does not open them. */
 const FUNCTION_AREA: Readonly<Record<string, GrantArea>> = {
   'finance.budget': 'commercials',
   'finance.valuation': 'valuation',
+  'construction.site': 'site_record',
 };
 
 /**
@@ -268,7 +273,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     siteVisits,
     sheets,
     conversation,
-    ...(commercial ? {} : { budget: undefined, cost: undefined, costReports: undefined }),
+    ...(commercial ? {} : { budget: undefined, cost: undefined, costReports: undefined, costPapers: undefined }),
     ...(tenders ? {} : { procurement: undefined }),
     // The fee is a commercial term between the firm and its client.
     ...(commercial ? {} : { engagements: (project.engagements ?? []).map(({ fee: _fee, ...e }) => e) }),
@@ -279,6 +284,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     ),
     // A checklist names every party the firm is chasing, and for what.
     checklist: [],
+    // A tender form names the client and what it was asked: the firm's own, as the list it feeds is.
+    tenderForms: [],
     // An owner pack is cost, meetings and the checklist on one paper, and the report day names who in the firm is told.
     ownerPacks: [],
     reportDay: undefined,
@@ -324,7 +331,9 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const uncited = (value: CheckFieldValue): CheckFieldValue => {
     const cited = value.origin?.kind === 'paper' ? value.origin.evidenceId : value.sourceEvidenceId;
     const other = value.other?.filter((o) => o.origin.kind !== 'paper' || evidenceIds.has(o.origin.evidenceId));
-    const kept = other ? { ...value, other } : value;
+    // What the field held before goes with it, each entry cut as the value is: its citation only where its paper is here.
+    const history = historyOnCopy(value.history, (id) => evidenceIds.has(id));
+    const kept = other || history ? { ...value, ...(other ? { other } : {}), ...(history ? { history } : {}) } : value;
     if (!cited || evidenceIds.has(cited)) return kept;
     const { origin: _origin, sourceEvidenceId: _source, page: _page, quote: _quote, ...rest } = kept;
     return rest;
@@ -384,13 +393,32 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
       if (CUSTOMER_SETS.includes(id)) return false;
       return set ? (set.fn === SHARED_FN ? sharedInReach.has(id) : inReach(set.fn)) : false;
     });
+    // What an issued period froze goes as its fields go: none of a field another department added out of reach, and no footnote that cites a paper not on this copy.
+    const frozenOnCopy = (id: string, frozen: Record<string, FrozenField>): Record<string, FrozenField> =>
+      Object.fromEntries(
+        Object.entries(frozen)
+          // Nor a field that printed a buyer's name through a link: the name was written down at issue, and the buyer is nobody's outside the firm.
+          .filter(([key, field]) => !added.get(id)?.has(key) && !buyerNames.some((name) => name && field.said.includes(name)))
+          .map(([key, field]) => {
+            if (!field.evidenceId || evidenceIds.has(field.evidenceId)) return [key, field];
+            const { footnote: _footnote, evidenceId: _paper, ...rest } = field;
+            return [key, rest];
+          }),
+      );
     view.fieldSheets = Object.fromEntries(
       kept.map(([id, sheet]) => [
         id,
         {
           ...sheet,
           values: copied(without(id, sheet.values)),
-          ...(sheet.records ? { records: sheet.records.filter((record) => id !== SHARED_RECORD_SETS.party || !isBuyer(record)).map((record) => ({ ...record, values: copied(without(id, record.values)) })) } : {}),
+          ...(sheet.records
+            ? {
+                records: sheet.records
+                  .filter((record) => id !== SHARED_RECORD_SETS.party || !isBuyer(record))
+                  .map((record) => ({ ...record, values: copied(without(id, record.values)), ...(record.frozen ? { frozen: frozenOnCopy(id, record.frozen) } : {}) })),
+              }
+            : {}),
+          ...(sheet.periods ? { periods: sheet.periods.map((period) => ({ ...period, values: copied(without(id, period.values)), ...(period.frozen ? { frozen: frozenOnCopy(id, period.frozen) } : {}) })) } : {}),
         },
       ]),
     );
@@ -399,8 +427,10 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     const holds = (test: (fn: string) => boolean): boolean => Object.keys(project.fieldSheets!).some((id) => test(catalog.sets.get(id)?.fn ?? ''));
     if (!commercial && holds((fn) => FUNCTION_AREA[fn] === 'commercials')) withheld.push('commercials');
     if (!tenders && holds((fn) => workstreamDefinition(fn)?.department === 'procurement')) withheld.push('procurement');
+    if (!area('site_record') && holds((fn) => FUNCTION_AREA[fn] === 'site_record')) withheld.push('site_record');
   }
   view.reports = fieldReportsOfCopy(reports, inReach, buyerNames);
+  cutPhotoPlaces(view);
   if (project.situations) {
     // A situation is said only where a function in reach answers to it, and never with the paper that suggested it where that paper is not here.
     const told = new Set<string>();
@@ -438,6 +468,52 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const writableCheckIds = grantCanWrite(grant) ? checkIds : new Set<string>();
 
   return { project: view, complete: false, withheld: [...new Set(withheld)], writableCheckIds };
+}
+
+/**
+ * A photograph's place on a copy made for a grant.
+ *
+ * A station, a shot and a place are handed over only where the copy holds
+ * the building, the unit and the milestone they name. A station that names
+ * one the copy does not hold is left off the list; a photograph keeps the
+ * parts of its place the copy holds, and its station only where the station
+ * is on the list; and a report's photograph section kept as it was issued
+ * keeps only the rows of stations and files on the copy. The copy is given
+ * new objects: nothing on the project itself is changed.
+ */
+function cutPhotoPlaces(view: DdProject): void {
+  const ids = (setId: string) => new Set((view.fieldSheets?.[setId]?.records ?? []).filter((record) => !record.removed).map((record) => record.id));
+  const [buildings, units] = [ids(SHARED_RECORD_SETS.building), ids(SHARED_RECORD_SETS.unit)];
+  const milestones = new Set((view.milestones ?? []).map((milestone) => milestone.id));
+  const held = (named: unknown, among: ReadonlySet<string>): boolean => typeof named !== 'string' || !named || among.has(named);
+  const sheet = view.fieldSheets?.[STATIONS_SET];
+  if (sheet?.records) {
+    const records = sheet.records.filter((record) => held(record.values.building?.value, buildings) && held(record.values.milestone?.value, milestones));
+    if (records.length < sheet.records.length) view.fieldSheets = { ...view.fieldSheets, [STATIONS_SET]: { ...sheet, records } };
+  }
+  const stations = ids(STATIONS_SET);
+  view.evidence = view.evidence.map((row) => {
+    if (!row.attachments.some((file) => file.capture?.place || file.capture?.stationId)) return row;
+    return {
+      ...row,
+      attachments: row.attachments.map((file) => {
+        const capture = file.capture;
+        if (!capture?.place && !capture?.stationId) return file;
+        const { place, stationId, placed, ...rest } = capture;
+        const kept = {
+          ...(place?.building && buildings.has(place.building) ? { building: place.building } : {}),
+          ...(place?.floor && (!place.building || buildings.has(place.building)) ? { floor: place.floor } : {}),
+          ...(place?.unit && units.has(place.unit) ? { unit: place.unit } : {}),
+          ...(place?.milestone && milestones.has(place.milestone) ? { milestone: place.milestone } : {}),
+          ...(place?.element ? { element: place.element } : {}),
+        };
+        const station = stationId && stations.has(stationId) ? stationId : undefined;
+        const whole = Object.keys(kept).length === Object.keys(place ?? {}).length && station === stationId;
+        return { ...file, capture: { ...rest, ...(Object.keys(kept).length ? { place: kept } : {}), ...(station ? { stationId: station } : {}), ...(placed && whole ? { placed } : {}) } };
+      }),
+    };
+  });
+  view.reports = stationPhotosOfCopy(view.reports, stations, new Set(view.evidence.map((row) => row.id)));
 }
 
 /**

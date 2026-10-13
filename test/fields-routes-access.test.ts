@@ -186,3 +186,37 @@ describe('deciding a field over HTTP', () => {
     assert.equal((await put('legal.contracts')).status, 200);
   });
 });
+
+describe('a set kept by period, over HTTP', () => {
+  const CASH = 'finance.funding.cash_months';
+  const act = (token: string, body: unknown) => call('POST', `/api/projects/${project.id}/fields/period`, { token, body });
+  const stored = () => store.data.projects!.find((held) => held.id === project.id)!;
+
+  it('is not there for somebody whose grant does not reach the function, whatever they ask of it', async () => {
+    for (const body of [{ set: CASH, act: 'open' }, { set: CASH, act: 'issue', record: 'rec_x' }, { set: CASH, act: 'revise', record: 'rec_x' }, { set: CASH, act: 'reason', record: 'rec_x', field: 'collections', reason: 'rounding' }]) {
+      const out = await act(contractor(), body);
+      assert.equal(out.status, 404, `${JSON.stringify(body)} → ${JSON.stringify(out.body)}`);
+    }
+    assert.equal(stored().fieldSheets?.[CASH], undefined, 'and nothing was made');
+  });
+
+  it('opens a period, issues it, refuses a write to it after, and opens a revision beside it', async () => {
+    const opened = await act(owner(), { set: CASH, act: 'open', period: '2026-08' });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    const record = opened.body.recordId as string;
+    assert.ok(record);
+    assert.equal((await act(owner(), { set: CASH, act: 'open', period: '2026-08' })).body.recordId, record, 'asked for again, the same one');
+    assert.equal((await call('PUT', `/api/projects/${project.id}/fields/values`, { token: owner(), body: { set: CASH, record, values: { collections: 1000 } } })).status, 200);
+    assert.equal((await act(owner(), { set: CASH, act: 'issue', record })).status, 200);
+    assert.equal(stored().fieldSheets![CASH]!.records!.find((held) => held.id === record)!.issued!.by, 'dev@builders.example');
+    const late = await call('PUT', `/api/projects/${project.id}/fields/values`, { token: owner(), body: { set: CASH, record, values: { collections: 2000 } } });
+    assert.equal(late.status, 400);
+    assert.match(late.body.error, /This period is issued/);
+    const revised = await act(owner(), { set: CASH, act: 'revise', record });
+    assert.equal(revised.status, 200, JSON.stringify(revised.body));
+    assert.notEqual(revised.body.recordId, record);
+    assert.equal(stored().fieldSheets![CASH]!.records!.find((held) => held.id === revised.body.recordId)!.revises, record);
+    assert.equal((await act(owner(), { set: CASH, act: 'open', period: 'FY2026-Q2' })).status, 400, 'a period of another kind is refused');
+    assert.equal((await act(owner(), { set: 'finance.funding.plan', act: 'open' })).status, 400, 'and so is a set that is not kept by period');
+  });
+});

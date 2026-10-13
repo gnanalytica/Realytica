@@ -4,6 +4,7 @@ import { Check, Layers, MapPinned, RefreshCw, Upload } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
+  OVERLAY_STANDING_LABEL,
   isHttpsUrl,
   revenueReads,
   sheetIsPlaceable,
@@ -946,7 +947,7 @@ export function GisOverlayCard({
             {flags.map((h, i) => (
               <li key={`${h.code}-${i}`} className="text-[13px] leading-relaxed text-ink">
                 <Badge tone="warning" className="mr-2 align-middle">
-                  {h.standing}
+                  {OVERLAY_STANDING_LABEL[h.standing]}
                 </Badge>
                 {h.text}
               </li>
@@ -964,9 +965,9 @@ export function GisOverlayCard({
           </div>
         ) : null}
 
-        {read?.planning.inForce ? (
+        {read?.planning.inForce || read?.planning.noPlan ? (
           <p className="text-[12px] leading-relaxed text-ink-muted">
-            Plan in force: {read.planning.inForce.title}. Master plan extract{' '}
+            {read.planning.inForce ? `Plan in force: ${read.planning.inForce.title}.` : read.planning.noPlan} Master plan extract{' '}
             {read.planning.thisFile.hasMasterPlanExtract ? 'held' : 'not held'} on this file. Zoning certificate{' '}
             {read.planning.thisFile.hasZoningCertificate ? 'held' : 'not held'}.
           </p>

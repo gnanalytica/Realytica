@@ -60,3 +60,37 @@ export function droppedUnread(project: DdProject): Array<{ fileName: string; mim
     .filter((file) => typeof file.storageKey === 'string' && !filed.has(file.storageKey))
     .map((file) => ({ fileName: String(file.fileName ?? 'document'), mimeType: String(file.mimeType ?? 'application/octet-stream'), sizeBytes: Number(file.sizeBytes ?? 0), storageKey: String(file.storageKey) }));
 }
+
+/**
+ * Notes on a dropped file's own note that the chat has asked what it is. A
+ * file asked about is not being read: nothing happens to it until a person
+ * answers, and a page opened meanwhile must not say that it is on its way
+ * (`papersInHand`). `holders` are the copies of the project the note is on.
+ */
+export function noteAsked(holders: Iterable<Pick<DdProject, 'chatProposals'>>, storageKey: string, between: 'questionnaire' | 'photo', at: string = new Date().toISOString()): void {
+  for (const held of holders) {
+    for (const card of held.chatProposals ?? []) {
+      if (isNotReadYetCard(card) && card.payload.storageKey === storageKey) card.payload = { ...card.payload, asked: { between, at } };
+    }
+  }
+}
+
+/**
+ * Sets a dropped file aside: it is kept, held as a paper to file, and said on
+ * no banner. It can still be filed, read, or taken in as a questionnaire from
+ * Documents. Returns whether a note of that file was found.
+ */
+export function setDroppedAside(project: Pick<DdProject, 'chatProposals'>, storageKey: string, at: string = new Date().toISOString()): boolean {
+  let found = false;
+  for (const card of project.chatProposals ?? []) {
+    if (!isNotReadYetCard(card) || card.payload.storageKey !== storageKey) continue;
+    card.payload = { ...card.payload, setAsideAt: at };
+    found = true;
+  }
+  return found;
+}
+
+/** Whether the chat has already asked what this dropped file is. A question nobody answered is not put twice: read again, the file is a paper. */
+export function wasAsked(project: Pick<DdProject, 'chatProposals'>, storageKey: string): boolean {
+  return (project.chatProposals ?? []).some((card) => isNotReadYetCard(card) && card.payload.storageKey === storageKey && Boolean((card.payload as { asked?: unknown }).asked));
+}

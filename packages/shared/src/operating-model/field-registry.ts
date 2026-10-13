@@ -269,7 +269,9 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
     case 'date':
       return [formula.at ?? own(formula.key), ...(formula.via ? [own(formula.via)] : [])];
     case 'figure':
-      return formula.of ? [own(formula.of)] : [];
+      return [...(formula.of ? [own(formula.of)] : []), ...(formula.asAt ? [own(formula.asAt)] : [])];
+    case 'moved':
+      return [own(formula.key)];
     case 'records':
       if (formula.reduce === 'latest') return [formula.field, formula.by, ...(formula.orBy ? [formula.orBy] : []), ...whereColumns(formula.where)].map((field) => ({ fn: set.fn, set: formula.set, field })).concat(joined(formula.where));
       return [{ fn: set.fn, set: formula.set, field: formula.field ?? '' }];
@@ -343,11 +345,19 @@ function formulaRates(formula: CheckFormula): string[] {
 }
 
 /** The figures of other parts of the product a formula reads, wherever in it they sit, each with the own link it is asked of. */
-function formulaFigures(node: unknown): Array<{ key: string; of?: string }> {
+function formulaFigures(node: unknown): Array<{ key: string; of?: string; asAt?: string }> {
   if (!node || typeof node !== 'object') return [];
-  const held = node as { op?: unknown; key?: unknown; of?: unknown };
-  const here = held.op === 'figure' ? [{ key: String(held.key), ...(typeof held.of === 'string' ? { of: held.of } : {}) }] : [];
+  const held = node as { op?: unknown; key?: unknown; of?: unknown; asAt?: unknown };
+  const here = held.op === 'figure' ? [{ key: String(held.key), ...(typeof held.of === 'string' ? { of: held.of } : {}), ...(typeof held.asAt === 'string' ? { asAt: held.asAt } : {}) }] : [];
   return [...here, ...Object.values(node).flatMap(formulaFigures)];
+}
+
+/** Every place a formula asks how far a field moved, wherever in it they sit. */
+function formulaMoved(node: unknown): Array<{ key: string; since: 'last_period' | { days: number } }> {
+  if (!node || typeof node !== 'object') return [];
+  const held = node as { op?: unknown; key?: unknown; since?: unknown };
+  const here = held.op === 'moved' ? [{ key: String(held.key), since: held.since as 'last_period' | { days: number } }] : [];
+  return [...here, ...Object.values(node).flatMap(formulaMoved)];
 }
 
 function conditionRates(when: FormulaCondition): string[] {
@@ -400,6 +410,52 @@ export function fieldOrder(catalog = fieldCatalog()): { order: FieldAddress[]; c
 /* What is wrong with a catalog                                          */
 /* ==================================================================== */
 
+const OWED_ROLES: readonly string[] = ['owner', 'advocate', 'authority', 'consultant', 'contractor', 'lender', 'buyer'];
+
+/** What a set's `periodic` declares that cannot work. */
+function periodicFaults(set: FieldSet, catalog: FieldCatalog, rated: ReadonlySet<string>): string[] {
+  const periodic = set.periodic;
+  if (!periodic) return [];
+  const faults: string[] = [];
+  const field = (key: string) => set.fields.find((def) => def.key === key);
+  if (catalog.checks.has(set.id) || set.extends) faults.push('a check, or a set that adds to a shared record, is not kept by period.');
+  const event = typeof periodic.every === 'object' ? periodic.every : undefined;
+  if (!event && !['week', 'month', 'quarter', 'year'].includes(periodic.every as string)) faults.push('periodic.every is a week, a month, a quarter, a year or an event.');
+  if (event) {
+    const events = catalog.sets.get(event.event);
+    if (!events?.records) faults.push(`periodic is kept by "${event.event}", which is not a set that repeats.`);
+    if (event.on && events && events.fields.find((def) => def.key === event.on)?.kind !== 'date') faults.push(`periodic reads the event's day from "${event.on}", which is not a date of ${event.event}.`);
+    if (!set.records) faults.push('only a set that repeats is kept by event.');
+  }
+  if (set.records) {
+    const by = periodic.by ? field(periodic.by) : undefined;
+    if (!by) faults.push('a set that repeats names the field its period is read from (periodic.by).');
+    else if (event ? !(by.kind === 'ref' && refSet(by.target) === event.event) : !(by.kind === 'date' || (periodic.every === 'year' && by.kind === 'text'))) faults.push(`periodic.by "${by.key}" does not name a period: a date, the year as written, or for an event the link to it.`);
+    for (const key of periodic.per ?? []) if (!field(key) || fieldIsWorkedOut(field(key)!)) faults.push(`periodic.per names "${key}", which is not a field somebody fills.`);
+  } else if (periodic.by || periodic.per?.length) faults.push('a sheet held once is its own open period: it names no periodic.by and no periodic.per.');
+  for (const key of periodic.carry ?? []) {
+    const def = field(key);
+    if (!def || fieldIsWorkedOut(def) || def.kind === 'longtext') faults.push(`periodic.carry names "${key}", which is not a field somebody fills.`);
+  }
+  for (const key of periodic.cumulative ?? []) if (!field(key)) faults.push(`periodic.cumulative names "${key}", which is not a field.`);
+  if ('rate' in periodic.due ? !rated.has(periodic.due.rate) : !(Number.isInteger(periodic.due.days) && periodic.due.days >= 0)) faults.push('periodic.due is a number of days, or a rule row that is on file.');
+  if (periodic.issuer !== 'lead' && periodic.issuer !== 'signer' && !OWED_ROLES.includes(periodic.issuer)) faults.push('periodic.issuer is a lead, a signer or a party’s role.');
+  const reasons = periodic.reasons ? catalog.optionSets.get(periodic.reasons) : undefined;
+  if (periodic.reasons && !reasons) faults.push(`periodic.reasons names "${periodic.reasons}", which is not an option set.`);
+  if (periodic.attribute?.length && !reasons) faults.push('a set that explains a figure by its rows declares the reasons a person picks for what is left (periodic.reasons).');
+  for (const attribute of periodic.attribute ?? []) {
+    if (!field(attribute.field)) faults.push(`periodic.attribute explains "${attribute.field}", which is not a field.`);
+    const rows = attribute.rows;
+    const columns = 'records' in rows ? ('table' in rows ? catalog.sets.get(rows.records)?.fields.find((def) => def.key === rows.table)?.columns : catalog.sets.get(rows.records)?.fields) : field(rows.table)?.columns;
+    if (!columns) faults.push(`periodic.attribute for "${attribute.field}" reads rows that do not exist.`);
+    else {
+      if (columns.find((def) => def.key === attribute.date)?.kind !== 'date') faults.push(`periodic.attribute for "${attribute.field}" dates its rows by "${attribute.date}", which is not a date of them.`);
+      if (!columns.some((def) => def.key === attribute.amount)) faults.push(`periodic.attribute for "${attribute.field}" sums "${attribute.amount}", which the rows do not have.`);
+    }
+  }
+  return faults;
+}
+
 /**
  * Everything a catalog declares that cannot work, each in a sentence naming
  * the set and the field. Empty for a catalog that can be used. A test holds
@@ -420,6 +476,7 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
     if (catalog.checks.has(set.id)) faults.push(`${at()}: a check already has this id.`);
     seen.add(set.id);
     if (set.fn !== SHARED_FN && !workstreamDefinition(set.fn)) faults.push(`${at()}: "${set.fn}" is not a function.`);
+    faults.push(...periodicFaults(set, catalog, rated).map((fault) => `${at()}: ${fault}`));
     if (set.extends) {
       const target = sheets.find((other) => other.id === set.extends);
       if (!target?.records) faults.push(`${at()}: extends "${set.extends}", which is not a set that repeats.`);
@@ -473,6 +530,17 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
         const known = PROJECT_FIGURES[figure.key];
         if (!known) faults.push(`${at(def.key)}: reads the figure "${figure.key}", which nothing works out.`);
         else if (Boolean(known.of) !== Boolean(figure.of)) faults.push(`${at(def.key)}: the figure "${figure.key}" ${known.of ? `is of one ${known.of}: name the link to it` : 'is of the project, not of one thing'}.`);
+        if (figure.asAt && set.fields.find((field) => field.key === figure.asAt)?.kind !== 'date') faults.push(`${at(def.key)}: reads the figure "${figure.key}" as at "${figure.asAt}", which is not a date of this set.`);
+      }
+      for (const moved of def.formula ? formulaMoved(def.formula) : []) {
+        if (!set.fields.some((field) => field.key === moved.key)) faults.push(`${at(def.key)}: says how far "${moved.key}" moved, which is not a field of this set.`);
+        if (moved.since === 'last_period' && !set.periodic) faults.push(`${at(def.key)}: says how far "${moved.key}" moved since the last period, on a set that is not kept by period.`);
+      }
+      if (def.trend) {
+        if (def.trend.against && !set.fields.some((field) => field.key === def.trend!.against)) faults.push(`${at(def.key)}: its trend is drawn against "${def.trend.against}", which is not a field of this set.`);
+        const figured = def.kind === 'computed' && def.formula?.op === 'figure' && Boolean(PROJECT_FIGURES[def.formula.key]?.series);
+        if (def.trend.over === 'periods' && !set.periodic && !figured) faults.push(`${at(def.key)}: a trend over periods needs a set kept by period, or a figure that keeps readings.`);
+        if (def.trend.over === 'history' && fieldIsWorkedOut(def)) faults.push(`${at(def.key)}: a field that is worked out holds no history to draw: draw it over periods.`);
       }
       if (def.kind === 'status' && !def.cases?.length) faults.push(`${at(def.key)}: a status field needs cases.`);
       if (def.kind === 'computed' && !def.formula) faults.push(`${at(def.key)}: a computed field needs a formula.`);

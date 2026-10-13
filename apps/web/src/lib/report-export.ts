@@ -10,8 +10,10 @@ import {
   type ReportTable,
 } from '@realytica/shared';
 import { evidenceFileUrl, fetchWithAuth } from './api';
-import { photosOfTable } from '../components/report/ReportTableView';
+import { reportTablePhotos } from './report-photos';
+import { workspaceApi } from './workspace-api';
 import { daySaid } from '@realytica/shared';
+import { personNamed } from './format';
 import { reportSummary } from './report-summary';
 
 /**
@@ -73,31 +75,31 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
     });
 
   /**
-   * The photographs a table's rows cite, each under its caption. A photograph
-   * that cannot be fetched is named rather than dropped: a caption with no
-   * picture tells the reader something is missing, an absence tells them nothing.
+   * The photographs a table's rows cite, each under its caption: the ones on
+   * the document register, and the ones still in the site log, which a section
+   * of photographs by station cites too. A photograph that cannot be fetched
+   * is named rather than dropped: a caption with no picture tells the reader
+   * something is missing, an absence tells them nothing.
    */
   const photosOf = async (table: ReportTable): Promise<InstanceType<typeof Paragraph>[]> => {
     const out: InstanceType<typeof Paragraph>[] = [];
-    for (const photo of photosOfTable(project, table)) {
-      const row = project.evidence.find((e) => e.id === photo.evidenceId);
-      const shot = row?.attachments.find((a) => a.mimeType.startsWith('image/'));
-      if (!row || !shot) continue;
-      const kind = shot.mimeType === 'image/png' ? 'png' : shot.mimeType === 'image/jpeg' ? 'jpg' : null;
+    for (const photo of reportTablePhotos(project, table)) {
+      const path = photo.evidenceId && photo.fileId ? evidenceFileUrl(project.id, photo.evidenceId, photo.fileId, { inline: true }) : workspaceApi.sitePhotoUrl(project.id, photo.sitePhoto!.entryId, photo.sitePhoto!.index);
       let picture: InstanceType<typeof ImageRun> | null = null;
-      if (kind) {
-        try {
-          const res = await fetchWithAuth(evidenceFileUrl(project.id, row.id, shot.id, { inline: true }));
-          if (res.ok) picture = new ImageRun({ type: kind, data: await res.arrayBuffer(), transformation: { width: 300, height: 225 } });
-        } catch {
-          picture = null;
-        }
+      try {
+        const res = await fetchWithAuth(path);
+        // A filed photograph says what it is on the register; one in the site log says so as it is served.
+        const mime = photo.mimeType ?? res.headers.get('content-type') ?? '';
+        const kind = /png/.test(mime) ? 'png' : /jpe?g/.test(mime) ? 'jpg' : null;
+        if (res.ok && kind) picture = new ImageRun({ type: kind, data: await res.arrayBuffer(), transformation: { width: 300, height: 225 } });
+      } catch {
+        picture = null;
       }
       if (picture) out.push(new Paragraph({ keepNext: true, spacing: { before: 160 }, children: [picture] }));
       out.push(
         new Paragraph({
           spacing: { after: 120 },
-          children: [new TextRun({ text: `${photo.caption}: ${row.title}${picture ? '' : ' (photograph not included in this file)'}`, italics: true, size: 18, color: '555555' })],
+          children: [new TextRun({ text: `${photo.caption}${picture ? '' : ' (photograph not included in this file)'}`, italics: true, size: 18, color: '555555' })],
         }),
       );
     }
@@ -196,7 +198,7 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
         children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun(text)] }));
       }
       if (paragraphs.length && block.editedBy && block.editedAt && !block.detachedAt) {
-        children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `Written by ${block.editedBy}, ${day(block.editedAt)}.`, italics: true, size: 18, color: '666666' })] }));
+        children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `Written by ${personNamed(project, block.editedBy)}, ${day(block.editedAt)}.`, italics: true, size: 18, color: '666666' })] }));
       }
     }
   }

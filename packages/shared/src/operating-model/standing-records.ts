@@ -23,7 +23,10 @@ export interface StandingRecord {
 
 /** The records on a set's list, each with only the values that stand. */
 export function standingRecords(project: Partial<Pick<DdProject, 'fieldSheets'>>, setId: string): StandingRecord[] {
-  return (project.fieldSheets?.[setId]?.records ?? []).flatMap((held) => (held.removed ? [] : [{ id: held.id, values: standingValues(held.values) }]));
+  const kept = (project.fieldSheets?.[setId]?.records ?? []).filter((held) => !held.removed);
+  // Of an issued period and its revision, one counts: the issue until the revision is issued, the revision from then.
+  const replaced = new Set(kept.filter((held) => held.revises && held.issued).map((held) => held.revises));
+  return kept.flatMap((held) => (replaced.has(held.id) || (held.revises && !held.issued) ? [] : [{ id: held.id, values: standingValues(held.values) }]));
 }
 
 /** One standing value of a record, where it is of the kind asked for. */

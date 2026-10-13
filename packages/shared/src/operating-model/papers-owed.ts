@@ -18,7 +18,7 @@
  * what their copy holds and no more.
  */
 import { checklistFunction, papersOwedOpen } from './chat-places';
-import { checklistSheet, type ChecklistLine } from './checklist';
+import { checklistLineTracked, checklistSheet, type ChecklistLine } from './checklist';
 import { cockpitPath, type ProjectCockpitPane } from './cockpit';
 import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, workstreamDefinition, type DepartmentKey } from './departments';
 import { addressKey } from './field-registry';
@@ -28,13 +28,20 @@ import { requirementSheet, type RequirementItem } from './requirement-sheet';
 import type { CockpitPathExtra } from './sitting';
 import type { DdProject, ProjectRequest } from './types';
 
-export type PaperStanding = 'not_asked' | 'asked' | 'answered' | 'in_hand';
+export type PaperStanding = 'not_asked' | 'asked' | 'answered' | 'partial' | 'assumed' | 'in_hand';
 
-/** The four places a paper stands, in the words the screens use. */
+/**
+ * The places a paper stands, in the words the screens use. Four are worked
+ * out: not asked, asked for, answered and in hand. Two a person sets, or a
+ * list's own status column does: partly in hand with the rest still owed,
+ * and to be assumed, which is a paper that will not come.
+ */
 export const PAPER_STANDING_LABEL: Record<PaperStanding, string> = {
   not_asked: 'Not asked',
   asked: 'Asked for',
   answered: 'To confirm',
+  partial: 'Partial',
+  assumed: 'To be assumed',
   in_hand: 'In hand',
 };
 
@@ -63,6 +70,18 @@ export interface PaperLine {
   fileName?: string;
   requirement?: RequirementItem;
   checklist?: ChecklistLine;
+  /** Its number on the list it came from, and the round it was asked in. */
+  ref?: string;
+  round?: string;
+  /** A few words on what came back. */
+  remark?: string;
+  /** What is still wanted, of a paper partly in hand. */
+  wanted?: string;
+  /** Who proceeds on an assumption, for a paper that will not come. */
+  assumer?: string;
+  /** A line of a list that is still owed and names nobody to owe it, or no day it is wanted by. */
+  unnamed?: true;
+  undated?: true;
 }
 
 export interface PaperParty {
@@ -73,6 +92,7 @@ export interface PaperParty {
   notAsked: number;
   asked: number;
   answered: number;
+  partial: number;
   overdue: number;
 }
 
@@ -86,19 +106,31 @@ export interface PapersOwed {
    * asked, nobody is named, and none is counted below.
    */
   expected: PaperLine[];
+  /** Papers that will not come, each with who proceeds on an assumption. Owed by nobody, and not in hand. */
+  assumed: PaperLine[];
   total: number;
   owed: number;
+  /** What somebody has been asked for and has not sent: what is owed. A line on a list that nobody was asked for is the list, not a debt. */
+  askedFor: number;
   notAsked: number;
   asked: number;
   answered: number;
+  partial: number;
   overdue: number;
+  /** Lines of a list still owed that name nobody to owe them, and that name no day. */
+  nobodyNamed: number;
+  noDate: number;
+  /** The rounds the list's lines were asked in, in the order they first appear. */
+  rounds: string[];
+  /** Whether the list keeps what a tracked list keeps: numbers, rounds, days. Only then is a missing day said. */
+  tracked: boolean;
 }
 
 function fold(text: string | undefined): string {
   return (text ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-const RANK: Record<PaperStanding, number> = { answered: 0, asked: 1, not_asked: 2, in_hand: 3 };
+const RANK: Record<PaperStanding, number> = { answered: 0, partial: 1, asked: 2, not_asked: 3, assumed: 4, in_hand: 5 };
 
 function replied(request: ProjectRequest | undefined): string | undefined {
   const reply = request ? repliesWaiting(request)[0] : undefined;
@@ -166,17 +198,29 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
         if (request) claimed.add(request.id);
         const reply = opts.outside ? undefined : answeredLines.get(line.item.id)?.reply;
         const party = line.item.owedBy ?? line.askedOf;
-        const where = [line.item.stage, line.item.package].filter(Boolean).join(' · ');
+        // Under its own sections where the list has them, each with its number; else its stage and package as before.
+        const sections = (line.item.headings ?? []).map((heading) => `${[heading.ref, heading.title].filter(Boolean).join(' ')}${heading.remark ? ` (${heading.remark})` : ''}`);
+        const where = [line.item.stage, line.item.package, ...sections].filter(Boolean).join(' · ');
+        const standing: PaperStanding =
+          line.status === 'received' ? 'in_hand' : line.mark === 'assumed' ? 'assumed' : reply ? 'answered' : line.mark === 'partial' ? 'partial' : line.status === 'pending' ? 'not_asked' : 'asked';
+        const open = standing !== 'in_hand' && standing !== 'assumed';
         lines.push({
           key: `l:${line.item.id}`,
           from: 'list',
           title: line.item.title,
           department: line.item.department,
-          standing: line.status === 'received' ? 'in_hand' : line.status === 'pending' ? 'not_asked' : reply ? 'answered' : 'asked',
+          standing,
           checklist: line,
+          ...(line.item.ref ? { ref: line.item.ref } : {}),
+          ...(line.item.round ? { round: line.item.round } : {}),
+          ...(line.item.remark ? { remark: line.item.remark.text } : {}),
+          ...(line.item.partial?.wanted && standing !== 'in_hand' ? { wanted: line.item.partial.wanted } : {}),
+          ...(standing === 'assumed' ? { assumer: line.item.assumed!.assumer } : {}),
+          ...(open && !party ? { unnamed: true as const } : {}),
+          ...(open && !line.dueAt ? { undated: true as const } : {}),
           ...(where ? { where } : {}),
           ...(party ? { party } : {}),
-          ...(request?.sentAt ? { askedOn: request.sentAt } : {}),
+          ...(request?.sentAt ? { askedOn: request.sentAt } : line.item.askedOn && standing !== 'in_hand' && standing !== 'assumed' ? { askedOn: line.item.askedOn } : {}),
           ...(line.dueAt ? { dueAt: line.dueAt } : {}),
           ...(line.overdue && !reply ? { overdue: true } : {}),
           ...(request ? { request } : {}),
@@ -229,48 +273,103 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
   const counted = lines.filter((line) => !unasked(line));
   const parties = new Map<string, PaperParty>();
   for (const line of counted) {
-    if (line.standing === 'in_hand') continue;
+    if (line.standing === 'in_hand' || line.standing === 'assumed') continue;
     const key = fold(line.party);
-    const held = parties.get(key) ?? { key, party: line.party, lines: [], notAsked: 0, asked: 0, answered: 0, overdue: 0 };
+    const held = parties.get(key) ?? { key, party: line.party, lines: [], notAsked: 0, asked: 0, answered: 0, partial: 0, overdue: 0 };
     parties.set(key, held);
     held.lines.push(line);
     if (line.standing === 'not_asked') held.notAsked += 1;
     if (line.standing === 'asked') held.asked += 1;
     if (line.standing === 'answered') held.answered += 1;
+    if (line.standing === 'partial') held.partial += 1;
     if (line.overdue) held.overdue += 1;
   }
   for (const party of parties.values()) party.lines.sort((a, b) => RANK[a.standing] - RANK[b.standing] || Number(Boolean(b.overdue)) - Number(Boolean(a.overdue)));
   const owing = [...parties.values()].sort((a, b) => Number(!a.party) - Number(!b.party) || b.answered - a.answered || b.overdue - a.overdue || b.lines.length - a.lines.length || a.key.localeCompare(b.key));
   const owed = owing.reduce((n, party) => n + party.lines.length, 0);
+  const listed = counted.filter((line) => line.from === 'list');
+  const rounds: string[] = [];
+  for (const line of listed) if (line.round && !rounds.some((round) => fold(round) === fold(line.round))) rounds.push(line.round);
   return {
     parties: owing,
     inHand: counted.filter((line) => line.standing === 'in_hand'),
     expected,
+    assumed: counted.filter((line) => line.standing === 'assumed'),
     total: counted.length,
     owed,
+    askedFor: owed - owing.reduce((n, party) => n + party.notAsked, 0),
     notAsked: owing.reduce((n, party) => n + party.notAsked, 0),
     asked: owing.reduce((n, party) => n + party.asked, 0),
     answered: owing.reduce((n, party) => n + party.answered, 0),
+    partial: owing.reduce((n, party) => n + party.partial, 0),
     overdue: owing.reduce((n, party) => n + party.overdue, 0),
+    nobodyNamed: listed.filter((line) => line.unnamed).length,
+    noDate: listed.filter((line) => line.undated).length,
+    rounds,
+    tracked: listed.some((line) => checklistLineTracked(line.checklist!.item)),
   };
 }
 
 /** The list in a line, for a subtitle: "8 owed · 1 to confirm · 4 asked for · 3 not asked · 2 overdue". */
-export function papersOwedSaid(view: Pick<PapersOwed, 'total' | 'owed' | 'notAsked' | 'asked' | 'answered' | 'overdue'>): string {
+export function papersOwedSaid(view: Pick<PapersOwed, 'total' | 'owed' | 'notAsked' | 'asked' | 'answered' | 'overdue'> & { partial?: number; assumed?: readonly unknown[] }): string {
   if (!view.total) return 'Nothing asked for yet';
-  if (!view.owed) return `All ${view.total} in hand`;
-  return [`${view.owed} owed`, view.answered ? `${view.answered} to confirm` : '', view.asked ? `${view.asked} asked for` : '', view.notAsked ? `${view.notAsked} not asked` : '', view.overdue ? `${view.overdue} overdue` : '']
+  const assumed = view.assumed?.length ?? 0;
+  if (!view.owed) return assumed ? `${view.total - assumed} in hand · ${assumed} to be assumed` : `All ${view.total} in hand`;
+  // A paper is owed once somebody has been asked for it: counted here as Overview counts it, by the one rule.
+  const askedFor = view.owed - view.notAsked;
+  return [
+    askedFor ? `${askedFor} owed` : 'Nothing owed',
+    view.answered ? `${view.answered} to confirm` : '',
+    view.partial ? `${view.partial} partial` : '',
+    view.asked ? `${view.asked} asked for` : '',
+    view.notAsked ? `${view.notAsked} not asked` : '',
+    assumed ? `${assumed} to be assumed` : '',
+    view.overdue ? `${view.overdue} overdue` : '',
+  ]
     .filter(Boolean)
     .join(' · ');
 }
 
+/** What is on a list and asked of nobody, in the one sentence every screen says it in. */
+export function notAskedSaid(notAsked: number): string {
+  return `Nothing owed. ${notAsked} ${notAsked === 1 ? 'paper' : 'papers'} on the list, not asked for yet.`;
+}
+
+/**
+ * What a department's list needs of somebody, in one line: the lines nobody
+ * has been asked for, and of the lines still owed how many name nobody and
+ * how many name no day. Nothing where the list needs nothing.
+ */
+export function papersNeedSaid(view: Pick<PapersOwed, 'notAsked' | 'nobodyNamed' | 'noDate' | 'answered' | 'overdue'>): string | undefined {
+  const parts = [
+    view.answered ? `${view.answered} ${view.answered === 1 ? 'reply' : 'replies'} to confirm` : '',
+    view.overdue ? `${view.overdue} overdue` : '',
+    view.notAsked ? `${view.notAsked} not asked for yet` : '',
+    view.nobodyNamed ? `${view.nobodyNamed} with nobody named` : '',
+    view.noDate ? `${view.noDate} with no date` : '',
+  ].filter(Boolean);
+  return parts.length ? `${PAPERS_OWED}: ${parts.join(', ')}.` : undefined;
+}
+
 /** How one line stands, in a line under its name. */
-export function paperLineSaid(line: PaperLine, day: (iso: string) => string): string {
-  if (line.standing === 'in_hand') return line.fileName ?? (line.from === 'request' ? 'Answered' : 'Marked in hand');
+export function paperLineSaid(line: PaperLine, day: (iso: string) => string, opts: { tracked?: boolean } = {}): string {
+  if (line.standing === 'in_hand') return line.fileName ?? (line.from === 'request' ? 'Answered' : line.checklist?.item.received?.fromList ? 'Received, by the list' : 'Marked in hand');
+  if (line.standing === 'assumed') return `Will not come · ${line.assumer} to assume${line.checklist?.item.assumed?.fields?.length ? '' : ' · what is assumed is not recorded yet'}`;
   if (line.standing === 'answered') return `Answered by ${line.repliedBy ?? 'them'} · waiting for you to confirm`;
-  if (line.standing === 'asked') return [`Asked${line.askedOn ? ` ${day(line.askedOn)}` : ''}`, line.dueAt ? `due ${day(line.dueAt)}${line.overdue ? ' (overdue)' : ''}` : ''].filter(Boolean).join(' · ');
+  const due = line.dueAt ? `due ${day(line.dueAt)}${line.overdue ? ' (overdue)' : ''}` : '';
+  // The one quiet mark: who owes it and by when is said where either is missing, on a list that keeps them.
+  const blank = line.from === 'list' && opts.tracked ? [line.unnamed ? 'nobody named' : '', line.undated ? 'no date' : ''].filter(Boolean).join(', ') : '';
+  const asked = line.askedOn ? `Asked ${day(line.askedOn)}` : line.round ? `Asked in ${line.round}` : 'Asked';
+  if (line.standing === 'partial') {
+    const rest = line.checklist?.status === 'requested' ? asked : 'the rest not asked for';
+    return [`Partly in hand${line.wanted ? `, still wanted: ${line.wanted}` : ''}`, rest, due, blank].filter(Boolean).join(' · ');
+  }
+  if (line.standing === 'asked') return [asked, due, blank].filter(Boolean).join(' · ');
   if (line.from === 'fields') return 'A sheet waits for it';
-  return line.from === 'request' ? 'Drafted, not sent' : line.from === 'checks' ? 'A check expects it' : line.party ? 'On the list' : 'On the list, nobody named';
+  if (line.from === 'request') return 'Drafted, not sent';
+  if (line.from === 'checks') return 'A check expects it';
+  if (opts.tracked) return ['On the list', due, blank].filter(Boolean).join(' · ');
+  return [line.party ? 'On the list' : 'On the list, nobody named', due].filter(Boolean).join(' · ');
 }
 
 /**
@@ -284,7 +383,9 @@ export function papersOwedText(view: Pick<PapersOwed, 'parties'>, day: (iso: str
     if (!lines.length) continue;
     out.push(`${party.party ?? 'Nobody named'} (${lines.length})`);
     for (const line of lines) {
-      const stands = line.standing === 'asked' ? `asked${line.dueAt ? `, due ${day(line.dueAt)}${line.overdue ? ', overdue' : ''}` : ''}` : line.standing === 'answered' ? 'answered, to confirm' : 'not asked';
+      const due = line.dueAt ? `, due ${day(line.dueAt)}${line.overdue ? ', overdue' : ''}` : '';
+      const stands =
+        line.standing === 'asked' ? `asked${due}` : line.standing === 'answered' ? 'answered, to confirm' : line.standing === 'partial' ? `partly in hand${line.wanted ? `, still wanted: ${line.wanted}` : ''}${due}` : `not asked${line.overdue ? due : ''}`;
       out.push(`- ${line.title} (${stands})`);
     }
     out.push('');
@@ -300,10 +401,23 @@ function csvCell(value: string): string {
 
 /** The whole list as a spreadsheet, after a byte-order mark so Excel reads Indian scripts. */
 export function papersOwedCsvFile(view: PapersOwed): string {
-  const rows = [['Owed by', 'Paper', 'Standing', 'Asked on', 'Due', 'Overdue', 'Department', 'Where', 'Document'].join(',')];
-  for (const line of [...view.parties.flatMap((party) => party.lines), ...view.inHand]) {
+  // A list that keeps numbers, rounds and remarks is written with them, after the columns every list has.
+  const tracked = view.tracked;
+  const rows = [['Owed by', 'Paper', 'Standing', 'Asked on', 'Due', 'Overdue', 'Department', 'Where', 'Document', ...(tracked ? ['Ref', 'Round', 'Remark', 'Still wanted', 'To assume'] : [])].join(',')];
+  for (const line of [...view.parties.flatMap((party) => party.lines), ...view.assumed, ...view.inHand]) {
     rows.push(
-      [line.party ?? '', line.title, PAPER_STANDING_LABEL[line.standing], line.askedOn?.slice(0, 10) ?? '', line.dueAt?.slice(0, 10) ?? '', line.overdue ? 'yes' : '', line.department ? DEPARTMENT_SHORT[line.department] : '', line.where ?? '', line.fileName ?? '']
+      [
+        line.party ?? '',
+        line.title,
+        PAPER_STANDING_LABEL[line.standing],
+        line.askedOn?.slice(0, 10) ?? '',
+        line.dueAt?.slice(0, 10) ?? '',
+        line.overdue ? 'yes' : '',
+        line.department ? DEPARTMENT_SHORT[line.department] : '',
+        line.where ?? '',
+        line.fileName ?? '',
+        ...(tracked ? [line.ref ?? '', line.round ?? '', line.remark ?? '', line.wanted ?? '', line.assumer ?? ''] : []),
+      ]
         .map(csvCell)
         .join(','),
     );

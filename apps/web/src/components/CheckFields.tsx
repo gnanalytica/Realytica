@@ -29,6 +29,7 @@ import { Calendar, Check, X } from 'lucide-react';
 import {
   EVIDENCE_STATUS_LABEL,
   FUNCTION_SHORT,
+  asNowSaid,
   countSaid,
   daySaid,
   dayTyped,
@@ -47,6 +48,7 @@ import {
   ruleSourceSaid,
   tableRows,
   type FieldSource,
+  type FieldTrend,
   type FieldValueDecision,
   type FieldView,
   type OptionDef,
@@ -62,7 +64,9 @@ import {
   type OptionSet,
 } from '@realytica/shared';
 import { AiMark, Badge, cn } from './ui/kit';
+import { FieldPhotos } from './site/PhotoSeries';
 import { person } from '../lib/format';
+import { TrendChart } from './fields/TrendChart';
 import { ChartSvg, DirectedBar, GridLine, Legend, compactAxisNumber, niceTicks, padDomain, scaleLinear, useMeasure } from './charts/primitives';
 
 /** Statuses that mean the document is not actually on the file yet. */
@@ -99,12 +103,16 @@ interface Props {
    * person recorded and nothing is marked.
    */
   views?: Record<string, FieldView>;
+  /** How a person is named where a line says who wrote or accepted a value: by the project's team, never an address. */
+  named?: (who: string) => string;
   /** What a link field can link to on this project, and what a text field completes from. */
   choices?: (target: RefTarget | undefined) => Array<{ id: string; label: string }>;
   /** A person's decision on one field. Absent, the reader may not decide and the controls are not drawn. */
   onDecide?: (def: CheckFieldDef, decision: FieldValueDecision, input?: { value?: unknown; pick?: number; reason?: string }) => void;
   /** Opens a paper at a page, where a value says it was read from one. */
   onOpenPaper?: (evidenceId: string, page?: number) => void;
+  /** A field drawn over time, where it declares a trend: asked only when its label is pressed. */
+  trendOf?: (def: CheckFieldDef) => FieldTrend | undefined;
   /** The shared lists a choice is read from, where they are not only the built-in ones: a firm's own lists are in its catalog. */
   lists?: ListOf;
 }
@@ -140,7 +148,7 @@ const SEVERITY_TONE: Record<FindingSeverity, 'critical' | 'serious' | 'warning' 
   low: 'neutral',
 };
 
-export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper, lists }: Props) {
+export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper, trendOf, lists, named = person }: Props) {
   const listOf = lists ?? optionSetById;
   const [draft, setDraft] = useState<Record<string, string>>({});
   // The field whose source is open. Where a value came from is one press on its label away, and on nothing's face.
@@ -257,7 +265,10 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                       <Badge tone={toneOf(fieldTone(def, values[def.key], listOf))}>{String(values[def.key]!.value)}</Badge>
                     )
                   ) : (
-                    <output className={cn('text-[13px] tabular-nums', blank ? 'text-ink-muted' : 'font-medium text-ink')}>{blank ? 'Not worked out yet' : formatFieldValue(def, values[def.key], listOf)}</output>
+                    // A worked-out field never goes blank because an input was cleared: it says which field it waits for.
+                    <output data-field-waiting={blank && view?.waitingFor?.length ? '' : undefined} className={cn('text-[13px] tabular-nums', blank ? 'text-ink-muted' : 'font-medium text-ink')}>
+                      {blank ? (view?.waitingFor?.length ? `Waiting for ${view.waitingFor.join(', ')}` : 'Not worked out yet') : formatFieldValue(def, values[def.key], listOf)}
+                    </output>
                   )}
                   <span className="rounded bg-sunken px-1.5 py-0.5 text-[11px] text-ink-muted">{tag}</span>
                   {rests ? (
@@ -421,11 +432,11 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
               {def.kind === 'evidence' && def.viewer ? <Viewer def={def} value={values[def.key]} evidence={evidence ?? []} onOpen={onOpenPaper} /> : null}
               {def.kind === 'longtext' && !blank && view ? (
                 <span className="mt-0.5 block text-[11px] text-ink-muted">
-                  Written by {person(values[def.key]!.by)}
+                  Written by {named(values[def.key]!.by)}
                   {values[def.key]!.at ? `, ${daySaid(values[def.key]!.at)}` : ''}
                 </span>
               ) : null}
-              {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} /> : null}
+              {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} trendOf={trendOf} named={named} /> : null}
               {blank && !derived && view?.state !== 'not_applicable' && (def.hint || def.from) ? (
                 <span className="mt-1 block text-[11px] leading-snug text-ink-muted">{[def.hint, def.from ? `Read from: ${def.from}.` : ''].filter(Boolean).join(' ')}</span>
               ) : null}
@@ -950,7 +961,7 @@ function DateBox({ value, disabled, label, className, compact, onCommit }: { val
       >
         <Calendar size={14} aria-hidden />
       </button>
-      <input ref={picker} type="date" tabIndex={-1} aria-hidden value={value} onChange={(e) => e.target.value && onCommit(e.target.value)} className="pointer-events-none absolute bottom-0 right-2 size-px opacity-0" />
+      <input ref={picker} type="date" tabIndex={-1} aria-hidden disabled={disabled} value={value} onChange={(e) => e.target.value && onCommit(e.target.value)} className="pointer-events-none absolute bottom-0 right-2 size-px opacity-0" />
       {bad ? <span className="mt-0.5 block text-[11px] text-critical">Write the day as 13 Oct 2026.</span> : null}
     </span>
   );
@@ -1292,14 +1303,21 @@ function MatchField({ def, reading, rows, disabled, onChange }: { def: CheckFiel
   );
 }
 
-const VIEWER_SAID: Record<NonNullable<CheckFieldDef['viewer']>, string> = { pdf: 'Open paper', image: 'Open image', drawing: 'Open drawing', deed: 'Open deed', ifc: '' };
+const VIEWER_SAID: Record<NonNullable<CheckFieldDef['viewer']>, string> = { pdf: 'Open paper', image: 'Open image', series: 'Open image', drawing: 'Open drawing', deed: 'Open deed', ifc: '' };
 
 /** The file itself, one press away: the paper's own viewer, opened at the row cited. A model file has no viewer here yet, and says so. */
 function Viewer({ def, value, evidence, onOpen }: { def: CheckFieldDef; value: CheckFieldValue | undefined; evidence: EvidenceRecord[]; onOpen?: (evidenceId: string) => void }) {
   const ids = Array.isArray(value?.value) ? (value!.value as string[]) : [];
+  // Photographs are drawn through the series viewer: a station's shots always, any other field's once they span more than one period.
+  if (def.viewer === 'series' || (def.viewer === 'image' && ids.length)) return <FieldPhotos def={def} ids={ids} fallback={<ViewerLinks def={def} ids={ids} evidence={evidence} onOpen={onOpen} />} />;
   if (!ids.length) return null;
   if (def.viewer === 'ifc') return <p className="mt-1 text-[12px] text-ink-muted">IFC models are filed here and are not drawn on screen yet.</p>;
-  if (!onOpen) return null;
+  return <ViewerLinks def={def} ids={ids} evidence={evidence} onOpen={onOpen} />;
+}
+
+/** Each file as a link that opens it in the app's own viewer. */
+function ViewerLinks({ def, ids, evidence, onOpen }: { def: CheckFieldDef; ids: readonly string[]; evidence: EvidenceRecord[]; onOpen?: (evidenceId: string) => void }) {
+  if (!onOpen || !ids.length) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
       {ids.map((id) => (
@@ -1312,11 +1330,25 @@ function Viewer({ def, value, evidence, onOpen }: { def: CheckFieldDef; value: C
   );
 }
 
+/** A field's figures over time as a small line: oldest on the left, the value held now marked at the right. */
+export function Sparkline({ points, label }: { points: number[]; label: string }) {
+  const [w, h, pad] = [72, 18, 2];
+  const [low, high] = [Math.min(...points), Math.max(...points)];
+  const x = (index: number) => pad + (index * (w - 2 * pad)) / Math.max(1, points.length - 1);
+  const y = (value: number) => (high === low ? h / 2 : h - pad - ((value - low) * (h - 2 * pad)) / (high - low));
+  return (
+    <svg role="img" aria-label={label} width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0 text-brand">
+      <polyline fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" points={points.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ')} />
+      <circle cx={x(points.length - 1)} cy={y(points[points.length - 1]!)} r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** Whether a field has anything behind its label: a source to show, a rule row it read, or a decision the reader may take on it. */
 function hasMore(def: CheckFieldDef, view: FieldView, may: boolean): boolean {
   const derived = def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
   if (view.state === 'proposed' || view.state === 'disputed' || view.state === 'not_applicable') return false;
-  return Boolean(view.source?.label || view.cites?.length || (may && !derived));
+  return Boolean(view.source?.label || view.cites?.length || view.past || def.trend || (may && !derived));
 }
 
 function sourceSaid(source: FieldSource | undefined): string {
@@ -1343,15 +1375,21 @@ function FieldMarks({
   disabled,
   onDecide,
   onOpenPaper,
+  trendOf,
+  named,
 }: {
   def: CheckFieldDef;
   view: FieldView;
+  named: (who: string) => string;
   /** Whether the label was pressed: the source and what may be done with the value. */
   open: boolean;
   disabled?: boolean;
   onDecide?: Props['onDecide'];
   onOpenPaper?: Props['onOpenPaper'];
+  trendOf?: Props['trendOf'];
 }) {
+  // Worked out only once the label is pressed: a trend reads the field's periods, which a closed sheet has no use for.
+  const trend = shown && def.trend && trendOf ? trendOf(def) : undefined;
   const may = Boolean(onDecide) && !disabled;
   const derived = def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
   const open = (source: FieldSource | undefined) =>
@@ -1444,6 +1482,15 @@ function FieldMarks({
       {view.assumes?.length && view.held && view.held.value !== null && view.held.value !== '' ? <p>On an assumed value: nobody entered {view.assumes.join(', ')}.</p> : null}
       {view.removedLink ? <p className="text-critical">Links to a record taken off its list. Link another, or clear it.</p> : null}
       {view.notInPlay ? <p>Filled in earlier, not needed now</p> : null}
+      {view.carried ? <p data-field-carried>Carried from {view.carried}</p> : null}
+      {/* Read afresh each period: what it read in the last one, to compare with. */}
+      {view.last ? (
+        <p data-field-last title={`In ${view.last.from}`}>
+          last: {view.last.said}
+        </p>
+      ) : null}
+      {/* On an issued period, or a reading as at a past day: this figure is the day of issue's, for want of a past. */}
+      {(view.frozen?.asNow ?? view.asNow) ? <p data-field-asnow>{asNowSaid((view.frozen?.asNow ?? view.asNow)!).replace(/\.$/, '').replace(/^As now: /, 'as now, ')}</p> : null}
       {view.state === 'not_applicable' && may ? (
         <button type="button" className={cn(act, 'px-0 text-brand')} onClick={() => onDecide!(def, 'reopen')}>
           Ask again
@@ -1456,8 +1503,27 @@ function FieldMarks({
           {view.source?.quote ? <p>“{view.source.quote}”</p> : null}
           {view.held?.acceptedBy ? (
             <p>
-              Accepted by {person(view.held.acceptedBy)}
+              Accepted by {named(view.held.acceptedBy)}
               {view.held.acceptedAt ? `, ${daySaid(view.held.acceptedAt)}` : ''}
+            </p>
+          ) : null}
+          {/* What it held before: one line put together from the record, and the figures as a small line where there are three. */}
+          {view.past ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5" data-field-past>
+              <span>{view.past.line}</span>
+              {/* Where the field is drawn over time below, the small line would say the same thing twice. */}
+              {view.past.spark && !trend ? <Sparkline points={view.past.spark} label={`${def.label} over ${view.past.spark.length} values`} /> : null}
+            </p>
+          ) : null}
+          {trend ? (
+            <div data-field-trend>
+              <TrendChart trend={trend} />
+              <p className="mt-0.5">{trend.said}</p>
+            </div>
+          ) : null}
+          {view.past && view.past.earlier > 1 && view.past.since ? (
+            <p>
+              {view.past.earlier} earlier values kept, from {daySaid(view.past.since)}
             </p>
           ) : null}
           {(view.cites ?? []).map((cite) => (

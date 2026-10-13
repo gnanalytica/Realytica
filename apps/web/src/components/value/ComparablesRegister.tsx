@@ -20,7 +20,7 @@ import {
   type DdProject,
 } from '@realytica/shared';
 import { Button, Select, Tooltip, cn } from '../ui/kit';
-import { money } from '../../lib/format';
+import { amount, money, monthYear } from '../../lib/format';
 import { daySaid } from '@realytica/shared';
 
 export interface ComparablesActions {
@@ -32,7 +32,7 @@ export interface ComparablesActions {
 }
 
 function rate(n: number | null): string {
-  return n === null ? '—' : `₹${Math.round(n).toLocaleString('en-IN')}/sqm`;
+  return n === null ? '—' : `${amount(n)}/sqm`;
 }
 
 function signed(n: number): string {
@@ -216,7 +216,7 @@ function ComparableRow({ comparable: c, busy, actions }: { comparable: Comparabl
     c.distanceKm !== undefined ? `${c.distanceKm < 1 ? `${Math.round(c.distanceKm * 1000)} m` : `${c.distanceKm.toFixed(1)} km`}` : null,
     `${Math.round(c.areaSqm).toLocaleString('en-IN')} sqm${c.areaBasis ? ` ${COMPARABLE_AREA_BASIS_LABEL[c.areaBasis]}` : ''}`,
     `${money(c.price, 'INR')} ${c.kind === 'listing' ? 'asking' : 'paid'}`,
-    c.date ? `${c.kind === 'listing' ? 'listed' : 'sold'} ${new Date(c.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}` : null,
+    c.date ? `${c.kind === 'listing' ? 'listed' : 'sold'} ${monthYear(c.date)}` : null,
     net ? `adjusted ${signed(net)}` : null,
     `weight ${Math.round(Math.max(c.weight || 1, 0.1) * 100) / 100}`,
   ].filter(Boolean);
