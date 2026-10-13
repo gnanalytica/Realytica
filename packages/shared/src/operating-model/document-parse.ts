@@ -92,6 +92,12 @@ export interface DocumentFact {
   unit?: string;
   /** How a person would say it: "12,000 sqm", "12 Mar 2019", "yes". */
   display: string;
+  /**
+   * A measure as the page writes it, where that is not the unit `value` is
+   * kept in: "1 acre 20 guntas" beside 6,070 sqm. A field shows land in the
+   * paper's own units with the square metres beside it.
+   */
+  written?: string;
   /** 1-based page the words are on. */
   page: number;
   /** The words themselves, clipped at a sentence. Never rewritten. */
@@ -1020,7 +1026,7 @@ function surveyNumber(pages: string[]): Hit & { value: string } | null {
   return { ...first, value };
 }
 
-function extent(pages: string[], lead: RegExp): (Hit & { sqm: number }) | null {
+function extent(pages: string[], lead: RegExp): (Hit & { sqm: number; written?: string }) | null {
   const re = new RegExp(`${lead.source}[^\\d\\n]{0,40}?${NUMBER}\\s*${AREA_UNIT}`, 'i');
   const hit = find(pages, re);
   if (!hit) return null;
@@ -1028,14 +1034,20 @@ function extent(pages: string[], lead: RegExp): (Hit & { sqm: number }) | null {
   const unit = groups[groups.length - 1]!;
   const value = groups[groups.length - 2]!;
   const sqm = areaToSqm(value, unit);
-  return sqm === null ? null : { ...hit, sqm };
+  if (sqm === null) return null;
+  // Stated in acres or square feet, it is kept as the page writes it beside the square metres.
+  const named = /^acres?$/i.test(unit) ? (Number(value.replace(/,/g, '')) === 1 ? 'acre' : 'acres') : /f(?:ee|oo)?t|sft/i.test(unit) ? 'sqft' : /^hectares?$/i.test(unit) ? 'hectares' : '';
+  return { ...hit, sqm, ...(named ? { written: `${value} ${named}` } : {}) };
 }
 
-function acresGuntas(pages: string[]): (Hit & { sqm: number }) | null {
+function acresGuntas(pages: string[]): (Hit & { sqm: number; written: string }) | null {
   const hit = find(pages, /(\d+)\s*acres?\s*(?:and\s+)?(\d+(?:\.\d+)?)\s*guntas?/i);
   if (!hit) return null;
-  const sqm = Number(hit.match[1]) * SQM_PER_ACRE + Number(hit.match[2]) * SQM_PER_GUNTA;
-  return { ...hit, sqm: Math.round(sqm) };
+  const acres = Number(hit.match[1]);
+  const guntas = Number(hit.match[2]);
+  const sqm = acres * SQM_PER_ACRE + guntas * SQM_PER_GUNTA;
+  const inGuntas = `${guntas} ${guntas === 1 ? 'gunta' : 'guntas'}`;
+  return { ...hit, sqm: Math.round(sqm), written: acres ? `${acres} ${acres === 1 ? 'acre' : 'acres'} ${inGuntas}` : inGuntas };
 }
 
 function firstDateNear(pages: string[], lead: RegExp): (Hit & { iso: string }) | null {
@@ -1101,10 +1113,12 @@ function commonParcel(pages: string[], facts: DocumentFact[], extentKey?: string
   const sy = surveyNumber(pages);
   if (sy) push(facts, { key: 'survey_numbers', label: 'Survey number', value: sy.value, display: `Sy. No. ${sy.value}`, page: sy.page, quote: sy.quote });
   if (extentKey) {
-    const area =
-      extent(pages, /\b(?:measuring|admeasuring|site\s+area|extent|total\s+area|land\s+area)\b/)
-      ?? acresGuntas(pages);
-    if (area) push(facts, { key: extentKey, label: extentLabel ?? 'Extent', value: area.sqm, unit: 'sqm', display: fmtSqm(area.sqm), page: area.page, quote: area.quote });
+    const stated = extent(pages, /\b(?:measuring|admeasuring|site\s+area|extent|total\s+area|land\s+area)\b/);
+    const local = acresGuntas(pages);
+    // A deed that states square metres and, beside them, acres and guntas: the value is the square metres, and the local
+    // measure is kept as written where it is the same land (within a hundredth).
+    const area = stated ? { ...stated, ...(!stated.written && local && Math.abs(local.sqm - stated.sqm) <= stated.sqm * 0.01 ? { written: local.written } : {}) } : local;
+    if (area) push(facts, { key: extentKey, label: extentLabel ?? 'Extent', value: area.sqm, unit: 'sqm', display: fmtSqm(area.sqm), page: area.page, quote: area.quote, ...(area.written ? { written: area.written } : {}) });
   }
 }
 

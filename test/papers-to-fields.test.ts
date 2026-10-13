@@ -31,6 +31,7 @@ import { confirmProposedType } from '../apps/api/src/documents/register-read';
 import { enrichIngestWithDocumentIntelligence } from '../packages/agents/src/project/ingest-intelligence';
 import {
   acceptAllFromPaper,
+  proposeFieldValues,
   refChoices,
   resolveFields,
   addEvidence,
@@ -434,6 +435,23 @@ describe('a paper dropped in the chat reaches the fields that wait for it', () =
     await drop(p, 'saleDeed');
     assert.equal(fieldRecords(p, 'legal.contracts.purchases').length, 1);
     assert.deepEqual(accepts(p, 'legal.contracts'), []);
+  });
+
+  it('shows land in the units its paper writes, with the square metres beside them, and keeps the value the parser read', async () => {
+    const p = project();
+    await drop(p, 'saleDeed');
+    const [purchase] = fieldRecords(p, 'legal.contracts.purchases');
+    const view = readSheet(p, 'legal.contracts.purchases', purchase!.id)!.fields.find((f) => f.def.key === 'extent_conveyed')!;
+    assert.equal(view.held?.value, 6070, 'the value is the square metres read, not a second sum');
+    assert.equal(view.text, '1 acre 20 guntas (6,070 sqm)');
+    assert.match(accepts(p, 'legal.contracts')[0]!.text, /Extent conveyed 1 acre 20 guntas \(6,070 sqm\)/);
+
+    // A measure that does not come to the value offered is not kept as what the paper wrote.
+    const row = p.evidence[0]!;
+    const address = { fn: 'legal.contracts', set: 'legal.contracts.purchases', field: 'extent_conveyed' };
+    const [other] = proposeFieldValues(p, [{ address, value: '5000 sqm', written: '9 acres', origin: { kind: 'paper', evidenceId: row.id, page: 1, quote: 'measuring 5000 square metres', reader: 'parser' } }], 'parser');
+    const second = readSheet(p, address.set, other!.address.record)!.fields.find((f) => f.def.key === 'extent_conveyed')!;
+    assert.doesNotMatch([second.text, ...second.waiting.map((w) => w.text)].join(' '), /9 acres/);
   });
 
   it('offers an RTC’s extent to its own parcel’s land record, found by survey number', async () => {

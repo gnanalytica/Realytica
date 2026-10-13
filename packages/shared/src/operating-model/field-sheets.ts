@@ -36,6 +36,7 @@ import { RULE_ROWS } from './field-sets';
 import { SHARED_FN } from './field-sets/shared-records';
 import { indiaToday } from './quarters';
 import { ruleCitation, ruleRow } from './rule-tables';
+import { parseMeasure, type Entered } from './units';
 import { recordAuditEvent } from './operations';
 import { decisionRefused } from './review';
 import type { MayDecide } from './team';
@@ -1565,6 +1566,20 @@ export interface FieldProposal {
   value: unknown;
   /** Where it was read, as the proposer gives it. Only its named members are read: see `offeredOrigin`. */
   origin: FieldOrigin;
+  /**
+   * A measure as its paper writes it ("1 acre 20 guntas"), where the value is given in the base unit. Kept as what was
+   * entered only where it is a measure the field takes and comes to the value given: the field then shows the paper's own
+   * units with the base unit beside them. The value itself is never taken from it.
+   */
+  written?: string;
+}
+
+/** What a paper wrote for a measure, as the field keeps what was entered: only where it is the same measure as the value offered. */
+function writtenAs(def: CheckFieldDef, value: unknown, written: string | undefined, state: string | undefined): Entered | undefined {
+  if (!written || typeof value !== 'number' || !def.dimension || def.dimension === 'money') return undefined;
+  const read = parseMeasure(written, def.dimension, { ...(def.enterIn ? { enterIn: def.enterIn } : {}), ...(state ? { state } : {}) });
+  if ('error' in read || Math.abs(read.value - value) > Math.max(1, Math.abs(value) * 0.001)) return undefined;
+  return { ...read.entered, text: read.entered.text ?? written };
 }
 
 /** The most that is kept of a paper's words, of a public source's name, and of its link. */
@@ -1689,6 +1704,8 @@ export function proposeFieldValues(
       refuse(`${def.label}: no value was given.`);
       continue;
     }
+    const asWritten = writtenAs(def, parsed.value, proposal.written, project.jurisdiction);
+    if (asWritten) (parsed as { entered?: Entered }).entered = asWritten;
     if (catalog.checks.has(set.id)) {
       const check = checkHolding(project, set.id);
       if (!check) {
@@ -2129,6 +2146,7 @@ export function offerPaperToSheets(
         proposals.push({
           address: { fn: set.fn, set: set.id, field: def.key, ...(record ? { record: record.id } : {}) },
           value,
+          ...(fact.written ? { written: fact.written } : {}),
           origin: { kind: 'paper', evidenceId: paper.id, page: fact.page, quote: fact.quote, reader: fact.source === 'model' ? 'model' : 'parser', ...(proofOf(fact) ? { proof: proofOf(fact) } : {}) },
         });
       }

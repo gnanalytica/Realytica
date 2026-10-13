@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   FIELD_SETS,
+  RECORD_AS_OFFERED,
   addEvidence,
   agreeSaid,
   countSaid,
@@ -34,7 +35,7 @@ import {
   type GeneratedReport,
   type WaitingEntry,
 } from '@realytica/shared';
-import { NEEDS_SHOWN, needAction, needChips, needLines, needSource, needWhere, sheetItem, sheetItemOf } from '../apps/web/src/components/fields/needs';
+import { NEEDS_SHOWN, needAction, needAssumes, needChips, needLines, needRuleRows, needRuleUnchecked, needSource, needUnverified, needWhere, sheetItem, sheetItemOf } from '../apps/web/src/components/fields/needs';
 import { person, pct, money, readingSaid, date } from '../apps/web/src/lib/format';
 import { reportSummary } from '../apps/web/src/lib/report-summary';
 import { readingProgress } from '../apps/web/src/lib/reading-pending';
@@ -134,7 +135,36 @@ describe('every line of Needs you has one action that works', () => {
     const action = needAction(page, offered, true, p, catalog);
     assert.equal(action.kind, 'open');
     const check = p.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks.map((c) => ({ ddId: a.id, scopeId: s.id, checkId: c.id, definitionId: c.definitionId })))).find((c) => c.definitionId === mirror.def.sameAs!.set)!;
-    assert.deepEqual(action, { kind: 'open', target: { where: 'check', ddId: check.ddId, scopeId: check.scopeId, checkId: check.checkId } });
+    assert.deepEqual(action, { kind: 'open', target: { where: 'check', ddId: check.ddId, scopeId: check.scopeId, checkId: check.checkId, field: mirror.def.sameAs!.field } }, 'and names the field, so the check’s screen brings it into view');
+  });
+
+  it('accepts a value held on a check from the line drawn beside the field that reads it, opens the cause of a line another function’s record makes, and opens a record a paper offered as the record', () => {
+    const p = project();
+    const page = readFunctionFields(p, FN);
+    const catalog = fieldCatalogFor(p);
+    const mirror = page.sheets.flatMap((sheet) => (sheet.reading ? sheet.reading.fields : [])).find((view) => view.def.sameAs && catalog.checks.has(view.def.sameAs.set))!;
+    const held = { ...mirror.def.sameAs!, fn: FN };
+    // As the engine lists it: the address is the check's own field, and `shownAt` the field that reads it.
+    const beside: FieldException = { kind: 'proposed', need: 'accept', key: 'k', sheet: 'Land holding', address: held, shownAt: mirror.address, label: mirror.def.label, text: '6,070 sqm' };
+    assert.deepEqual(needAction(page, beside, true, p, catalog), { kind: 'accept' });
+    assert.deepEqual(needAction(page, beside, false, p, catalog), { kind: 'open', target: { where: 'here', set: mirror.address.set, field: mirror.address.field } }, 'somebody who may not decide there opens the field it is drawn at');
+
+    const caused: FieldException = { kind: 'rule', need: 'failing', key: 'r', sheet: 'Contract terms', label: 'Contract terms', text: 'No security is held.', target: { fn: 'procurement.vendors', set: 'procurement.vendors.securities', record: 'rec_1', field: '' } };
+    assert.deepEqual(needAction(page, caused, true, p, catalog), { kind: 'open', target: { where: 'function', fn: 'procurement.vendors', set: 'procurement.vendors.securities', record: 'rec_1', field: '' } });
+
+    const whole: FieldException = { kind: 'proposed', need: 'accept', key: 'o', sheet: 'Owners', record: 'rec_2', address: { fn: FN, set: 'legal.title.owners', record: 'rec_2', field: RECORD_AS_OFFERED }, label: 'New owner', text: 'Name Lakeside Homes LLP' };
+    assert.deepEqual(needAction(page, whole, false, p, catalog), { kind: 'open', target: { where: 'here', set: 'legal.title.owners', record: 'rec_2' } }, 'the record, and no field called "record as offered"');
+  });
+
+  it('marks a line that rests on a rule nobody checked, on a usual value or on words not found on the page', () => {
+    const p = project();
+    const page = readFunctionFields(p, FN);
+    const rule: FieldException = { kind: 'rule', need: 'failing', key: 'r', sheet: 'Owners', label: 'Owners', text: 'A share is short.', ruleUnchecked: true, assumes: ['Discount rate'], cites: [{ key: 'k', label: 'Consent share', value: 66.67, from: '2017-05-01', source: { regulation: 'An invented circular' }, verified: false }] };
+    assert.equal(needRuleUnchecked(page, rule), true);
+    assert.equal(needRuleRows(page, rule), 'Consent share, from 1 May 2017');
+    assert.deepEqual(needAssumes(page, rule), ['Discount rate']);
+    assert.equal(needUnverified({ kind: 'proposed', need: 'accept', key: 'p', sheet: 'Owners', label: 'Name', text: 'A. Rao', source: { kind: 'paper', label: 'Sale deed', proof: 'unverified' } }), true);
+    assert.equal(needUnverified({ kind: 'proposed', need: 'accept', key: 'p', sheet: 'Owners', label: 'Name', text: 'A. Rao', source: { kind: 'paper', label: 'Sale deed', proof: 'page_text' } }), false);
   });
 
   it('opens a failing, a missing and a sheet-level line where it sits', () => {
