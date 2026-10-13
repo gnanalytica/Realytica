@@ -337,6 +337,8 @@ export interface FormulaOutside {
   records(setId: string): Array<Record<string, CheckFieldValue>> | undefined;
   /** A figure from the rule table for the project's place, in force on a day, under conditions. */
   rate?(table: string, on: string | undefined, conditions: Record<string, string | number>): number | null;
+  /** A figure a module of its own keeps, by its key in `field-figures.ts`. */
+  figure?(key: string): number | null;
   today?: Date;
 }
 
@@ -461,6 +463,8 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
   switch (formula.op) {
     case 'const':
       return formula.value;
+    case 'figure':
+      return outside?.figure?.(formula.of) ?? null;
     case 'field':
       // A field of another set is read through `outside`, and only where it stands there.
       return formula.at ? fieldNumber(outside?.read(formula.at)) : fieldNumber(values[formula.key]);
@@ -514,7 +518,7 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
       const rows = formulaRows(formula.over, values, outside);
       if (rows === null) return null;
       const flows = rows.flatMap((row) => {
-        const day = dayNumber(row[formula.date]);
+        const day = dayNumber(cellValue(row[formula.date]));
         const amount = cellNumber(row[formula.amount]);
         return day === null || amount === null ? [] : [{ day, amount }];
       });

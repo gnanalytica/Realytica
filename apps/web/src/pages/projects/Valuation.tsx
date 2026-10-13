@@ -34,6 +34,7 @@ import { ValueApproaches, describeSources } from '../../components/value/ValueAp
 import { ValueReading, type ReadingStep } from '../../components/value/ValueReading';
 import { useValueFill } from '../../components/value/useValueFill';
 import { ComparablesRegister } from '../../components/value/ComparablesRegister';
+import { FieldSheets } from '../../components/fields/FieldSheets';
 import { settleItems, ValueMustSettle, type SettleTarget } from '../../components/value/ValueMustSettle';
 import { ValueRule8 } from '../../components/value/ValueRule8';
 import { useAsync } from '../../lib/useAsync';
@@ -402,6 +403,9 @@ export default function Valuation() {
       />
 
       <div className="space-y-2">
+        <Disclosure title="Instruction, land, conclusion and register sheets">
+          <FieldSheets project={project} fn="finance.valuation" onChanged={setProject} />
+        </Disclosure>
         <Disclosure title="The working, line by line">
           <ValuationWorkingPanel working={working} currency={project.currency} />
         </Disclosure>

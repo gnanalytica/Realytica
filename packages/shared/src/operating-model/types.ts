@@ -701,6 +701,8 @@ export type CheckFormula =
   | { op: 'add_days'; date: CheckFormula; days: CheckFormula }
   | { op: 'add_months'; date: CheckFormula; months: CheckFormula }
   | { op: 'const'; value: number }
+  /** A figure kept by a module of its own (the cost register, the cost report, the valuation), read and never written: see `field-figures.ts`. */
+  | { op: 'figure'; of: string }
   | { op: 'add' | 'subtract' | 'multiply' | 'divide'; left: CheckFormula; right: CheckFormula }
   /** `100 * (left - right) / right`, the shape most DD variances take. */
   | { op: 'variance_pct'; left: CheckFormula; right: CheckFormula }

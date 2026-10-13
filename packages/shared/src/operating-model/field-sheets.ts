@@ -29,6 +29,7 @@ import { surveyNumbersIn } from './document-intake';
 import type { DocumentFact } from './document-parse';
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, settled, standingFacts } from './fact-review';
+import { projectFigures } from './field-figures';
 import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor } from './firm-fields';
 import { RULE_ROWS } from './field-sets';
@@ -196,6 +197,7 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
     return held;
   };
   const today = at.toISOString().slice(0, 10);
+  const figure = projectFigures(project);
 
   const outside = (set: FieldSet, recordId: string | undefined, cites: RuleCitation[]): FormulaOutside => ({
     // A field of the same set that repeats, asked from one of its records, is that record's.
@@ -211,6 +213,7 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       if (row) cites.push(ruleCitation(row));
       return row?.value ?? null;
     },
+    figure,
     today: at,
   });
 

@@ -15,6 +15,7 @@
 import { CHECK_CONDITIONS, CHECK_SITUATIONS } from './check-conditions';
 import { CHECK_DEFINITIONS } from './libraries';
 import { SUB_STAGES, workstreamDefinition, workstreamOfCheck } from './departments';
+import { projectFigureDef } from './field-figures';
 import { FIELD_SETS, RULE_ROWS } from './field-sets';
 import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { ruleRowFaults } from './rule-tables';
@@ -246,6 +247,7 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
   switch (formula.op) {
     case 'const':
     case 'today':
+    case 'figure':
       return [];
     case 'field':
     case 'date':
@@ -308,6 +310,13 @@ function formulaRates(formula: CheckFormula): string[] {
     default:
       return [];
   }
+}
+
+/** The figures of other modules a formula names, wherever in it they sit. */
+function formulaFigures(node: unknown): string[] {
+  if (!node || typeof node !== 'object') return [];
+  const here = (node as { op?: unknown }).op === 'figure' ? [String((node as { of?: unknown }).of)] : [];
+  return [...here, ...Object.values(node).flatMap(formulaFigures)];
 }
 
 function conditionRates(when: FormulaCondition): string[] {
@@ -425,6 +434,7 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
       if (def.display === 'chart' && (!def.chart || ![def.chart.x, def.chart.y].every((key) => def.columns?.some((column) => column.key === key)))) faults.push(`${at(def.key)}: a chart table names its x and y columns.`);
       if (def.display === 'chart' && def.chart?.mark === 'stacked' && !def.columns?.some((column) => column.key === def.chart!.stack)) faults.push(`${at(def.key)}: a stacked chart names the column its bars are built of.`);
       for (const table of def.formula ? formulaRates(def.formula) : []) if (!rated.has(table)) faults.push(`${at(def.key)}: reads the rule "${table}", which the rule table does not have.`);
+      for (const figure of def.formula ? formulaFigures(def.formula) : []) if (!projectFigureDef(figure)) faults.push(`${at(def.key)}: reads the figure "${figure}", which no module gives.`);
       if (def.kind === 'status' && !def.cases?.length) faults.push(`${at(def.key)}: a status field needs cases.`);
       if (def.kind === 'computed' && !def.formula) faults.push(`${at(def.key)}: a computed field needs a formula.`);
       for (const column of [def, ...(def.columns ?? [])]) {

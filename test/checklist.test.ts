@@ -517,7 +517,7 @@ describe('the papers still owed, in a line', () => {
   it('opens on the Documents part of a function of the desk, for each department that is live', () => {
     assert.deepEqual(
       (['legal', 'construction', 'finance', 'procurement'] as const).map((department) => checklistFunction(department)),
-      ['legal.title', 'construction.progress', 'finance.budget', 'procurement.boq'],
+      ['legal.title', 'construction.progress', 'finance.feasibility', 'procurement.boq'],
     );
     for (const department of ['legal', 'construction', 'finance', 'procurement'] as const) assert.ok(functionSections(checklistFunction(department)!).includes('documents'));
     // A department with no built function laid out in parts has nowhere to open it.

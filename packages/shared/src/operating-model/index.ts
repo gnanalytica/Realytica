@@ -65,6 +65,7 @@ export * from './portfolio';
 export * from './fact-review';
 export * from './units';
 export * from './field-registry';
+export * from './field-figures';
 export * from './field-sheets';
 export * from './firm-fields';
 export * from './check-waiting';
