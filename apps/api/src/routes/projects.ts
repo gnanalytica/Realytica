@@ -89,6 +89,12 @@ import {
   decideField,
   departmentRole,
   fieldFunctionsInReach,
+  fieldSourceInReach,
+  functionReportTemplate,
+  projectView,
+  reportTemplateInReach,
+  type GeneratedReport,
+  type ReportBoundSource,
   fieldSet,
   removeFieldRecord,
   roleCanEdit,
@@ -603,7 +609,8 @@ projectsRouter.get('/:projectId/dashboard', (req, res) => {
     return;
   }
   refreshProjectDerived(project);
-  res.json(toDashboard(project));
+  // Counted on the caller's copy: how many checks an assessment has, and how many actions are open, are the whole file's to nobody working from a grant.
+  res.json(toDashboard(projectFor(req, project)));
 });
 
 projectsRouter.get('/:projectId/runs', async (req, res) => {
@@ -3325,7 +3332,7 @@ projectsRouter.get('/:projectId/assessments/:ddId/changes', (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  res.json(changesSincePrevious(project, req.params.ddId));
+  res.json(changesSincePrevious(projectFor(req, project), req.params.ddId));
 });
 
 projectsRouter.post('/:projectId/checks/:checkId', async (req, res) => {
@@ -3358,8 +3365,10 @@ projectsRouter.get('/:projectId/checks/:checkId/fields', (req, res) => {
     return;
   }
   try {
-    const { check } = findCheck(project, req.params.checkId);
-    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check), ...checkFieldsShown(project, check) });
+    // Read off the caller's copy: a check outside a grant is not found, and what its fields wait on is judged by what they are handed.
+    const seen = projectFor(req, project);
+    const { check } = findCheck(seen, req.params.checkId);
+    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check), ...checkFieldsShown(seen, check) });
   } catch (err) {
     fail(res, err);
   }
@@ -4532,6 +4541,13 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  // A function's report opens with a section for each field it names: for somebody working from a grant, every one has to be theirs to read.
+  const reach = grantedReach(req, project);
+  const template = parsed.data.kind === 'function' ? functionReportTemplate(parsed.data.template) : undefined;
+  if (reach && template && !reportTemplateInReach(template, reach)) {
+    res.status(404).json({ error: 'Not found on this project' });
+    return;
+  }
   let report: ReturnType<typeof generateReport>;
   try {
     report = generateReport(
@@ -4545,12 +4561,58 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
     return;
   }
   await persistPaneWrite(req, project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
-  res.status(201).json(report);
+  res.status(201).json(reportSeen(req, project, report.id) ?? { id: report.id });
 });
 
 /* ==================================================================== */
 /* Editing a report                                                      */
 /* ==================================================================== */
+
+/** The test a grant's copy of the sheets is cut by, for somebody working from one. Nothing for the firm's own people, who read every field. */
+function grantedReach(req: Request, project: DdProject): ((fn: string) => boolean) | undefined {
+  const access = accessTo(req, project);
+  return access.ok && access.access.kind === 'granted' ? fieldFunctionsInReach(access.access.grant) : undefined;
+}
+
+/**
+ * A report as this caller reads it once a write has landed.
+ *
+ * Every report route answers with this and never with the report on the real
+ * project: a section that reads another department's fields, a frozen row
+ * and a paper the timer prepared are cut on a copy, and a route that answered
+ * with the stored report would hand them back. The copy is made afresh, since
+ * the one made for the request was made before the write.
+ */
+function reportSeen(req: Request, project: DdProject, reportId: string): GeneratedReport | undefined {
+  const access = accessTo(req, project);
+  const seen = access.ok && access.access.kind === 'granted' ? projectView(project, access.access).project : project;
+  return seen.reports.find((report) => report.id === reportId);
+}
+
+/** Refuses a section whose source reads fields out of a grant's reach, before anything is written. True when it refused. */
+function sourceOutOfReach(req: Request, res: Response, source: ReportBoundSource | undefined): boolean {
+  const project = findProject(req.params.projectId!);
+  const reach = project ? grantedReach(req, project) : undefined;
+  if (!reach || !source || fieldSourceInReach(source, reach)) return false;
+  res.status(404).json({ error: 'Not found on this project' });
+  return true;
+}
+
+/**
+ * Freezing what a report reads is the firm's.
+ *
+ * A frozen section says what the registers and the fields said on a day, and
+ * an issued report is signed. Both are read off the whole file, so somebody
+ * working from a grant would be freezing, under the firm's name, what they
+ * may not read. They write sections and edit them; the firm's own people
+ * detach and issue. True when it refused.
+ */
+function freezeRefused(req: Request, res: Response): boolean {
+  const project = findProject(req.params.projectId!);
+  if (!project || !grantedReach(req, project)) return false;
+  res.status(403).json({ error: 'Freezing what a report reads, and issuing it, are for the firm’s own people.' });
+  return true;
+}
 
 /**
  * One handler for every block operation.
@@ -4564,7 +4626,7 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
 async function reportEdit(
   req: Parameters<Parameters<typeof projectsRouter.post>[1]>[0],
   res: Parameters<Parameters<typeof projectsRouter.post>[1]>[1],
-  work: (project: DdProject, actor: string) => { note: string; cited?: string[]; body?: unknown },
+  work: (project: DdProject, actor: string) => { note: string; cited?: string[] },
 ): Promise<void> {
   const project = findProject(req.params.projectId as string);
   if (!project) {
@@ -4572,7 +4634,7 @@ async function reportEdit(
     return;
   }
   const actor = actorOf(req);
-  let outcome: { note: string; cited?: string[]; body?: unknown };
+  let outcome: { note: string; cited?: string[] };
   try {
     outcome = work(project, actor);
   } catch (err) {
@@ -4580,7 +4642,7 @@ async function reportEdit(
     return;
   }
   await persistPaneWrite(req, project, outcome.note, { citedNodeIds: outcome.cited });
-  res.json(outcome.body ?? project.reports.find((r) => r.id === req.params.reportId));
+  res.json(reportSeen(req, project, req.params.reportId as string) ?? { id: req.params.reportId });
 }
 
 projectsRouter.post('/:projectId/reports/:reportId/blocks', async (req, res) => {
@@ -4589,6 +4651,7 @@ projectsRouter.post('/:projectId/reports/:reportId/blocks', async (req, res) => 
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  if (sourceOutOfReach(req, res, parsed.data.source)) return;
   await reportEdit(req, res, (project, actor) => {
     const block = insertReportBlock(project, req.params.reportId, parsed.data, actor);
     return { note: parsed.data.source ? 'Added a live section to the report.' : 'Added a section to the report.', cited: [block.id] };
@@ -4613,6 +4676,7 @@ projectsRouter.put('/:projectId/reports/:reportId/blocks/:blockId/source', async
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  if (sourceOutOfReach(req, res, parsed.data.source)) return;
   await reportEdit(req, res, (project, actor) => {
     retuneReportBlock(project, req.params.reportId, req.params.blockId, parsed.data.source, actor);
     return { note: 'Changed what that section reads.', cited: [req.params.blockId] };
@@ -4620,6 +4684,7 @@ projectsRouter.put('/:projectId/reports/:reportId/blocks/:blockId/source', async
 });
 
 projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/detach', async (req, res) => {
+  if (freezeRefused(req, res)) return;
   await reportEdit(req, res, (project, actor) => {
     const block = detachReportBlock(project, req.params.reportId, req.params.blockId, actor);
     return { note: `“${block.heading ?? 'A section'}” is no longer reading the registers.`, cited: [block.id] };
@@ -4665,9 +4730,10 @@ projectsRouter.post('/:projectId/reports/:reportId/issue', async (req, res) => {
     name: typeof body.signerName === 'string' ? body.signerName.slice(0, 120) : undefined,
     role: typeof body.signerRole === 'string' ? body.signerRole.slice(0, 120) : undefined,
   };
+  if (freezeRefused(req, res)) return;
   await reportEdit(req, res, (project, actor) => {
     const report = issueReport(project, req.params.reportId, actor, signOff);
-    return { note: `Issued “${report.title}”, signed by ${report.signedBy}. It is frozen at what it said just now.`, cited: [report.id], body: report };
+    return { note: `Issued “${report.title}”, signed by ${report.signedBy}. It is frozen at what it said just now.`, cited: [report.id] };
   });
 });
 
@@ -4691,10 +4757,12 @@ projectsRouter.get('/:projectId/reports/:reportId/drift', (req, res) => {
     return;
   }
   refreshProjectDerived(project);
-  const report = project.reports.find((r) => r.id === req.params.reportId);
+  // Both sides of the comparison are the caller's own: the report as their copy holds it, against the registers their copy holds.
+  const seen = projectFor(req, project);
+  const report = seen.reports.find((r) => r.id === req.params.reportId);
   if (!report) {
     res.status(404).json({ error: 'Report not found' });
     return;
   }
-  res.json({ reportId: report.id, status: report.status, rows: reportDrift(project, report.body.blocks) });
+  res.json({ reportId: report.id, status: report.status, rows: reportDrift(seen, report.body.blocks) });
 });

@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { DdProject, GrantArea, ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
+import { buildProjectGraph, type DdProject, type GrantArea, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
 import { store } from '../store';
 import { accessTo, outOfReach, projectFor } from './access';
 
@@ -222,6 +222,19 @@ function guardWorkspace(req: Request, res: Response, next: NextFunction, readsAr
   next();
 }
 
+/** The field nodes this caller's own copy of the project draws, by id. Worked out once for a request. */
+function ownFieldNodes(req: Request, project: DdProject): ReadonlyMap<string, ProjectGraphNode> {
+  const key = req as Request & { ownFieldNodes?: { id: string; nodes: Map<string, ProjectGraphNode> } };
+  if (key.ownFieldNodes && key.ownFieldNodes.id === project.id) return key.ownFieldNodes.nodes;
+  const nodes = new Map(
+    buildProjectGraph(projectFor(req, project))
+      .nodes.filter((node) => node.kind === 'field_value')
+      .map((node) => [node.id, node]),
+  );
+  key.ownFieldNodes = { id: project.id, nodes };
+  return nodes;
+}
+
 /**
  * Cut a stored graph back to what this reader may see.
  *
@@ -245,6 +258,15 @@ function guardWorkspace(req: Request, res: Response, next: NextFunction, readsAr
  * out of reach. Somebody else's question is no more this reader's than the
  * turn it was asked in.
  *
+ * A field's node is not a record's: its id is the address of a field on a
+ * sheet, and a sheet's set is on no register, so the test above passes every
+ * one. A field node is handed on only where this reader's own copy of the
+ * project draws it, and with what their copy says of it: the lender's
+ * outstanding is not theirs because they hold the valuation scope, and a
+ * figure worked out from records they are not handed is not the figure the
+ * whole file works out. This runs for anybody working from a grant, whether
+ * or not a record is out of their reach.
+ *
  * An edge with either end gone goes too. A dangling edge is a shape the graph
  * validator rejects, and a line to nowhere is its own disclosure.
  */
@@ -253,10 +275,17 @@ export function withinReach<T extends { nodes: ProjectGraphNode[]; edges: Projec
   project: DdProject,
   graph: T,
 ): T {
+  const resolved = accessTo(req, project);
+  if (!resolved.ok || resolved.access.kind === 'full') return graph;
   const blocked = outOfReach(req, project);
-  if (blocked.size === 0) return graph;
+  const own = ownFieldNodes(req, project);
   const outside = (id: string): boolean => blocked.has(id) || id.split(':').some((part) => blocked.has(part));
-  const nodes = graph.nodes.filter((n) => !outside(n.id));
+  const nodes = graph.nodes.flatMap((n) => {
+    if (outside(n.id)) return [];
+    if (n.kind !== 'field_value') return [n];
+    const mine = own.get(n.id);
+    return mine ? [mine] : [];
+  });
   const kept = new Set(nodes.map((n) => n.id));
   return { ...graph, nodes, edges: graph.edges.filter((e) => kept.has(e.from) && kept.has(e.to)) };
 }

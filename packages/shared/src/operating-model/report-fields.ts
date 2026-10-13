@@ -669,25 +669,18 @@ export function ownerPackFields(project: DdProject, section: 'time' | 'cost', at
 /* ==================================================================== */
 
 /**
- * The reports of a copy made for somebody working from a grant, with what
- * its field blocks say of functions out of their reach taken out.
+ * What of the fields a grant reaches, as a report names them.
  *
- * A block that names a field of a function they are not handed is left out
- * whole, live or frozen: its values are not theirs to read. A frozen block
- * that read every field of a period keeps only the rows of functions in
- * reach. Nothing on the project itself is changed.
+ * The same rule the copy of the sheets is cut by (`project-view.ts`): a
+ * buyers' set is nobody's outside the firm, whatever the grant names; a
+ * shared record is theirs where a function in reach links to it; and what
+ * a department added to a shared record goes only where that department's
+ * function is in reach. A unit's sale is not read off a report by somebody
+ * who may not read it off the unit.
  */
-export function fieldReportsOfCopy(reports: readonly GeneratedReport[], inReach: (fn: string) => boolean): GeneratedReport[] {
+function fieldReach(inReach: (fn: string) => boolean) {
   const catalog = fieldCatalog();
   const shared = new Set([...catalog.sheets.keys()].filter(inReach).flatMap((fn) => sharedSetsOf(fn, catalog).map((set) => set.id)));
-  /*
-   * The same rule the copy of the sheets is cut by (`project-view.ts`): a
-   * buyers' set is nobody's outside the firm, whatever the grant names; a
-   * shared record is theirs where a function in reach links to it; and what
-   * a department added to a shared record goes only where that department's
-   * function is in reach. A unit's sale is not read off a report by somebody
-   * who may not read it off the unit.
-   */
   const reached = (address: Pick<FieldAddress, 'set'> & { field?: string }): boolean => {
     const set = catalog.sets.get(address.set);
     if (!set || CUSTOMER_SETS.includes(set.id)) return false;
@@ -705,14 +698,57 @@ export function fieldReportsOfCopy(reports: readonly GeneratedReport[], inReach:
     const printed = columns?.length ? columns : set.fields.map((def) => def.key);
     return printed.every((key) => reached({ set: setId, field: key }));
   };
+  /** Everything a source names: its fields, its table, and the records it prints. */
+  const sourceReached = (source: ReportBoundSource, frozen: boolean): boolean => {
+    const named = [...(source.addresses ?? []), ...(source.address ? [source.address] : [])];
+    return named.every(reached) && (!source.records || recordsReached(source.records, source.columns, frozen));
+  };
+  return { reached, sourceReached };
+}
+
+/**
+ * Whether a section a person working from a grant asks a report for reads
+ * only what they are handed. A source that reads no fields is not judged
+ * here: the registers it reads are cut on their copy.
+ */
+export function fieldSourceInReach(source: ReportBoundSource, inReach: (fn: string) => boolean): boolean {
+  return !isFieldSource(source.kind) || fieldReach(inReach).sourceReached(source, false);
+}
+
+/** Whether every section a function's report opens with reads only what a grant is handed. */
+export function reportTemplateInReach(template: FunctionReportTemplate, inReach: (fn: string) => boolean): boolean {
+  return inReach(template.fn) && templateBlocks(template).every((block) => !block.source || fieldSourceInReach(block.source, inReach));
+}
+
+/**
+ * The reports of a copy made for somebody working from a grant, with what
+ * its field blocks say of functions out of their reach taken out.
+ *
+ * A block that names a field of a function they are not handed is left out
+ * whole, live or frozen: its values are not theirs to read. A frozen block
+ * that read every field of a period keeps only the rows of functions in
+ * reach. Nothing on the project itself is changed.
+ *
+ * A frozen block keeps a link as the name it read that day. `withheld` are
+ * the names of the party records this copy is not handed, the buyers: a
+ * frozen block that prints one is left out whole, since nothing on a kept
+ * row says which of its words were the link.
+ */
+export function fieldReportsOfCopy(reports: readonly GeneratedReport[], inReach: (fn: string) => boolean, withheld: readonly string[] = []): GeneratedReport[] {
+  const { reached, sourceReached } = fieldReach(inReach);
+  const names = withheld.map((name) => name.trim()).filter((name) => name.length > 1);
+  const printsWithheld = (block: ReportBlock): boolean => {
+    if (!names.length) return false;
+    const said = [...(block.frozen ?? []), block.text ?? '', ...(block.frozenTable?.rows ?? []).flatMap((row) => row.cells), ...(block.frozenChart?.points ?? []).map((point) => point.label)].join('\n');
+    return names.some((name) => said.includes(name));
+  };
   return reports.map((report) => {
     let changed = false;
     const blocks = (report.body.blocks ?? []).flatMap((block) => {
       const source = block.source ?? block.detachedSource;
       const kind = block.source?.kind ?? block.detachedFrom;
       if (!isFieldSource(kind)) return [block];
-      const named = [...(source?.addresses ?? []), ...(source?.address ? [source.address] : [])];
-      if (named.some((address) => !reached(address)) || (source?.records && !recordsReached(source.records, source.columns, !block.source))) {
+      if (!source || !sourceReached(source, !block.source) || printsWithheld(block)) {
         changed = true;
         return [];
       }
