@@ -9,6 +9,7 @@
  */
 
 import type {
+  MilestonePhotoWaiver,
   AnswerProof,
   AnswerSource,
   CertifiedReadout,
@@ -110,7 +111,8 @@ export const workspaceApi = {
   addMilestones: (projectId: string, body: { template?: boolean; rows?: Array<{ name: string; weight: number; plannedFinish?: string; assetId?: string }> }) =>
     request<{ project: DdProject; milestones: Milestone[] }>(`/projects/${projectId}/milestones`, json(body)),
 
-  updateMilestone: (projectId: string, milestoneId: string, patch: { percent?: number; name?: string; weight?: number; plannedFinish?: string | null }) =>
+  /** `photoWaiver` is why it is complete with a required photograph not taken: a pick from the list, by a lead or signer of Construction. */
+  updateMilestone: (projectId: string, milestoneId: string, patch: { percent?: number; name?: string; weight?: number; plannedFinish?: string | null; photoWaiver?: MilestonePhotoWaiver }) =>
     request<{ project: DdProject; milestone: Milestone }>(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 
   removeMilestone: (projectId: string, milestoneId: string) =>

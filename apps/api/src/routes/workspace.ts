@@ -146,7 +146,9 @@ import {
   removeQuestion,
   removeQuestionnaire,
   ANSWER_SOURCES,
-  setMilestonePercent,
+  MILESTONE_PHOTO_WAIVERS,
+  MilestonePhotosWanting,
+  markMilestonePercent,
   setProjectDepartments,
   setTeamMember,
   stageTimeline,
@@ -506,6 +508,8 @@ projectWorkspaceRouter.post<Params>('/milestones', async (req, res) => {
 
 const milestonePatch = z.object({
   percent: z.number().min(0).max(100).optional(),
+  /** Why it is complete with a required photograph not taken: a pick from the list, by a lead or signer of Construction. */
+  photoWaiver: z.enum(MILESTONE_PHOTO_WAIVERS).optional(),
   name: z.string().trim().min(1).max(120).optional(),
   weight: z.number().positive().max(1000).optional(),
   plannedFinish: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
@@ -523,7 +527,13 @@ projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:mil
   }
   try {
     const actor = actorOf(principalOf(req));
-    if (parsed.data.percent !== undefined) setMilestonePercent(project, milestone.id, parsed.data.percent, actor);
+    // Marked complete with a required photograph not taken, it is refused with the stations named, unless a lead or signer picks why.
+    if (parsed.data.percent !== undefined || parsed.data.photoWaiver) {
+      markMilestonePercent(project, milestone.id, parsed.data.percent ?? milestone.percent, actor, {
+        ...(parsed.data.photoWaiver ? { waiver: parsed.data.photoWaiver } : {}),
+        mayWaive: roleCanDecide(roleIn(req, project, 'construction')),
+      });
+    }
     if (parsed.data.name) milestone.name = parsed.data.name;
     if (parsed.data.weight) milestone.weight = parsed.data.weight;
     if (parsed.data.plannedFinish === null) delete milestone.plannedFinish;
@@ -534,6 +544,10 @@ projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:mil
     await store.save();
     res.json({ project, milestone });
   } catch (err) {
+    if (err instanceof MilestonePhotosWanting) {
+      res.status(409).json({ error: err.message, photosWanting: err.stations });
+      return;
+    }
     failed(res, err, 'Could not change the milestone');
   }
 });

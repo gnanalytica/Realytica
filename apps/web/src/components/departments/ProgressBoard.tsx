@@ -1,8 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
 import { Camera, HardHat, Smartphone, Upload, Users } from 'lucide-react';
 import {
+  MILESTONE_PHOTO_WAIVERS,
+  MILESTONE_PHOTO_WAIVER_LABEL,
   constructionGate,
   daySaid,
+  milestonePhotoChecklist,
+  milestonePhotoStanding,
+  milestonePhotosRefusal,
+  milestonePhotosWanting,
   departmentRole,
   fieldTrend,
   progressReadings,
@@ -12,11 +18,12 @@ import {
   scheduleWatch,
   type DdProject,
   type Milestone,
+  type MilestonePhotoWaiver,
   type MilestoneWatch,
   type ScheduleSkippedRow,
   type SiteLogEntry,
 } from '@realytica/shared';
-import { person } from '../../lib/format';
+import { personNamed } from '../../lib/format';
 import { Sparkline } from '../CheckFields';
 import { TrendChart } from '../fields/TrendChart';
 import { workspaceApi } from '../../lib/workspace-api';
@@ -76,6 +83,14 @@ function MilestoneRow({
   const [busy, setBusy] = useState(false);
   const moved = milestone.baselineFinish && milestone.baselineFinish !== milestone.plannedFinish;
   const readings = useMemo(() => progressReadings(project, milestone), [project, milestone]);
+  // The photographs it needs before it reads complete: the stations with none this period, and how a completion already made stands.
+  const wanting = useMemo(() => (milestone.percent < 100 ? milestonePhotosWanting(project, milestone.id) : []), [project, milestone.id, milestone.percent]);
+  const check = useMemo(() => milestonePhotoChecklist(project).find((held) => held.milestoneId === milestone.id), [project, milestone.id]);
+  const standing = check?.complete && check.short ? milestonePhotoStanding(check) : undefined;
+  const short = check?.complete && check.short && !check.waived ? check.stations.filter((station) => !station.have) : [];
+  // Asked to be marked complete with a photograph missing: it is not sent, and the stations are named.
+  const [refused, setRefused] = useState(false);
+  const stopped = refused && wanting.length > 0 ? wanting : short;
 
   async function save(patch: Parameters<typeof workspaceApi.updateMilestone>[2]) {
     setBusy(true);
@@ -99,6 +114,7 @@ function MilestoneRow({
           {watch?.extensionDays ? ` (moved ${watch.extensionDays} ${watch.extensionDays === 1 ? 'day' : 'days'} by extensions granted, from ${daySaid(milestone.plannedFinish)})` : ''}
           {moved ? ` (first planned ${daySaid(milestone.baselineFinish)})` : ''}
           {milestone.completedOn ? ` · done ${daySaid(milestone.completedOn)}` : ''}
+          {standing ? <span data-milestone-photos className={check?.waived ? undefined : 'font-medium text-critical'}>{` · ${standing}`}</span> : null}
           {!milestone.completedOn && watch?.expectedPercent !== undefined ? ` · expected ${watch.expectedPercent}% today` : ''}
         </p>
       </div>
@@ -118,7 +134,9 @@ function MilestoneRow({
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(value);
-            if (Number.isFinite(n) && n >= 0 && n <= 100 && n !== milestone.percent) void save({ percent: n });
+            if (!Number.isFinite(n) || n < 0 || n > 100 || n === milestone.percent) return;
+            if (Math.round(n) === 100 && wanting.length) setRefused(true);
+            else void save({ percent: n });
           }}
         >
           <Input aria-label={`${milestone.name} percent complete`} type="number" min={0} max={100} value={value} onChange={(e) => setValue(e.target.value)} className="h-8 w-16 text-right" />
@@ -138,6 +156,36 @@ function MilestoneRow({
         >
           Remove
         </button>
+      ) : null}
+      {stopped.length ? (
+        <div role="alert" data-milestone-refused className="basis-full rounded-lg border border-hairline bg-sunken px-3 py-2 text-[12px] text-ink">
+          <p>{refused && wanting.length ? milestonePhotosRefusal(milestone.name, wanting) : `Complete, with ${stopped.length === 1 ? 'a required photograph' : `${stopped.length} required photographs`} not taken: ${stopped.map((station) => station.label).join(', ')}.`}</p>
+          {mayRemove ? (
+            <label className="mt-1.5 flex flex-wrap items-center gap-2 text-ink-secondary">
+              Complete without {stopped.length === 1 ? 'it' : 'them'}, because
+              <select
+                aria-label={`Why ${milestone.name} is complete without its photographs`}
+                value=""
+                disabled={busy}
+                onChange={(event) => {
+                  if (!event.target.value) return;
+                  setRefused(false);
+                  void save({ percent: 100, photoWaiver: event.target.value as MilestonePhotoWaiver });
+                }}
+                className="h-8 rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11"
+              >
+                <option value="">Pick why…</option>
+                {MILESTONE_PHOTO_WAIVERS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {MILESTONE_PHOTO_WAIVER_LABEL[reason]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="mt-1 text-ink-muted">A lead or signer of Construction can pick why it is complete without {stopped.length === 1 ? 'it' : 'them'}.</p>
+          )}
+        </div>
       ) : null}
     </li>
   );
@@ -284,7 +332,7 @@ export function ProgressBoard({
         </Callout>
       ) : null}
       <Card>
-        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${daySaid(summary.lastEntry.date)} by ${person(summary.lastEntry.author)}` : 'Nothing logged from site yet'} />
+        <CardHeader icon={<HardHat size={15} />} title="Progress" subtitle={summary.lastEntry ? `Last logged ${daySaid(summary.lastEntry.date)} by ${personNamed(project, summary.lastEntry.author)}` : 'Nothing logged from site yet'} />
         <CardBody className="flex flex-wrap items-center gap-6">
           <Ring percent={summary.percent} />
           <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-2 text-[13px] sm:grid-cols-4">
@@ -389,7 +437,7 @@ export function ProgressBoard({
                 <li key={entry.id} data-marked={entry.id === marked ? '' : undefined} className={cn('rounded-lg p-3', entry.id === marked ? MARKED_ROW : 'bg-sunken/50')}>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <p className="font-mono text-[12px] font-semibold text-ink">{daySaid(entry.date)}</p>
-                    <p className="text-[12px] text-ink-secondary">{entry.author}</p>
+                    <p className="text-[12px] text-ink-secondary">{personNamed(project, entry.author)}</p>
                     {entry.weather ? <Badge tone="neutral">{entry.weather}</Badge> : null}
                     {entry.manpower.length ? (
                       <span className="flex items-center gap-1 text-[12px] text-ink-secondary">
