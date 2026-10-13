@@ -3381,6 +3381,41 @@
       },
       {
        "type": "fields",
+       "title": "Read from the complaint, waiting on a person",
+       "items": [
+        {
+         "l": "Claim amount",
+         "v": "₹ 6.5 L",
+         "state": "sug",
+         "from": "K-RERA complaint 2291, as filed",
+         "page": 3
+        },
+        {
+         "l": "Summons served on",
+         "v": "26 Sep 2026",
+         "state": "sug",
+         "from": "K-RERA complaint 2291, as filed",
+         "page": 1
+        },
+        {
+         "l": "Written statement due by",
+         "v": "26 Oct 2026",
+         "state": "calc"
+        },
+        {
+         "l": "Situation: litigation pending",
+         "v": "In play, by the matter recorded",
+         "state": "calc"
+        },
+        {
+         "l": "Litigation standing",
+         "v": "A reply is due within seven days",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "fields",
        "title": "What is at stake",
        "items": [
         {

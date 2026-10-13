@@ -828,6 +828,58 @@
        "add": "Add an advertisement"
       },
       {
+       "type": "slots",
+       "title": "Creatives",
+       "groups": [
+        {
+         "name": "As released",
+         "lines": [
+          {
+           "t": "Newspaper advertisement, 4 Oct 2026",
+           "state": "in",
+           "pages": 1
+          },
+          {
+           "t": "Hoarding artwork, Lake Road",
+           "state": "asked",
+           "who": "Agency",
+           "due": "20 Oct 2026"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "fields",
+       "title": "Measured on the newspaper advertisement, waiting on a person",
+       "items": [
+        {
+         "l": "Lettering of the registration number, against the project name",
+         "v": "0.6",
+         "state": "sug",
+         "from": "Newspaper advertisement, 4 Oct 2026",
+         "page": 1
+        },
+        {
+         "l": "“RERA Registered” block, of the length",
+         "v": "11%",
+         "state": "sug",
+         "from": "Newspaper advertisement, 4 Oct 2026",
+         "page": 1
+        },
+        {
+         "l": "Situation: advertisements on the register",
+         "v": "In play, by the 4 recorded",
+         "state": "calc"
+        },
+        {
+         "l": "Advertising standing",
+         "v": "1 advertisement to change",
+         "state": "calc"
+        }
+       ]
+      },
+      {
        "type": "outputs"
       }
      ]

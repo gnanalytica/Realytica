@@ -3440,6 +3440,57 @@
          "state": "set"
         }
        ]
+      },
+      {
+       "type": "fields",
+       "title": "Read from the sanction letter, waiting on a person",
+       "items": [
+        {
+         "l": "Benchmark",
+         "v": "Repo-linked",
+         "state": "sug",
+         "from": "Loan sanction letter",
+         "page": 4
+        },
+        {
+         "l": "Spread over the benchmark",
+         "v": "3.25%",
+         "state": "sug",
+         "from": "Loan sanction letter",
+         "page": 4
+        },
+        {
+         "l": "Situation: lender funded",
+         "v": "In play, by the facility recorded",
+         "state": "calc"
+        },
+        {
+         "l": "Drawn against eligible",
+         "v": "Within what is eligible",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "slots",
+       "title": "Facility papers",
+       "groups": [
+        {
+         "name": "From the lender",
+         "lines": [
+          {
+           "t": "Loan sanction letter",
+           "state": "in",
+           "pages": 18
+          },
+          {
+           "t": "Lender’s engineer’s report, September",
+           "state": "in",
+           "pages": 9
+          }
+         ]
+        }
+       ]
       }
      ]
     },
