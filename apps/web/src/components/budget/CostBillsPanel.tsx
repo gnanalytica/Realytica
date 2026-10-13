@@ -9,6 +9,7 @@ import {
   billPosition,
   costRegister,
   costSummary,
+  formatMoneyInFull,
   moneySaid,
   standingCertification,
   type CostBill,
@@ -22,6 +23,11 @@ import { Badge, Button, Card, CardBody, CardHeader, Input, cn, useToast } from '
 
 function money(amount: number, currency: DdProject['currency']): string {
   return moneySaid(amount, currency);
+}
+
+/** A bill, a certificate and a payment are papers to the rupee: their amounts are written in full. */
+function exact(amount: number, currency: DdProject['currency']): string {
+  return formatMoneyInFull(amount, currency);
 }
 
 export function CostBillsPanel({
@@ -354,8 +360,8 @@ function BillCard({
             {contract?.contractor ?? 'Bill'} · {bill.number}
           </p>
           <p className="text-mini text-ink-muted">
-            {daySaid(bill.date)} · claimed {money(position.claimed, project.currency)}
-            {certificate ? ` · certified ${money(certificate.net, project.currency)} net` : ''}
+            {daySaid(bill.date)} · claimed {exact(position.claimed, project.currency)}
+            {certificate ? ` · certified ${exact(certificate.net, project.currency)} net` : ''}
           </p>
         </div>
         <Badge tone={certificate ? 'good' : position.status === 'in_review' ? 'warning' : 'neutral'}>{position.status.replace('_', ' ')}</Badge>
@@ -380,9 +386,9 @@ function BillCard({
                       {line.item ? `${line.item} · ` : ''}
                       {line.description}
                     </td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{money(line.amount, project.currency)}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{exact(line.amount, project.currency)}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">
-                      {line.certified ? money(line.certified.amount, project.currency) : '—'}
+                      {line.certified ? exact(line.certified.amount, project.currency) : '—'}
                     </td>
                     <td className="py-1.5">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -482,7 +488,7 @@ function BillCard({
                 .map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-2 py-0.5">
                     <span>
-                      {money(p.amount, project.currency)} on {daySaid(p.paidOn)}
+                      {exact(p.amount, project.currency)} on {daySaid(p.paidOn)}
                       {p.reference ? ` · ${p.reference}` : ''}
                     </span>
                     {mayDecide ? (

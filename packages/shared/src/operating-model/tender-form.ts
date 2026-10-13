@@ -40,7 +40,7 @@ export { TENDER_TERMS };
 
 const PARTIES = 'shared.parties';
 /** The role a consultant named on the form is given on the party record. */
-const PARTY_ROLE: Record<string, string> = { client: 'owner', architect: 'architect', structural_consultant: 'engineer', mep_consultant: 'engineer', pmc: 'consultant' };
+const PARTY_ROLE: Record<string, string> = { client: 'owner', architect: 'architect', structural_consultant: 'structural_consultant', mep_consultant: 'mep_consultant', pmc: 'project_manager' };
 
 const FN = 'procurement.boq';
 

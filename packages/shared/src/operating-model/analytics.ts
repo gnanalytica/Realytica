@@ -33,8 +33,7 @@ import { waitingOnCanvas } from './cockpit';
 import { functionOfDocument, papersOwedOpen } from './chat-places';
 import { checklistOwed } from './checklist';
 import { requirementSheet } from './requirement-sheet';
-import { costReportDecisions } from './cost-report-compare';
-import { packageAwaitsNoAward } from './owner-pack';
+import { costReportDecisions, packageAwaitsNoAward } from './cost-report-compare';
 import { costReportPeriodOrder, costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
 import { costRegister, moneySaid } from './cost';
 import { COST_REPORT_PERIODS, periodSeries } from './sheet-periods';
@@ -357,7 +356,7 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
       });
       decisions.push(...overBudget);
       // A contingency, a fee or an allowance awaits no award: only work to be let waits on the owner.
-      for (const pack of asks.unawarded.filter((held) => !packageAwaitsNoAward(held.name))) {
+      for (const pack of asks.unawarded) {
         decisions.push({ ...base(project), title: `Not awarded: ${pack.code ? `${pack.code} ` : ''}${pack.name}`, detail: `Budget ${money(pack.budget)}, no PO issued`, source, ...BUDGET_PLACE });
       }
     } else if (costReportsOf(project).length || costRegister(project).workPackages.length) {

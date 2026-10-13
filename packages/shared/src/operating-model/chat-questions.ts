@@ -377,6 +377,17 @@ const figureNamed: Builder = (project, asked, { now, catalog = fieldCatalogFor(p
           return amount === null ? [] : [figure('Certified to date', money(amount), register, 'worked_out')];
         })();
     if (rows.length) return { card: card('From the cost register:', rows), summary };
+    // No certificate stands on a bill: the Cost Report's own certified column, where the report states one.
+    const from = report ? `${report.label}${report.status === 'issued' ? '' : ', not issued'}` : '';
+    const stated = !report
+      ? []
+      : packs.length
+        ? packs.slice(0, PACKAGES_SAID).flatMap((pack) => (pack.certified === undefined ? [] : [figure(`Certified · ${packageLabel(pack)} · ${from}`, money(pack.certified), open)]))
+        : (() => {
+            const amount = costReportTotals(report).certified;
+            return amount === undefined ? [] : [figure(`Certified · all packages · ${from}`, money(amount), open)];
+          })();
+    if (stated.length) return { card: card(`No bill is certified on the cost register. As the ${COST_REPORT} states it:`, stated), summary };
     return { card: card('No bill is certified on the cost register, so nothing says how much is certified.', [], [{ label: COST_REPORT, open }]), summary };
   }
   const which = REPORT_FIGURES.find((held) => held.words.test(name));

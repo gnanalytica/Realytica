@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { Spinner } from '../../components/ui/kit';
+import { moneyColumn } from '../../lib/format';
 import { SinceLastReportPrint } from '../../components/budget/SinceLastReport';
 
 function money(amount: number, currency: DdProject['currency']): string {
@@ -58,6 +59,9 @@ function MoneyTable({
   showVariance?: boolean;
 }) {
   const totals = costReportTotals(report);
+  // Each column in one unit, chosen from every row of it and its total.
+  const cols = columns.map((c) => moneyColumn([...report.rows.map((row) => row[c.key]), totals[c.key]], currency));
+  const varianceCol = moneyColumn([...report.rows.map((row) => row.anticipatedCost - row.budget), totals.anticipatedVariance], currency);
   return (
     <table className="w-full border-collapse text-left text-[12px]">
       <thead>
@@ -75,13 +79,13 @@ function MoneyTable({
         {report.rows.map((row) => (
           <tr key={row.id} className="border-b border-black/10">
             <td className="py-1.5 pr-3">{packageLabel(row)}</td>
-            {columns.map((c) => (
+            {columns.map((c, at) => (
               <td key={c.key} className="py-1.5 pr-3 text-right tabular-nums">
-                {money(row[c.key], currency)}
+                {cols[at]!.cell(row[c.key]).text}
               </td>
             ))}
             {showVariance ? (
-              <td className="py-1.5 text-right tabular-nums">{money(row.anticipatedCost - row.budget, currency)}</td>
+              <td className="py-1.5 text-right tabular-nums">{varianceCol.cell(row.anticipatedCost - row.budget).text}</td>
             ) : null}
           </tr>
         ))}
@@ -89,12 +93,12 @@ function MoneyTable({
       <tfoot>
         <tr className="font-semibold">
           <td className="pt-2 pr-3">Total</td>
-          {columns.map((c) => (
+          {columns.map((c, at) => (
             <td key={c.key} className="pt-2 pr-3 text-right tabular-nums">
-              {money(totals[c.key], currency)}
+              {cols[at]!.cell(totals[c.key]).text}
             </td>
           ))}
-          {showVariance ? <td className="pt-2 text-right tabular-nums">{money(totals.anticipatedVariance, currency)}</td> : null}
+          {showVariance ? <td className="pt-2 text-right tabular-nums">{varianceCol.cell(totals.anticipatedVariance).text}</td> : null}
         </tr>
       </tfoot>
     </table>

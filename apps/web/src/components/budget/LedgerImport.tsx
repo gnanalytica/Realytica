@@ -12,7 +12,7 @@
 
 import { useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
-import { COST_COLUMN_LABEL, COST_LINE_SAID, moneySaid, type CostImportPreview, type CostReportPeriod, type DdProject } from '@realytica/shared';
+import { COST_COLUMN_LABEL, COST_LINE_SAID, formatMoneyInFull, type CostImportPreview, type CostReportPeriod, type DdProject } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { workspaceApi } from '../../lib/workspace-api';
@@ -132,7 +132,8 @@ function Preview({ shown, currency, busy, onConfirm, onCancel }: { shown: { prev
   const { read } = preview;
   const figures = read.columns.filter((column) => column !== 'code' && column !== 'name' && column !== 'description' && column !== 'perArea');
   const held = read.checks.filter((line) => line.difference === 0);
-  const cell = (amount: number | undefined): string => (amount === undefined ? '' : moneySaid(amount, currency));
+  // A figure checked against the table it was read from is written to the rupee, as the table writes it.
+  const cell = (amount: number | undefined): string => (amount === undefined ? '' : formatMoneyInFull(amount, currency));
   const unplaced = preview.rows.filter((row) => row.unplaced || row.problems?.length).length;
   return (
     <div className="space-y-2 rounded-lg bg-sunken p-2.5">
@@ -151,7 +152,7 @@ function Preview({ shown, currency, busy, onConfirm, onCancel }: { shown: { prev
         <p className="text-[13px] font-medium text-[var(--status-critical-text)]">The rows do not add up to the table’s total. {check}</p>
       ) : read.addsUp ? (
         <p className="text-[12px] text-[var(--status-good-text)]">
-          The rows add up to the table’s own total: {held.map((line) => `${COST_COLUMN_LABEL[line.column]} ${moneySaid(line.stated, currency)}`).join(', ')}.
+          The rows add up to the table’s own total: {held.map((line) => `${COST_COLUMN_LABEL[line.column]} ${formatMoneyInFull(line.stated, currency)}`).join(', ')}.
         </p>
       ) : (
         <p className="text-[12px] text-ink-secondary">The table states no total, so the rows are held to none.</p>

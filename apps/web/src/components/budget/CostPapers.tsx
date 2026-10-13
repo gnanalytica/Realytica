@@ -13,7 +13,7 @@
  */
 
 import { useState } from 'react';
-import { costPaperSaid, costPapersOf, moneySaid, type CostOfferCorrection, type CostPaper, type CostReportPeriod, type CostRowOffer, type DdProject } from '@realytica/shared';
+import { costPaperSaid, costPapersOf, formatMoneyInFull, type CostOfferCorrection, type CostPaper, type CostReportPeriod, type CostRowOffer, type DdProject } from '@realytica/shared';
 import { workspaceApi } from '../../lib/workspace-api';
 import { Badge, Button, Card, CardBody, CardHeader, Input, useToast } from '../ui/kit';
 import { LedgerImport, type PaperBeside } from './LedgerImport';
@@ -125,7 +125,7 @@ function PaperOffers({ project, paper, report, mayDecide, mayEdit, modelSetUp, o
               </div>
               {off.length ? (
                 <p className="text-[12px] text-[var(--status-warning-text)]">
-                  {off.map((check) => `The rows read come to ${moneySaid(check.taken, currency)} and the page’s total is ${moneySaid(check.stated, currency)}`).join('; ')}. A row may have been misread: check each against the page.
+                  {off.map((check) => `The rows read come to ${formatMoneyInFull(check.taken, currency)} and the page’s total is ${formatMoneyInFull(check.stated, currency)}`).join('; ')}. A row may have been misread: check each against the page.
                 </p>
               ) : null}
               <div className="overflow-x-auto">
@@ -199,7 +199,7 @@ function OfferRow({ offer, currency, mayDecide, busy, onAccept, onSetAside }: { 
             ) : offer.cells[key] === undefined ? (
               ''
             ) : (
-              moneySaid(offer.cells[key]!, currency)
+              formatMoneyInFull(offer.cells[key]!, currency)
             )}
           </td>
         ))}

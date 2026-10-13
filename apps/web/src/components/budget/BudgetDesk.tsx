@@ -14,6 +14,7 @@ import {
   costReportsOf,
   departmentRole,
   moneySaid,
+  partiesByRole,
   ruleSourceSaid,
   roleCanDecide,
   roleCanEdit,
@@ -24,8 +25,8 @@ import {
 import { api } from '../../lib/api';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
-import { Badge, Button, Card, CardBody, CardHeader, ConfirmIssue, Input, cn, useToast } from '../ui/kit';
-import { personNamed } from '../../lib/format';
+import { Badge, Button, Card, CardBody, CardHeader, ConfirmIssue, Input, Money, cn, useToast } from '../ui/kit';
+import { amount as amountSaid, moneyColumn, personNamed } from '../../lib/format';
 import { CostReportExtras } from './CostReportExtras';
 import { CostBillsPanel } from './CostBillsPanel';
 import { CostPapers } from './CostPapers';
@@ -35,6 +36,9 @@ import { TenderOffers } from '../procurement/TenderOffers';
 function money(amount: number, currency: DdProject['currency']): string {
   return moneySaid(amount, currency);
 }
+
+/** A column of money as its cells are written: one unit for every row and the total. */
+type MoneyCol = ReturnType<typeof moneyColumn>;
 
 function parseMoney(raw: string): number | undefined {
   const cleaned = raw.replace(/[, ]/g, '').trim();
@@ -337,8 +341,10 @@ function BottomLine({ project, report }: { project: DdProject; report: CostRepor
     ['Total before GST', line.beforeGst.budget, line.beforeGst.anticipatedCost],
     ...(line.gst ? ([[`GST at ${line.gst.ratePct}%`, line.gst.budget, line.gst.anticipatedCost]] as Array<[string, number, number]>) : []),
     ...(line.afterGst ? ([['Total with GST', line.afterGst.budget, line.afterGst.anticipatedCost]] as Array<[string, number, number]>) : []),
-    ...(line.perArea ? ([[`Cost per sq ft, on ${line.perArea.areaSqft.toLocaleString('en-IN')} sq ft built-up, before GST`, line.perArea.budgetPerSqft, line.perArea.anticipatedPerSqft]] as Array<[string, number, number]>) : []),
   ];
+  // The totals are one column in one unit; a rate for each square foot is a figure of another size and is written to the rupee.
+  const budgetCol = moneyColumn(rows.map((row) => row[1]), currency);
+  const anticipatedCol = moneyColumn(rows.map((row) => row[2]), currency);
   return (
     <Card>
       <CardHeader title="Bottom line" subtitle="Worked out from the ledger" />
@@ -355,10 +361,17 @@ function BottomLine({ project, report }: { project: DdProject; report: CostRepor
             {rows.map(([label, budget, anticipated]) => (
               <tr key={label} className={cn('border-b border-hairline/70', label === 'Total with GST' ? 'font-semibold' : '')}>
                 <td className="py-1.5 pr-3 text-ink">{label}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums text-ink">{money(budget, currency)}</td>
-                <td className="py-1.5 text-right tabular-nums text-ink">{money(anticipated, currency)}</td>
+                <td className="py-1.5 pr-3 text-right text-ink"><Money {...budgetCol.cell(budget)} /></td>
+                <td className="py-1.5 text-right text-ink"><Money {...anticipatedCol.cell(anticipated)} /></td>
               </tr>
             ))}
+            {line.perArea ? (
+              <tr className="border-b border-hairline/70">
+                <td className="py-1.5 pr-3 text-ink">Cost per sq ft, on {line.perArea.areaSqft.toLocaleString('en-IN')} sq ft built-up, before GST</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums text-ink">{amountSaid(line.perArea.budgetPerSqft, currency)}</td>
+                <td className="py-1.5 text-right tabular-nums text-ink">{amountSaid(line.perArea.anticipatedPerSqft, currency)}</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
         {line.beforeGst.certified !== undefined ? <p className="text-[12px] text-ink-secondary">Certified to date: {money(line.beforeGst.certified, currency)}</p> : null}
@@ -391,6 +404,8 @@ function ExecTable({
   totals: ReturnType<typeof costReportTotals>;
   showVariance?: boolean;
 }) {
+  const cols = columns.map((c) => moneyColumn([...rows.map((row) => row[c.key]), totals[c.key]], currency));
+  const varianceCol = moneyColumn([...rows.map((row) => row.anticipatedCost - row.budget), totals.anticipatedVariance], currency);
   return (
     <Card>
       <CardHeader title={title} subtitle={subtitle} />
@@ -413,14 +428,14 @@ function ExecTable({
               return (
                 <tr key={row.id} className="border-b border-hairline/70">
                   <td className="py-1.5 pr-3 text-ink">{packageLabel(row)}</td>
-                  {columns.map((c) => (
-                    <td key={c.key} className="py-1.5 pr-3 text-right tabular-nums text-ink">
-                      {money(row[c.key], currency)}
+                  {columns.map((c, at) => (
+                    <td key={c.key} className="py-1.5 pr-3 text-right text-ink">
+                      <Money {...cols[at]!.cell(row[c.key])} />
                     </td>
                   ))}
                   {showVariance ? (
-                    <td className={cn('py-1.5 text-right tabular-nums', variance > 0 ? 'text-[var(--status-warning-text)]' : 'text-ink-secondary')}>
-                      {money(variance, currency)}
+                    <td className={cn('py-1.5 text-right', variance > 0 ? 'text-[var(--status-warning-text)]' : 'text-ink-secondary')}>
+                      <Money {...varianceCol.cell(variance)} />
                     </td>
                   ) : null}
                 </tr>
@@ -430,13 +445,15 @@ function ExecTable({
           <tfoot>
             <tr className="font-semibold text-ink">
               <td className="pt-2 pr-3">Total</td>
-              {columns.map((c) => (
-                <td key={c.key} className="pt-2 pr-3 text-right tabular-nums">
-                  {money(totals[c.key], currency)}
+              {columns.map((c, at) => (
+                <td key={c.key} className="pt-2 pr-3 text-right">
+                  <Money {...cols[at]!.cell(totals[c.key])} />
                 </td>
               ))}
               {showVariance ? (
-                <td className="pt-2 text-right tabular-nums">{money(totals.anticipatedVariance, currency)}</td>
+                <td className="pt-2 text-right">
+                  <Money {...varianceCol.cell(totals.anticipatedVariance)} />
+                </td>
               ) : null}
             </tr>
           </tfoot>
@@ -468,6 +485,21 @@ function PackageLedger({
   const [newName, setNewName] = useState('');
   const [newCode, setNewCode] = useState('');
   const [newBudget, setNewBudget] = useState('');
+  // Each column in one unit, chosen from every row of it.
+  const cols: LedgerCols = {
+    budget: moneyColumn(report.rows.map((row) => row.budget), currency),
+    poIssued: moneyColumn(report.rows.map((row) => row.poIssued), currency),
+    certified: moneyColumn(report.rows.map((row) => row.certified), currency),
+    amountPaid: moneyColumn(report.rows.map((row) => row.amountPaid), currency),
+    anticipatedCost: moneyColumn(report.rows.map((row) => row.anticipatedCost), currency),
+  };
+  // Who a package may be awarded to: the project's parties, contractors first, each name once.
+  const parties = useMemo(() => {
+    const groups = partiesByRole(project).groups;
+    const names = [...groups.filter((group) => group.key === 'contractor'), ...groups.filter((group) => group.key !== 'contractor')].flatMap((group) => group.parties.map((party) => party.name));
+    return [...new Set(names)];
+  }, [project]);
+  const partyList = `parties-${report.id}`;
 
   async function saveRow(rowId: string, patch: Parameters<typeof workspaceApi.updateCostReportRow>[3]) {
     setBusy(true);
@@ -546,7 +578,12 @@ function PackageLedger({
             </Button>
           </div>
         ) : null}
-        <table className="w-full min-w-[54rem] border-collapse text-left text-[13px]">
+        <datalist id={partyList}>
+          {parties.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+        <table className="w-full min-w-[48rem] border-collapse text-left text-[13px]">
           <thead>
             <tr className="border-b border-hairline text-micro uppercase tracking-[0.04em] text-ink-muted">
               <th className="py-1.5 pr-2 font-medium">Package</th>
@@ -561,9 +598,10 @@ function PackageLedger({
           <tbody>
             {report.rows.map((row) => (
               <LedgerRow
-                key={`${row.id}:${row.budget}:${row.poIssued}:${row.certified ?? ''}:${row.amountPaid}:${row.anticipatedCost}`}
+                key={`${row.id}:${row.budget}:${row.poIssued}:${row.certified ?? ''}:${row.amountPaid}:${row.anticipatedCost}:${row.awardedTo ?? ''}`}
                 row={row}
-                currency={currency}
+                cols={cols}
+                partyList={partyList}
                 mayEdit={mayEdit}
                 busy={busy}
                 onSave={(patch) => void saveRow(row.id, patch)}
@@ -596,16 +634,21 @@ function PackageLedger({
   );
 }
 
+type LedgerCols = Record<'budget' | 'poIssued' | 'certified' | 'amountPaid' | 'anticipatedCost', MoneyCol>;
+
 function LedgerRow({
   row,
-  currency,
+  cols,
+  partyList,
   mayEdit,
   busy,
   onSave,
   onRemove,
 }: {
   row: CostReportPackageRow;
-  currency: DdProject['currency'];
+  cols: LedgerCols;
+  /** The id of the list of the project's parties a name is picked from. */
+  partyList: string;
   mayEdit: boolean;
   busy: boolean;
   onSave: (patch: Parameters<typeof workspaceApi.updateCostReportRow>[3]) => void;
@@ -617,6 +660,9 @@ function LedgerRow({
   const [anticipated, setAnticipated] = useState(String(row.anticipatedCost));
   // Certified to date is a figure a report may not state: empty is none, and is kept as none.
   const [certified, setCertified] = useState(row.certified === undefined ? '' : String(row.certified));
+  const [awardedTo, setAwardedTo] = useState(row.awardedTo ?? '');
+  // The box being typed in shows the figure as typed; every other shows it as its column is written.
+  const [typing, setTyping] = useState<number | null>(null);
 
   const certifiedTyped = certified.trim() ? parseMoney(certified) : null;
   const dirty =
@@ -631,11 +677,29 @@ function LedgerRow({
     onSave({ budget: b, poIssued: p, amountPaid: a, anticipatedCost: ant, ...((certifiedTyped ?? undefined) !== row.certified ? { certified: certifiedTyped } : {}) });
   }
 
-  const said = rowSaid(row);
+  const said = rowSaid(mayEdit && !row.kind ? { ...row, awardedTo: undefined } : row);
   const name = (
     <td className="py-1.5 pr-2 text-ink">
       {packageLabel(row)}
       {said ? <span className="block text-[12px] text-ink-muted">{said}</span> : null}
+      {mayEdit && !row.kind ? (
+        <Input
+          value={awardedTo}
+          list={partyList}
+          aria-label={`Awarded to, ${row.name}`}
+          placeholder="Awarded to"
+          maxLength={200}
+          disabled={busy}
+          onChange={(e) => setAwardedTo(e.target.value)}
+          onBlur={() => {
+            if (awardedTo.trim() !== (row.awardedTo ?? '')) onSave({ awardedTo: awardedTo.trim() || null });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+          className="mt-1 w-44 text-[12px]"
+        />
+      ) : null}
     </td>
   );
 
@@ -643,11 +707,11 @@ function LedgerRow({
     return (
       <tr className="border-b border-hairline/70">
         {name}
-        <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.budget, currency)}</td>
-        <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.poIssued, currency)}</td>
-        <td className="py-1.5 pr-2 text-right tabular-nums">{row.certified === undefined ? '' : money(row.certified, currency)}</td>
-        <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.amountPaid, currency)}</td>
-        <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.anticipatedCost, currency)}</td>
+        <td className="py-1.5 pr-2 text-right"><Money {...cols.budget.cell(row.budget)} /></td>
+        <td className="py-1.5 pr-2 text-right"><Money {...cols.poIssued.cell(row.poIssued)} /></td>
+        <td className="py-1.5 pr-2 text-right">{row.certified === undefined ? '' : <Money {...cols.certified.cell(row.certified)} />}</td>
+        <td className="py-1.5 pr-2 text-right"><Money {...cols.amountPaid.cell(row.amountPaid)} /></td>
+        <td className="py-1.5 pr-2 text-right"><Money {...cols.anticipatedCost.cell(row.anticipatedCost)} /></td>
       </tr>
     );
   }
@@ -657,20 +721,26 @@ function LedgerRow({
       {name}
       {(
         [
-          [budget, setBudget],
-          [po, setPo],
-          [certified, setCertified],
-          [paid, setPaid],
-          [anticipated, setAnticipated],
+          [budget, setBudget, cols.budget],
+          [po, setPo, cols.poIssued],
+          [certified, setCertified, cols.certified],
+          [paid, setPaid, cols.amountPaid],
+          [anticipated, setAnticipated, cols.anticipatedCost],
         ] as const
-      ).map(([value, setValue], i) => (
+      ).map(([value, setValue, col], i) => {
+        const figure = value.trim() ? parseMoney(value) : undefined;
+        const written = typing !== i && figure !== undefined ? col.cell(figure) : undefined;
+        return (
         <td key={i} className="py-1 pr-2">
           <Input
-            value={value}
+            value={written ? written.text : value}
+            title={written?.title}
             inputMode="decimal"
             disabled={busy}
+            onFocus={() => setTyping(i)}
             onChange={(e) => setValue(e.target.value)}
             onBlur={() => {
+              setTyping(null);
               if (dirty) commit();
             }}
             onKeyDown={(e) => {
@@ -681,7 +751,8 @@ function LedgerRow({
             className="ml-auto w-24 text-right tabular-nums"
           />
         </td>
-      ))}
+        );
+      })}
       <td className="py-1.5">
         <button type="button" disabled={busy} className="text-mini text-ink-muted hover:text-[var(--status-critical-text)]" onClick={onRemove}>
           Remove

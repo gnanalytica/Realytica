@@ -130,6 +130,19 @@ export interface CostReportComparison {
   billed?: CostReportBilled;
 }
 
+/**
+ * A budget line that is not work let to anybody: a contingency, a fee, an
+ * allowance or provisional sum, escalation, tax, insurance, a sub-total. No
+ * purchase order is ever issued against one, so it is never "not awarded".
+ * A row that says what it is (`kind`) is taken at its word; any other is read
+ * from what it is called, since a row typed by hand says no more.
+ */
+export function packageAwaitsNoAward(row: string | { name: string; kind?: string }): boolean {
+  if (typeof row !== 'string' && row.kind) return true;
+  const name = typeof row === 'string' ? row : row.name;
+  return /\b(contingenc(y|ies)|fees?|allowances?|provisional|provisions?|escalation|gst|taxe?s?|cess|insurance|overheads?|interest|sub[- ]?total|total|statutory|deposits?|preliminaries|margin)\b/i.test(name);
+}
+
 function inPaise(amount: number): number {
   const paise = Math.round(Number((Math.abs(amount) * 100).toPrecision(15)));
   return amount < 0 && paise !== 0 ? -paise : paise;
@@ -196,8 +209,8 @@ export function costReportDecisions(report: Pick<CostReportPeriod, 'rows'>): Cos
         over: less(row.anticipatedCost, row.budget),
       })),
     unawarded: report.rows
-      // Money set aside and the consultant's own fee are not packages waiting to be awarded.
-      .filter((row) => row.poIssued === 0 && !row.kind)
+      // Money set aside, a fee, tax and a sub-total are not packages waiting to be awarded.
+      .filter((row) => row.poIssued === 0 && !packageAwaitsNoAward(row))
       .map((row) => ({ workPackageId: row.workPackageId, ...(row.code ? { code: row.code } : {}), name: row.name, budget: row.budget })),
   };
 }

@@ -569,7 +569,7 @@ describe('what a rehearsal on a real form found', () => {
     const offered = p.fieldSheets!['shared.parties']!.records!.at(-1)!;
     const party = readSheet(p, 'shared.parties', offered.id)!;
     assert.equal(party.pending, true);
-    assert.deepEqual(['name', 'roles'].map((key) => party.fields.find((field) => field.def.key === key)!.held!.value), ['Ridgeline Structural Engineers', ['engineer']]);
+    assert.deepEqual(['name', 'roles'].map((key) => party.fields.find((field) => field.def.key === key)!.held!.value), ['Ridgeline Structural Engineers', ['structural_consultant']]);
     // Read again before anybody accepts, it is not offered twice.
     loadTenderForm(p, await read(rows), { file: 'Client inputs.xlsx', actor: 'buyer@builders.example', today: '2026-10-13' });
     assert.equal(p.fieldSheets!['shared.parties']!.records!.filter((record) => readSheet(p, 'shared.parties', record.id)!.title === 'Ridgeline Structural Engineers' || readSheet(p, 'shared.parties', record.id)!.pending).length, 1);

@@ -15,7 +15,8 @@ import {
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, Input, Select, cn, useToast } from '../ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Input, Money, Select, cn, useToast } from '../ui/kit';
+import { moneyColumn } from '../../lib/format';
 import { LedgerImport } from './LedgerImport';
 
 function money(amount: number, currency: DdProject['currency']): string {
@@ -63,6 +64,7 @@ function VariationLog({
   const packageNames = new Map(report.rows.map((r) => [r.workPackageId, [r.code, r.name].filter(Boolean).join(' · ')]));
   const rows = report.variations ?? [];
   const total = rows.reduce((s, r) => s + r.amount, 0);
+  const amounts = moneyColumn([...rows.map((row) => row.amount), total], project.currency);
 
   async function add() {
     const n = Number(amount.replace(/[, ]/g, ''));
@@ -146,7 +148,7 @@ function VariationLog({
                   ) : null}
                 </td>
                 <td className="py-1.5 pr-2 text-ink-secondary">{row.contingencyDrawn ? 'Contingency' : 'Budget'}</td>
-                <td className="py-1.5 text-right tabular-nums">{money(row.amount, project.currency)}</td>
+                <td className="py-1.5 text-right"><Money {...amounts.cell(row.amount)} /></td>
                 {mayEdit ? (
                   <td className="py-1.5 pl-2">
                     <button
@@ -171,7 +173,7 @@ function VariationLog({
                 <td className="pt-2" colSpan={2}>
                   Total
                 </td>
-                <td className="pt-2 text-right tabular-nums">{money(total, project.currency)}</td>
+                <td className="pt-2 text-right"><Money {...amounts.cell(total)} /></td>
                 {mayEdit ? <td /> : null}
               </tr>
             </tfoot>
@@ -202,6 +204,7 @@ function BasicPriceSheet({
   const [current, setCurrent] = useState('');
   const [qty, setQty] = useState('');
   const rows = report.basicPriceAdjustments ?? [];
+  const amounts = moneyColumn(rows.map((row) => row.amount), project.currency);
 
   async function add() {
     const t = Number(tender.replace(/[, ]/g, ''));
@@ -287,7 +290,7 @@ function BasicPriceSheet({
                 <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.tenderRate, project.currency)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.currentRate, project.currency)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{row.quantity ?? '—'}</td>
-                <td className="py-1.5 text-right tabular-nums">{row.amount !== undefined ? money(row.amount, project.currency) : '—'}</td>
+                <td className="py-1.5 text-right"><Money {...amounts.cell(row.amount)} /></td>
                 {mayEdit ? (
                   <td className="py-1.5 pl-2">
                     <button

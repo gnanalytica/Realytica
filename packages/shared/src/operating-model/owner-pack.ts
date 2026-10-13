@@ -32,7 +32,8 @@ import { DECISION_STATUS_LABEL } from './catalogs';
 import { checklistOwed } from './checklist';
 import { costRegister, moneySaid } from './cost';
 import { costReportIssuedBefore, costReportPeriodOrder, costReportsOf, costReportTotals, type CostReportPeriod } from './cost-report';
-import { compareCostReports, costReportBilled, costReportDecisions, largestCostMovements, type CostReportChangeCause, type CostReportPackageChange } from './cost-report-compare';
+import { costReportBottomLine } from './cost-report-totals';
+import { compareCostReports, costReportBilled, costReportDecisions, largestCostMovements, packageAwaitsNoAward, type CostReportChangeCause, type CostReportPackageChange } from './cost-report-compare';
 import { DEPARTMENT_SHORT, stageAndStep } from './departments';
 import { meetingCalled, meetingDay, meetingItemStands, meetingsHeld } from './meetings';
 import { progressReadings, scheduleWatch, type MilestoneWatch, type ScheduleLevel } from './milestone-schedule';
@@ -111,16 +112,6 @@ export const OWNER_PACK_PAPERS_SHOWN = 8;
 export const OWNER_PACK_LINES_SHOWN = 5;
 /** How many parties the papers owed are summed up for on the page. */
 export const OWNER_PACK_PARTIES_SHOWN = 6;
-
-/**
- * A budget line that is not work let to anybody: a contingency, a fee, an
- * allowance or provisional sum, escalation, tax, insurance, a sub-total. No
- * purchase order is ever issued against one, so it is never "not awarded".
- * Read from what the line is called, since a Cost Report's row says no more.
- */
-export function packageAwaitsNoAward(name: string): boolean {
-  return /\b(contingenc(y|ies)|fees?|allowances?|provisional|provisions?|escalation|gst|taxe?s?|cess|insurance|overheads?|interest|sub[- ]?total|total|statutory|deposits?|preliminaries|margin)\b/i.test(name);
-}
 
 const DAY_MS = 86_400_000;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -271,6 +262,11 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
     } else {
       forecast.push({ what: `No Cost Report was issued before ${report.label}, so there is no earlier forecast to set beside it.`, source });
     }
+    // The line an owner reads a cost report for: the total with GST, and what is certified, where the report holds them.
+    const bottom = costReportBottomLine(project, report);
+    const withGst = bottom.gst && bottom.afterGst ? `With GST at ${bottom.gst.ratePct}%${bottom.gst.rule.verified ? '' : ' (rate not checked)'}: forecast ${money(bottom.afterGst.anticipatedCost)} against a budget of ${money(bottom.afterGst.budget)}` : '';
+    const certified = bottom.beforeGst.certified !== undefined ? `Certified to date: ${money(bottom.beforeGst.certified)}` : '';
+    if (withGst || certified) forecast.push({ what: `${[withGst, certified].filter(Boolean).join('. ')}.`, source });
     cost.push({ heading: 'Forecast against budget', lines: forecast, empty: '' });
 
     const causeSaid = (cause: CostReportChangeCause): string =>
@@ -283,7 +279,8 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
         `${packageLabel(change)}: ${head}`,
         ...change.causes.map(causeSaid),
         change.unexplained !== 0 ? `Unexplained: ${signed(change.unexplained)}` : '',
-        change.reason ? `Reason given: ${change.reason.replace(/[.\s]+$/, '')}` : 'No reason given',
+        // A movement a variation or an award accounts for needs no reason; one with a part unexplained says that none was given.
+        change.reason ? `Reason given: ${change.reason.replace(/[.\s]+$/, '')}` : change.unexplained !== 0 ? 'No reason given' : '',
       ]
         .filter(Boolean)
         .join('. ')
@@ -410,11 +407,14 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
 
   /* ---- 6. Papers owed ---- */
   const parties = new Map<string, { owedBy?: string; lines: OwnerPackLine[] }>();
-  const owe = (owedBy: string | undefined, line: OwnerPackLine): void => {
+  // A paper is owed once somebody has been asked for it, as Overview counts it: a line nobody was asked for is on the list and not yet owed.
+  const unasked = new WeakSet<OwnerPackLine>();
+  const owe = (owedBy: string | undefined, line: OwnerPackLine, wasAsked: boolean): void => {
     const key = (owedBy ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
     const party = parties.get(key) ?? { ...(owedBy ? { owedBy } : {}), lines: [] };
     parties.set(key, party);
     party.lines.push(line);
+    if (!wasAsked) unasked.add(line);
   };
   const asked = (dueAt: string | undefined, overdue: boolean | undefined): string => `asked for${dueAt ? `, due ${meetingDay(dueAt)}${overdue ? ' (overdue)' : ''}` : ''}`;
   const checklist = checklistOwed(project, { now: now.toISOString() });
@@ -427,7 +427,7 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
         ...(line.overdue ? { overdue: true } : {}),
         source: `Papers owed, ${DEPARTMENT_SHORT[line.item.department]}`,
         recordId: line.item.id,
-      });
+      }, line.status === 'requested');
     }
   }
   const sheet = requirementSheet(project, { now: now.toISOString() });
@@ -439,7 +439,7 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
       ...(item.overdue ? { overdue: true } : {}),
       source: `Papers owed${item.checks[0] ? `, expected by the check ${titled(item.checks[0].title)}` : ''}`,
       ...(item.evidenceId ? { recordId: item.evidenceId } : {}),
-    });
+    }, item.status === 'requested');
   }
   const groups = [...parties.values()].sort((a, b) => Number(!a.owedBy) - Number(!b.owedBy) || b.lines.length - a.lines.length);
   const nothingOwed = checklist.total + sheet.total ? 'Every paper owed is in hand.' : 'No list of papers is loaded, and the checks on the file expect no documents.';
@@ -447,8 +447,12 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   const partyLine = (party: { owedBy?: string; lines: OwnerPackLine[] }): OwnerPackLine => {
     const overdue = party.lines.filter((line) => line.overdue).length;
     const oldest = party.lines.filter((line) => line.overdue && line.when).map((line) => line.when!).sort()[0];
+    const waiting = party.lines.filter((line) => unasked.has(line)).length;
+    const owed = party.lines.length - waiting;
     return {
-      what: `${party.owedBy ?? 'Nobody named'}: ${counted(party.lines.length, 'paper', 'papers')} owed${overdue ? `, ${overdue} overdue${oldest ? `, the oldest since ${meetingDay(oldest)}` : ''}` : ''}.`,
+      what: owed
+        ? `${party.owedBy ?? 'Nobody named'}: ${counted(owed, 'paper', 'papers')} owed${overdue ? `, ${overdue} overdue${oldest ? `, the oldest since ${meetingDay(oldest)}` : ''}` : ''}${waiting ? `; ${waiting} more not yet asked for` : ''}.`
+        : `${party.owedBy ?? 'Nobody named'}: ${counted(waiting, 'paper', 'papers')} on the list, not yet asked for.`,
       ...(overdue ? { overdue: true } : {}),
       source: 'Papers owed',
     };

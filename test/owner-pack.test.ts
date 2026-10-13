@@ -270,6 +270,8 @@ describe('cost in an owner pack', () => {
       [
         ['Now: forecast ₹1,960 against a budget of ₹1,700, ₹260 over.', 'Cost Report September 2026, issued 30 Sep 2026 by lead'],
         ['At the last report: forecast ₹1,700 against a budget of ₹1,700, on budget. The forecast has moved +₹260 since.', 'Cost Report August 2026, issued 31 Aug 2026 by lead'],
+        // The line an owner reads a cost report for, worked out from the ledger at the rule row's rate and said to be unchecked.
+        ['With GST at 18% (rate not checked): forecast ₹2,312.8 against a budget of ₹2,006.', 'Cost Report September 2026, issued 30 Sep 2026 by lead'],
       ],
     );
   });
@@ -310,7 +312,7 @@ describe('cost in an owner pack', () => {
   it('says there is nothing to compare a first report with, and still gives its forecast and its bills', () => {
     const { p } = costed();
     const pack = ownerPack(p, ownerPackPeriod({ month: '2026-08' }), NOW);
-    assert.deepEqual(said(partOf(pack, 'cost', 'Forecast')), ['Now: forecast ₹1,700 against a budget of ₹1,700, on budget.', 'No Cost Report was issued before August 2026, so there is no earlier forecast to set beside it.']);
+    assert.deepEqual(said(partOf(pack, 'cost', 'Forecast')), ['Now: forecast ₹1,700 against a budget of ₹1,700, on budget.', 'No Cost Report was issued before August 2026, so there is no earlier forecast to set beside it.', 'With GST at 18% (rate not checked): forecast ₹2,006 against a budget of ₹2,006.']);
     assert.deepEqual(
       ['Largest', 'Unexplained'].map((heading) => [partOf(pack, 'cost', heading).lines.length, partOf(pack, 'cost', heading).empty]),
       [[0, 'Nothing to compare with: this is the first Cost Report issued.'], [0, 'Nothing to compare with: this is the first Cost Report issued.']],
@@ -508,7 +510,7 @@ describe('the papers owed, in an owner pack', () => {
     // On the page, a line a party; the papers themselves are detail, behind “more”.
     assert.deepEqual(
       [summary!.heading, said(summary!)],
-      ['By who owes them', ['Northgate Builders: 3 papers owed.', 'Lift vendor: 1 paper owed, 1 overdue, the oldest since 6 Oct 2026.', 'Nobody named: 1 paper owed.']],
+      ['By who owes them', ['Northgate Builders: 3 papers on the list, not yet asked for.', 'Lift vendor: 1 paper owed, 1 overdue, the oldest since 6 Oct 2026.', 'Nobody named: 1 paper on the list, not yet asked for.']],
     );
     assert.ok(parts.every((part) => part.detail));
     assert.deepEqual(
