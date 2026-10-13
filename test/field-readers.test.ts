@@ -51,6 +51,10 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   // Another thing called fields: the columns a checklist line asks for, not a check's stored values.
   { file: 'packages/shared/src/operating-model/document-intake.ts', has: 'for (const field of check.fields ?? []) if (keys.has(field.key))', why: 'a requirement’s list of field definitions, which holds no value' },
 
+  // Asking whether anything is kept at all, not what it says.
+  { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(sheet.values).length > 0', why: 'whether a project keeps any sheet value at all, so a status report knows to carry a field section: no value is read, and the section itself is resolved through `readSheet`' },
+  { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(check.fields ?? {}).length > 0', why: 'the same question of a project’s checks: a count of keys, never a value' },
+
   // Copying a project for somebody whose grant does not reach all of it. Nothing is acted on: what is copied is read again by the field system.
   { file: 'packages/shared/src/operating-model/project-view.ts', why: 'cuts the stored sheets to what a grant reaches and strips the citations of papers it does not, standing or not' },
 ];
