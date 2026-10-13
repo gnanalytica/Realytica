@@ -29,6 +29,7 @@ import { Calendar, Check, X } from 'lucide-react';
 import {
   EVIDENCE_STATUS_LABEL,
   FUNCTION_SHORT,
+  asNowSaid,
   countSaid,
   daySaid,
   dayTyped,
@@ -102,6 +103,8 @@ interface Props {
    * person recorded and nothing is marked.
    */
   views?: Record<string, FieldView>;
+  /** How a person is named where a line says who wrote or accepted a value: by the project's team, never an address. */
+  named?: (who: string) => string;
   /** What a link field can link to on this project, and what a text field completes from. */
   choices?: (target: RefTarget | undefined) => Array<{ id: string; label: string }>;
   /** A person's decision on one field. Absent, the reader may not decide and the controls are not drawn. */
@@ -145,7 +148,7 @@ const SEVERITY_TONE: Record<FindingSeverity, 'critical' | 'serious' | 'warning' 
   low: 'neutral',
 };
 
-export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper, trendOf, lists }: Props) {
+export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper, trendOf, lists, named = person }: Props) {
   const listOf = lists ?? optionSetById;
   const [draft, setDraft] = useState<Record<string, string>>({});
   // The field whose source is open. Where a value came from is one press on its label away, and on nothing's face.
@@ -262,7 +265,10 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                       <Badge tone={toneOf(fieldTone(def, values[def.key], listOf))}>{String(values[def.key]!.value)}</Badge>
                     )
                   ) : (
-                    <output className={cn('text-[13px] tabular-nums', blank ? 'text-ink-muted' : 'font-medium text-ink')}>{blank ? 'Not worked out yet' : formatFieldValue(def, values[def.key], listOf)}</output>
+                    // A worked-out field never goes blank because an input was cleared: it says which field it waits for.
+                    <output data-field-waiting={blank && view?.waitingFor?.length ? '' : undefined} className={cn('text-[13px] tabular-nums', blank ? 'text-ink-muted' : 'font-medium text-ink')}>
+                      {blank ? (view?.waitingFor?.length ? `Waiting for ${view.waitingFor.join(', ')}` : 'Not worked out yet') : formatFieldValue(def, values[def.key], listOf)}
+                    </output>
                   )}
                   <span className="rounded bg-sunken px-1.5 py-0.5 text-[11px] text-ink-muted">{tag}</span>
                   {rests ? (
@@ -426,11 +432,11 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
               {def.kind === 'evidence' && def.viewer ? <Viewer def={def} value={values[def.key]} evidence={evidence ?? []} onOpen={onOpenPaper} /> : null}
               {def.kind === 'longtext' && !blank && view ? (
                 <span className="mt-0.5 block text-[11px] text-ink-muted">
-                  Written by {person(values[def.key]!.by)}
+                  Written by {named(values[def.key]!.by)}
                   {values[def.key]!.at ? `, ${daySaid(values[def.key]!.at)}` : ''}
                 </span>
               ) : null}
-              {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} trendOf={trendOf} /> : null}
+              {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} trendOf={trendOf} named={named} /> : null}
               {blank && !derived && view?.state !== 'not_applicable' && (def.hint || def.from) ? (
                 <span className="mt-1 block text-[11px] leading-snug text-ink-muted">{[def.hint, def.from ? `Read from: ${def.from}.` : ''].filter(Boolean).join(' ')}</span>
               ) : null}
@@ -1370,9 +1376,11 @@ function FieldMarks({
   onDecide,
   onOpenPaper,
   trendOf,
+  named,
 }: {
   def: CheckFieldDef;
   view: FieldView;
+  named: (who: string) => string;
   /** Whether the label was pressed: the source and what may be done with the value. */
   open: boolean;
   disabled?: boolean;
@@ -1475,6 +1483,14 @@ function FieldMarks({
       {view.removedLink ? <p className="text-critical">Links to a record taken off its list. Link another, or clear it.</p> : null}
       {view.notInPlay ? <p>Filled in earlier, not needed now</p> : null}
       {view.carried ? <p data-field-carried>Carried from {view.carried}</p> : null}
+      {/* Read afresh each period: what it read in the last one, to compare with. */}
+      {view.last ? (
+        <p data-field-last title={`In ${view.last.from}`}>
+          last: {view.last.said}
+        </p>
+      ) : null}
+      {/* On an issued period, or a reading as at a past day: this figure is the day of issue's, for want of a past. */}
+      {(view.frozen?.asNow ?? view.asNow) ? <p data-field-asnow>{asNowSaid((view.frozen?.asNow ?? view.asNow)!).replace(/\.$/, '').replace(/^As now: /, 'as now, ')}</p> : null}
       {view.state === 'not_applicable' && may ? (
         <button type="button" className={cn(act, 'px-0 text-brand')} onClick={() => onDecide!(def, 'reopen')}>
           Ask again
@@ -1487,7 +1503,7 @@ function FieldMarks({
           {view.source?.quote ? <p>“{view.source.quote}”</p> : null}
           {view.held?.acceptedBy ? (
             <p>
-              Accepted by {person(view.held.acceptedBy)}
+              Accepted by {named(view.held.acceptedBy)}
               {view.held.acceptedAt ? `, ${daySaid(view.held.acceptedAt)}` : ''}
             </p>
           ) : null}

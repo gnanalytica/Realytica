@@ -19,6 +19,7 @@ import {
   type DepartmentKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { personNamed } from '../../lib/format';
 import { EvidenceDropZone } from '../EvidenceDropZone';
 import { useMe } from '../../lib/useMe';
 import { Button, Card, CardBody, CardHeader, StatTile, cn, useToast } from '../ui/kit';
@@ -231,7 +232,7 @@ export function DepartmentDesk({
                       {entry.workDone || 'No note'}
                     </span>
                     <span className="text-micro text-ink-muted">
-                      {entry.author}
+                      {personNamed(project, entry.author)}
                       {entry.photos.length ? ` · ${entry.photos.length} photo${entry.photos.length === 1 ? '' : 's'}` : ''}
                       {entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}
                     </span>

@@ -85,6 +85,7 @@ import {
   setPeriodReason,
   issueSheetPeriod,
   reviseSheetPeriod,
+  startSheetPeriod,
   setSheetPeriodReason,
   periodOfKey,
   findCheck,
@@ -3621,9 +3622,10 @@ projectsRouter.put('/:projectId/fields/snooze', async (req, res) => {
 });
 
 /**
- * A set kept by period: open a period from the last, issue one under a name, open a revision beside an issued one,
- * or pick from the set's list why a figure's movement is not explained. Who may do each is asked of the department
- * role: whoever edits opens a period and picks a reason; a lead or signer issues and revises.
+ * A set kept by period: open a period from the last (a sheet held once is started on its first), issue one under a
+ * name, open a revision beside an issued one, or pick from the set's list why a figure's movement is not explained.
+ * Who may do each is asked of the department role: whoever edits opens or starts a period and picks a reason; a lead
+ * or signer issues and revises.
  */
 projectsRouter.post('/:projectId/fields/period', async (req, res) => {
   const parsed = fieldPeriodBodySchema.safeParse(req.body);
@@ -3658,8 +3660,9 @@ projectsRouter.post('/:projectId/fields/period', async (req, res) => {
         setSheetPeriodReason(seat.project, set.id, field, reason ?? null, actorOf(req), seat.options);
         said = `Picked why a figure of ${set.title} moved.`;
       } else {
-        res.status(400).json({ error: `${set.title} is its own open period: there is nothing to open.` });
-        return;
+        // A sheet nobody has kept by period yet is started on its first: today's, or one named. From there it is due each period.
+        const started = startSheetPeriod(seat.project, set.id, actorOf(req), seat.options, { ...(period ? { period } : {}) });
+        said = `Started ${set.title} on ${started.label}.`;
       }
       await persistPaneWrite(req, seat.project, said);
       res.json({ project: seat.project });

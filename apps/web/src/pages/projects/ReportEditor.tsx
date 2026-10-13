@@ -62,6 +62,7 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { exportReportDocx } from '../../lib/report-export';
+import { personNamed } from '../../lib/format';
 import { Badge, Button, Callout, Field, INTERACTIVE, InfoTip, Input, Modal, Select, SubmitButton, cn, useToast } from '../../components/ui/kit';
 import { daySaid } from '@realytica/shared';
 import { reportSummary } from '../../lib/report-summary';
@@ -608,7 +609,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
           // A note is capped; what the registers said the day a section was detached is as long as it was.
           cap={block.detachedAt ? undefined : reportNoteCap(block)}
           hint={block.hint}
-          by={block.detachedAt ? undefined : block.editedBy}
+          by={block.detachedAt ? undefined : personNamed(project, block.editedBy)}
           at={block.detachedAt ? undefined : block.editedAt}
           onCommit={(text) => {
             if (text === (block.text ?? '')) return;

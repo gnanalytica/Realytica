@@ -32,9 +32,12 @@ import {
   NA_REASON_LABEL,
   NEED_LABEL,
   asAtMoment,
+  compareSheetPeriods,
   fieldTrend,
+  frozenAsNowSaid,
   isPastDay,
   periodIssuedSaid,
+  periodOfKey,
   periodsOf,
   projectAsAt,
   readSheetPeriod,
@@ -65,9 +68,10 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useFirmCatalog } from '../../lib/firmFields';
+import { personNamed } from '../../lib/format';
 import { useMe } from '../../lib/useMe';
 import { CheckFields } from '../CheckFields';
-import { PeriodHead, PeriodRecords, ReadOnlyBand, SheetPeriodsBar } from './Periods';
+import { AsAtPick, Comparison, PeriodHead, PeriodRecords, ReadOnlyBand, SheetPeriodsBar, type AsAtChoice } from './Periods';
 import { PhotoHolder, PhotoProject, SheetInside } from '../site/PhotoSeries';
 import { StackPlan, drawsAsStackPlan } from './StackPlan';
 import { NEEDS_SHOWN, needAction, needAssumes, needChips, needLines, needRuleRows, needRuleUnchecked, needSource, needUnverified, needWhere, sheetItem, sheetItemOf, type NeedAction, type NeedTarget } from './needs';
@@ -123,10 +127,44 @@ function holderElement(set: string, record?: string): HTMLElement | undefined {
     .pop();
 }
 
+/**
+ * The day a function's sheets are read as at, kept for the visit: the page
+ * is drawn afresh for each of the function's parts, and the day picked on
+ * one holds on the next. By project and function; gone when the tab closes.
+ */
+const AS_AT_KEPT = new Map<string, string>();
+function keptAsAt(key: string): string | null {
+  if (AS_AT_KEPT.has(key)) return AS_AT_KEPT.get(key)!;
+  try {
+    const held = window.sessionStorage.getItem(`as-at:${key}`);
+    return held && isPastDay(held) ? held : null;
+  } catch {
+    return null;
+  }
+}
+function keepAsAt(key: string, day: string | null): void {
+  if (day) AS_AT_KEPT.set(key, day);
+  else AS_AT_KEPT.delete(key);
+  try {
+    if (day) window.sessionStorage.setItem(`as-at:${key}`, day);
+    else window.sessionStorage.removeItem(`as-at:${key}`);
+  } catch {
+    // A browser that keeps nothing still reads as at the day while this page is up.
+  }
+}
+
 export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, marked, onOpenCheck, onOpenFunction }: Props) {
   const toast = useToast();
   // The sheets as they stand, or as they stood when a past day ended: a reading of the same project, with every control off.
-  const [asAt, setAsAt] = useState<string | null>(null);
+  // The day holds while a person moves between the function's parts.
+  const asAtKey = `${live.id}:${fn}`;
+  const [asAtHeld, setAsAtHeld] = useState<{ key: string; day: string | null }>(() => ({ key: asAtKey, day: keptAsAt(asAtKey) }));
+  const asAt = asAtHeld.key === asAtKey ? asAtHeld.day : keptAsAt(asAtKey);
+  const setAsAt = (day: string | null) => {
+    keepAsAt(asAtKey, day);
+    setAsAtHeld({ key: asAtKey, day });
+  };
+  const asAtChoice: AsAtChoice = { day: asAt, onPick: setAsAt };
   const project = useMemo(() => (asAt ? projectAsAt(live, asAt) : live), [live, asAt]);
   const liveSeat = useSeat(live, fn);
   const seat = asAt ? { mayEdit: false, mayDecide: false, mayDecideAt: () => false } : liveSeat;
@@ -176,6 +214,7 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
     disabled: !seat.mayEdit || issued,
     choices,
     onOpenPaper,
+    named: (who: string) => personNamed(live, who),
     // A field that declares a trend is drawn over time when its label is pressed: its periods, or the values it has held.
     trendOf: (def: CheckFieldDef) => fieldTrend(project, { set: reading.set.id, field: def.key, ...(reading.recordId ? { record: reading.recordId } : {}) }, asAt ? asAtMoment(asAt) : new Date(), catalog),
     onCommit: (values: Record<string, CheckFieldWrite>) => run(() => api.setFieldValues(project.id, { set: reading.set.id, record: reading.recordId, values }), 'That value could not be saved'),
@@ -244,6 +283,8 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
   }, [focus]);
 
   const sheetsInPlay = page.sheets.filter((sheet) => sheet.reading && inPlay(sheet.reading)).length;
+  // Whether a set kept by period is drawn here: the as-at control sits beside its period line.
+  const periodLine = page.sheets.some((sheet) => sheet.periods && !sheet.periods.first && (sheet.reading ? inPlay(sheet.reading) : sheet.periods.open.length + sheet.periods.past.length > 0));
   const notYet = page.sheets.filter((sheet) => sheet.reading && !inPlay(sheet.reading));
   const holders: SheetReading[] = [...page.sheets.flatMap((sheet) => (sheet.reading ? [sheet.reading] : (sheet.records ?? []))), ...page.shared.flatMap((sheet) => sheet.records)];
   const opened = open ? holders.find((reading) => reading.set.id === open.set && reading.recordId === open.record) : undefined;
@@ -280,13 +321,21 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
           {asAt ? (
             <ReadOnlyBand
               action={
-                <Button size="sm" variant="secondary" onClick={() => setAsAt(null)}>
-                  Back to today
-                </Button>
+                <span className="flex flex-wrap items-center gap-2">
+                  <AsAtPick asAt={asAtChoice} />
+                  <Button size="sm" variant="secondary" onClick={() => setAsAt(null)}>
+                    Back to today
+                  </Button>
+                </span>
               }
             >
               <span className="font-semibold">As at {daySaid(asAt)}</span> · read only. A period issued for that day reads as it was issued.
             </ReadOnlyBand>
+          ) : !periodLine && (sheetsInPlay || page.sheets.some((sheet) => sheet.records?.length)) ? (
+            // No set here is kept by period, so there is no period line to sit beside: the control heads the sheets.
+            <div className="flex justify-end px-1">
+              <AsAtPick asAt={asAtChoice} />
+            </div>
           ) : null}
           <Situations situations={page.situations} mayDecide={seat.mayDecide} onSet={(key, on) => run(() => api.setSituation(project.id, fn, key, on), 'That could not be set')} />
 
@@ -303,9 +352,11 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
                   onToggle={() => toggle(sheet.set.id)}
                   onSection={(section, reason) => run(() => api.setSectionNotApplicable(project.id, sheet.set.id, section, reason), 'That could not be marked')}
                   onOpenDepth={(id) => setOpen({ set: sheet.set.id, depth: id })}
+                  periodSaid={sheet.periods ? (sheet.periods.first ? 'No period kept yet' : sheet.periods.shown?.label) : undefined}
                   head={
                     sheet.periods ? (
                       <SheetPeriodsBar
+                        asAt={asAtChoice}
                         project={project}
                         set={sheet.set}
                         periods={sheet.periods}
@@ -333,6 +384,7 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
                 onOpen={(record) => setOpen({ set: sheet.set.id, record })}
                 onAdd={() => addRecord(sheet.set.id)}
                 onAct={(body) => actOnPeriod(sheet.set.id, body)}
+                asAt={asAtChoice}
               />
             ) : (
               <Records key={sheet.set.id} set={sheet.set} records={sheet.records ?? []} mayEdit={seat.mayEdit} open={unfolded.has(sheet.set.id)} onToggle={() => toggle(sheet.set.id)} onOpen={(record) => setOpen({ set: sheet.set.id, record })} onAdd={() => addRecord(sheet.set.id)} />
@@ -362,20 +414,6 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
             />
           ))}
           {!sheetsInPlay && !page.sheets.some((sheet) => sheet.records) && !notYet.length ? <p className="px-1 text-[12px] text-ink-muted">No sheet here yet.</p> : null}
-          {/* One quiet line: the same sheets read as at a past day. Live carries no mark; a past day carries the band above. */}
-          {sheetsInPlay || page.sheets.some((sheet) => sheet.records?.length) ? (
-            <label className="flex flex-wrap items-center gap-2 px-1 text-[12px] text-ink-muted" data-asat-pick>
-              Read these sheets as at
-              <input
-                type="date"
-                aria-label="Read these sheets as at a past day"
-                value={asAt ?? ''}
-                max={new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)}
-                onChange={(event) => setAsAt(event.target.value && isPastDay(event.target.value) ? event.target.value : null)}
-                className="h-7 rounded-md border border-hairline bg-surface px-1.5 text-[12px] text-ink coarse:h-11"
-              />
-            </label>
-          ) : null}
         </>
       ) : null}
       <PeriodSheet
@@ -783,6 +821,7 @@ function Sheet({
   onSection,
   onOpenDepth,
   head,
+  periodSaid,
 }: {
   reading: SheetReading;
   mayDecide: boolean;
@@ -791,6 +830,8 @@ function Sheet({
   onToggle: () => void;
   onSection: (section: string, reason: string | null) => void;
   onOpenDepth: (id: string) => void;
+  /** On a sheet kept by period: the period it is open on, said first on its line. */
+  periodSaid?: string;
   /** On a sheet kept by period: the period it is open on, and the line that opens the past. */
   head?: ReactNode;
 }) {
@@ -805,6 +846,7 @@ function Sheet({
           <span className="min-w-0">
             <span className="block truncate text-[14px] font-semibold tracking-tight text-ink">{reading.set.title}</span>
             <span className="mt-0.5 block text-xs leading-snug text-ink-secondary">
+              {periodSaid ? `${periodSaid} · ` : ''}
               {reading.filled} of {reading.total} recorded
               {missing ? ` · ${missing} still to fill` : ''}
               {waiting ? ` · ${waiting} to accept` : ''}
@@ -1062,7 +1104,17 @@ function PeriodSheet({
   const all = held ? periodsOf(project, held.reading.set.id, new Date(), catalog).filter((kept) => kept.period.key === held.period.key) : [];
   // The issue shown is the one that stands unless a later one was issued for the same period.
   const stands = Boolean(held && all.some((kept) => kept.status === 'issued' && !kept.superseded && kept.issued?.at === held.period.issuedAt));
-  const instance = held ? ({ set: held.reading.set.id, id: held.period.key, period: { key: held.period.key, from: held.period.from, to: held.period.to, label: held.reading.title, short: held.period.key }, status: held.period.status, late: false, filled: 0, total: 0, ...(held.period.issuedAt ? { issued: { by: held.period.issuedBy ?? '', at: held.period.issuedAt, ...(held.period.issuedName ? { name: held.period.issuedName } : {}) } } : {}) } satisfies PeriodInstance) : undefined;
+  const span = held ? periodOfKey(held.period.key) : undefined;
+  // The issue beside the one issued before it, by its key: what "Compare with the one before" opens.
+  const comparison = useMemo(() => {
+    try {
+      return held && !held.editable ? compareSheetPeriods(project, held.reading.set.id, held.period.key, new Date(), catalog) : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [project, held, catalog]);
+  const asNow = held && !held.editable ? frozenAsNowSaid(held.reading.set, held.period.frozen) : undefined;
+  const instance = held ? ({ set: held.reading.set.id, id: held.period.key, period: { key: held.period.key, from: held.period.from, to: held.period.to, label: span?.label ?? held.period.key, short: span?.short ?? held.period.key }, status: held.period.status, late: false, filled: 0, total: 0, ...(held.period.issuedAt ? { issued: { by: held.period.issuedBy ?? '', at: held.period.issuedAt, ...(held.period.issuedName ? { name: held.period.issuedName } : {}) } } : {}) } satisfies PeriodInstance) : undefined;
   return (
     <Modal open={Boolean(held)} onClose={onClose} title={held ? `${held.reading.set.title} · ${daySaid(held.period.from)} to ${daySaid(held.period.to)}` : ''} width="md">
       {held && instance ? (
@@ -1089,9 +1141,22 @@ function PeriodSheet({
                 ) : undefined
               }
             >
-              <span className="font-semibold">Issued{instance.issued ? ` ${periodIssuedSaid(project, instance).replace(/^.* issued/, '')} on ${daySaid(instance.issued.at)}` : ''}</span> · read only{stands ? '' : ' · since replaced by a revision'}
+              <span className="font-semibold">
+                {instance.period.label} · issued{instance.issued ? `${periodIssuedSaid(project, instance).replace(/^.*? issued/, '').replace(/, revised$/, '')} on ${daySaid(instance.issued.at)}` : ''}
+              </span>{' '}
+              · read only{stands ? '' : ' · since replaced by a revision'}
             </ReadOnlyBand>
           )}
+          {!held.editable ? (
+            <p className="mb-2 text-[12px] text-ink-muted" data-period-asnow>
+              Figures as at {daySaid(held.period.to)}.{asNow ? ` ${asNow}.` : ''}
+            </p>
+          ) : null}
+          {comparison?.previous ? (
+            <div className="mb-3">
+              <Comparison comparison={comparison} label="Compare with the one before" locked onReason={() => undefined} />
+            </div>
+          ) : null}
           <SheetBody reading={held.reading} props={propsOf(held.reading, held.editable && mayEdit, held.period.key)} />
         </div>
       ) : null}
