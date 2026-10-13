@@ -11,7 +11,7 @@
 
 import { paperCarries, type DocumentFact } from './document-parse';
 import { offerPaperToSheets } from './field-sheets';
-import type { ChatProposal, DdProject, EvidenceRecord } from './types';
+import type { ChatProposal, DdProject, EvidenceRecord, FieldOrigin } from './types';
 import { findCheck, recordAuditEvent, recordCheckFields } from './operations';
 import { isBlank, standingField, standingValues } from './check-fields';
 import { acceptedOneAtATime, factReview, stands, toReopen, valueOnPaper } from './fact-review';
@@ -570,6 +570,13 @@ export function decideCheckFields(
       ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey))?.id : undefined);
     const outcome = recordCheckFields(project, checkId, subset, actor, sourceEvidenceId, citations);
     if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
+    // A value read from a named public source keeps the source and the day it was read, as one read off a paper keeps its page.
+    const origins = (payload.origins ?? {}) as Record<string, FieldOrigin | undefined>;
+    for (const k of Object.keys(subset)) {
+      const origin = origins[k];
+      const written = outcome.check.fields?.[k];
+      if (origin?.kind === 'external' && written && !(overrides && k in overrides)) outcome.check.fields![k] = { ...written, state: 'accepted', origin, proposedBy: card.createdBy === 'copilot' ? 'model' : card.createdBy, acceptedBy: actor, acceptedAt: written.at };
+    }
     // The card says what went onto the check, not what it was raised with.
     for (const [k, offer] of offers) if ('fact' in offer && offer.fact) values[k] = offer.value;
   } else {

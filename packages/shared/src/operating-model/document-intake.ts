@@ -119,11 +119,16 @@ function alreadyProposed(project: DdProject, checkId: string, def: CheckFieldDef
   );
 }
 
+/** Whether two values are one value for a field: a measure a rounding apart is. What every door that offers a check a value asks. */
+export function statesTheSameOnField(def: CheckFieldDef, a: unknown, b: unknown): boolean {
+  return statesTheSame(def.key, a, b, isMeasure(def));
+}
+
 /**
  * A person has already decided this value for this field: accepted it, set it
  * aside, or kept what the check held in its place. It is not asked again.
  */
-function alreadyDecided(project: DdProject, checkId: string, key: string, value: unknown): boolean {
+export function alreadyDecided(project: DdProject, checkId: string, key: string, value: unknown): boolean {
   return project.chatProposals.some(
     (p) =>
       p.kind === 'record_check_fields'

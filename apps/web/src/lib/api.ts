@@ -106,6 +106,7 @@ import type {
   FlowRunSummary,
   FlowNodeType,
 } from '@realytica/shared';
+import type { CheckFieldsShown, FirmFieldPack } from '@realytica/shared';
 import { authHeader, renewToken, signOut } from './auth';
 import type { RevenueReadResult } from './revenue-run';
 
@@ -501,6 +502,23 @@ export function evidenceFileUrl(
   return `${BASE}/projects/${projectId}/evidence/${evidenceId}/files/${fileId}${opts?.inline ? '?inline=1' : ''}`;
 }
 
+/** A built-in set as the Fields page lists it. */
+export interface FirmFieldSet {
+  id: string;
+  title: string;
+  function: string;
+  repeats: boolean;
+  titleField?: string;
+  sections: Array<{ key: string; label: string }>;
+  fields: Array<{ key: string; label: string; kind: string; tier: 'core' | 'situational' | 'expert' }>;
+}
+
+export interface FirmFieldsShown {
+  pack: FirmFieldPack;
+  sets: FirmFieldSet[];
+  mayManage: boolean;
+}
+
 export const api = {
   health: () => request<HealthResponse>('/health'),
 
@@ -884,7 +902,7 @@ export const api = {
     request<{ reportId: string; status: string; rows: ReportDriftRow[] }>(`/projects/${projectId}/reports/${reportId}/drift`),
 
   checkFields: (projectId: string, checkId: string) =>
-    request<CheckFieldReading & { checkId: string; title: string }>(`/projects/${projectId}/checks/${checkId}/fields`),
+    request<CheckFieldReading & CheckFieldsShown & { checkId: string; title: string }>(`/projects/${projectId}/checks/${checkId}/fields`),
   recordCheckFields: (
     projectId: string,
     checkId: string,
@@ -1226,6 +1244,12 @@ export const api = {
     request<{ project: DdProject }>(`/projects/${projectId}/fields/situation`, { method: 'PUT', body: JSON.stringify({ fn, key, on }) }),
   setSectionNotApplicable: (projectId: string, set: string, section: string, reason: string | null) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/section`, { method: 'PUT', body: JSON.stringify({ set, section, reason }) }),
+  /** Put a line under Due soon off until a day, or with null bring it back. */
+  snoozeNeed: (projectId: string, fn: string, key: string, until: string | null) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/fields/snooze`, { method: 'PUT', body: JSON.stringify({ fn, key, until }) }),
+  /** The firm's own fields: what it has added to the built-in sets, the sets it may add to, and whether this person may change them. */
+  firmFields: () => request<FirmFieldsShown>('/firm-fields'),
+  saveFirmFields: (pack: Pick<FirmFieldPack, 'optionSets' | 'add' | 'demote'>) => request<FirmFieldsShown>('/firm-fields', { method: 'PUT', body: JSON.stringify(pack) }),
   /** Accept or set aside values waiting on a check, a field at a time. */
   decideCheckFields: (projectId: string, proposalId: string, body: { keys: string[]; decision: 'accept' | 'reject'; values?: Record<string, unknown> }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/fields`, { method: 'POST', body: JSON.stringify(body) }),

@@ -84,6 +84,21 @@ export default function Setup() {
               <Rows rows={data.firm} />
             </CardBody>
           </Card>
+          <Card>
+            <CardHeader title="Fields" subtitle="What the firm adds to the built-in sheets, for every project" />
+            <CardBody className="py-1">
+              <ul className="divide-y divide-hairline">
+                <li className="flex flex-wrap items-start gap-x-4 gap-y-1.5 py-3">
+                  <p className="w-44 shrink-0 text-[13px] font-medium text-ink">The firm’s own fields</p>
+                  <p className="min-w-0 flex-1 basis-64 text-[13px] text-ink-secondary">Add a field or a list to a sheet, or fold a built-in field under More. A built-in field is never hidden or changed.</p>
+                  <Link to="/setup/fields" className="group/open inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11">
+                    Open
+                    <ArrowRight size={12} className="transition-transform duration-quick ease-state group-hover/open:translate-x-0.5" aria-hidden />
+                  </Link>
+                </li>
+              </ul>
+            </CardBody>
+          </Card>
           {data.projects.map((project) => (
             <Card key={project.id}>
               <CardHeader title={project.name} subtitle={project.reference} />

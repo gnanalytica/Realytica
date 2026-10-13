@@ -76,6 +76,9 @@ import {
   recordCheckResult,
   refreshProjectDerived,
   checkFieldReading,
+  checkFieldsShown,
+  fieldCatalogFor,
+  snoozeNeed,
   findCheck,
   recordCheckFields,
   SHARED_FN,
@@ -301,6 +304,7 @@ import {
   fieldRecordBodySchema,
   situationBodySchema,
   sectionNaBodySchema,
+  snoozeNeedBodySchema,
   insertReportBlockBodySchema,
   moveReportBlockBodySchema,
   retuneReportBlockBodySchema,
@@ -3450,7 +3454,7 @@ projectsRouter.get('/:projectId/checks/:checkId/fields', (req, res) => {
   }
   try {
     const { check } = findCheck(project, req.params.checkId);
-    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check) });
+    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check), ...checkFieldsShown(project, check) });
   } catch (err) {
     fail(res, err);
   }
@@ -3569,7 +3573,7 @@ projectsRouter.post('/:projectId/fields/decide', async (req, res) => {
   try {
     const { address, decision, ...input } = parsed.data;
     decideField(seat.project, { ...address, fn: set.fn }, decision, actorOf(req), input, seat.options);
-    const label = set.fields.find((field) => field.key === address.field)?.label ?? address.field;
+    const label = fieldSet(set.id, fieldCatalogFor(seat.project))?.fields.find((field) => field.key === address.field)?.label ?? address.field;
     await persistPaneWrite(req, seat.project, `${FIELD_DECISION_SAID[decision]} “${label}” on ${set.title}.`);
     res.json({ project: seat.project });
   } catch (err) {
@@ -3665,6 +3669,24 @@ projectsRouter.put('/:projectId/fields/section', async (req, res) => {
   try {
     setSectionNotApplicable(seat.project, set.id, parsed.data.section, parsed.data.reason as NaReason | null, actorOf(req), { ...seat.options, note: parsed.data.note });
     await persistPaneWrite(req, seat.project, parsed.data.reason === null ? `Reopened a section of ${set.title}.` : `Marked a section of ${set.title} not applicable.`);
+    res.json({ project: seat.project });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/** Put a line under Due soon off until a day a person names, or with `null` bring it back. A lead's or signer's. */
+projectsRouter.put('/:projectId/fields/snooze', async (req, res) => {
+  const parsed = snoozeNeedBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const seat = fieldSeat(req, res, parsed.data.fn);
+  if (!seat) return;
+  try {
+    snoozeNeed(seat.project, parsed.data.fn, parsed.data.key, parsed.data.until, actorOf(req), seat.options);
+    await persistPaneWrite(req, seat.project, parsed.data.until ? `Put a line off until ${parsed.data.until}.` : 'Brought a line back.');
     res.json({ project: seat.project });
   } catch (err) {
     failField(res, err);

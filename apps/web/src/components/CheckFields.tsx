@@ -21,12 +21,13 @@
  *   the work of filling one of these in.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, X } from 'lucide-react';
 import {
   EVIDENCE_STATUS_LABEL,
   NA_REASONS,
   NA_REASON_LABEL,
+  fieldChart,
   fieldDimension,
   fieldOptions,
   fieldTone,
@@ -49,9 +50,10 @@ import {
   type CheckTableRow,
   type EvidenceRecord,
   type FindingSeverity,
+  type OptionSet,
 } from '@realytica/shared';
 import { AiMark, Badge, cn } from './ui/kit';
-import { ChartSvg, DirectedBar, scaleLinear, useMeasure } from './charts/primitives';
+import { ChartSvg, DirectedBar, GridLine, Legend, compactAxisNumber, niceTicks, padDomain, scaleLinear, useMeasure } from './charts/primitives';
 
 /** Statuses that mean the document is not actually on the file yet. */
 const GAP_STATUS = new Set(['expected', 'requested', 'missing']);
@@ -91,7 +93,14 @@ interface Props {
   onDecide?: (def: CheckFieldDef, decision: FieldValueDecision, input?: { value?: unknown; pick?: number; reason?: string }) => void;
   /** Opens a paper at a page, where a value says it was read from one. */
   onOpenPaper?: (evidenceId: string, page?: number) => void;
+  /** The shared lists a choice is read from, where they are not only the built-in ones: a firm's own lists are in its catalog. */
+  lists?: ListOf;
 }
+
+type ListOf = (id: string) => OptionSet | undefined;
+
+/** The lists the fields being drawn choose from, for the parts of a field drawn by their own components (a table's cells, a chart). */
+const Lists = createContext<ListOf>(optionSetById);
 
 /** The app's tone for a field's tone: the two lists share every word but `info`, which the kit draws as its brand tint. */
 const toneOf = (tone: FieldTone | undefined): 'good' | 'warning' | 'critical' | 'neutral' | 'info' => tone ?? 'neutral';
@@ -111,7 +120,8 @@ const SEVERITY_TONE: Record<FindingSeverity, 'critical' | 'serious' | 'warning' 
   low: 'neutral',
 };
 
-export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper }: Props) {
+export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper, lists }: Props) {
+  const listOf = lists ?? optionSetById;
   const [draft, setDraft] = useState<Record<string, string>>({});
   // The field whose source is open. Where a value came from is one press on its label away, and on nothing's face.
   const [sourceOf, setSourceOf] = useState<string | null>(null);
@@ -151,6 +161,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
   const filled = answerable.filter((d) => !isBlank(values[d.key])).length;
 
   return (
+    <Lists.Provider value={listOf}>
     <section className="space-y-2">
       {heading === undefined ? (
         <div className="flex items-baseline gap-2">
@@ -167,7 +178,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
         {defs.map((def) => {
           const blank = isBlank(values[def.key]);
           const view = views?.[def.key];
-          const options: OptionDef[] = def.kind === 'enum' || def.kind === 'multi_enum' ? fieldOptions(def, optionSetById).filter((o) => !o.retired || o.key === values[def.key]?.value) : [];
+          const options: OptionDef[] = def.kind === 'enum' || def.kind === 'multi_enum' ? fieldOptions(def, listOf).filter((o) => !o.retired || o.key === values[def.key]?.value) : [];
           // A choice once offered and since withdrawn still shows where it is the value held.
           const held = values[def.key]?.value;
           if (def.kind === 'enum' && typeof held === 'string' && held && !options.some((o) => o.key === held)) options.push({ key: held, label: held });
@@ -203,14 +214,14 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
               ) : def.kind === 'status' ? (
                 // A standing the rules worked out: its label in its tone, and nothing to press.
                 <div className="mt-1 flex min-h-8 items-center">
-                  {blank ? <span className="text-[12px] text-ink-muted">No standing yet</span> : <Badge tone={toneOf(fieldTone(def, values[def.key], optionSetById))}>{String(values[def.key]!.value)}</Badge>}
+                  {blank ? <span className="text-[12px] text-ink-muted">No standing yet</span> : <Badge tone={toneOf(fieldTone(def, values[def.key], listOf))}>{String(values[def.key]!.value)}</Badge>}
                 </div>
               ) : def.kind === 'computed' || def.sameAs ? (
                 // Worked out, so there is nothing to type into. Shown as a
                 // read-out rather than a disabled input, because a greyed box
                 // reads as "you may not", and this is "nobody may".
                 <output className={cn(inputCls, 'block border-dashed bg-sunken text-ink-secondary')}>
-                  {formatFieldValue(def, values[def.key], optionSetById)}
+                  {formatFieldValue(def, values[def.key], listOf)}
                 </output>
               ) : def.kind === 'ref' ? (
                 <select
@@ -402,6 +413,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
         </div>
       ) : null}
     </section>
+    </Lists.Provider>
   );
 }
 
@@ -602,7 +614,7 @@ function EvidenceField({
           <select
             value=""
             disabled={busy}
-            className="h-7 rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink"
+            className="h-7 min-w-0 max-w-full rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11"
             onChange={(e) => {
               if (!e.target.value) return;
               onChange([...selected, e.target.value]);
@@ -664,6 +676,7 @@ function TableField({
   choices?: (target: RefTarget | undefined) => Array<{ id: string; label: string }>;
   onChange: (rows: CheckTableRow[]) => void;
 }) {
+  const listOf = useContext(Lists);
   const columns = def.columns ?? [];
   const rows = tableRows(value) ?? [];
 
@@ -715,7 +728,7 @@ function TableField({
                           className="w-full min-w-[7rem] bg-transparent px-1 py-1 text-ink outline-none"
                         >
                           <option value="">—</option>
-                          {(column.kind === 'ref' ? (choices?.(column.target) ?? []).map((c) => ({ key: c.id, label: c.label })) : fieldOptions(column, optionSetById).filter((o) => !o.retired)).map((option) => (
+                          {(column.kind === 'ref' ? (choices?.(column.target) ?? []).map((c) => ({ key: c.id, label: c.label })) : fieldOptions(column, listOf).filter((o) => !o.retired)).map((option) => (
                             <option key={option.key} value={option.key}>
                               {option.label}
                             </option>
@@ -841,6 +854,7 @@ function Scale({ min, max, value, disabled, label, onChange }: { min: number; ma
 
 /** A table whose first date column orders it, read as a line of events. The rows are edited in the table under it. */
 function Timeline({ def, rows }: { def: CheckFieldDef; rows: CheckTableRow[] }) {
+  const listOf = useContext(Lists);
   const columns = def.columns ?? [];
   const date = columns.find((column) => column.kind === 'date');
   if (!date || !rows.length) return null;
@@ -854,7 +868,7 @@ function Timeline({ def, rows }: { def: CheckFieldDef; rows: CheckTableRow[] }) 
           <span className="font-mono text-[11px] text-ink-muted">{String(row[date.key])}</span>{' '}
           {rest
             .filter((column) => row[column.key] !== null && row[column.key] !== undefined && row[column.key] !== '')
-            .map((column) => formatFieldValue(column, { value: row[column.key]!, at: '', by: '' }, optionSetById))
+            .map((column) => formatFieldValue(column, { value: row[column.key]!, at: '', by: '' }, listOf))
             .join(' · ')}
         </li>
       ))}
@@ -862,29 +876,123 @@ function Timeline({ def, rows }: { def: CheckFieldDef; rows: CheckTableRow[] }) 
   );
 }
 
-/** A table drawn as bars: one for each row, its `y` column against its `x` column's name. */
+/** The colours a stacked bar's parts take, in the order of the parts: the app's series, never a status colour. */
+const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', 'var(--series-7)'];
+
+const short = (label: string, most = 16): string => (label.length > most ? `${label.slice(0, most - 1)}…` : label);
+
+/**
+ * A table drawn as its field declares (`fieldChart`): a bar for each row, a
+ * line over its `x` column in order, or one bar for each `x` built of its
+ * rows by another column. Every figure is also written out, in the chart's
+ * description and beside or above its mark, so nothing is read off colour or
+ * position alone.
+ */
 function TableChart({ def, rows }: { def: CheckFieldDef; rows: CheckTableRow[] }) {
   const [ref, size] = useMeasure<HTMLDivElement>();
-  const points = rows.flatMap((row) => {
-    const y = Number(row[def.chart?.y ?? '']);
-    return def.chart && Number.isFinite(y) && row[def.chart.x] !== null && row[def.chart.x] !== undefined ? [{ label: String(row[def.chart.x]), y }] : [];
-  });
-  if (!points.length) return null;
+  const chart = fieldChart(def, rows, useContext(Lists));
+  if (!chart) return null;
   const width = Math.max(160, size.width);
+  const said = (n: number) => n.toLocaleString('en-IN');
+
+  if (chart.mark === 'line') {
+    const { points } = chart;
+    const height = 132;
+    const top = 16;
+    const bottom = height - 22;
+    const [lo, hi] = padDomain(Math.min(0, ...points.map((p) => p.y)), Math.max(...points.map((p) => p.y), 0));
+    const y = scaleLinear([lo, hi], [bottom, top]);
+    const left = 44;
+    const right = width - 12;
+    const x = (index: number) => (points.length === 1 ? (left + right) / 2 : left + ((right - left) * index) / (points.length - 1));
+    const ticks = niceTicks(lo, hi, 3);
+    // Every point is named where there is room for it; where there is not, the first, the last and every nth are.
+    const every = Math.max(1, Math.ceil((points.length * 64) / Math.max(1, right - left)));
+    return (
+      <div ref={ref} className="relative mt-1.5 w-full">
+        <ChartSvg width={width} height={height} ariaLabel={def.label} title={def.label} desc={points.map((p) => `${p.label}: ${said(p.y)}`).join('; ')}>
+          {ticks.map((tick) => (
+            <g key={tick}>
+              <GridLine x1={left} y1={y(tick)} x2={right} y2={y(tick)} />
+              <text x={left - 6} y={y(tick) + 4} textAnchor="end" className="fill-[var(--text-muted)] font-mono text-[11px]">
+                {compactAxisNumber(tick)}
+              </text>
+            </g>
+          ))}
+          <polyline fill="none" stroke="var(--series-1)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" points={points.map((p, i) => `${x(i)},${y(p.y)}`).join(' ')} />
+          {points.map((p, i) => (
+            <g key={i}>
+              <circle cx={x(i)} cy={y(p.y)} r={3} fill="var(--series-1)" stroke="var(--surface-1)" strokeWidth={1.5}>
+                <title>{`${p.label}: ${said(p.y)}`}</title>
+              </circle>
+              {i % every === 0 || i === points.length - 1 ? (
+                <text x={x(i)} y={height - 6} textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'} className="fill-[var(--text-muted)] text-[11px]">
+                  {short(p.label, 12)}
+                </text>
+              ) : null}
+            </g>
+          ))}
+        </ChartSvg>
+      </div>
+    );
+  }
+
   const gutter = Math.min(120, width * 0.35);
+
+  if (chart.mark === 'stacked') {
+    const { bars, keys } = chart;
+    const most = Math.max(...bars.map((bar) => bar.parts.reduce((sum, part) => sum + Math.max(0, part.y), 0)), 0);
+    const x = scaleLinear([0, most], [gutter, width - 56]);
+    const height = bars.length * 22 + 4;
+    const colour = (key: string) => SERIES[keys.findIndex((held) => held.key === key) % SERIES.length]!;
+    return (
+      <div ref={ref} className="relative mt-1.5 w-full">
+        <ChartSvg width={width} height={height} ariaLabel={def.label} title={def.label} desc={bars.map((bar) => `${bar.label}: ${said(bar.total)} (${bar.parts.map((part) => `${part.label} ${said(part.y)}`).join(', ')})`).join('; ')}>
+          {bars.map((bar, index) => {
+            let from = 0;
+            return (
+              <g key={bar.x}>
+                <text x={gutter - 6} y={index * 22 + 14} textAnchor="end" className="fill-[var(--text-muted)] text-[11px]">
+                  {short(bar.label)}
+                </text>
+                {bar.parts
+                  .filter((part) => part.y > 0)
+                  .map((part) => {
+                    const x0 = x(from);
+                    from += part.y;
+                    // A hairline of the surface between parts, so two colours that sit close are still two parts.
+                    return (
+                      <rect key={part.key} x={x0} y={index * 22 + 4} width={Math.max(1, x(from) - x0 - 1)} height={14} fill={colour(part.key)}>
+                        <title>{`${bar.label}, ${part.label}: ${said(part.y)}`}</title>
+                      </rect>
+                    );
+                  })}
+                <text x={x(from) + 4} y={index * 22 + 14} className="fill-[var(--text-secondary)] font-mono text-[11px]">
+                  {said(bar.total)}
+                </text>
+              </g>
+            );
+          })}
+        </ChartSvg>
+        <Legend className="mt-1" items={keys.map((key) => ({ label: key.label, color: colour(key.key) }))} />
+      </div>
+    );
+  }
+
+  const { points } = chart;
   const x = scaleLinear([0, Math.max(...points.map((p) => p.y), 0)], [gutter, width - 48]);
   const height = points.length * 22 + 4;
   return (
     <div ref={ref} className="relative mt-1.5 w-full">
-      <ChartSvg width={width} height={height} ariaLabel={def.label} title={def.label} desc={points.map((p) => `${p.label}: ${p.y.toLocaleString('en-IN')}`).join('; ')}>
+      <ChartSvg width={width} height={height} ariaLabel={def.label} title={def.label} desc={points.map((p) => `${p.label}: ${said(p.y)}`).join('; ')}>
         {points.map((point, index) => (
           <g key={index}>
-            <text x={gutter - 6} y={index * 22 + 14} textAnchor="end" className="fill-[var(--ink-muted)] text-[11px]">
-              {point.label.length > 16 ? `${point.label.slice(0, 15)}…` : point.label}
+            <text x={gutter - 6} y={index * 22 + 14} textAnchor="end" className="fill-[var(--text-muted)] text-[11px]">
+              {short(point.label)}
             </text>
             <DirectedBar x0={gutter} x1={x(point.y)} y={index * 22 + 4} height={14} fill="var(--brand)" />
-            <text x={x(point.y) + 4} y={index * 22 + 14} className="fill-[var(--ink-secondary)] font-mono text-[11px]">
-              {point.y.toLocaleString('en-IN')}
+            <text x={x(point.y) + 4} y={index * 22 + 14} className="fill-[var(--text-secondary)] font-mono text-[11px]">
+              {said(point.y)}
             </text>
           </g>
         ))}
@@ -894,68 +1002,101 @@ function TableChart({ def, rows }: { def: CheckFieldDef; rows: CheckTableRow[] }
 }
 
 /**
- * Two lists paired. The pairs made so far, then what of each list is left
- * with no counterpart: that is what the display is for.
+ * Lists paired. The rows made so far, then what of each list is left with no
+ * counterpart: that is what the display is for. Two lists read as pairs; with
+ * more, each row names the left item and what it pairs to in every other
+ * list, and a row whose names should agree and do not says so.
  */
 function MatchField({ def, reading, rows, disabled, onChange }: { def: CheckFieldDef; reading: NonNullable<FieldView['match']>; rows: CheckTableRow[]; disabled?: boolean; onChange: (rows: CheckTableRow[]) => void }) {
-  const [left, setLeft] = useState('');
-  const [right, setRight] = useState('');
-  const sides = def.match!;
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const [left, ...others] = reading.sides;
+  const many = reading.sides.length > 2;
+  const ready = Boolean(left && picked[left.column] && others.some((side) => picked[side.column]));
   const pair = () => {
-    if (!left || !right) return;
-    onChange([...rows, { [sides.left.column]: left, [sides.right.column]: right }]);
-    setLeft('');
-    setRight('');
+    if (!ready) return;
+    onChange([...rows, Object.fromEntries(reading.sides.flatMap((side) => (picked[side.column] ? [[side.column, picked[side.column]!]] : [])))]);
+    setPicked({});
   };
-  const leftover = (side: typeof reading.left) =>
-    side.leftover.length ? (
-      <p className="text-[12px] text-[var(--status-warning-text)]">
-        {side.label} with no match: {side.leftover.map((item) => item.label).join(', ')}
-      </p>
-    ) : null;
+  // The stored rows a reading's row came from, by the left item it names: what Unpair takes away.
+  const unpair = (leftId: string, index: number) => {
+    let seen = -1;
+    onChange(
+      rows.filter((row) => {
+        if (String(row[left!.column] ?? '') !== leftId) return true;
+        seen += 1;
+        return seen !== index;
+      }),
+    );
+  };
+  if (!left) return null;
+  const nth = new Map<string, number>();
   return (
     <div className="mt-1 space-y-1.5">
-      {reading.pairs.length ? (
+      {reading.rows.length ? (
         <ul className="divide-y divide-hairline rounded-lg border border-hairline text-[12px]">
-          {reading.pairs.map((made, index) => (
-            <li key={index} className="flex items-center gap-2 px-2 py-1.5">
-              <span className="min-w-0 flex-1 truncate text-ink">{made.leftLabel}</span>
-              <span aria-hidden className="text-ink-muted">
-                ↔
-              </span>
-              <span className="min-w-0 flex-1 truncate text-ink">{made.rightLabel}</span>
-              {!disabled ? (
-                <button type="button" aria-label={`Unpair ${made.leftLabel}`} className="px-1 text-ink-muted hover:text-critical" onClick={() => onChange(rows.filter((_, i) => i !== index))}>
-                  ×
-                </button>
-              ) : null}
-            </li>
-          ))}
+          {reading.rows.map((row, index) => {
+            const leftId = row.cells[0]!.id;
+            const at = nth.get(leftId) ?? 0;
+            nth.set(leftId, at + 1);
+            return (
+              <li key={index} className={cn('flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5', many && '[@container(max-width:28rem)]:flex-col [@container(max-width:28rem)]:items-start')}>
+                <span className="min-w-0 flex-1 truncate font-medium text-ink">{row.cells[0]!.label}</span>
+                {many ? (
+                  <span className="flex min-w-0 flex-[3] flex-wrap gap-x-3 gap-y-0.5">
+                    {row.cells.slice(1).map((cell, i) => (
+                      <span key={i} className="min-w-0 text-ink-secondary">
+                        <span className="text-ink-muted">{others[i]!.label}: </span>
+                        {cell.label || <span className="text-ink-muted">none</span>}
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <>
+                    <span aria-hidden className="text-ink-muted">
+                      ↔
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-ink">{row.cells[1]!.label}</span>
+                  </>
+                )}
+                {row.differs ? <Badge tone="critical">differs</Badge> : null}
+                {!disabled ? (
+                  <button type="button" aria-label={`Unpair ${row.cells[0]!.label}`} className="px-1 text-ink-muted hover:text-critical coarse:min-h-11 coarse:min-w-11" onClick={() => unpair(leftId, at)}>
+                    ×
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="text-[12px] text-ink-muted">Nothing paired yet.</p>
       )}
-      {leftover(reading.left)}
-      {leftover(reading.right)}
-      {!disabled && reading.left.leftover.length && reading.right.items.length ? (
+      {reading.sides.map((side) =>
+        side.leftover.length ? (
+          <p key={side.column} className="text-[12px] text-[var(--status-warning-text)]">
+            {side.label} with no match: {side.leftover.map((item) => item.label).join(', ')}
+          </p>
+        ) : null,
+      )}
+      {!disabled && left.leftover.length && others.some((side) => side.items.length) ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          <select aria-label={reading.left.label} value={left} onChange={(e) => setLeft(e.target.value)} className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11">
-            <option value="">{reading.left.label}…</option>
-            {reading.left.leftover.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <select aria-label={reading.right.label} value={right} onChange={(e) => setRight(e.target.value)} className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11">
-            <option value="">{reading.right.label}…</option>
-            {reading.right.items.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <button type="button" disabled={!left || !right} onClick={pair} className="rounded-md px-2 py-1 text-[12px] font-medium text-brand hover:underline disabled:opacity-40 coarse:min-h-11">
+          {reading.sides.map((side, index) => (
+            <select
+              key={side.column}
+              aria-label={side.label}
+              value={picked[side.column] ?? ''}
+              onChange={(e) => setPicked((held) => ({ ...held, [side.column]: e.target.value }))}
+              className="h-8 min-w-0 flex-1 basis-32 rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink coarse:h-11"
+            >
+              <option value="">{side.label}…</option>
+              {(index === 0 ? side.leftover : side.items).map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          ))}
+          <button type="button" disabled={!ready} onClick={pair} className="rounded-md px-2 py-1 text-[12px] font-medium text-brand hover:underline disabled:opacity-40 coarse:min-h-11">
             Pair
           </button>
         </div>

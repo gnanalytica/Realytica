@@ -756,4 +756,6 @@ export const fieldRecordBodySchema = z.object({ set: z.string().min(1).max(120),
 
 export const situationBodySchema = z.object({ fn: z.string().min(1).max(80), key: z.string().min(1).max(80), on: z.boolean() });
 
+/** A line under Due soon put off until a day, or with `null` brought back. */
+export const snoozeNeedBodySchema = z.object({ fn: z.string().min(1).max(80), key: z.string().min(1).max(400), until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() });
 export const sectionNaBodySchema = z.object({ set: z.string().min(1).max(120), section: z.string().max(80), reason: z.string().max(40).nullable(), note: z.string().max(120).optional() });

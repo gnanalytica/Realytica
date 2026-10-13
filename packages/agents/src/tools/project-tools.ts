@@ -9,17 +9,13 @@
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
-  allChecks,
   describeField,
-  fieldCatalog,
-  fieldIsDerived,
+  fieldCatalogFor,
   fieldRecords,
   fieldSet,
-  optionSetById,
   proposeFieldValues,
   readFunctionFields,
   readSheet,
-  validateFieldValue,
   type FieldAddress,
   type FieldOrigin,
   CHECK_RESULTS,
@@ -561,9 +557,10 @@ export function createProjectTools(
       properties: { fn: { type: 'string' }, set: { type: 'string' }, record: { type: 'string' } },
     } as const,
     run: async ({ fn, set, record }) => {
-      const named = typeof set === 'string' ? fieldSet(set) : undefined;
+      const catalog = fieldCatalogFor(project);
+      const named = typeof set === 'string' ? fieldSet(set, catalog) : undefined;
       const of = typeof fn === 'string' && fn ? fn : named?.fn;
-      if (!of || (typeof set === 'string' && !named)) return JSON.stringify({ error: 'Name a function (fn) or a field set (set). Functions with sheets: ' + [...fieldCatalog().sheets.keys()].join(', ') });
+      if (!of || (typeof set === 'string' && !named)) return JSON.stringify({ error: 'Name a function (fn) or a field set (set). Functions with sheets: ' + [...catalog.sheets.keys()].join(', ') });
       const readings = named
         ? named.records && !record
           ? fieldRecords(project, named.id).flatMap((row) => readSheet(project, named.id, row.id) ?? [])
@@ -573,8 +570,14 @@ export function createProjectTools(
       bag.toolCalls.push({ name: 'get_fields', summary: `${named?.title ?? of}: ${readings.reduce((n, r) => n + r.filled, 0)}/${readings.reduce((n, r) => n + r.total, 0)} recorded` });
       return JSON.stringify({
         fn: of,
-        sheets: readings.map((reading) => ({ set: reading.set.id, title: reading.set.title, ...(reading.recordId ? { record: reading.recordId, recordTitle: reading.title } : {}), repeats: Boolean(reading.set.records), fields: reading.fields.map((view) => describeField(view)) })),
-        ...(page ? { needs: page.counts, situations: page.situations.map((s) => ({ key: s.situation.key, label: s.situation.label, state: s.state })) } : {}),
+        sheets: readings.map((reading) => ({ set: reading.set.id, title: reading.set.title, ...(reading.recordId ? { record: reading.recordId, recordTitle: reading.title } : {}), repeats: Boolean(reading.set.records), fields: reading.fields.map((view) => describeField(view, catalog)) })),
+        ...(page
+          ? {
+              needs: { decide: page.needs.decide.length, accept: page.needs.accept.length, failing: page.needs.failing.length, due_soon: page.needs.due_soon.length, missing: page.needs.missing.length },
+              waitingOn: page.waitingOn.map((group) => ({ party: group.label, fields: group.fields.map((field) => field.label) })),
+              situations: page.situations.map((s) => ({ key: s.situation.key, label: s.situation.label, state: s.state })),
+            }
+          : {}),
         note: 'Offer a value only with where you read it: a paper on this project with its page and its exact words, or a public source with its name and the date read. Never offer a value for a field that is worked out, mirrored or prose. What you offer waits for a person and counts for nothing until they accept it.',
       });
     },
@@ -582,8 +585,9 @@ export function createProjectTools(
 
   /**
    * Offer values to fields. Each waits on its field for a person; nothing
-   * offered here stands. A check's field is offered as the card a paper's
-   * reading has always made, so there is one way a check's value waits.
+   * offered here stands. A check's field waits the one way a check's value
+   * waits (`check-waiting.ts`): one already held, waiting or set aside there
+   * is not offered again.
    */
   const proposeFieldValuesTool = betaTool({
     name: 'propose_field_values',
@@ -610,48 +614,11 @@ export function createProjectTools(
       },
     } as const,
     run: async ({ values }) => {
-      const catalog = fieldCatalog();
+      const catalog = fieldCatalogFor(project);
       const offered = (Array.isArray(values) ? values : []) as Array<{ address: FieldAddress; value: unknown; origin: FieldOrigin }>;
       const withFn = offered.map((row) => ({ ...row, address: { ...row.address, fn: row.address?.fn ?? catalog.sets.get(row.address?.set)?.fn ?? '' } }));
-      const onSheets = withFn.filter((row) => !catalog.checks.has(row.address.set));
-      const outcomes = proposeFieldValues(project, onSheets, 'model');
-      // A check's value waits as a card on its check, as it does when a paper is read.
-      const cards = new Map<string, { checkId: string; evidenceId: string; values: Record<string, unknown>; citations: Record<string, { page: number; quote: string; value: unknown }> }>();
-      for (const row of withFn.filter((r) => catalog.checks.has(r.address.set))) {
-        const def = catalog.sets.get(row.address.set)!.fields.find((field) => field.key === row.address.field);
-        const check = allChecks(project).find((held) => held.definitionId === row.address.set);
-        const refuse = (error: string) => outcomes.push({ address: row.address, outcome: 'refused', error });
-        if (!def || !check) refuse(`No field at ${row.address.set}/${row.address.field} on this project.`);
-        else if (fieldIsDerived(def) || def.kind === 'longtext') refuse(`${def.label} cannot be offered a value.`);
-        else if (row.origin?.kind !== 'paper' || !row.origin.quote?.trim() || !(row.origin.page >= 1) || !project.evidence.some((e) => e.id === (row.origin as { evidenceId: string }).evidenceId)) refuse(`${def.label} on a check is read off a paper on this project: give the paper, the page and its words.`);
-        else {
-          const parsed = validateFieldValue(def, row.value, { proposer: 'model', optionSet: optionSetById, state: project.jurisdiction });
-          if ('error' in parsed) refuse(parsed.error);
-          else {
-            const key = `${check.id}::${row.origin.evidenceId}`;
-            const card = cards.get(key) ?? { checkId: check.id, evidenceId: row.origin.evidenceId, values: {}, citations: {} };
-            card.values[def.key] = parsed.value;
-            card.citations[def.key] = { page: row.origin.page, quote: row.origin.quote.slice(0, 220), value: parsed.value };
-            cards.set(key, card);
-            outcomes.push({ address: row.address, outcome: 'waiting' });
-          }
-        }
-      }
-      for (const card of cards.values()) {
-        const check = allChecks(project).find((held) => held.id === card.checkId)!;
-        const keys = Object.keys(card.values);
-        bag.proposals.push(
-          createChatProposal(
-            'record_check_fields',
-            `Record ${keys.length === 1 ? '1 value' : `${keys.length} values`} on “${check.title}”`,
-            keys.map((key) => `${key}: ${String(card.values[key])} (p.${card.citations[key]!.page})`).join(' '),
-            'Writes these values onto the check, citing the document. The check result is not changed.',
-            { checkId: card.checkId, values: card.values, citations: card.citations, sourceEvidenceId: card.evidenceId },
-            'copilot',
-            { citedNodeIds: [card.checkId], citedEvidenceIds: [card.evidenceId] },
-          ),
-        );
-      }
+      // One door for a sheet's field and a check's. A check's value waits on a card of the check's, which this turn collects, and reads on the field as proposed.
+      const outcomes = proposeFieldValues(project, withFn, 'model', catalog, { pending: bag.proposals, raise: (card) => bag.proposals.push(card) });
       const waiting = outcomes.filter((o) => o.outcome === 'waiting').length;
       bag.toolCalls.push({ name: 'propose_field_values', summary: `${waiting} offered, ${outcomes.filter((o) => o.outcome === 'refused').length} refused` });
       return JSON.stringify({ outcomes, note: 'Offered values wait for a person. Do not speak of one as recorded.' });
