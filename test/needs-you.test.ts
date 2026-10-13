@@ -17,6 +17,7 @@ import {
   agreeSaid,
   countSaid,
   createAssessment,
+  createChatProposal,
   createProject,
   daySaid,
   dayTyped,
@@ -228,6 +229,18 @@ describe('a chat proposal waiting for a person', () => {
     assert.doesNotMatch(card, /\{item\.rationale\}/);
     assert.doesNotMatch(card, /\{item\.impact\}/);
     assert.match(card, /item\.citedEvidenceIds/);
+  });
+
+  it('carries the page and the page’s own words of the paper it cites, and its card draws them', () => {
+    const made = createChatProposal('add_action', 'Ask for the release deed', 'Raised from the record.', 'Adds an action.', { title: 'Ask for the release deed' }, 'tester', {
+      citedEvidenceIds: ['ev_1'],
+      cites: [{ evidenceId: 'ev_1', page: 2, quote: 'No release deed registered during the period.' }],
+    });
+    assert.deepEqual(made.cites, [{ evidenceId: 'ev_1', page: 2, quote: 'No release deed registered during the period.' }]);
+    assert.equal(createChatProposal('add_action', 'Another', 'r', 'i', {}, 'tester').cites, undefined, 'and none where nothing was found on a page');
+    const card = readFileSync(new URL('../apps/web/src/pages/projects/cockpit/Waiting.tsx', import.meta.url), 'utf8');
+    assert.match(card, /cite\.page/);
+    assert.match(card, /cite\?\.quote/);
   });
 });
 

@@ -203,6 +203,8 @@ function proposal(
     createdAt: nowIso(),
     createdBy: actor,
     citedEvidenceIds: extra.citedEvidenceIds,
+    // The page and the page's own words of each paper it cites, where whoever raised it found them.
+    ...(extra.cites?.length ? { cites: extra.cites } : {}),
     citedNodeIds: extra.citedNodeIds,
   };
 }

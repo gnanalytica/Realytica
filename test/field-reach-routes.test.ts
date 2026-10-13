@@ -24,6 +24,8 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import {
   addFieldRecord,
+  createChatProposal,
+  addEvidence,
   addressKey,
   fieldCatalog,
   generateReport,
@@ -269,6 +271,21 @@ before(async () => {
   marked.push({ fn: 'finance.valuation', set: 'finance.valuation.conclusion', forms: ['987654321', '555444333'] });
   marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777123456'] });
 
+  // What this round added that carries data. An approved variation Finance has not taken: its amount is Procurement's, and
+  // the procurement route tells it as waiting on Finance.
+  const civil = add('shared.contracts', { title: 'Zq7 Contract Civil' });
+  add('procurement.orders.variations', { ref: 'Zq7-VO-1', contract: civil, kind: 'extra item', claimed: 7_654_321, assessed: 7_654_321, stage: 'approved', approved_on: '2026-08-01' });
+  marked.push({ fn: 'procurement.orders', set: 'procurement.orders.variations', forms: ['7654321'] });
+  // Receipts on a demand: Collections', and summed by Finance's sheet of the designated account for the quarter.
+  add('commercial.buyers.demands', { unit: unitId, demand_no: 'Zq7-DN-1', settled_by: [{ receipt_no: 'Zq7-RC-1', received_on: '2026-08-15', amount: 6_543_219 }] });
+  marked.push({ fn: 'commercial.buyers', set: 'commercial.buyers.demands', forms: ['6543219'] });
+  // A card that waits, carrying the page and the words of a paper of Title's. Cards are the firm's: marked as handed to nobody outside it.
+  const deed = addEvidence(project, { title: 'Zq7 Deed Of Sale', kind: 'document', status: 'received' }, OWNER);
+  deed.workstream = 'legal.title';
+  deed.documentType = 'Sale deed';
+  project.chatProposals.push(createChatProposal('add_action', 'Zq7 follow the deed', 'Raised from the paper.', 'Adds an action.', { title: 'Zq7 follow the deed' }, OWNER, { citedEvidenceIds: [deed.id], cites: [{ evidenceId: deed.id, page: 2, quote: 'Zq7 the words of the deed itself' }] }));
+  marked.push({ fn: 'legal.title', set: 'a card’s cited words', forms: ['Zq7 the words of the deed itself'], buyer: true });
+
   // A marked value on one check of every scope the project has.
   const catalog = fieldCatalog();
   let figure = 610_000_007;
@@ -373,6 +390,16 @@ describe('the firm’s own person', () => {
     assert.ok(routes.length >= 70, `the app's routes were read: ${routes.length}`);
     assert.deepEqual(routes.filter((route) => /[(?\\]/.test(route)), [], 'every route was read as a path');
     assert.ok(routes.filter((route) => route.startsWith('/api/projects/:projectId/')).length >= 40, 'the project’s own routes are among them');
+  });
+
+  it('and nobody working from a grant is handed a waiting card, so none is handed the words one cites from a paper', async () => {
+    const words = 'Zq7 the words of the deed itself';
+    assert.ok((await (await call('GET', at(), OWNER)).text()).includes(words), 'the firm’s own person reads the card');
+    for (const who of HELD) {
+      const body = await (await call('GET', at(), who.email)).text();
+      assert.equal(body.includes(words), false, who.name);
+      assert.deepEqual((JSON.parse(body) as { chatProposals?: unknown[] }).chatProposals ?? [], [], `${who.name}: no card`);
+    }
   });
 
   it('is given the stored graph with a field node of every department', async () => {
