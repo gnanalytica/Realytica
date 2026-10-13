@@ -370,7 +370,46 @@ export const INTERIOR_FIELD_SETS: FieldSet[] = [
       { key: 'change', label: 'Change' },
       { key: 'effect', label: 'Effect' },
       { key: 'approval', label: 'Approval' },
-      { key: 'buyers', label: 'Buyers', showWhen: { field: at(FN.changes, SET.changes, 'alters_promise'), is: 'true' } },
+    ],
+    // Two hard cases, each a sheet of the change that has it: one that alters what buyers were promised, and one that needs the sanctioned plan revised.
+    sheets: [
+      {
+        id: 'buyers',
+        title: 'What buyers were promised',
+        showWhen: { field: at(FN.changes, SET.changes, 'alters_promise'), is: 'true' },
+        fields: [
+          { key: 'units_affected', label: 'Units it affects', kind: 'number', min: 0, precision: 0 },
+          { key: 'consent_route', label: 'Buyers are', kind: 'enum', control: 'segmented', options: ['told of it', 'asked to consent'], hint: 'Which the law asks for, and of how many, is Legal’s to say.' },
+          { key: 'finish_replaced', label: 'Finish on the schedule it replaces', kind: 'ref', target: { set: SET.finishItems }, required: false },
+          { key: 'equivalence_certified_by', label: 'Equal or better, certified by', kind: 'ref', target: 'party', required: false },
+          { key: 'buyers_told_on', label: 'Buyers told on', kind: 'date', required: false, from: 'Letter to allottees' },
+          { key: 'buyers_letter', label: 'Letter to allottees', kind: 'evidence', accepts: 'document', viewer: 'pdf', required: false },
+        ],
+        rules: [{ kind: 'before', fields: ['buyers_told_on', 'approved_on'], say: 'Approved on {b}, and buyers were told only on {a}.', severity: 'medium' }],
+      },
+      {
+        id: 'modified_sanction',
+        title: 'Modified sanction',
+        showWhen: { field: at(FN.changes, SET.changes, 'needs_modified_sanction'), is: 'true' },
+        fields: [
+          // The revision is Liaison's record: linked, with its dates read from there.
+          { key: 'revision', label: 'Plan revision, as Liaison records it', kind: 'ref', target: { set: 'legal.approvals.revisions' }, required: false },
+          { key: 'revision_applied_on', label: 'Revision applied for on', kind: 'computed', yields: 'date', formula: { op: 'date', key: 'applied_on', at: at('legal.approvals', 'legal.approvals.revisions', 'applied_on'), via: 'revision' } },
+          { key: 'revision_sanctioned_on', label: 'Revision sanctioned on', kind: 'computed', yields: 'date', formula: { op: 'date', key: 'sanctioned_on', at: at('legal.approvals', 'legal.approvals.revisions', 'sanctioned_on'), via: 'revision' } },
+          {
+            key: 'ahead_of_sanction',
+            label: 'Issued or built ahead of the revised sanction',
+            kind: 'computed',
+            precision: 0,
+            tier: 'expert',
+            formula: { op: 'if', when: { all: [{ field: 'stage', is: 'in', value: ['issued', 'built'] }, { field: 'needs_modified_sanction', is: 'true' }] }, then: { op: 'if', when: { field: 'revision_sanctioned_on', is: 'set' }, then: { op: 'const', value: 0 }, else: { op: 'const', value: 1 } }, else: { op: 'const', value: 0 } },
+          },
+        ],
+        rules: [
+          { kind: 'require', fields: ['revision'], when: { records: 'legal.approvals.revisions', is: 'any' }, say: 'The change needs a modified sanction and no plan revision is linked to it.', severity: 'medium' },
+          { kind: 'at_most', fields: ['ahead_of_sanction'], against: 0, say: 'The change is issued or built, and the revision of the sanction it needs is not sanctioned.', severity: 'high' },
+        ],
+      },
     ],
     fields: [
       { key: 'number', label: 'Change number', kind: 'text', section: 'change', from: 'Change request form' },
@@ -396,10 +435,6 @@ export const INTERIOR_FIELD_SETS: FieldSet[] = [
       { key: 'approved_by', label: 'Approved by', kind: 'ref', target: 'party', section: 'approval', required: false },
       { key: 'approved_on', label: 'Approved on', kind: 'date', section: 'approval', required: false },
       { key: 'built_before_approval', label: 'Built on site before approval', kind: 'boolean', control: 'switch', section: 'approval', required: false, from: 'Site log' },
-      { key: 'units_affected', label: 'Units it affects', kind: 'number', min: 0, precision: 0, section: 'buyers', tier: 'situational' },
-      { key: 'consent_route', label: 'Buyers are', kind: 'enum', control: 'segmented', options: ['told of it', 'asked to consent'], section: 'buyers', tier: 'situational', hint: 'Which the law asks for, and of how many, is Legal’s to say.' },
-      { key: 'finish_replaced', label: 'Finish on the schedule it replaces', kind: 'ref', target: { set: SET.finishItems }, section: 'buyers', tier: 'situational', required: false },
-      { key: 'equivalence_certified_by', label: 'Equal or better, certified by', kind: 'ref', target: 'party', section: 'buyers', tier: 'situational', required: false },
     ],
     rules: [
       { kind: 'before', fields: ['raised_on', 'approved_on'], say: 'Approved on {b}, before it was raised on {a}.', severity: 'low' },

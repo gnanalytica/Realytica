@@ -35,9 +35,10 @@
 import type { DdProject } from './types';
 import type { DepartmentKey } from './departments';
 import { costRegister, moneySaid } from './cost';
-import { costReportsOf, updateCostReportRow } from './cost-report';
+import { addCostReportVariation, costReportsOf, updateCostReportRow } from './cost-report';
 import { recordAuditEvent } from './operations';
 import { indiaToday } from './quarters';
+import { standingNumber, standingRecords, standingText } from './standing-records';
 
 /* ==================================================================== */
 /* What is kept                                                          */
@@ -180,6 +181,22 @@ export interface Tender {
 
 export interface ProcurementRegister {
   tenders: Tender[];
+  /** What Finance decided on each approved variation offered to the Cost Report, by the variation record's id. */
+  variationOffers?: Record<string, VariationDecision>;
+}
+
+/** Finance's decision on an approved variation: taken onto a Cost Report, or declined with the reason. */
+export interface VariationDecision {
+  /** The approved amount the decision was made on. A later approved amount that differs is offered afresh. */
+  amount: number;
+  status: 'accepted' | 'declined';
+  decidedAt: string;
+  decidedBy: string;
+  /** The Cost Report it was written on, when accepted. */
+  reportId?: string;
+  /** Accepted with the forecast left as it was, because it carried the variation already. */
+  forecastUnchanged?: boolean;
+  reason?: string;
 }
 
 /* ==================================================================== */
@@ -763,14 +780,19 @@ export interface TenderOfferWaiting {
   onto?: { reportId: string; label: string; rowId: string; poIssued: number };
 }
 
-/** The newest draft Cost Report that has a row for a work package. */
-function draftRowFor(project: Pick<DdProject, 'costReports'>, workPackageId: string): TenderOfferWaiting['onto'] {
+/** The newest draft Cost Report that has a row for a work package, with that row's figures. */
+function draftRowOf(project: Pick<DdProject, 'costReports'>, workPackageId: string): { reportId: string; label: string; rowId: string; poIssued: number; anticipatedCost: number } | undefined {
   const drafts = [...costReportsOf(project)].filter((report) => report.status === 'draft').sort((a, b) => b.from.localeCompare(a.from) || b.createdAt.localeCompare(a.createdAt));
   for (const report of drafts) {
     const row = report.rows.find((held) => held.workPackageId === workPackageId);
-    if (row) return { reportId: report.id, label: report.label, rowId: row.id, poIssued: row.poIssued };
+    if (row) return { reportId: report.id, label: report.label, rowId: row.id, poIssued: row.poIssued, anticipatedCost: row.anticipatedCost };
   }
   return undefined;
+}
+
+function draftRowFor(project: Pick<DdProject, 'costReports'>, workPackageId: string): TenderOfferWaiting['onto'] {
+  const row = draftRowOf(project, workPackageId);
+  return row ? { reportId: row.reportId, label: row.label, rowId: row.rowId, poIssued: row.poIssued } : undefined;
 }
 
 /** The awarded values offered to Finance and not yet decided. */
@@ -882,4 +904,124 @@ export function tenderStagesPastDue(project: Pick<DdProject, 'procurement' | 'co
     }
   }
   return out;
+}
+
+/* ==================================================================== */
+/* An approved variation, offered to Finance                              */
+/* ==================================================================== */
+
+/** Procurement's variation records, and the contract records each names. */
+export const VARIATIONS_SET = 'procurement.orders.variations';
+const VARIATION_CONTRACTS_SET = 'shared.contracts';
+/** The stages at which a variation's assessed amount counts as approved. */
+const VARIATION_APPROVED = ['approved', 'paid'];
+
+/** An approved variation waiting on Finance, with what it would change. */
+export interface VariationOfferWaiting {
+  /** The variation record's id. */
+  variationId: string;
+  /** Its reference, as Procurement recorded it. */
+  ref: string;
+  workPackageId?: string;
+  packageName: string;
+  /** What Procurement has approved for it, in all. */
+  approved: number;
+  /** What Finance has already taken onto a Cost Report for it. */
+  taken: number;
+  /** What is offered now: the approved amount less what was taken. */
+  amount: number;
+  approvedOn?: string;
+  /** The draft Cost Report it would be written on, and what that row holds now. None: no draft holds the package, or the variation's contract names no package. */
+  onto?: { reportId: string; label: string; rowId: string; poIssued: number; anticipatedCost: number };
+}
+
+/**
+ * The approved variations Finance has not yet decided.
+ *
+ * A variation counts once a person has typed or accepted its stage as
+ * approved or paid and its assessed amount: what a paper or a model offered
+ * for either is not an approval. It is offered to the row of the package its
+ * contract covers. Nothing is written until Finance accepts: Procurement
+ * approves a variation, and the Cost Report is Finance's.
+ */
+export function variationOffersWaiting(project: Pick<DdProject, 'procurement' | 'cost' | 'costReports' | 'fieldSheets'>): VariationOfferWaiting[] {
+  const decided = project.procurement?.variationOffers ?? {};
+  const contracts = standingRecords(project, VARIATION_CONTRACTS_SET);
+  const out: VariationOfferWaiting[] = [];
+  for (const variation of standingRecords(project, VARIATIONS_SET)) {
+    const approved = standingNumber(variation, 'assessed');
+    if (approved === undefined || !VARIATION_APPROVED.includes(standingText(variation, 'stage') ?? '')) continue;
+    const decision = decided[variation.id];
+    if (decision?.status === 'declined' && decision.amount === approved) continue;
+    const taken = decision?.status === 'accepted' ? decision.amount : 0;
+    const amount = (inPaise(approved) - inPaise(taken)) / 100;
+    if (!amount) continue;
+    const packageId = standingText(contracts.find((row) => row.id === standingText(variation, 'contract')), 'package');
+    const pack = packageId ? costRegister(project).workPackages.find((row) => row.id === packageId) : undefined;
+    const row = pack ? draftRowOf(project, pack.id) : undefined;
+    out.push({
+      variationId: variation.id,
+      ref: standingText(variation, 'ref') ?? '',
+      ...(pack ? { workPackageId: pack.id } : {}),
+      packageName: pack ? [pack.code, pack.name].filter(Boolean).join(' ') : '',
+      approved,
+      taken,
+      amount,
+      ...(standingText(variation, 'approved_on') ? { approvedOn: standingText(variation, 'approved_on')!.slice(0, 10) } : {}),
+      ...(row ? { onto: row } : {}),
+    });
+  }
+  return out;
+}
+
+function variationWaiting(project: DdProject, variationId: string): VariationOfferWaiting {
+  const waiting = variationOffersWaiting(project).find((offer) => offer.variationId === variationId);
+  if (!waiting) throw new Error('No approved variation by that id is waiting on Finance.');
+  return waiting;
+}
+
+/**
+ * Take an approved variation onto the Cost Report: the package's PO issued
+ * and its anticipated cost on the newest draft both move by the amount, and
+ * the report's variation log gains the line, under the name of whoever
+ * accepted it. `forecast: 'already_in'` moves PO issued alone, for a forecast
+ * that carried the variation before it was approved.
+ *
+ * For a lead or a signer in Finance. The route asks that before it calls
+ * this. Refused where no draft Cost Report holds the package.
+ */
+export function acceptVariationOffer(project: DdProject, variationId: string, actor: string, options: { forecast?: 'add' | 'already_in' } = {}): VariationDecision {
+  const offer = variationWaiting(project, variationId);
+  if (!offer.workPackageId) throw new Error('This variation’s contract names no work package. Link the contract to its package, and accept it then.');
+  if (!offer.onto) throw new Error('No draft Cost Report holds this package. Start one, or reopen the latest, and accept it then.');
+  const carried = options.forecast === 'already_in';
+  const poIssued = (inPaise(offer.onto.poIssued) + inPaise(offer.amount)) / 100;
+  const anticipatedCost = carried ? offer.onto.anticipatedCost : (inPaise(offer.onto.anticipatedCost) + inPaise(offer.amount)) / 100;
+  updateCostReportRow(project, offer.onto.reportId, offer.onto.rowId, { poIssued, anticipatedCost }, actor);
+  addCostReportVariation(project, offer.onto.reportId, { description: offer.ref ? `${offer.ref}, approved variation` : 'Approved variation', amount: offer.amount, workPackageId: offer.workPackageId, ...(offer.approvedOn ? { dated: offer.approvedOn } : {}) }, actor);
+  const at = nowIso();
+  const decision: VariationDecision = { amount: offer.approved, status: 'accepted', decidedAt: at, decidedBy: actor, reportId: offer.onto.reportId, ...(carried ? { forecastUnchanged: true } : {}) };
+  registerOf(project).variationOffers = { ...(project.procurement?.variationOffers ?? {}), [variationId]: decision };
+  project.updatedAt = at;
+  recordAuditEvent(project, {
+    actor,
+    action: 'accept_variation_offer',
+    entityType: 'cost_report',
+    entityId: offer.onto.reportId,
+    oldValue: `PO issued ${moneySaid(offer.onto.poIssued, project.currency)}, anticipated ${moneySaid(offer.onto.anticipatedCost, project.currency)}`,
+    newValue: `PO issued ${moneySaid(poIssued, project.currency)}, anticipated ${moneySaid(anticipatedCost, project.currency)} on ${offer.onto.label}, from approved variation ${offer.ref}`,
+  });
+  return decision;
+}
+
+/** Decline an approved variation, with the reason. The Cost Report is left as it is, and the variation is offered again only if its approved amount changes. */
+export function declineVariationOffer(project: DdProject, variationId: string, reason: string, actor: string): VariationDecision {
+  const offer = variationWaiting(project, variationId);
+  const why = wordsOf(reason, TENDER_LIMITS.note, 'A reason');
+  if (!why) throw new Error('Say why it is declined.');
+  const decision: VariationDecision = { amount: offer.approved, status: 'declined', decidedAt: nowIso(), decidedBy: actor, reason: why };
+  registerOf(project).variationOffers = { ...(project.procurement?.variationOffers ?? {}), [variationId]: decision };
+  project.updatedAt = decision.decidedAt;
+  recordAuditEvent(project, { actor, action: 'decline_variation_offer', entityType: 'cost_report', entityId: variationId, reason: why, oldValue: moneySaid(offer.amount, project.currency) });
+  return decision;
 }

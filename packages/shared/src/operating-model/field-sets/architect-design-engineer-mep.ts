@@ -62,7 +62,28 @@ const DESIGN_STATUS_REPORT: FieldReportTemplate = {
 };
 
 const LINKS: SetLinks[] = [
-  { set: 'design.areas.statement', reports: [AREA_REPORT] },
+  {
+    set: 'design.areas.statement',
+    reports: [AREA_REPORT],
+    // The sanction the statement is held to is Liaison's, as last revised: a revision that is sanctioned moves the limit here with nobody typing it.
+    repoint: { sanctioned_area: at(APPROVALS, 'legal.approvals.sanction', 'built_up_in_force') },
+    fields: [
+      mirror('units_sanctioned', 'Units sanctioned, as last revised', 'number', at(APPROVALS, 'legal.approvals.sanction', 'units_in_force'), { precision: 0, section: 'sold', tier: 'situational', showWhen: { situation: 'revised_sanction' } }),
+      { key: 'units_designed', label: 'Units in the unit mix', kind: 'computed', precision: 0, section: 'sold', tier: 'situational', showWhen: { situation: 'revised_sanction' }, formula: { op: 'records', set: 'design.brief.unit_types', reduce: 'sum', field: 'count' } },
+      mirror('revised_on', 'Last revision sanctioned on', 'date', at(APPROVALS, 'legal.approvals.sanction', 'revised_on'), { section: 'statement', tier: 'situational', showWhen: { situation: 'revised_sanction' } }),
+    ],
+    rules: [
+      // After a revision the statement has to be drawn again: said while the floors and the unit mix still differ from what the revision sanctioned.
+      { kind: 'compare', fields: ['total_built_up', 'sanctioned_area'], when: { all: [{ situation: 'revised_sanction' }, { records: 'design.areas.floors', is: 'any' }] }, tolerance: 0.01, say: 'The floors add to {a} and the sanction, as last revised, gives {b}: the area statement has not followed the revision.', severity: 'medium' },
+      { kind: 'compare', fields: ['units_designed', 'units_sanctioned'], when: { all: [{ situation: 'revised_sanction' }, { records: 'design.brief.unit_types', is: 'any' }] }, tolerance: 0, say: 'The unit mix comes to {a} units and the sanction, as last revised, allows {b}.', severity: 'medium' },
+    ],
+  },
+  {
+    set: 'design.areas.unit',
+    // What a unit measures once built is the Architect's to certify; Sales holds the agreement to it.
+    fields: [{ key: 'carpet_area_as_built', label: 'Carpet area as built', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], required: false, tier: 'expert', from: 'As-built measurement', proof: 'expected' }],
+    rules: [{ kind: 'compare', fields: ['carpet_area_as_built', 'carpet_area'], tolerance: 0, say: 'This unit measures {a} of carpet area as built and the register holds {b}: {divergence} apart.', severity: 'medium' }],
+  },
   { set: 'design.drawings.register', reports: [DESIGN_STATUS_REPORT] },
   {
     set: 'design.compliance.far',

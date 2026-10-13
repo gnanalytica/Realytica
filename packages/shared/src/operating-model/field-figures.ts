@@ -25,15 +25,17 @@
  * to `PROJECT_FIGURES`.
  */
 
-import { dayNumber, fieldStands } from './check-fields';
+import { dayNumber, fieldStands, standingValues } from './check-fields';
 import { MIN_SCHEDULE, comparableSchedule } from './comparables';
 import { costRegister, costSummary, packagePosition, standingCertification } from './cost';
 import { costReportPeriodOrder, costReportsOf, costReportTotals, type CostReportPeriod } from './cost-report';
 import { costReportChanges } from './cost-report-compare';
 import { findingIsOpen } from './engineering';
 import { scheduleWatch } from './milestone-schedule';
-import { progressSummary } from './progress';
-import { tenderComparison, tenderStagesPastDue, tendersOf, type Tender } from './tenders';
+import { allChecks } from './engagements';
+import { milestoneExtensions, progressSummary } from './progress';
+import { standingNumber, standingRecords, standingText } from './standing-records';
+import { tenderComparison, tenderStagesPastDue, tendersOf, variationOffersWaiting, type Tender } from './tenders';
 import { approachIsUsable } from './valuation-model';
 import { runValuationApproaches } from './valuation-run';
 import { valueSummary, type ValueSummary } from './value-standing';
@@ -120,6 +122,75 @@ function appraisalCashFlow(project: DdProject): CashFlowPosition | null {
   return cashFlowPosition(rows);
 }
 
+/* --- The plan sanction as last revised ---------------------------------- */
+
+/** Liaison's plan revisions: what each changes, once it is sanctioned. */
+export const PLAN_REVISIONS_SET = 'legal.approvals.revisions';
+
+/**
+ * A figure of the sanction as the last sanctioned revision leaves it: the
+ * value that revision states for `field`. A revision counts once its standing
+ * is recorded as sanctioned by a person; of several, the one sanctioned last
+ * that states the figure. Null where no sanctioned revision states it, so
+ * the reader falls back on the sanction as first granted. `field` null asks
+ * for the day of the last sanctioned revision.
+ */
+function sanctionedRevisions(project: DdProject) {
+  return standingRecords(project, PLAN_REVISIONS_SET)
+    .filter((revision) => standingText(revision, 'standing') === 'sanctioned')
+    .map((revision) => ({ revision, on: standingText(revision, 'sanctioned_on') ?? standingText(revision, 'applied_on') ?? '' }))
+    .sort((a, b) => b.on.localeCompare(a.on));
+}
+
+function lastSanctionedRevision(project: DdProject, field: string | null): number | null {
+  const sanctioned = sanctionedRevisions(project);
+  if (field === null) return dayNumber(sanctioned[0]?.on);
+  return sanctioned.map(({ revision }) => standingNumber(revision, field)).find((value) => value !== undefined) ?? null;
+}
+
+/** How many sanctioned revisions state a figure: nought is a count, and tells a reader to fall back on the sanction as first granted. */
+const revisionsStating = (project: DdProject, field: string): number => sanctionedRevisions(project).filter(({ revision }) => standingNumber(revision, field) !== undefined).length;
+
+/* --- The period an encumbrance search leaves uncovered ------------------ */
+
+/** The check that states the period searched, and the certificates held for it. */
+export const EC_PERIOD_CHECK = 'legal.encumbrances';
+export const EC_CERTIFICATES_SET = 'legal.title.ec_certificates';
+
+/**
+ * Days of a period, both ends counted, that none of the spans covers. Spans
+ * that overlap or touch are merged before they are counted, and the part of
+ * a span outside the period counts for nothing, so the answer is never below
+ * nought and never above the length of the period.
+ */
+export function uncoveredDays(period: { from: number; to: number }, spans: ReadonlyArray<{ from: number; to: number }>): number {
+  if (period.to < period.from) return 0;
+  let uncovered = 0;
+  let reached = period.from - 1;
+  for (const span of [...spans].filter((held) => held.to >= held.from).sort((a, b) => a.from - b.from)) {
+    if (span.to <= reached) continue;
+    if (span.from > period.to) break;
+    if (span.from > reached + 1) uncovered += span.from - reached - 1;
+    reached = Math.min(Math.max(reached, span.to), period.to);
+  }
+  return uncovered + (period.to - reached);
+}
+
+/** The search period as the encumbrance check states it, against the certificates on the list. Null until both ends of the period stand. */
+function encumbranceGap(project: DdProject): number | null {
+  const check = allChecks(project).find((held) => held.definitionId === EC_PERIOD_CHECK);
+  const stated = standingValues(check?.fields);
+  const from = dayNumber(stated.ec_from?.value);
+  const to = dayNumber(stated.ec_to?.value);
+  if (from === null || to === null) return null;
+  const spans = standingRecords(project, EC_CERTIFICATES_SET).flatMap((certificate) => {
+    const start = dayNumber(standingText(certificate, 'from'));
+    const end = dayNumber(standingText(certificate, 'to'));
+    return start === null || end === null ? [] : [{ from: start, to: end }];
+  });
+  return uncoveredDays({ from, to }, spans);
+}
+
 /** The site log's entries of the days up to and including today, newest first. */
 function entries(project: DdProject, at: Date, withinDays?: number) {
   const today = dayNumber(at.toISOString().slice(0, 10))!;
@@ -159,6 +230,24 @@ export const PROJECT_FIGURES: Readonly<Record<string, ProjectFigure>> = {
       return watch.projectedCompletion ? (watch.projectedDaysLate ?? 0) : null;
     },
   },
+
+  /* --- What extensions of time granted do to the schedule ------------- */
+  'schedule.extension_days': { label: 'Days the extensions granted move planned completion', from: 'Schedule', read: (project, at) => (project.milestones?.length ? (scheduleWatch(project, at).extensionDays ?? 0) : null) },
+  'schedule.completion_before_extensions': { label: 'Planned completion before the extensions granted', from: 'Schedule', read: (project, at) => day(scheduleWatch(project, at).completionBeforeExtensions) },
+  'schedule.extension_unplaced': { label: 'Days granted on contracts whose package serves no milestone', from: 'Schedule', read: (project, at) => scheduleWatch(project, at).extensionUnplaced ?? 0 },
+  'schedule.extension_most': { label: 'Most days of extension granted on one contract', from: 'Time claims', read: (project) => milestoneExtensions(project).most },
+
+  /* --- Liaison: the plan sanction as last revised --------------------- */
+  'sanction.revised_built_up': { label: 'Built-up area after the last sanctioned revision', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, 'built_up_area_after') },
+  'sanction.revised_units': { label: 'Units after the last sanctioned revision', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, 'units_after') },
+  'sanction.revised_height': { label: 'Height after the last sanctioned revision', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, 'height_after') },
+  'sanction.revisions_stating_built_up': { label: 'Sanctioned revisions that state a built-up area', from: 'Plan revisions', read: (project) => revisionsStating(project, 'built_up_area_after') },
+  'sanction.revisions_stating_units': { label: 'Sanctioned revisions that state a count of units', from: 'Plan revisions', read: (project) => revisionsStating(project, 'units_after') },
+  'sanction.revisions_stating_height': { label: 'Sanctioned revisions that state a height', from: 'Plan revisions', read: (project) => revisionsStating(project, 'height_after') },
+  'sanction.revised_day': { label: 'Last revision sanctioned on', from: 'Plan revisions', read: (project) => lastSanctionedRevision(project, null) },
+
+  /* --- Title: the encumbrance search --------------------------------- */
+  'title.ec_uncovered_days': { label: 'Days of the search period no encumbrance certificate covers', from: 'Encumbrance certificates', read: (project) => encumbranceGap(project) },
 
   /* --- The site log --------------------------------------------------- */
   'site_log.days_reported': { label: 'Days with a site log', from: 'Site log', read: (project, at) => new Set(entries(project, at).map((entry) => entry.date)).size },
@@ -265,6 +354,8 @@ export const PROJECT_FIGURES: Readonly<Record<string, ProjectFigure>> = {
   'cost_report.anticipated': { label: 'Anticipated cost on the latest cost report', from: 'cost report', read: ofLatestReport((r) => costReportTotals(r).anticipatedCost) },
   'cost_report.variations': { label: 'Variations in the latest cost report’s period', from: 'cost report', read: ofLatestReport((r) => total((r.variations ?? []).map((v) => v.amount))) },
   'cost_report.basic_prices': { label: 'Basic price adjustments on the latest cost report', from: 'cost report', read: ofLatestReport((r) => total((r.basicPriceAdjustments ?? []).map((line) => line.amount ?? 0))) },
+  'cost_report.variation_offers': { label: 'Approved variations waiting on Finance', from: 'cost report', read: (p) => variationOffersWaiting(p).length },
+  'cost_report.variation_offers_value': { label: 'Approved variations not yet on the Cost Report', from: 'cost report', read: (p) => total(variationOffersWaiting(p).map((offer) => offer.amount)) },
   'cost_report.contingency_drawn': { label: 'Variations drawn from contingency, over every cost report',
     from: 'cost report',
     read: (p) => (costReportsOf(p).length ? total(costReportsOf(p).flatMap((r) => (r.variations ?? []).filter((v) => v.contingencyDrawn).map((v) => v.amount))) : null),

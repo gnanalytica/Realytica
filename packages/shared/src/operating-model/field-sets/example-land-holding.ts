@@ -229,6 +229,60 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
           { kind: 'require_if', fields: ['guardian_kind', 'court_permission_no'], whenIn: ['court-appointed'], say: 'The guardian is {a} and no order number is recorded.', severity: 'high' },
         ],
       },
+      // An owner who has died: how the share passed, and the heirs it passed to. The heirs are rows under this owner, never further
+      // owners with this owner's name typed against them. `living` and the lists are Title's additions to the owner (titles-litigation.ts).
+      {
+        id: 'succession',
+        title: 'Succession and heirs',
+        showWhen: { field: { fn: FN, set: OWNERS, field: 'living' }, is: 'false' },
+        sections: [
+          { key: 'death', label: 'The death' },
+          { key: 'heirs', label: 'Heirs' },
+        ],
+        fields: [
+          { key: 'date_of_death', label: 'Date of death', kind: 'date', section: 'death', from: 'Death certificate', proof: 'expected' },
+          { key: 'succession_by', label: 'Succession by', kind: 'enum', optionSet: 'succession_by', section: 'death' },
+          { key: 'property_character', label: 'The property was', kind: 'enum', control: 'segmented', optionSet: 'property_character', section: 'death' },
+          {
+            key: 'daughters_listed',
+            label: 'Daughters among the heirs',
+            kind: 'enum',
+            control: 'segmented',
+            options: ['listed', 'left out', 'no daughters'],
+            section: 'death',
+            requiredWhen: { field: { fn: FN, set: OWNERS, field: 'property_character' }, is: 'equals', value: 'ancestral' },
+          },
+          { key: 'death_certificate', label: 'Death certificate', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'death', required: false },
+          {
+            key: 'heirs',
+            label: 'Heirs',
+            kind: 'table',
+            section: 'heirs',
+            required: false,
+            from: 'Legal heir certificate or attested family tree',
+            columns: [
+              { key: 'name', label: 'Name', kind: 'text', suggest: 'party' },
+              { key: 'relation', label: 'Relation', kind: 'enum', options: ['spouse', 'son', 'daughter', 'mother', 'father', 'another heir'] },
+              { key: 'share_pct', label: 'Share of this owner’s share', kind: 'percent', max: 100, precision: 2, required: false },
+              { key: 'joins', label: 'On the deed', kind: 'enum', options: ['joins as vendor', 'confirming party', 'has released', 'not joining'] },
+              { key: 'minor', label: 'A minor', kind: 'boolean', required: false },
+            ],
+          },
+          { key: 'heirs_recorded', label: 'Heirs recorded', kind: 'computed', precision: 0, section: 'heirs', formula: { op: 'count', table: 'heirs' } },
+          { key: 'heirs_not_joining', label: 'Heirs not joining and not released', kind: 'computed', precision: 0, section: 'heirs', formula: { op: 'count_if', over: { table: 'heirs' }, where: { column: 'joins', is: 'equals', value: 'not joining' } } },
+          { key: 'heirs_minor', label: 'Heirs who are minors', kind: 'computed', precision: 0, section: 'heirs', formula: { op: 'count_if', over: { table: 'heirs' }, where: { column: 'minor', is: 'true' } } },
+          { key: 'heirs_share_total', label: 'Heirs’ shares, added up', kind: 'computed', unit: '%', precision: 2, section: 'heirs', formula: { op: 'sum', table: 'heirs', column: 'share_pct' } },
+          // One while this owner has died and no heir is on the list: what the ownership sheet above counts.
+          { key: 'heirs_wanting', label: 'Died with no heir recorded', kind: 'computed', precision: 0, section: 'heirs', tier: 'expert', formula: { op: 'if', when: { field: 'living', is: 'false' }, then: { op: 'if', when: { field: 'heirs', is: 'set' }, then: { op: 'const', value: 0 }, else: { op: 'const', value: 1 } }, else: { op: 'const', value: 0 } } },
+          { key: 'heir_certificate', label: 'Legal heir or succession certificate', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'heirs', required: false },
+        ],
+        rules: [
+          { kind: 'at_most', fields: ['heirs_wanting'], against: 0, say: 'This owner has died and no heir is recorded.', severity: 'high' },
+          { kind: 'at_most', fields: ['heirs_not_joining'], against: 0, say: '{a} heir(s) neither join the deed nor have released their share.', severity: 'high' },
+          { kind: 'at_most', fields: ['heirs_minor'], against: 0, say: '{a} heir(s) are minors: a guardian sells a minor’s share only with the court’s leave.', severity: 'medium' },
+          { kind: 'compare', fields: ['heirs_share_total'], against: 100, tolerance: 0, when: { field: { fn: FN, set: OWNERS, field: 'heirs_share_total' }, is: 'gt', value: 0 }, say: 'The heirs’ shares add up to {a}, not {b}.', severity: 'medium' },
+        ],
+      },
     ],
   },
 ];

@@ -88,7 +88,7 @@ const LINKS: SetLinks[] = [
       mirror('design_change_days', 'Days added by approved design changes, per the Architect', 'number', at('design.changes', 'design.changes.summary', 'approved_days'), { unit: 'days', section: 'completion', showWhen: { records: 'design.changes.register', is: 'any', where: { column: 'time_effect', is: 'gt', value: 0 } } }),
     ],
     rules: [
-      { kind: 'before', fields: ['forecast_completion', 'rera_completion'], say: 'Completion is forecast for {a}, after the {b} declared to RERA.', severity: 'critical' },
+      { kind: 'before', fields: ['completion_now', 'rera_completion'], say: 'Completion is forecast for {a}, after the {b} declared to RERA.', severity: 'critical' },
       { kind: 'at_most', fields: ['stop_orders_in_force'], against: 0, say: '{a} stop-work order(s) are in force.', severity: 'critical' },
       { kind: 'at_most', fields: ['court_restraints'], against: 0, say: '{a} court order(s) in force restrain construction.', severity: 'critical' },
     ],
@@ -109,6 +109,12 @@ const LINKS: SetLinks[] = [
     // A unit is not handed over with money still owed on it: what is outstanding is Collections' figure of this unit.
     fields: [{ key: 'dues_outstanding', label: 'Demands outstanding on this unit, per Collections', kind: 'computed', dimension: 'money', currency: 'INR', tier: 'expert', formula: { op: 'sum_if', over: { records: DEMANDS }, column: 'outstanding', where: { column: 'unit', is: 'own' } } }],
     rules: [{ kind: 'at_most', fields: ['dues_outstanding'], against: 0, when: { field: at('shared', 'shared.units', 'site_handed_on'), is: 'set' }, say: 'The site has handed this unit over with {a} of demands outstanding.', severity: 'medium' }],
+  },
+  {
+    set: 'construction.safety.establishment',
+    // The welfare cess is assessed and paid by Finance; the site reads what is still unpaid.
+    fields: [mirror('welfare_cess_unpaid', 'Welfare cess assessed and not paid, per Tax', 'money', at('finance.tax', 'finance.tax.welfare_cess', 'unpaid'), { dimension: 'money', currency: 'INR', section: 'registration', showWhen: { field: at('finance.tax', 'finance.tax.welfare_cess', 'cost_assessed'), is: 'set' } })],
+    rules: [{ kind: 'at_most', fields: ['welfare_cess_unpaid'], against: 0, say: '{a} of welfare cess is assessed and not paid.', severity: 'medium' }],
   },
   { set: 'procurement.orders.position', reports: [CONTRACTS_REPORT] },
   { set: 'procurement.boq.plan', reports: [PROCUREMENT_PLAN_REPORT] },

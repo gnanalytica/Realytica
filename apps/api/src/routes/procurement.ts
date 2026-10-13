@@ -18,6 +18,8 @@
  * POST   /tenders/:tenderId/offer/accept          Finance accepts: PO issued is written on the draft Cost Report
  * POST   /tenders/:tenderId/offer/decline         Finance declines, with the reason
  * POST   /tenders/:tenderId/offer/again           offer a declined value again
+ * POST   /variations/:variationId/offer/accept    Finance takes an approved variation onto the draft Cost Report
+ * POST   /variations/:variationId/offer/decline   Finance declines it, with the reason
  *
  * Who may. Bidders and what they quoted are commercially sensitive, so the
  * whole path answers 404 to somebody working from a grant that does not name
@@ -41,9 +43,11 @@ import {
   TENDER_LINE_FLAG_PERCENT,
   TENDER_STAGES,
   acceptTenderOffer,
+  acceptVariationOffer,
   actorOf,
   addTenderBidder,
   declineTenderOffer,
+  declineVariationOffer,
   departmentRole,
   grantNamesProcurement,
   recommendTender,
@@ -58,6 +62,7 @@ import {
   startTender,
   tenderComparison,
   tenderOffersWaiting,
+  variationOffersWaiting,
   tenderPackageName,
   tenderStanding,
   tendersOf,
@@ -120,7 +125,7 @@ function allowed(req: Request, res: Response, project: DdProject, department: De
 
 function fail(res: Response, err: unknown): void {
   const message = err instanceof Error ? err.message : 'Request failed';
-  res.status(/^No (tender|bidder|stage|work package) by that/.test(message) ? 404 : 400).json({ error: message });
+  res.status(/^No (tender|bidder|stage|work package|approved variation) by that/.test(message) ? 404 : 400).json({ error: message });
 }
 
 /** One write: the gate, the input, the change, the save, and the caller's copy of the project back. */
@@ -179,6 +184,8 @@ procurementRouter.get('/', (req, res) => {
   res.json({
     tenders: tendersOf(copy).map((tender) => ({ ...tender, packageName: tenderPackageName(copy, tender), standing: tenderStanding(tender), comparison: tenderComparison(tender) })),
     waitingOnFinance: tenderOffersWaiting(copy).map(({ tender, offer, packageName, bidderName, onto }) => ({ tenderId: tender.id, offer, packageName, bidderName, ...(onto ? { onto } : {}) })),
+    // Approved variations Procurement has recorded that Finance has neither taken onto the Cost Report nor declined.
+    variationsWaitingOnFinance: variationOffersWaiting(copy),
     flagPastPercent: { bid: TENDER_BID_FLAG_PERCENT, line: TENDER_LINE_FLAG_PERCENT },
     may: { edit: roleCanEdit(role('procurement')), decide: roleCanDecide(role('procurement')), acceptOffer: roleCanDecide(role('finance')) },
   });
@@ -263,3 +270,16 @@ procurementRouter.post('/tenders/:tenderId/offer/decline', (req, res) =>
 );
 
 procurementRouter.post('/tenders/:tenderId/offer/again', (req, res) => change(req, res, procurement('decide'), nothing, (project, _body, actor) => ({ offer: reofferTender(project, tenderOf(req), actor) })));
+
+/* An approved variation moves PO issued and the anticipated cost only when a lead or signer in Finance takes it: Procurement approves, and does not write the Cost Report. */
+const variationOf = (req: Request): string => (req.params as Params & { variationId?: string }).variationId ?? '';
+
+procurementRouter.post('/variations/:variationId/offer/accept', (req, res) =>
+  change(req, res, finance, { schema: z.object({ forecast: z.enum(['add', 'already_in']).optional() }), say: 'Say whether the forecast carries it already, or send nothing.' }, (project, body, actor) => ({
+    decision: acceptVariationOffer(project, variationOf(req), actor, body.forecast ? { forecast: body.forecast } : {}),
+  })),
+);
+
+procurementRouter.post('/variations/:variationId/offer/decline', (req, res) =>
+  change(req, res, finance, { schema: z.object({ reason: z.string().trim().min(1).max(TENDER_LIMITS.note) }), say: 'Say why it is declined.' }, (project, body, actor) => ({ decision: declineVariationOffer(project, variationOf(req), body.reason, actor) })),
+);

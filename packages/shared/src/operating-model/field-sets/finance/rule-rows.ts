@@ -77,6 +77,9 @@ export const FINANCE_RULE_ROWS: RuleRow[] = [
   row('ka_surcharge', 'Surcharge on stamp duty in a rural area (in force on the day read; earlier days not confirmed)', 3, '% of the duty', READ_ON, KA_STAMP, { jurisdiction: KA, when: { locality: 'rural' } }),
   row('ka_registration_fee', 'Registration fee', 2, '%', '2025-08-31', { regulation: 'Registration Act, 1908, Karnataka table of fees, as reported', url: 'https://www.godrejproperties.com/blog/stamp-duty-and-registration-charges-karnataka-2026' }, { jurisdiction: KA }),
 
+  /* --- Welfare cess on construction ------------------------------------ */
+  row('bocw_welfare_cess_pct', 'Welfare cess on the cost of construction (from memory; the rate as notified is not confirmed)', 1, '%', '1996-09-26', { regulation: 'Building and Other Construction Workers’ Welfare Cess Act, 1996, and the notification under it', clause: 'section 3(1)' }),
+
   /* --- Project loans, charges, small suppliers ------------------------- */
   row('rbi_dcco_deferment_max_years', 'Longest the date of commencement of commercial operations may be deferred, for a project that is not infrastructure', 2, 'years', '2025-10-01', RBI),
   row('rbi_cost_overrun_max', 'Largest cost overrun a lender may finance, as a share of the original project cost', 10, '%', '2025-10-01', RBI),

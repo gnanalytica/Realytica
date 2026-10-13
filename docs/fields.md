@@ -278,6 +278,9 @@ When one row needs a dozen more fields, they do not join the row. They are a **d
 - Its fields are kept on the holder it opens from, under their own keys. So a key in a depth sheet is never one of the set's own, and an address, a formula, a rule and a proposal name a depth field exactly as they name any field of the set.
 - Its trouble rolls up: a rule failing on it is a line under the function's Needs you that names the row, so nobody opens sheets to find what is wrong.
 - At most twenty fields in at most four sections, and no list inside that pairs or opens another. Function, row, sheet is the whole depth.
+- A record at its twenty-field limit makes room by moving the fields of one hard case to a depth sheet under the keys they always had: what projects saved stays where it was.
+
+The catalog declares thirteen: an owner's guardianship and succession (with the heirs as rows under the owner who died), an instrument signed by an attorney and a partition, the partition suit, a final order and its appeal, what a plan revision changes, a variation's time claim, the cost of a delay, a guarantee's invocation, a design change that alters what buyers were promised or needs a modified sanction, and a cancellation after the registered agreement.
 
 ## Needs you
 
@@ -356,7 +359,7 @@ The schedule, the site log, the tender tracker, the cost register, the monthly c
 { key: 'awarded_on', label: 'Awarded on', kind: 'computed', yields: 'date', formula: { op: 'figure', key: 'package.award_day', of: 'package' } }   // of one work package: `of` names this set's own link to it
 ```
 
-`field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, and `package.*` for one work package). A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
+`field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, `title.*`, `sanction.*`, and `package.*` for one work package). Three of them are worked out from field records by code, because a formula cannot: the days of a search period no encumbrance certificate covers (overlapping certificates merged), the plan sanction as the last sanctioned revision leaves it, and what the extensions of time granted do to the schedule. Each reads only values that stand, through `standing-records.ts`. A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
 
 ## Links to other departments
 
@@ -380,7 +383,9 @@ Choose the lightest form that is true:
 - **A working field** (`tier: 'expert'`, worked out) where a rule needs a figure of the linked record: `{ op: 'field', at, via }` or a `sum_if` joined with `own`.
 - **A `ref`** where two records are one fact seen by two departments (a lender's security and the charge Title finds).
 
-Who owns what, so two files do not both declare it: variations and extension-of-time claims are Procurement's; the unit, the unit mix and the area statement the Architect's; milestones and progress Construction's; RERA filings Law's, which types none of the figures; the designated account, GST and TDS Finance's and Tax's; comparables Valuation's; snags the site's (Technical); a lift's permission and licence Liaison's; the party record is shared.
+**A consequence that crosses departments** is read, never copied. A time claim's days granted move the milestones its contract's packages are measured against and the work planned after them (`milestoneExtensions` in `progress.ts`); the programme's `completion_now` is the later of the forecast and planned completion after extensions, and the lender's sheet, RERA's rule and the landowner's delivery date are held to it. An approved variation is offered to a lead or signer in Finance (`variationOffersWaiting`, `acceptVariationOffer` in `tenders.ts`) and moves the Cost Report only when taken. The sanction in force (`legal.approvals.sanction`: `built_up_in_force`, `units_in_force`) is what the last sanctioned revision states, and is what the Architect's area statement, Sales' unit count, the environment clearance and RERA's application read. What a court's order covers is a record for each parcel or unit (`legal.litigation.order_cover`), so a unit says which orders in force restrain its sale.
+
+Who owns what, so two files do not both declare it: the provision against claims and the contingent liabilities are Finance's (Ledgers), read against Litigation's matters; the welfare cess is Tax's; the day work began on site is Construction's; the carpet area as built is the Architect's; variations and extension-of-time claims are Procurement's; the unit, the unit mix and the area statement the Architect's; milestones and progress Construction's; RERA filings Law's, which types none of the figures; the designated account, GST and TDS Finance's and Tax's; comparables Valuation's; snags the site's (Technical); a lift's permission and licence Liaison's; the party record is shared.
 
 ## The rule table and the state pack
 
@@ -399,6 +404,7 @@ Add your group's rows in `field-sets/rules/<group>.ts`, or in your group's own f
 
 - **One key for one fact.** The height that makes a high-rise is `high_rise_height_m`, whichever department reads it. Before adding a row, look for the fact under another department's key.
 - **A rule with no figure yet** is a `RuleShape` in `RULE_SHAPES` (`field-sets/design/rule-rows.ts`): a formula may name it, it gives no answer, and the standing over it has to say the limit is not on file.
+- **The list to check.** `ruleRowsListed(ruleRowsFor(project))` (`rule-row-list.ts`) gives every row by the department whose fields read it, with its citation, its source and those fields. A firm admin marks one checked with the clause and the day read (`checkRuleRow`, `POST /api/law-watch/rule-rows/check`): the row becomes the firm's own, verified under that person's name. The built-in table is never marked.
 - **A firm's own rows.** The law watch offers a row where a confirmed change moves a rate; a firm admin verifies it by name (`POST /api/law-watch/rule-rows/:offerId/verify`). A verified row is the firm's: it supersedes the built-in row from the day it takes effect, and every formula on that firm's projects reads it, on the server and on the page (`ruleRowsFor(project)`, installed as the firm's fields are). An offered row nobody has verified changes no figure.
 
 What differs by state and is not a rate (form numbers, the size of a ground) is in `field-sets/state-packs.ts`, keyed by state, Karnataka first.

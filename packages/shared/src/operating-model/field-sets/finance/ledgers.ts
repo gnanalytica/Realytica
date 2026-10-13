@@ -40,6 +40,7 @@ import {
   options,
   orZero,
   paper,
+  plus,
   rate,
   rule,
   rupees,
@@ -55,6 +56,9 @@ import {
 } from './kit';
 
 const AGE_BUCKETS = ['not yet due', 'up to 30 days', '31 to 60 days', '61 to 90 days', 'older'];
+/** The matters Litigation keeps, and whether it keeps any. */
+const MATTERS = 'shared.matters';
+const MATTERS_KEPT = { records: MATTERS, is: 'any' } as const;
 const SETTLED_REASONS = ['timing', 'not_yet_in_books', 'not_yet_filed_here', 'classification'];
 const DIFFERENCE = at(LED, SET.reconciliationLines, 'difference');
 const MAPS_TO = at(LED, SET.ledgerMap, 'maps_to');
@@ -383,5 +387,45 @@ export const LEDGER_SETS: FieldSet[] = [
       rupees('unmapped_balance', 'Balance mapped to nothing', when({ field: 'maps_to', is: 'set' }, n(0), sizeOf(f('balance'))), { tier: 'expert' }),
     ],
     rules: [],
+  },
+
+  /* ================================================================== */
+  /* Provisions and contingent liabilities                               */
+  /* ================================================================== */
+  // What is claimed, how likely a loss is and what a court has ordered are Litigation's records. The provision made for them, and whether the
+  // rest is disclosed, are the books': kept here and held to those claims. Nothing shows until a matter is on the register.
+  {
+    id: SET.provisions,
+    fn: LED,
+    title: 'Provisions and contingent liabilities',
+    v: 1,
+    sections: [
+      { key: 'claims', label: 'Claims, as Litigation records them', showWhen: MATTERS_KEPT },
+      { key: 'books', label: 'In the books', showWhen: MATTERS_KEPT },
+    ],
+    fields: [
+      rupees('probable_claims', 'Claimed where loss is probable', totalWhere(MATTERS, 'claim_amount', { column: 'likelihood', is: 'equals', value: 'probable' }), { section: 'claims', tier: 'situational' }),
+      mirror('contingent_claims', 'Claimed where loss is possible', 'money', at('legal.litigation', 'legal.litigation.register', 'contingent'), { dimension: 'money', currency: 'INR', section: 'claims', tier: 'situational' }),
+      mirror('ordered_unpaid', 'Ordered by a court or authority and not yet paid', 'money', at('legal.litigation', 'legal.litigation.diary', 'ordered_unpaid'), { dimension: 'money', currency: 'INR', section: 'claims', tier: 'situational' }),
+      rupees('to_provide', 'To provide for', plus(orZero('probable_claims'), orZero('ordered_unpaid')), { section: 'claims', tier: 'situational' }),
+      money('provision_held', 'Provision held in the books', { section: 'books', tier: 'situational', required: false, from: 'Trial balance' }),
+      day('provision_as_at', 'As at', { section: 'books', tier: 'situational', required: false }),
+      rupees('provision_short', 'Provision short of what is probable and ordered', minus(f('to_provide'), orZero('provision_held')), { section: 'books', tier: 'situational' }),
+      tick('contingent_disclosed', 'Contingent liabilities disclosed in the notes to the accounts', { section: 'books', tier: 'situational' }),
+      standing(
+        'provision_standing',
+        'Provision',
+        [
+          { when: rule('at_most', ['provision_short'], 'The books provide {a} less than the claims Litigation marks probable and the amounts ordered.', 'medium', { against: 0 }), label: 'Provision short', tone: 'warning' },
+          { when: rule('at_least', ['to_provide'], 'Nothing is probable or ordered.', 'low', { against: 0.01 }), label: 'Nothing to provide for', tone: 'neutral' },
+        ],
+        { label: 'Provided for', tone: 'good' },
+        { section: 'books', tier: 'situational' },
+      ),
+    ],
+    rules: [
+      rule('at_most', ['provision_short'], 'The books provide {a} less than the claims Litigation marks probable and the amounts ordered.', 'medium', { against: 0 }),
+      rule('require', ['contingent_disclosed'], 'Litigation records claims where a loss is possible, and whether they are disclosed in the notes is not recorded.', 'low', { when: { field: at(LED, SET.provisions, 'contingent_claims'), is: 'gt', value: 0 } }),
+    ],
   },
 ];

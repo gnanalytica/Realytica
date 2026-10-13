@@ -62,7 +62,8 @@ const LAND_USE_CHECK = (field: string) => at(APPROVALS, 'regulatory.land_use', f
 const OCCUPANCY_CHECK = (field: string) => at(APPROVALS, 'regulatory.occupancy', field);
 const CLEARANCE_CHECK = (field: string) => at(APPROVALS, 'esg.clearance', field);
 const SERVICES_CHECK = (field: string) => at('construction.quality', 'technical.mep_capacity', field);
-const FORECAST_COMPLETION = at('construction.progress', 'schedule_progress.forecast_completion', 'forecast_completion');
+/** Completion as the programme now stands: the later of the forecast and planned completion after the extensions of time granted. */
+const FORECAST_COMPLETION = at('construction.progress', 'construction.progress.programme', 'completion_now');
 
 /* --- Small words for formulas ----------------------------------------- */
 const fld = (key: string, from?: FieldAddress): CheckFormula => ({ op: 'field', key, ...(from ? { at: from } : {}) });
@@ -75,6 +76,9 @@ const rate = (table: string): CheckFormula => ({ op: 'rate', table });
 const yearsAsMonths = (table: string): CheckFormula => ({ op: 'multiply', left: rate(table), right: num(12) });
 /** Never below nothing, and nothing where the amount is not known yet: days late, counted only once they are. */
 const notBelowZero = (formula: CheckFormula): CheckFormula => ({ op: 'max', of: [num(0), formula] });
+const figure = (key: string): CheckFormula => ({ op: 'figure', key });
+/** What the last sanctioned revision states, read through the figures door, and `otherwise` where no sanctioned revision states it. */
+const revisedOr = (what: 'built_up' | 'units' | 'height', otherwise: CheckFormula): CheckFormula => ({ op: 'if', when: { left: figure(`sanction.revisions_stating_${what}`), is: 'gt', right: num(0) }, then: figure(`sanction.revised_${what}`), else: otherwise });
 /** How far over, or nothing where it is not over. No answer while the amount itself is not known. */
 const overBy = (formula: CheckFormula): CheckFormula => ({ op: 'if', when: { left: formula, is: 'gt', right: num(0) }, then: formula, else: num(0) });
 
@@ -1233,6 +1237,11 @@ const PLAN_SETS: FieldSet[] = [
       { key: 'renewed_to', label: 'Renewed to', kind: 'date', section: 'renewal', tier: 'situational', required: false, from: 'Renewal endorsement' },
       { key: 'revisions_count', label: 'Revisions recorded', kind: 'computed', precision: 0, section: 'revision', tier: 'situational', formula: { op: 'records', set: REVISIONS, reduce: 'count' } },
       { key: 'revisions_short_of_consent', label: 'Revisions short of buyers’ consent', kind: 'computed', precision: 0, section: 'revision', tier: 'situational', formula: { op: 'count_if', over: { records: REVISIONS }, where: { column: 'consent_standing', is: 'equals', value: 'Consents short' } } },
+      // The sanction as it now stands: what the last sanctioned revision states, and the sanction as first granted where no revision states it. The Architect's area statement, Sales' unit count and RERA's declared figures are held to these.
+      { key: 'revised_on', label: 'Last revision sanctioned on', kind: 'computed', yields: 'date', section: 'revision', tier: 'situational', formula: figure('sanction.revised_day') },
+      { key: 'built_up_in_force', label: 'Built-up area sanctioned, as last revised', kind: 'computed', dimension: 'area', unit: 'sqm', section: 'revision', tier: 'situational', formula: revisedOr('built_up', fld('sanctioned_area')) },
+      { key: 'units_in_force', label: 'Units sanctioned, as last revised', kind: 'computed', precision: 0, section: 'revision', tier: 'situational', formula: revisedOr('units', fld('units_sanctioned')) },
+      { key: 'height_in_force', label: 'Tallest building sanctioned, as last revised', kind: 'computed', dimension: 'length', section: 'revision', tier: 'situational', formula: revisedOr('height', fld('tallest')) },
       { key: 'deviations_over_limit', label: 'Deviations over the limit', kind: 'computed', precision: 0, section: 'deviation', tier: 'situational', formula: { op: 'count_if', over: { records: DEVIATIONS }, where: { column: 'within_limit', is: 'equals', value: 'Over the limit' } } },
       { key: 'architect', label: 'Registered architect', kind: 'ref', target: 'party', section: 'plan', required: false },
       { key: 'coverage', label: 'Ground coverage sanctioned', kind: 'percent', max: 100, section: 'plan', required: false, from: 'Sanctioned plan' },
@@ -1293,7 +1302,45 @@ const PLAN_SETS: FieldSet[] = [
     sections: [
       { key: 'revision', label: 'Revision' },
       { key: 'consents', label: 'Buyers’ consent' },
-      { key: 'after', label: 'What changes' },
+    ],
+    // What the revision changes, each figure beside what the sanction gave before it: a sheet of its own, opened from the revision.
+    sheets: [
+      {
+        id: 'what_changes',
+        title: 'What changes',
+        showWhen: when(REVISIONS, APPROVALS, 'reason', 'set'),
+        sections: [
+          { key: 'area', label: 'Area and units' },
+          { key: 'form', label: 'Height, floors and parking' },
+          { key: 'clearance', label: 'Environment clearance' },
+        ],
+        fields: [
+          { key: 'built_up_before', label: 'Built-up area before', kind: 'computed', dimension: 'area', unit: 'sqm', section: 'area', formula: fld('sanctioned_area', at(APPROVALS, SANCTION, 'sanctioned_area')) },
+          { key: 'built_up_area_after', label: 'Built-up area after', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], section: 'area', from: 'Area statement on the modified plan', fromTypes: ['Revised plan sanction'], factKey: 'revised_built_up_area', proof: 'expected' },
+          { key: 'far_before', label: 'FAR before', kind: 'computed', precision: 2, section: 'area', formula: fld('sanctioned_far', at(APPROVALS, SANCTION, 'sanctioned_far')) },
+          { key: 'far_after', label: 'FAR after', kind: 'number', min: 0, precision: 2, section: 'area', required: false, from: 'Modified plan' },
+          { key: 'units_before', label: 'Units before', kind: 'computed', precision: 0, section: 'area', formula: fld('units_sanctioned', at(APPROVALS, SANCTION, 'units_sanctioned')) },
+          { key: 'units_after', label: 'Units after', kind: 'number', min: 0, section: 'area', required: false, from: 'Modified plan', fromTypes: ['Revised plan sanction'], factKey: 'revised_units' },
+          { key: 'carpet_area_after', label: 'Carpet area of all units after', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], section: 'area', required: false, from: 'Area statement on the modified plan' },
+          { key: 'common_area_after', label: 'Common area after', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], section: 'area', required: false, from: 'Area statement on the modified plan' },
+          { key: 'height_before', label: 'Height before', kind: 'computed', dimension: 'length', section: 'form', formula: fld('tallest', at(APPROVALS, SANCTION, 'tallest')) },
+          { key: 'height_after', label: 'Height after', kind: 'number', dimension: 'length', enterIn: ['m', 'ft'], section: 'form', required: false, from: 'Modified plan', fromTypes: ['Revised plan sanction'], factKey: 'revised_height' },
+          { key: 'floors_after', label: 'Floors after', kind: 'number', min: 0, precision: 0, section: 'form', required: false, from: 'Modified plan' },
+          { key: 'parking_after', label: 'Car parks after', kind: 'number', min: 0, precision: 0, section: 'form', required: false, from: 'Modified plan' },
+          { key: 'open_space_after', label: 'Open space after', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], section: 'form', required: false, from: 'Modified plan' },
+          { key: 'units_added', label: 'Units added', kind: 'computed', precision: 0, section: 'area', tier: 'expert', formula: minus(fld('units_after'), fld('units_sanctioned', at(APPROVALS, SANCTION, 'units_sanctioned'))) },
+          { key: 'area_short_of_clearance', label: 'Built-up area after, short of the size that needs an environment clearance', kind: 'computed', unit: 'sqm', section: 'clearance', formula: minus(rate('environment_clearance_built_up_area'), fld('built_up_area_after')) },
+          {
+            key: 'clearance_after',
+            label: 'Environment clearance after the revision',
+            kind: 'status',
+            section: 'clearance',
+            cases: [{ when: { kind: 'at_most', fields: ['area_short_of_clearance'], against: 0, say: 'After the revision the building is {a} short of the size that needs an environment clearance.', severity: 'low' }, label: 'Not needed at this size', tone: 'neutral' }],
+            otherwise: { label: 'Needed at this size', tone: 'warning' },
+          },
+        ],
+        rules: [],
+      },
     ],
     fields: [
       { key: 'revision_no', label: 'Revision', kind: 'text', section: 'revision', hint: 'As the application numbers it.', fromTypes: ['Revised plan sanction'], factKey: 'revised_sanction_number' },
@@ -1323,18 +1370,6 @@ const PLAN_SETS: FieldSet[] = [
       },
       { key: 'consent_letters', label: 'Consent letters', kind: 'evidence', accepts: 'document', viewer: 'pdf', section: 'consents', required: false },
       { key: 'alteration_filed_on', label: 'Alteration filed with RERA on', kind: 'date', section: 'consents' },
-      { key: 'built_up_area_after', label: 'Built-up area after', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], section: 'after', from: 'Area statement on the modified plan', fromTypes: ['Revised plan sanction'], factKey: 'revised_built_up_area', proof: 'expected' },
-      { key: 'height_after', label: 'Height after', kind: 'number', dimension: 'length', enterIn: ['m', 'ft'], section: 'after', required: false, from: 'Modified plan', fromTypes: ['Revised plan sanction'], factKey: 'revised_height' },
-      { key: 'units_after', label: 'Units after', kind: 'number', min: 0, section: 'after', required: false, from: 'Modified plan', fromTypes: ['Revised plan sanction'], factKey: 'revised_units' },
-      { key: 'area_short_of_clearance', label: 'Built-up area after, short of the size that needs an environment clearance', kind: 'computed', unit: 'sqm', section: 'after', formula: minus(rate('environment_clearance_built_up_area'), fld('built_up_area_after')) },
-      {
-        key: 'clearance_after',
-        label: 'Environment clearance after the revision',
-        kind: 'status',
-        section: 'after',
-        cases: [{ when: { kind: 'at_most', fields: ['area_short_of_clearance'], against: 0, say: 'After the revision the building is {a} short of the size that needs an environment clearance.', severity: 'low' }, label: 'Not needed at this size', tone: 'neutral' }],
-        otherwise: { label: 'Needed at this size', tone: 'warning' },
-      },
     ],
     rules: [
       { kind: 'at_least', fields: ['consent_share_held', 'consent_share_needed'], say: '{a} of allottees have consented in writing and {b} are needed.', severity: 'critical' },
@@ -1723,13 +1758,28 @@ const LAW_LINKS: SetLinks[] = [
       mirror('title_opinion', 'Title opinion', 'evidence', at('legal.title', 'legal.title.opinion', 'opinion_doc'), { section: 'declared' }),
       mirror('charges_open', 'Charges on the land not released', 'number', at('legal.title', 'legal.title.encumbrance', 'charges_open'), { section: 'declared' }),
       { key: 'agents_engaged', label: 'Channel partners engaged', kind: 'computed', precision: 0, section: 'declared', formula: { op: 'records', set: 'commercial.inventory.partners', reduce: 'count' } },
+      // The areas and counts the application states. None is typed here: the land is Title's, the sanction Liaison's as last revised, the carpet area the Architect's, the units Sales'.
+      mirror('land_clear_extent', 'Land, clear of restriction, per Title', 'area', TITLE_CLEAR, { unit: 'sqm', section: 'declared' }),
+      mirror('built_up_sanctioned', 'Built-up area sanctioned, as last revised', 'area', at(APPROVALS, SANCTION, 'built_up_in_force'), { unit: 'sqm', section: 'declared' }),
+      mirror('units_sanctioned', 'Units sanctioned, as last revised', 'number', at(APPROVALS, SANCTION, 'units_in_force'), { precision: 0, section: 'declared' }),
+      mirror('carpet_area_designed', 'Carpet area of all units, per the Architect', 'area', at('design.areas', 'design.areas.statement', 'carpet_total'), { unit: 'sqm', section: 'declared' }),
+      { key: 'units_on_register', label: 'Units on the register', kind: 'computed', precision: 0, section: 'declared', formula: { op: 'records', set: UNIT, reduce: 'count' } },
+      { key: 'carpet_area_on_register', label: 'Carpet area of the units on the register', kind: 'computed', dimension: 'area', unit: 'sqm', section: 'declared', formula: { op: 'records', set: UNIT, reduce: 'sum', field: 'carpet_area' } },
+    ],
+    rules: [
+      // A revision that adds units or area changes what was declared: the register and the Architect's statement have to follow it before the alteration is filed.
+      { kind: 'at_most', fields: ['units_on_register', 'units_sanctioned'], when: { records: UNIT, is: 'any' }, say: 'The register holds {a} units and the sanction, as last revised, allows {b}.', severity: 'high' },
+      { kind: 'compare', fields: ['carpet_area_on_register', 'carpet_area_designed'], when: { all: [{ records: UNIT, is: 'any', where: { column: 'carpet_area', is: 'set' } }, { records: 'design.brief.unit_types', is: 'any' }] }, tolerance: 0.001, say: 'The units on the register carry {a} of carpet area and the Architect’s statement gives {b}: {divergence} apart.', severity: 'medium' },
     ],
   },
   {
     set: COMPLIANCE,
     repoint: {
       // Units sold are counted from the unit records Sales keeps, and progress from the milestones Construction keeps.
+      units_total: at('commercial.inventory', 'commercial.inventory.stock', 'units_total'),
       units_booked: at('commercial.inventory', 'commercial.inventory.stock', 'units_sold'),
+      // Spent to date is what has been paid against certified bills on the cost register.
+      cost_incurred: at('finance.budget', 'finance.budget.to_complete', 'paid_to_date'),
       construction_complete: at('construction.progress', 'construction.progress.programme', 'actual_percent'),
     },
     // The designated account's figures are Finance's. They are read here beside the filings they go into.
@@ -1763,10 +1813,16 @@ const LAW_LINKS: SetLinks[] = [
         formula: { op: 'if', when: { field: 'oc_issued', is: 'true' }, then: { op: 'const', value: 0 }, else: { op: 'count_if', over: { records: 'shared.units' }, where: { column: 'handover_taken_on', is: 'set' } } },
       },
     ],
-    rules: [{ kind: 'at_most', fields: ['handed_before_certificate'], against: 0, say: '{a} unit(s) are recorded as handed over and no occupancy certificate is recorded.', severity: 'critical' }],
+    rules: [
+      { kind: 'at_most', fields: ['handed_before_certificate'], against: 0, say: '{a} unit(s) are recorded as handed over and no occupancy certificate is recorded.', severity: 'critical' },
+      // The day work began is Construction's record: begun before the commencement certificate, it is work without leave.
+      { kind: 'before', fields: ['commencement_on', 'started_on'], at: { started_on: at('construction.progress', 'construction.progress.programme', 'started_on') }, say: 'Work began on site on {b}, before the commencement certificate of {a}.', severity: 'critical' },
+    ],
   },
   {
     set: ENVIRONMENT,
+    // Whether a clearance is needed is read off the sanction as last revised: a revision sanctioned past the size the rule table gives brings the clearance into play with nobody typing the area again.
+    repoint: { built_up_area: at(APPROVALS, SANCTION, 'built_up_in_force') },
     // The built-up area as designed is the Architect's: the clearance is held to it, and the sewage the plant is sized for is read from Services.
     fields: [
       mirror('built_up_designed', 'Built-up area as designed', 'area', at('design.areas', 'design.areas.statement', 'total_built_up'), { unit: 'sqm', section: 'clearance', tier: 'situational', showWhen: { records: 'design.areas.floors', is: 'any' } }),

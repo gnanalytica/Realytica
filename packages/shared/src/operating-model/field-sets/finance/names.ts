@@ -68,6 +68,8 @@ export const SET = {
   reconciliation: 'finance.ledgers.reconciliation',
   reconciliationLines: 'finance.ledgers.reconciliation_lines',
   ledgerMap: 'finance.ledgers.ledger_map',
+  provisions: 'finance.ledgers.provisions',
+  welfareCess: 'finance.tax.welfare_cess',
 } as const;
 
 /** The kinds of paper these sets read, as the register names them (`document-parse.ts`). */
@@ -95,7 +97,8 @@ export const EXISTING = {
   guidanceRate: { fn: 'finance.valuation', set: 'indicative_valuation.subject', field: 'guideline_rate_per_sqm' },
   occupancyDate: { fn: 'legal.approvals', set: 'regulatory.occupancy', field: 'oc_date' },
   chargesOnEc: { fn: 'legal.title', set: 'legal.encumbrances', field: 'subsisting_charges' },
-  forecastCompletion: { fn: 'construction.progress', set: 'schedule_progress.forecast_completion', field: 'forecast_completion' },
+  // Completion as the programme now stands: the later of the forecast and planned completion after the extensions of time granted.
+  forecastCompletion: { fn: 'construction.progress', set: 'construction.progress.programme', field: 'completion_now' },
   unitsSold: { fn: 'commercial.market', set: 'commercial_market.absorption', field: 'units_sold' },
   actualProgress: { fn: 'construction.progress', set: 'schedule_progress.planned_vs_actual', field: 'actual_percent' },
 } as const satisfies Record<string, FieldAddress>;

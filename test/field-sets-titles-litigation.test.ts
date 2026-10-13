@@ -88,7 +88,7 @@ const situations = (p: DdProject, fn: string): string[] => page(p, fn).situation
 describe('Titles and Litigation, as a catalog', () => {
   it('has no fault and breaks no limit, set by set', () => {
     const ids = new Set(OURS.map((set) => set.id));
-    assert.equal(OURS.length, 23);
+    assert.equal(OURS.length, 24);
     assert.deepEqual(catalogFaults().filter((fault) => [...ids].some((id) => fault.includes(id))), []);
     assert.deepEqual(catalogLimits().filter((breach) => ids.has(breach.set)), []);
     assert.deepEqual(ruleRowFaults(RULE_ROWS), []);
@@ -105,7 +105,7 @@ describe('Titles and Litigation, as a catalog', () => {
 
   it('makes Litigation a function of Legal, with a page of its sheets', () => {
     assert.equal(workstreamDefinition(LITIGATION)?.department, 'legal');
-    assert.deepEqual(fieldSetsOf(LITIGATION).map((set) => set.title), ['Matters and what is at stake', 'Hearings and orders', 'Orders', 'Court and registry searches', 'Search log', 'Search hits', 'Notices and claims']);
+    assert.deepEqual(fieldSetsOf(LITIGATION).map((set) => set.title), ['Matters and what is at stake', 'Hearings and orders', 'Orders', 'What each order covers', 'Court and registry searches', 'Search log', 'Search hits', 'Notices and claims']);
   });
 
   it('marks every figure it reads from the law or from practice as not yet verified', () => {
@@ -195,12 +195,12 @@ describe('Titles: a holding of two survey numbers and three owners, one dead and
   it('brings in what each owner’s case needs, on that owner alone, and counts nothing that is not showing', () => {
     const { p, a, b, c } = holding();
     assert.deepEqual(situations(p, TITLE), ['multiple_owners']);
-    assert.deepEqual(showing(p, 'legal.title.owners', a), ['name', 'share_pct', 'capacity', 'joins_as', 'heir_of', 'living']);
+    assert.deepEqual(showing(p, 'legal.title.owners', a), ['name', 'share_pct', 'capacity', 'joins_as', 'living']);
 
     // B has died: his succession comes into play on his record, and on the sheet. A's stays out of sight and is not asked for.
     write(p, 'legal.title.owners', { living: false }, b);
     assert.deepEqual(situations(p, TITLE), ['multiple_owners', 'owner_deceased']);
-    assert.deepEqual(showing(p, 'legal.title.owners', b), ['name', 'share_pct', 'capacity', 'heir_of', 'living', 'date_of_death', 'succession_by', 'property_character', 'daughters_listed'], 'and nobody asks how a dead man joins the deed');
+    assert.deepEqual(showing(p, 'legal.title.owners', b), ['name', 'share_pct', 'capacity', 'date_of_death', 'succession_by', 'property_character', 'daughters_listed', 'death_certificate', 'heirs', 'heirs_recorded', 'heirs_not_joining', 'heirs_minor', 'heirs_share_total', 'heir_certificate', 'living'], 'his Succession sheet opens, and nobody asks how a dead man joins the deed');
     assert.equal(view(p, 'legal.title.owners', 'living', a).state, 'assumed', 'an owner is taken to be living until somebody says otherwise');
     assert.equal(view(p, 'legal.title.owners', 'date_of_death', a).shown, 'hidden');
     assert.equal(view(p, 'legal.title.owners', 'date_of_death', a).missing, false);
@@ -209,15 +209,20 @@ describe('Titles: a holding of two survey numbers and three owners, one dead and
     write(p, 'legal.title.owners', { property_character: 'ancestral' }, b);
     assert.equal(view(p, 'legal.title.owners', 'daughters_listed', b).missing, true);
 
-    // No heir is recorded: the rule speaks. An heir who does not join keeps the standing red; once she joins it clears.
-    assert.ok(said(p, TITLE).includes('An owner has died and no heir is recorded.'));
-    const heir = add(p, 'legal.title.owners', { name: 'D. Vendor', share_pct: 10, capacity: 'individual', heir_of: 'B. Vendor', relation: 'daughter', joins_as: 'not_joining' });
-    assert.ok(!said(p, TITLE).includes('An owner has died and no heir is recorded.'));
+    // No heir is recorded: the rule speaks once, on the dead owner's Succession sheet, and the standing is not "accounted for".
+    // An heir is a row under him. One who does not join keeps his sheet failing; once she joins it clears.
+    const noHeir = page(p, TITLE).exceptions.filter((e) => e.text === 'This owner has died and no heir is recorded.');
+    assert.deepEqual(noHeir.map((e) => [e.need, e.record, e.depth, e.label]), [['failing', b, 'succession', 'Succession and heirs']], 'the line names the owner and the sheet to open');
+    write(p, 'legal.title.owners', { share_pct: 20 }, c);
+    assert.equal(value(p, 'legal.title.ownership', 'ownership_standing'), 'An owner has died with no heir recorded');
+    assert.equal(page(p, TITLE).exceptions.filter((e) => /no heir/.test(e.text)).length, 1, 'said once, not again by the sheet above');
+    write(p, 'legal.title.owners', { heirs: [{ name: 'D. Vendor', relation: 'daughter', share_pct: 100, joins: 'not joining' }] }, b);
+    assert.ok(!said(p, TITLE).includes('This owner has died and no heir is recorded.'));
     assert.equal(value(p, 'legal.title.ownership', 'heirs'), 1);
-    assert.equal(value(p, 'legal.title.ownership', 'shares_total'), 100);
-    assert.equal(value(p, 'legal.title.ownership', 'ownership_standing'), 'An owner is not joining');
-    assert.ok(said(p, TITLE).includes('1 owner(s) with a share join the deed as neither vendor nor confirming party.'));
-    write(p, 'legal.title.owners', { joins_as: 'confirming_party' }, heir);
+    assert.equal(value(p, 'legal.title.ownership', 'shares_total'), 100, 'an heir is not another owner with a share of the land');
+    assert.ok(said(p, TITLE).includes('1 heir(s) neither join the deed nor have released their share.'));
+    write(p, 'legal.title.owners', { heirs: [{ name: 'D. Vendor', relation: 'daughter', share_pct: 100, joins: 'confirming party' }] }, b);
+    assert.ok(!said(p, TITLE).some((text) => /heir\(s\) neither join/.test(text)));
     assert.equal(value(p, 'legal.title.ownership', 'ownership_standing'), 'Every owner accounted for');
 
     // C is a minor: the day she comes of age and the days a sale stays open are worked out from two rows of the law, both unverified.
@@ -283,7 +288,7 @@ describe('Titles: a chain with an unregistered partition and a deed signed by an
     // The 2019 deed was signed by an attorney, after the principal had died.
     write(p, 'legal.title.instruments', { signed_through: 'attorney' }, sale);
     assert.deepEqual(situations(p, TITLE), ['sale_through_attorney']);
-    assert.deepEqual(showing(p, 'legal.title.instruments', sale).slice(12), ['attorney', 'poa_registered', 'principal_alive_on_deed', 'poa']);
+    assert.deepEqual(showing(p, 'legal.title.instruments', sale).slice(12), ['attorney', 'poa_registered', 'principal_alive_on_deed', 'poa', 'poa_executed_on', 'poa_doc_no', 'poa_for_consideration', 'poa_revoked']);
     assert.equal(view(p, 'legal.title.instruments', 'attorney', root).shown, 'hidden');
     assert.equal(view(p, 'legal.title.instruments', 'attorney', root).missing, false);
     write(p, 'legal.title.instruments', { attorney: 'stk_adv', poa_registered: true, principal_alive_on_deed: false }, sale);

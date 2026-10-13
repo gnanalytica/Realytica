@@ -69,6 +69,9 @@ const CLAIM = (field: string) => at(ORDERS, SET.timeClaims, field);
 const PACKAGE = { key: 'package', label: 'Package', kind: 'ref', target: 'package' } as const;
 const CONTRACT_LINK = { key: 'contract', label: 'Contract', kind: 'ref', target: 'contract' } as const;
 
+/** A head of a claim as a figure, nought where it is not stated, so the heads that are stated can be added up. */
+const orNought = (key: string) => ({ op: 'max' as const, of: [f(key), n(0)] });
+
 const SINGLE_SOURCE = ['negotiated', 'nominated', 'direct_purchase'];
 const VARIATION_STANDS = ['approved', 'paid'];
 const VARIATION_PENDING = ['notified', 'claimed', 'assessed', 'disputed'];
@@ -468,13 +471,31 @@ const ORDERS_SETS: FieldSet[] = [
     sections: [
       { key: 'what', label: 'Variation' },
       { key: 'money', label: 'Money' },
-      { key: 'time', label: 'Time claim', showWhen: { field: at(ORDERS, SET.variations, 'time_effect'), is: 'true' } },
+    ],
+    // A variation that carries a time claim: the claim it rides on and the days, as a sheet of that variation alone.
+    sheets: [
+      {
+        id: 'time_claim',
+        title: 'Time claim',
+        showWhen: { field: at(ORDERS, SET.variations, 'time_effect'), is: 'true' },
+        fields: [
+          { key: 'time_claim', label: 'Time claim', kind: 'ref', target: { set: SET.timeClaims } },
+          computed('days_claimed', 'Days claimed', via('time_claim', CLAIM('days_claimed')), { unit: 'days', precision: 0 }),
+          computed('days_granted', 'Days granted', via('time_claim', CLAIM('days_granted')), { unit: 'days', precision: 0 }),
+          computedDay('claim_decided_on', 'Claim decided on', dayVia('time_claim', CLAIM('decided_on'))),
+          computedDay('completion_after', 'Contract completion after the days granted', dayVia('contract', CONTRACT('revised_completion'))),
+        ],
+        rules: [],
+      },
     ],
     fields: [
       text('ref', 'Reference', { section: 'what', from: 'Variation order', fromTypes: ['Variation claim'], factKey: 'variation_reference' }),
       { ...CONTRACT_LINK, section: 'what', fromTypes: ['Variation claim'], factKey: 'contract_number' },
       { key: 'kind', label: 'Kind', kind: 'enum', section: 'what', options: ['extra item', 'substituted item', 'quantity deviation', 'omission', 'rate revision'], from: 'Variation order' },
       { key: 'origin', label: 'Arose from', kind: 'enum', section: 'what', options: ['design change', 'answer to a query', 'site instruction', 'quantity re-measure', 'authority requirement'] },
+      // What it arose from, as the record its owner keeps: the Architect's design change, or the query that was answered.
+      { key: 'design_change', label: 'Design change it arose from', kind: 'ref', target: { set: 'design.changes.register' }, section: 'what', required: false, tier: 'situational', showWhen: { field: at(ORDERS, SET.variations, 'origin'), is: 'equals', value: 'design change' } },
+      { key: 'query', label: 'Query it arose from', kind: 'ref', target: { set: 'design.rfis.requests' }, section: 'what', required: false, tier: 'situational', showWhen: { field: at(ORDERS, SET.variations, 'origin'), is: 'equals', value: 'answer to a query' } },
       date('notified_on', 'Notice received on', { section: 'what', from: 'Notice' }),
       paper('instruction', 'Instruction or order', { section: 'what' }),
       { key: 'time_effect', label: 'Carries a time claim', kind: 'boolean', control: 'switch', section: 'what' },
@@ -487,9 +508,6 @@ const ORDERS_SETS: FieldSet[] = [
       computedMoney('approved_value', 'Counted as approved', when(oneOf('stage', VARIATION_STANDS), f('assessed'), n(0)), { section: 'money', tier: 'expert' }),
       computedMoney('pending_value', 'Counted as pending', when(oneOf('stage', VARIATION_PENDING), { op: 'max', of: [f('assessed'), f('claimed')] }, n(0)), { section: 'money', tier: 'expert' }),
       computedMoney('built_unapproved', 'Built and not approved', when({ all: [{ field: 'built', is: 'true' }, oneOf('stage', VARIATION_PENDING)] }, f('claimed'), n(0)), { section: 'money', tier: 'expert' }),
-      { key: 'time_claim', label: 'Time claim', kind: 'ref', target: { set: SET.timeClaims }, section: 'time', tier: 'situational' },
-      computed('days_claimed', 'Days claimed', via('time_claim', CLAIM('days_claimed')), { section: 'time', tier: 'situational', unit: 'days', precision: 0 }),
-      computed('days_granted', 'Days granted', via('time_claim', CLAIM('days_granted')), { section: 'time', tier: 'situational', unit: 'days', precision: 0 }),
       {
         key: 'standing',
         label: 'Standing',
@@ -517,7 +535,37 @@ const ORDERS_SETS: FieldSet[] = [
       { key: 'claim', label: 'Claim' },
       { key: 'notice', label: 'Notice' },
       { key: 'days', label: 'Days' },
-      { key: 'cost', label: 'Cost of delay', showWhen: { field: at(ORDERS, SET.timeClaims, 'with_cost'), is: 'true' } },
+    ],
+    // The cost of the delay, head by head: a sheet of the claim that makes one.
+    sheets: [
+      {
+        id: 'cost_of_delay',
+        title: 'Cost of delay',
+        showWhen: { field: at(ORDERS, SET.timeClaims, 'with_cost'), is: 'true' },
+        sections: [
+          { key: 'claimed', label: 'Claimed' },
+          { key: 'heads', label: 'Head by head' },
+          { key: 'decided', label: 'Assessed and granted' },
+        ],
+        fields: [
+          { key: 'cost_head', label: 'Claimed as', kind: 'multi_enum', section: 'claimed', options: ['prolongation', 'idle plant and labour', 'escalation', 'interest on late payment', 'loss of profit'] },
+          money('cost_claimed', 'Cost claimed', { section: 'claimed', from: 'Contractor’s claim', fromTypes: ['Extension of time claim'] }),
+          money('cost_assessed', 'Cost assessed', { section: 'decided', required: false }),
+          money('site_overheads', 'Site overheads', { section: 'heads', required: false, from: 'Contractor’s claim' }),
+          money('head_office_overheads', 'Head office overheads', { section: 'heads', required: false, from: 'Contractor’s claim' }),
+          money('idle_plant', 'Idle plant', { section: 'heads', required: false, from: 'Contractor’s claim' }),
+          money('idle_labour', 'Idle labour', { section: 'heads', required: false, from: 'Contractor’s claim' }),
+          money('escalation', 'Escalation', { section: 'heads', required: false, from: 'Contractor’s claim' }),
+          money('finance_cost', 'Finance cost', { section: 'heads', required: false, from: 'Contractor’s claim' }),
+          computedMoney('heads_total', 'Heads, added up', add(add(add(orNought('site_overheads'), orNought('head_office_overheads')), add(orNought('idle_plant'), orNought('idle_labour'))), add(orNought('escalation'), orNought('finance_cost'))), { section: 'heads' }),
+          { key: 'formula_used', label: 'Overheads worked out by', kind: 'enum', section: 'heads', required: false, options: ['actual cost', 'Hudson', 'Emden', 'Eichleay'] },
+          money('cost_granted', 'Cost granted', { section: 'decided', required: false, from: 'Determination' }),
+        ],
+        rules: [
+          { kind: 'compare', fields: ['heads_total', 'cost_claimed'], when: { field: at(ORDERS, SET.timeClaims, 'heads_total'), is: 'gt', value: 0 }, tolerance: 0.001, say: 'The heads add to {a} and {b} is claimed: {divergence} apart.', severity: 'medium' },
+          { kind: 'at_most', fields: ['cost_granted', 'cost_assessed'], say: '{a} of cost is granted, more than the {b} assessed.', severity: 'medium' },
+        ],
+      },
     ],
     fields: [
       text('claim_no', 'Claim', { section: 'claim', from: 'Contractor’s claim', fromTypes: ['Extension of time claim'], factKey: 'claim_number' }),
@@ -546,9 +594,6 @@ const ORDERS_SETS: FieldSet[] = [
       { key: 'days_granted', label: 'Days granted', kind: 'duration', unit: 'days', min: 0, section: 'days', required: false, from: 'Determination' },
       date('decided_on', 'Decided on', { section: 'days', required: false, from: 'Determination' }),
       { key: 'with_cost', label: 'Claims the cost of the delay', kind: 'boolean', control: 'switch', section: 'days' },
-      { key: 'cost_head', label: 'Claimed as', kind: 'multi_enum', section: 'cost', tier: 'situational', options: ['prolongation', 'idle plant and labour', 'escalation', 'interest on late payment', 'loss of profit'] },
-      money('cost_claimed', 'Cost claimed', { section: 'cost', tier: 'situational', from: 'Contractor’s claim', fromTypes: ['Extension of time claim'] }),
-      money('cost_assessed', 'Cost assessed', { section: 'cost', tier: 'situational', required: false }),
     ],
     rules: [
       { kind: 'at_most', fields: ['days_to_notice', 'notice_period'], say: 'The notice came {a} after the event, outside the {b} the contract gives.', severity: 'high' },
@@ -654,6 +699,32 @@ const VENDORS_SETS: FieldSet[] = [
       { key: 'instrument', label: 'Instrument' },
       { key: 'validity', label: 'Validity' },
       { key: 'standing', label: 'Against the obligation' },
+    ],
+    // A guarantee that is called on: the demand, what the bank did, and the suit if the vendor went to court. Nothing on it is asked until there is a demand.
+    sheets: [
+      {
+        id: 'invocation',
+        title: 'Invocation',
+        showWhen: { field: at(VENDORS, SET.securities, 'valid_to'), is: 'set' },
+        fields: [
+          date('invoked_on', 'Demand lodged with the bank on', { required: false, from: 'Demand letter' }),
+          money('amount_claimed', 'Amount demanded', { required: false, from: 'Demand letter' }),
+          { key: 'ground', label: 'Ground', kind: 'enum', required: false, options: ['non-performance', 'not renewed', 'advance not recovered', 'termination'] },
+          { key: 'demand_matches_terms', label: 'Demand worded as the guarantee asks', kind: 'boolean', control: 'tick', required: false },
+          paper('demand', 'Demand letter'),
+          date('bank_paid_on', 'Bank paid on', { required: false, from: 'Bank advice' }),
+          money('amount_paid', 'Amount the bank paid', { required: false, from: 'Bank advice' }),
+          { key: 'injunction_sought', label: 'The vendor has gone to court to stop it', kind: 'boolean', control: 'switch', required: false },
+          { key: 'matter', label: 'Matter', kind: 'ref', target: 'matter', required: false, tier: 'situational', showWhen: { field: at(VENDORS, SET.securities, 'injunction_sought'), is: 'true' } },
+          computed('demand_days_late', 'Days the demand was lodged after claims closed', sub(day('invoked_on'), day('claim_until')), { unit: 'days', precision: 0, tier: 'expert' }),
+        ],
+        rules: [
+          { kind: 'at_most', fields: ['demand_days_late'], against: 0, say: 'The demand was lodged {a} after the last day the guarantee allows a claim.', severity: 'critical' },
+          { kind: 'at_most', fields: ['amount_claimed', 'amount'], say: '{a} is demanded under a guarantee of {b}.', severity: 'high' },
+          { kind: 'require_if', fields: ['invoked_on', 'amount_claimed'], say: 'A demand was lodged on {a} with no amount recorded.', severity: 'medium' },
+          { kind: 'require', fields: ['matter'], when: { field: at(VENDORS, SET.securities, 'injunction_sought'), is: 'true' }, say: 'The vendor has gone to court over the invocation and no matter is linked.', severity: 'medium' },
+        ],
+      },
     ],
     fields: [
       text('number', 'Guarantee or instrument number', { section: 'instrument', from: 'Bank guarantee', fromTypes: ['Bank guarantee'], factKey: 'guarantee_number' }),

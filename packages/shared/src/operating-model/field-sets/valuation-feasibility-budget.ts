@@ -1565,7 +1565,7 @@ const BUDGET: FieldSet[] = [
       worked('forecast_age_limit', 'Age past which a forecast is old', rate('budget_forecast_age_days'), { unit: 'days', section: 'limits', tier: 'expert' }),
       worked('progress_gap_limit', 'Most points between cost and physical progress', rate('budget_progress_gap_points'), { unit: 'points', section: 'limits', tier: 'expert' }),
       mirror('forecast_on_check', 'Forecast on the forecast check', 'money', forecastCheck('forecast_at_completion'), { ...INR, section: 'limits', tier: 'expert' }),
-      mirror('completion_forecast', 'Forecast completion', 'date', at('construction.progress', 'schedule_progress.forecast_completion', 'forecast_completion'), { section: 'limits', tier: 'expert' }),
+      mirror('completion_forecast', 'Forecast completion', 'date', at('construction.progress', 'construction.progress.programme', 'completion_now'), { section: 'limits', tier: 'expert' }),
     ],
     rules: [
       rule('at_most', ['overrun', 'contingency_left'], 'The forecast is {a} over the budget and {b} of contingency remains.', 'high'),
@@ -1588,6 +1588,8 @@ const VARIATIONS = 'procurement.orders.variations';
 const ORDERS = (field: string) => at('procurement.orders', 'procurement.orders.position', field);
 const WITH_LENDER = { situation: 'lender_funded' } as const;
 const ANY_VARIATION = { records: VARIATIONS, is: 'any' } as const;
+/** Procurement has approved a variation that Finance has neither taken onto the Cost Report nor declined. */
+const WAITING_ON_FINANCE = rule('at_most', ['variations_waiting_value'], '{a} of approved variations wait for Finance to take onto the Cost Report.', 'medium', { against: 0 });
 
 const each = (fn: string, set: string, fields: string[]): FieldAddress[] => fields.map((field) => at(fn, set, field));
 
@@ -1691,7 +1693,31 @@ const LINKS: SetLinks[] = [
         { op: 'if', when: { left: { op: 'records', set: VARIATIONS, reduce: 'count' }, is: 'gt', right: { op: 'const', value: 0 } }, then: there(ORDERS('variations_approved')), else: there(at(BUD, 'cost_quantity.variations', 'variation_total')) },
         { ...INR, section: 'awards' },
       ),
+      // An approved variation is Procurement's decision and the Cost Report is Finance's: until Finance takes it, the commitment has not moved, and the sheet says so in place of "Within the budget".
+      {
+        key: 'commitment_standing',
+        label: 'Commitments',
+        kind: 'status',
+        section: 'committed',
+        cases: [
+          { when: rule('require', ['budget_total'], 'There is no budget to hold the commitments against.', 'low'), label: 'No budget to hold it against', tone: 'neutral' },
+          { when: rule('at_most', ['committed_with_variations', 'budget_total'], 'Committed with variations is {a} against a budget of {b}.', 'high'), label: 'Committed above the budget', tone: 'critical' },
+          { when: WAITING_ON_FINANCE, label: 'An approved variation is not on the Cost Report', tone: 'warning' },
+          { when: rule('compare', ['committed', 'committed_on_check'], 'The contracts add to {a} and the commitments check records {b}: {divergence} apart.', 'medium'), label: 'Differs from the commitments check', tone: 'warning' },
+        ],
+        otherwise: { label: 'Within the budget', tone: 'good' },
+      },
     ],
+    fields: [
+      worked('variations_waiting', 'Approved variations waiting on Finance', figure('cost_report.variation_offers'), { section: 'awards', tier: 'situational', showWhen: ANY_VARIATION }),
+      worked('variations_waiting_value', 'Approved and not yet on the Cost Report', figure('cost_report.variation_offers_value'), { ...INR, section: 'awards', tier: 'situational', showWhen: ANY_VARIATION }),
+    ],
+    rules: [WAITING_ON_FINANCE],
+  },
+  {
+    set: B_REPORT,
+    // The same figure where the report is read: its orders issued do not yet carry what Procurement has approved. Commitments says it as a line; it is not said twice.
+    fields: [worked('variations_waiting_value', 'Approved variations not yet on the report', figure('cost_report.variation_offers_value'), { ...INR, section: 'movement', tier: 'situational', showWhen: ANY_VARIATION })],
   },
   { set: V_CONCLUSION, reports: [VALUATION_REPORT] },
   { set: F_DECISION, reports: [APPRAISAL_REPORT] },

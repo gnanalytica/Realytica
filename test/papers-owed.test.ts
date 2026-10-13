@@ -117,12 +117,16 @@ describe('papers owed, as one list', () => {
     ensureWorkstreamChecks(p, ['construction.quality'], LEAD);
     const expected = requirementSheet(p).total;
     assert.ok(expected > 0, 'the checks expect documents');
+    // What the checks would expect and nobody has asked for is a list to pick from, not papers owed: it is counted nowhere.
     const both = papersOwed(p, { now: NOW });
-    assert.equal(both.total, 8 + expected, 'what the checks expect joins the same list');
-    assert.equal(both.total, requirementSheet(p).total + checklistSheet(p).total + 2, 'and nothing is counted twice or dropped');
-    const soil = lineOf(p, 'Soil investigation report');
+    assert.equal(both.total, 8, 'a document nobody asked for is not owed by anybody');
+    assert.deepEqual([both.owed, both.notAsked], [7, 4]);
+    assert.equal(both.expected.length, expected);
+    assert.equal(both.total + both.expected.length, requirementSheet(p).total + checklistSheet(p).total + 2, 'and nothing is counted twice or dropped');
+    const soil = both.expected.find((line) => line.title === 'Soil investigation report')!;
     assert.deepEqual([soil.from, soil.standing, soil.party, soil.department], ['checks', 'not_asked', undefined, 'construction']);
     assert.equal(paperLineSaid(soil, (iso) => iso.slice(0, 10)), 'A check expects it');
+    assert.ok(!both.parties.some((party) => party.lines.includes(soil)), 'and it is under nobody');
   });
 
   it('groups what is owed by who owes it, whoever has answered first and nobody named last', () => {
