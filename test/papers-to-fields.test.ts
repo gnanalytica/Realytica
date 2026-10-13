@@ -238,7 +238,7 @@ describe('the catalog of papers', () => {
 
   it('lists the kinds of paper no field reads yet', () => {
     // Not a fault: a list to work down. A kind added with no field to read it shows here.
-    assert.deepEqual(papersNoFieldReads(), ['Zoning certificate', 'Occupancy certificate', 'Utility NOC', 'Certificate of incorporation', 'TDS certificate', 'Running account bill', 'Payment receipt']);
+    assert.deepEqual(papersNoFieldReads(), ['Zoning certificate', 'Occupancy certificate', 'Utility NOC', 'Certificate of incorporation', 'TDS certificate', 'Running account bill', 'Payment receipt', 'Cost report', 'Technical due diligence report']);
   });
 
   it('files every kind of paper under a function that exists', () => {

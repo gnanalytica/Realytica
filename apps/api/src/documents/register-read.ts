@@ -63,6 +63,7 @@ import {
   offerPaperToSheets,
 } from '@realytica/shared';
 import { mergeModelReading, needsModelReading, readIngestLocally } from './intake';
+import { offerRowsOfPaper } from './offers';
 import { PAPERS_AT_ONCE, together } from './together';
 
 export interface RegisterUpload {
@@ -303,6 +304,8 @@ export async function readOntoRegister(
     // A waiting row is answered by a paper somebody, or the rules, said is that paper. Never on a model's word alone, and never by
     // a reading its own row does not go by.
     if (named) absorbAnsweredGaps(project, evidence);
+    // A cost report's rows and a report's observations are offered as it is put on its row, from the words read here: to the Cost Report, to Technical.
+    if (named) offerRowsOfPaper(project, evidence.id, file);
     return { upload, file, known, label, ...(offer ? (known ? { readAs: offer } : { offered: offer }) : {}) };
   };
 

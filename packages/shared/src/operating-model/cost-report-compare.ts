@@ -73,6 +73,8 @@ export interface CostReportPackageChange {
   unexplained: number;
   /** The one line a person typed against this change, kept on the current report. */
   reason?: string;
+  /** Certified to date then and now, where either report states it for the package. */
+  certified?: CostReportMovement;
 }
 
 export interface CostReportSide {
@@ -113,6 +115,8 @@ export interface CostReportComparison {
     /** The sum of the packages' unexplained amounts, and how many packages have one. */
     unexplained: number;
     unexplainedPackages: number;
+    /** Certified to date then and now, where either report states it. */
+    certified?: CostReportTotalMovement;
   };
   /** Variations on the current report that name no package. They are set against no package's change. */
   unassignedVariations: Array<Extract<CostReportChangeCause, { kind: 'variation' }>>;
@@ -192,7 +196,8 @@ export function costReportDecisions(report: Pick<CostReportPeriod, 'rows'>): Cos
         over: less(row.anticipatedCost, row.budget),
       })),
     unawarded: report.rows
-      .filter((row) => row.poIssued === 0)
+      // Money set aside and the consultant's own fee are not packages waiting to be awarded.
+      .filter((row) => row.poIssued === 0 && !row.kind)
       .map((row) => ({ workPackageId: row.workPackageId, ...(row.code ? { code: row.code } : {}), name: row.name, budget: row.budget })),
   };
 }
@@ -239,6 +244,10 @@ export function compareCostReports(previous: CostReportPeriod, current: CostRepo
       COST_REPORT_FIGURES.map((f) => [f, { previous: previousFigures[f], current: currentFigures[f], change: less(currentFigures[f], previousFigures[f]) }]),
     ) as Record<CostReportFigure, CostReportMovement>;
     const causes: CostReportChangeCause[] = [...variations];
+    const certified: CostReportMovement | undefined =
+      held.certified === undefined && row.certified === undefined
+        ? undefined
+        : { ...(held.certified !== undefined ? { previous: held.certified } : {}), ...(row.certified !== undefined ? { current: row.certified } : {}), change: less(row.certified ?? 0, held.certified ?? 0) };
     let left = less(figures.anticipatedCost.change, sum(variations.map((v) => v.amount)));
     if (held.poIssued === 0 && row.poIssued > 0) {
       const amount = awardShare(left, less(row.poIssued, held.anticipatedCost));
@@ -247,11 +256,12 @@ export function compareCostReports(previous: CostReportPeriod, current: CostRepo
     }
     packages.push({
       ...said,
-      status: COST_REPORT_FIGURES.some((f) => figures[f].change !== 0) ? 'moved' : 'unchanged',
+      status: COST_REPORT_FIGURES.some((f) => figures[f].change !== 0) || (certified?.change ?? 0) !== 0 ? 'moved' : 'unchanged',
       figures,
       causes,
       unexplained: left,
       ...(reason ? { reason } : {}),
+      ...(certified ? { certified } : {}),
     });
   }
 
@@ -298,6 +308,7 @@ export function compareCostReports(previous: CostReportPeriod, current: CostRepo
       removed: sum(packages.filter((p) => p.status === 'removed').map((p) => p.figures.anticipatedCost.previous ?? 0)),
       unexplained: sum(unexplained.map((p) => p.unexplained)),
       unexplainedPackages: unexplained.length,
+      ...(then.certified !== undefined || today.certified !== undefined ? { certified: total(then.certified ?? 0, today.certified ?? 0) } : {}),
     },
     unassignedVariations: variationCauses(current, undefined),
     decisions: costReportDecisions(current),

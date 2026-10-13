@@ -14,6 +14,7 @@ import { CONSTRUCTION_PROCUREMENT_FIELD_SETS, CONSTRUCTION_PROCUREMENT_RULE_ROWS
 import { EXAMPLE_LAND_HOLDING } from './example-land-holding';
 import { FINANCE_RULE_ROWS, FINANCE_TAX_LENDERS_FIELD_SETS } from './finance-tax-lenders';
 import { LAW_LIAISON_FIELD_SETS } from './law-liaison';
+import { REPORT_OBSERVATION_FIELD_SETS } from './report-observations';
 import { BASE_RULE_ROWS } from './rule-rows';
 import { LAW_LIAISON_RULE_ROWS } from './rules/law-liaison';
 import { SALES_MARKETING_RULE_ROWS } from './rules/sales-marketing';
@@ -33,6 +34,7 @@ export const FIELD_SETS: readonly FieldSet[] = [
   ...FINANCE_TAX_LENDERS_FIELD_SETS,
   ...DESIGN_FIELD_SETS,
   ...CONSTRUCTION_PROCUREMENT_FIELD_SETS,
+  ...REPORT_OBSERVATION_FIELD_SETS,
   ...SALES_MARKETING_FIELD_SETS,
 ];
 

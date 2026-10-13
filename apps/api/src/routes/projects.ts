@@ -252,8 +252,9 @@ import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
 import { PAPERS_AT_ONCE, together } from '../documents/together';
-import { droppedUnread, isNotReadYetCard, notReadYetCard } from '../documents/dropped';
+import { droppedUnread, isNotReadYetCard, noteAsked, notReadYetCard, wasAsked } from '../documents/dropped';
 import { droppedAnswer, droppedChoices, takenInSaid, unsureSaid, whatWasDropped, type Dropped } from '../documents/questionnaire-drop';
+import { offerModelRowsOfPaper, offerRowsOfPaper, readCostPictures, rowsOfferedSaid } from '../documents/offers';
 import type { ReadQuestionnaire } from '../documents/questionnaire-file';
 import { wordsOfDocx } from '../documents/docx-outline';
 import { capturedFrom, fileSitePhoto, readSitePhoto, takeVoiceNote, type DropCaptured } from '../documents/site-drop';
@@ -2555,6 +2556,10 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     if (sorted.as === 'unsure' || !sorted.read) {
       const between = sorted.as === 'unsure' ? sorted.between : 'questionnaire';
       unsure.push({ index, fileName: row.fileName, between });
+      // Asked about, and so not being read: its note says so, and a page opened meanwhile does not say it is on its way.
+      noteAsked(new Set([project, canvas]), row.storageKey, between);
+      project.updatedAt = new Date().toISOString();
+      await store.save();
       reading({ type: 'reading', event: 'read', key: row.storageKey, facts: [], failure: `Not read yet: ${between === 'photo' ? 'a photograph of the site' : 'a questionnaire'}, or a paper to file? Say which in the chat.` });
       return 'asked';
     }
@@ -2570,7 +2575,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
    * instance, so the paper lands on the file as it stands now. A paper that
    * could not be put there is left for the turn to file with the rest.
    */
-  const land = async (paper: ChatIngestFile, index: number): Promise<void> => {
+  const land = async (paper: ChatIngestFile, index: number, bytes?: Buffer): Promise<void> => {
     try {
       // Each page's text beside its file, so a later question can be answered from the whole paper.
       await keepPageTexts(project.id, [paper]);
@@ -2581,8 +2586,20 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
       // How much of the file was read goes with the file, onto its row.
       keepReadings(canvas, [paper]);
       if (canvas !== project) keepReadings(project, [paper]);
+      // A cost report's rows and a report's observations are offered as it lands: to the Cost Report, to Technical. Each waits for a person.
+      let rows = offerRowsOfPaper(canvas, evidenceId, paper);
       project.updatedAt = new Date().toISOString();
       await store.save();
+      // Tables that are pictures, where a model is set up: it is shown those pages once the paper is safely on the file.
+      if (evidenceId && bytes && rows.askModel?.length) {
+        const answered = await readCostPictures(paper, bytes, rows.askModel);
+        if (answered) {
+          await store.syncProject(project.id, { force: true });
+          rows = offerModelRowsOfPaper(canvas, evidenceId, paper, answered);
+          project.updatedAt = new Date().toISOString();
+          await store.save();
+        }
+      }
       read[index] = { ...paper, landed: true };
       landedOn[index] = evidenceId;
       const row = evidenceId ? canvas.evidence.find((e) => e.id === evidenceId) : undefined;
@@ -2594,7 +2611,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
           id: randomUUID(),
           at: new Date().toISOString(),
           kind: 'tool_result',
-          label: `${paper.fileName} is on the file${waiting ? `, ${plural(waiting, 'value')} waiting` : paper.readFailure ? ', unread' : ''}`,
+          label: `${paper.fileName} is on the file${waiting ? `, ${plural(waiting, 'value')} waiting` : paper.readFailure ? ', unread' : ''}${rowsOfferedSaid(rows) ? `, ${rowsOfferedSaid(rows)}` : ''}`,
         },
       });
     } catch (err) {
@@ -2635,7 +2652,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
        * just read, and before a model is asked or anything is put on a row.
        */
       // What a person said the file is: pressed for a file held earlier, or typed with the file as it is dropped again.
-      const said = fields.dropAs?.get(storageKey) ?? (fields.saidOf?.fileName === row.fileName ? fields.saidOf.as : undefined);
+      // A file the chat asked about once, read again with no answer given, is a paper: the question is not put twice.
+      const said = fields.dropAs?.get(storageKey) ?? (fields.saidOf?.fileName === row.fileName ? fields.saidOf.as : undefined) ?? (file.storageKey && wasAsked(project, storageKey) ? 'paper' : undefined);
       const what = await whatWasDropped({
         project,
         paper,
@@ -2728,7 +2746,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     read[index] = paper;
     // Notes of a meeting are no paper: the turn keeps them as a meeting, or asks. Their pages are still kept, with the turn.
     if (notes !== 'no') return 'read';
-    await link(row.fileName, () => land(paper, index));
+    await link(row.fileName, () => land(paper, index, file.buffer));
     return 'read';
   });
   await landing;

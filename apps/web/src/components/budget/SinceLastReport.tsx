@@ -147,6 +147,11 @@ export function SinceLastReport({
           </details>
         ) : null}
 
+        {comparison.totals.certified ? (
+          <p className="text-[13px] text-ink-secondary">
+            Certified to date: {moneySaid(comparison.totals.certified.previous, currency)} then, {moneySaid(comparison.totals.certified.current, currency)} now, {signed(comparison.totals.certified.change, currency)}
+          </p>
+        ) : null}
         {unexplained ? <p className="text-[13px] text-[var(--status-warning-text)]">{unexplained}</p> : null}
         {loose ? <p className="text-[13px] text-ink-secondary">{loose}</p> : null}
         {billed ? <p className="text-[13px] text-ink-secondary">{billed}</p> : null}

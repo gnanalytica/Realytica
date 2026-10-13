@@ -74,6 +74,8 @@ export interface PageRead {
   layerDiscarded?: boolean;
   /** Why no reader here got words from it, when none did. */
   unread?: 'past_ocr_limit' | 'past_page_limit' | 'out_of_time' | 'nothing_legible';
+  /** A page of type that also holds a large picture OCR could not read as writing: a photograph, or a table too poor to read. */
+  pictureUnread?: boolean;
 }
 
 /** One word as read, and where it sits: fractions of the page's width and height from its top left. */
@@ -115,6 +117,10 @@ const IMAGE_TYPES = /^image\/(?:jpe?g|png|gif|bmp|tiff?|webp|x-portable)/i;
 const IMAGE_EXT = /\.(?:jpe?g|png|gif|bmp|tiff?|webp|pnm|ppm|pgm)$/i;
 /** A page with fewer characters than this has no usable text layer. */
 const MIN_TEXT_CHARS = 40;
+/** A page of type with fewer characters than this may be a heading and a footer round a picture of a table. */
+const THIN_LAYER_CHARS = 500;
+/** A picture at least this large may be a table: 800 by 500, where a logo or a signature is a tenth of it. */
+const PICTURE_OF_A_TABLE_PIXELS = 400_000;
 
 /**
  * Whether a text layer is words or a font's private codes.
@@ -477,6 +483,61 @@ function quarterTurns(from: Grey, turns: number): Grey {
   return n === 2 ? { grey: out, width: w, height: h } : { grey: out, width: h, height: w };
 }
 
+/** Darker than this (of 255), a pixel is ink. */
+const INK_BELOW = 150;
+/** Lighter than this and not white, a pixel is a tint laid behind a row of a table. */
+const TINT_FROM = 190;
+
+/**
+ * A page without the rules drawn on it, and how many strokes were taken off.
+ *
+ * A table of figures is ruled into cells, and the recogniser reads a rule that
+ * touches a figure as part of it: measured on an invented cost report drawn at
+ * 300 dpi, half the rows of a ruled table came back lost or with a digit
+ * changed ("85,00,000" as "5500000]"), and every row of the same table read
+ * once its rules were lifted. A rule is a run of ink far longer than any stroke
+ * of a letter, across or down; it is painted out with the pixel either side of
+ * it, where its blur is. A tint laid behind a heading row goes too, so the
+ * words on it stand on white.
+ */
+function withoutRules(from: Grey): { page: Grey; strokes: number } {
+  const { grey, width: w, height: h } = from;
+  const out = Buffer.from(grey);
+  for (let i = 0; i < out.length; i += 1) if (out[i]! >= TINT_FROM) out[i] = 255;
+  const across = Math.max(100, Math.round(w * 0.04));
+  const down = Math.max(100, Math.round(h * 0.05));
+  let strokes = 0;
+  for (let y = 0; y < h; y += 1) {
+    let start = -1;
+    for (let x = 0; x <= w; x += 1) {
+      const ink = x < w && grey[y * w + x]! < INK_BELOW;
+      if (ink && start < 0) start = x;
+      if (!ink && start >= 0) {
+        if (x - start >= across) {
+          strokes += 1;
+          for (let row = Math.max(0, y - 1); row <= Math.min(h - 1, y + 1); row += 1) out.fill(255, row * w + start, row * w + x);
+        }
+        start = -1;
+      }
+    }
+  }
+  for (let x = 0; x < w; x += 1) {
+    let start = -1;
+    for (let y = 0; y <= h; y += 1) {
+      const ink = y < h && grey[y * w + x]! < INK_BELOW;
+      if (ink && start < 0) start = y;
+      if (!ink && start >= 0) {
+        if (y - start >= down) {
+          strokes += 1;
+          for (let row = start; row < y; row += 1) for (let col = Math.max(0, x - 1); col <= Math.min(w - 1, x + 1); col += 1) out[row * w + col] = 255;
+        }
+        start = -1;
+      }
+    }
+  }
+  return { page: { grey: out, width: w, height: h }, strokes };
+}
+
 /** A stroke with this much ink across a strip of the page (of 255) is a drawn rule: a line of writing puts far less there. */
 const RULE_INK = 80;
 /** The steps either side of a rule that carry its blur, and are left out with it. */
@@ -831,6 +892,9 @@ function unturned(word: LayoutWord, turns: number): LayoutWord {
  */
 const TURN_BELOW_CONFIDENCE = 65;
 
+/** A page with this many drawn strokes on it is ruled into a table: a box round a page is four, a signature line one. */
+const RULED_FROM_STROKES = 12;
+
 /**
  * OCR of one scanned page: read as its PDF shows it, and turned only where
  * that does not read.
@@ -861,6 +925,19 @@ async function ocrPage(image: PageImage, rotate: number): Promise<OcrRead & { tu
       if (read.confidence > best.confidence) best = read;
       // Turned the right way it reads; the other way would be upside down.
       if (read.confidence >= TURN_BELOW_CONFIDENCE) break;
+    }
+  }
+  // A page ruled into a table, read unsurely: read once more with its rules lifted, and the surer reading kept.
+  if (best.unsure && best.confidence >= TURN_BELOW_CONFIDENCE) {
+    const scale = Math.max(image.width, image.height) > MAX_OCR_EDGE ? 2 : 1;
+    const { page, strokes } = withoutRules(quarterTurns(greyPixels(image, scale), best.turn));
+    if (strokes >= RULED_FROM_STROKES) {
+      try {
+        const unruled = await ocrImage(Buffer.concat([Buffer.from(`P5\n${page.width} ${page.height}\n255\n`), page.grey]), { width: page.width, height: page.height });
+        if (unruled.confidence > best.confidence) best = { ...unruled, turn: best.turn };
+      } catch {
+        /* the reading with its rules stands */
+      }
     }
   }
   const { turn, ...read } = best;
@@ -969,6 +1046,8 @@ export async function readDocumentText(
   const confidences: number[] = [];
   const layout: PageLayout[] = [];
   const pageReads: PageRead[] = [];
+  /** Pictures on pages of type that OCR was run on and that did not read as writing. */
+  let pictureTries = 0;
   let cut = false;
   try {
     for (let n = 1; n <= last; n += 1) {
@@ -999,7 +1078,7 @@ export async function readDocumentText(
       const scanned = text.replace(/\s/g, '').length < MIN_TEXT_CHARS;
       if (outOfTime && scanned) cut = true;
       /** OCR was to be tried on it: it has no text layer to speak of, and neither limit was reached. */
-      const tried = scanned && ocrPages.length < maxOcrPages && !outOfTime;
+      const tried = scanned && ocrPages.length + pictureTries < maxOcrPages && !outOfTime;
       /** The page is a picture of a page. */
       let picture = false;
       if (tried) {
@@ -1025,6 +1104,36 @@ export async function readDocumentText(
           /* the page stays as whatever its text layer held */
         }
       }
+      /*
+       * A page with a line or two of its own words and a large picture: a
+       * report's page whose heading and footer are type and whose table is a
+       * picture of a table. Its words alone say nothing of what it holds, so
+       * the picture is read too, and kept where it reads as writing. A
+       * photograph does not, and is left a photograph. Each try counts
+       * towards the pages OCR may take, read or not.
+       */
+      if (!scanned && !outOfTime && ocrPages.length + pictureTries < maxOcrPages && text.replace(/\s/g, '').length < THIN_LAYER_CHARS) {
+        try {
+          const image = await pageImage(pdfjs, page);
+          if (image && image.width * image.height >= PICTURE_OF_A_TABLE_PIXELS) {
+            pictureTries += 1;
+            progress(totalPages > 1 ? `Running OCR on the picture on page ${n} of ${totalPages}` : 'Running OCR on the picture');
+            const ocr = await ocrPage(image, page.rotate);
+            if (ocr.confidence >= TURN_BELOW_CONFIDENCE && ocr.text.replace(/\s/g, '').length >= MIN_TEXT_CHARS) {
+              pictureTries -= 1;
+              text = `${text}\n${ocr.text.trim()}`;
+              // Where OCR found each word is a place on the picture, which is not the whole page, so its words are kept and their places are not.
+              ocrPages.push(n);
+              confidences.push(ocr.confidence);
+              read.reader = 'ocr';
+              read.confidence = Math.round(ocr.confidence);
+              if (ocr.unsure) read.unsure = true;
+            } else read.pictureUnread = true;
+          }
+        } catch {
+          /* the page stays as its text layer has it */
+        }
+      }
       if (read.reader === 'none') {
         /*
          * A few words of text layer are the page's own words only where the
@@ -1035,7 +1144,7 @@ export async function readDocumentText(
          */
         const footer = scanned && (picture || !tried);
         if (text.trim() && !footer) read.reader = 'text';
-        else read.unread = outOfTime ? 'out_of_time' : scanned && ocrPages.length >= maxOcrPages ? 'past_ocr_limit' : 'nothing_legible';
+        else read.unread = outOfTime ? 'out_of_time' : scanned && ocrPages.length + pictureTries >= maxOcrPages ? 'past_ocr_limit' : 'nothing_legible';
       }
       pages.push(text);
       pageReads.push(read);

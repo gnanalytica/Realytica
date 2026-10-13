@@ -85,6 +85,17 @@ const NOISE = new Set([
   'with',
 ]);
 
+/**
+ * Words any paper of a project carries, which say nothing of which paper a
+ * file is, however few of the register's titles happen to hold them.
+ *
+ * Weighting by rarity alone took "client" for the word that identifies
+ * "Client brief" on a register with one such row, and offered a file named
+ * "Client information checklist" for it: one shared word, half the title's
+ * weight. A file is matched to a row on a word that tells papers apart.
+ */
+const GENERIC = new Set(['client', 'clients', 'drawing', 'drawings', 'detail', 'details', 'report', 'reports', 'list', 'lists', 'work', 'works', 'information', 'document', 'documents']);
+
 function words(s: string): string[] {
   return s
     .toLowerCase()
@@ -130,6 +141,11 @@ function scoreAgainst(fileWords: Set<string>, row: MatchRow, weight: Map<string,
   const titleWords = [...new Set(words(row.title))];
   if (titleWords.length === 0) return NO_FIT;
 
+  // A title is known by the words that tell papers apart. One made only of words any paper carries ("Drawing list") is known by all of them together.
+  const telling = titleWords.filter((w) => !GENERIC.has(w));
+  if (!telling.length && !titleWords.every((w) => fileWords.has(w))) return NO_FIT;
+  const identifies = new Set(telling.length ? telling : titleWords);
+
   let matched = 0;
   let all = 0;
   let bestHit = 0;
@@ -137,10 +153,10 @@ function scoreAgainst(fileWords: Set<string>, row: MatchRow, weight: Map<string,
   for (const w of titleWords) {
     const wt = weight.get(w) ?? 1;
     all += wt;
-    topWord = Math.max(topWord, wt);
+    if (identifies.has(w)) topWord = Math.max(topWord, wt);
     if (fileWords.has(w)) {
       matched += wt;
-      bestHit = Math.max(bestHit, wt);
+      if (identifies.has(w)) bestHit = Math.max(bestHit, wt);
     }
   }
   if (all === 0) return NO_FIT;

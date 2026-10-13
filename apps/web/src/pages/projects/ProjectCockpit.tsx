@@ -60,7 +60,7 @@ import {
 } from '../../lib/reading';
 import { mustFitOneMessage, readyToSend } from '../../lib/site-capture';
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
-import { ReadingContinues } from '../../components/reading/ReadingContinues';
+import { DroppedHeld, ReadingContinues } from '../../components/reading/ReadingContinues';
 import { forgetReading, rememberReading } from '../../lib/reading-pending';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Spinner, cn, useToast } from '../../components/ui/kit';
@@ -1245,7 +1245,16 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         <div ref={workScrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
           {/* Summary is analytics only — decide waiting on the function tabs. */}
           {/* Papers dropped before a reload, still being read: said here, each as it lands. */}
-          <ReadingContinues project={project} refresh={refresh} live={sending.some((message) => message.files.length > 0)} onOpenPaper={(evidenceId) => goPane('evidence', { evidenceId })} />
+          <ReadingContinues
+            project={project}
+            refresh={refresh}
+            live={sending.some((message) => message.files.length > 0)}
+            onOpenPaper={(evidenceId) => goPane('evidence', { evidenceId })}
+            onSay={(sentence) => void handleAsk(sentence)}
+            onChanged={setProject}
+          />
+          {/* A dropped file nobody said what to do with is answered here, where the papers are. */}
+          {pane === 'evidence' ? <DroppedHeld project={project} onSay={(sentence) => void handleAsk(sentence)} /> : null}
           {pane === 'department' ? null : (
             <WaitingHere
               project={project}

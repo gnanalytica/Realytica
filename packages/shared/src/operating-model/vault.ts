@@ -101,6 +101,8 @@ export const DOCUMENT_WORKSTREAM: Readonly<Record<string, string>> = {
   'Brokerage invoice': 'commercial.inventory',
   'RERA agent registration certificate': 'commercial.inventory',
   'Empanelment letter': 'commercial.inventory',
+  'Cost report': 'finance.budget',
+  'Technical due diligence report': 'construction.quality',
 };
 
 /** The workstream a document belongs to, or undefined while nothing says. */

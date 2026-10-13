@@ -76,9 +76,13 @@ import {
   costReportTotals,
   costSummary,
   importCostReportRows,
+  acceptCostOffer,
+  acceptCostOffersOnPage,
+  costCheckSaid,
+  previewCostReportImport,
+  setAsideCostOffer,
   importSchedule,
   issueCostReport,
-  parseCostReportTable,
   parseScheduleTable,
   recordPayment,
   reopenCostReport,
@@ -205,6 +209,7 @@ import { QUESTIONNAIRE_FILE_SAID, QuestionnaireTooLarge, WorkbookPartsTooLarge, 
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 import { withSentFileName } from '../uploads';
 import { tableTextOf } from '../documents/table-file';
+import { setDroppedAside } from '../documents/dropped';
 import { tenderFormXlsx } from '../documents/tender-form-file';
 
 type Params = { projectId: string };
@@ -711,6 +716,14 @@ const costReportRow = z.object({
   note: z.string().max(2000).nullable().optional(),
 });
 
+/** What a consultant's report states of a package besides the four figures: its own optional members of a row. Null takes one off. */
+const costReportRowMore = {
+  certified: moneyField.nullable().optional(),
+  awardedTo: z.string().trim().max(200).nullable().optional(),
+  variations: z.number().finite().min(-1e13).max(1e13).nullable().optional(),
+  kind: z.enum(['contingency', 'fee']).nullable().optional(),
+};
+
 projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:reportId/packages', async (req, res) => {
   const project = load(req, res);
   if (!project) return;
@@ -755,6 +768,7 @@ const costReportRowPatch = z.object({
   amountPaid: moneyField.nullable().optional(),
   anticipatedCost: moneyField.nullable().optional(),
   note: z.string().max(2000).nullable().optional(),
+  ...costReportRowMore,
 });
 
 projectWorkspaceRouter.patch<Params & { reportId: string; rowId: string }>('/cost-reports/:reportId/packages/:rowId', async (req, res) => {
@@ -989,15 +1003,121 @@ projectWorkspaceRouter.post<Params & { reportId: string }>('/cost-reports/:repor
       res.status(400).json({ error: 'Upload a CSV/Excel file or paste the ledger table.' });
       return;
     }
-    const rows = parseCostReportTable(text);
-    const result = importCostReportRows(project, req.params.reportId, rows, actorOf(principalOf(req)));
+    // Read first, and shown: the rows it would take, the lines it read as headings and totals, and whether the rows add up to the
+    // table's own total. Nothing is written until the person confirms what they were shown.
+    const preview = previewCostReportImport(project, req.params.reportId, text);
+    const check = costCheckSaid(preview.read, project.currency);
+    const confirmed = req.body?.confirm === true || req.body?.confirm === 'true';
+    if (!confirmed) {
+      res.json({ preview, check });
+      return;
+    }
+    if (!preview.rows.length) throw new Error('No package rows were found in that table.');
+    const result = importCostReportRows(project, req.params.reportId, preview.rows.map(({ line: _line, quote: _quote, on: _on, unplaced: _unplaced, problems: _problems, ...row }) => row), actorOf(principalOf(req)), preview.read);
     const report = costReportOf(project, req.params.reportId);
     touch(project);
     await store.save();
-    res.json({ project, report, totals: costReportTotals(report), ...result });
+    res.json({ project, report, totals: costReportTotals(report), ...result, check });
   } catch (err) {
     failed(res, err, 'Could not import that ledger');
   }
+});
+
+/*
+ * Rows a cost report filed as a paper offers to the Cost Report. Accepting is
+ * a decision, as accepting any offered value is: a lead or signer of Finance.
+ * A row may be corrected as it is accepted; nothing offered is written before.
+ */
+const offeredCell = z.number().finite().min(-1e13).max(1e13);
+const costOfferAccept = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  budget: moneyField.optional(),
+  poIssued: moneyField.optional(),
+  amountPaid: moneyField.optional(),
+  anticipatedCost: moneyField.optional(),
+  certified: moneyField.optional(),
+  variations: offeredCell.optional(),
+  awardedTo: z.string().trim().max(200).optional(),
+  kind: z.enum(['contingency', 'fee']).nullable().optional(),
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string; evidenceId: string; offerId: string }>('/cost-reports/:reportId/offers/:evidenceId/:offerId/accept', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  const parsed = costOfferAccept.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the cells to correct, each an amount or a name.' });
+    return;
+  }
+  try {
+    const row = acceptCostOffer(project, req.params.evidenceId, req.params.offerId, req.params.reportId, actorOf(principalOf(req)), parsed.data);
+    const report = costReportOf(project, req.params.reportId);
+    touch(project);
+    await store.save();
+    res.json({ project, report, row, totals: costReportTotals(report) });
+  } catch (err) {
+    failed(res, err, 'Could not accept that row');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string; evidenceId: string }>('/cost-reports/:reportId/offers/:evidenceId/accept-page', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  const page = z.object({ page: z.number().int().min(1).max(5000) }).safeParse(req.body);
+  if (!page.success) {
+    res.status(400).json({ error: 'Say which page.' });
+    return;
+  }
+  try {
+    const result = acceptCostOffersOnPage(project, req.params.evidenceId, page.data.page, req.params.reportId, actorOf(principalOf(req)));
+    const report = costReportOf(project, req.params.reportId);
+    if (result.accepted) {
+      touch(project);
+      await store.save();
+    }
+    res.json({ project, report, totals: costReportTotals(report), ...result });
+  } catch (err) {
+    failed(res, err, 'Could not accept the rows of that page');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { evidenceId: string; offerId: string }>('/cost-papers/:evidenceId/offers/:offerId/set-aside', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'finance', 'decide')) return;
+  try {
+    const offer = setAsideCostOffer(project, req.params.evidenceId, req.params.offerId, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, offer });
+  } catch (err) {
+    failed(res, err, 'Could not set that row aside');
+  }
+});
+
+/**
+ * Set a dropped file aside: one the chat asked about and nobody answered, or
+ * one a reading left behind. It is kept and held as a paper to file, is said
+ * on no banner, and is still answerable from Documents.
+ */
+projectWorkspaceRouter.post<Params>('/dropped/set-aside', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!staffOnly(req, res)) return;
+  const body = z.object({ storageKey: z.string().min(1).max(400) }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'Say which file.' });
+    return;
+  }
+  if (!setDroppedAside(project, body.data.storageKey)) {
+    res.status(404).json({ error: 'No dropped file by that name is waiting.' });
+    return;
+  }
+  touch(project);
+  await store.save();
+  res.json({ project });
 });
 
 /* ==================================================================== */
