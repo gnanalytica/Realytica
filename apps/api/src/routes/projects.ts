@@ -21,7 +21,7 @@ import {
   projectFor,
   viewFor,
 } from '../auth/access';
-import { actorOf as principalActor, reachesEveryProject } from '@realytica/shared';
+import { actorOf as principalActor, reachesEveryProject, readDocumentTypes } from '@realytica/shared';
 import multer from 'multer';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -2664,6 +2664,8 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
           const [answer] = await enrichIngestWithDocumentIntelligence({
             project: canvas,
             files: [{ ...paper, read: undefined }],
+            // The local reading is not handed over, so what it took the paper for is: the reader answers in that kind's keys.
+            papers: [paper.read?.type],
             buffers: [file.buffer],
             // What this server already read, so a quote found in its page's own
             // words is placed there without another model call.
@@ -4400,6 +4402,8 @@ projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
           },
         ],
         buffers: [Buffer.from(bytes)],
+        // A paper read again from its row is told as the kind the row is typed as.
+        papers: [readDocumentTypes().find(({ label }) => label === project.evidence.find((e) => e.id === target.evidenceId)?.documentType)?.type],
       });
       const row = project.evidence.find((e) => e.id === target.evidenceId);
       if (row && enriched[0]?.extractionNotes) row.extractionNotes = enriched[0].extractionNotes;

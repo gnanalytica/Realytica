@@ -20,6 +20,14 @@ export interface EnrichIngestParams {
    * there without another call.
    */
   pageTexts?: (readonly string[] | undefined)[];
+  /**
+   * What this server's rules took each paper for, aligned with `files`, where
+   * a file is handed over without its local reading: the reader is told the
+   * kind and answers in that kind's keys. Without it a recognised joint
+   * development agreement was read into keys of the reader's own, and none of
+   * its values reached a field.
+   */
+  papers?: (string | undefined)[];
   now?: string;
   onStep?: (step: AgentStep) => void;
   /**
@@ -268,7 +276,8 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
       const only = file.reading?.modelPages;
       const ocrPages = file.reading?.ocrPages;
       // What the rules took the paper for, where they could say: the reader answers in that paper's keys, and its word for the kind stands.
-      const paperRead = file.read && file.read.type !== 'other' ? file.read.type : undefined;
+      const paperSaid = file.read?.type ?? params.papers?.[i];
+      const paperRead = paperSaid && paperSaid !== 'other' ? paperSaid : undefined;
       const result = await runDocumentIntelligence({
         caseId: params.project.id,
         ...(paperRead ? { paper: paperRead } : {}),

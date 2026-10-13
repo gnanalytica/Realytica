@@ -318,7 +318,13 @@ export function factFillProposals(
   pending: ChatProposal[] = [],
   options: { differences?: boolean } = {},
 ): ChatProposal[] {
-  const facts = read.filter(settled);
+  // One parcel's extent is not the holding's. A deed or a record of rights that names fewer survey numbers than the project
+  // holds states the extent of those alone: it goes to that parcel's own record on the sheets, and is offered to no check
+  // that asks for the extent of the whole land.
+  const named = surveyNumbersIn(read.find((fact) => fact.key === 'survey_numbers')?.value ?? '');
+  const held = surveyNumbersIn(project.parcelId ?? '');
+  const ofOneParcel = named.length > 0 && held.length > named.length;
+  const facts = read.filter(settled).filter((fact) => !(ofOneParcel && /^extent_/.test(fact.key)));
   if (!facts.length) return [];
   const out: ChatProposal[] = [];
   for (const seated of everyCheck(project)) {

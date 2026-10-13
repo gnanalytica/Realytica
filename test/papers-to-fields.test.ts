@@ -31,6 +31,7 @@ import { confirmProposedType } from '../apps/api/src/documents/register-read';
 import { enrichIngestWithDocumentIntelligence } from '../packages/agents/src/project/ingest-intelligence';
 import {
   acceptAllFromPaper,
+  factFillProposals,
   answerFromFile,
   approvalsRegister,
   proposeFieldValues,
@@ -39,6 +40,7 @@ import {
   addEvidence,
   addFieldRecord,
   classifyIngestFile,
+  createAssessment,
   createProject,
   decideField,
   documentAnswers,
@@ -437,6 +439,30 @@ describe('a paper dropped in the chat reaches the fields that wait for it', () =
     await drop(p, 'saleDeed');
     assert.equal(fieldRecords(p, 'legal.contracts.purchases').length, 1);
     assert.deepEqual(accepts(p, 'legal.contracts'), []);
+  });
+
+  it('tells the reader the paper’s kind where a file is handed over without its local reading, as the chat’s route hands it', async () => {
+    const p = project();
+    const paper = PAPERS.jointDevelopmentAgreement;
+    const bytes = await pdfOf(paper);
+    let pages: string[] = [];
+    const local = await readIngestLocally({ fileName: paper.fileName, mimeType: 'application/pdf', sizeBytes: bytes.length, storageKey: 'k-route.pdf' }, bytes, undefined, { onPages: (read) => (pages = read) });
+    asked.length = 0;
+    const [model] = await enrichIngestWithDocumentIntelligence({ project: p, files: [{ ...local, read: undefined }], papers: [local.read?.type], buffers: [bytes], pageTexts: [pages] });
+    assert.match(asked[0] ?? '', /recognised here as: joint_development_agreement/);
+    assert.ok((model?.modelFacts ?? []).some((fact) => fact.key === 'owner_share'), 'and its values come back in the catalog’s keys');
+  });
+
+  it('offers one parcel’s extent to no check of the whole land, where the project holds more parcels than the paper names', () => {
+    const read = parseDocumentText([...PAPERS.saleDeed.pages], PAPERS.saleDeed.fileName);
+    const cards = (parcels: string) => {
+      const p = project();
+      p.parcelId = parcels;
+      if (!p.assessments.length) createAssessment(p, { ddType: 'acquisition', name: 'Land diligence', owner: 'tester', targetType: 'project' });
+      return factFillProposals(p, read.facts.map((fact) => ({ ...fact, review: 'accepted' as const })), { fileName: PAPERS.saleDeed.fileName }, 'tester').flatMap((card) => Object.keys((card.payload as { values: Record<string, unknown> }).values));
+    };
+    assert.ok(cards('Sy. No. 41/2').includes('extent_title'), 'the deed of the only parcel states the extent of the land');
+    assert.ok(!cards('Sy. No. 41/2, 41/3, 42/1').includes('extent_title'), 'the deed of one parcel of three does not');
   });
 
   it('shows land in the units its paper writes, with the square metres beside them, and keeps the value the parser read', async () => {
