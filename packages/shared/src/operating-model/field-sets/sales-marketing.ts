@@ -1208,7 +1208,15 @@ const UNIT_POSSESSION_SET: FieldSet = {
   v: 1,
   extends: UNITS,
   situations: [SITUATION_HANDOVER],
-  sections: [{ key: 'possession', label: 'Possession', showWhen: { all: [{ situation: 'handover_and_conveyance' }, { field: unit('sale_allotted_on'), is: 'set' }] } }],
+  // Possession is asked about once the occupancy certificate is issued, and also where a unit is already recorded as taken:
+  // a unit handed over before the certificate is the case Approvals counts, so the day it was taken has to stay in play.
+  sections: [
+    {
+      key: 'possession',
+      label: 'Possession',
+      showWhen: { any: [{ field: unit('handover_taken_on'), is: 'set' }, { all: [{ situation: 'handover_and_conveyance' }, { field: unit('sale_allotted_on'), is: 'set' }] }] },
+    },
+  ],
   fields: [
     paper('handover_offer_letter', 'Possession offer letter', { section: 'possession' }),
     paper('sale_possession_certificate', 'Possession certificate', { section: 'possession', from: 'Possession certificate' }),
