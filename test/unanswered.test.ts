@@ -55,7 +55,9 @@ describe('failureCause', () => {
 describe('unansweredReason', () => {
   it('says whether waiting helps or somebody must change a setting', () => {
     assert.match(unansweredReason('rate_limited'), /again in a minute/);
-    assert.match(unansweredReason('unconfigured'), /no model endpoint is configured/);
+    assert.match(unansweredReason('unconfigured'), /not on the file|not switched on here/);
+    // Said to a partner: what happened and what helps, with no word about what answers behind the page.
+    for (const cause of ['rate_limited', 'unconfigured', 'timeout', 'malformed', 'unknown'] as const) assert.doesNotMatch(unansweredReason(cause), /model|endpoint|deployment/i, cause);
   });
 
   it('never leaks transport detail into a diligence file', () => {
