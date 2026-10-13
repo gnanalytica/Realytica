@@ -221,7 +221,7 @@ describe('the daily timer, through the app', () => {
     const answer = await call('GET', '/api/cron/alerts', { authorization: `Bearer ${SECRET}` });
     assert.equal(answer.status, 200);
     // Every timed job answers under its own key, in the order it ran; the alert counts are the first.
-    assert.deepEqual(Object.keys(answer.body), ['alerts', 'tell', 'drive', 'reportDay', 'webhookRetry', 'lawWatch', 'fileSweep']);
+    assert.deepEqual(Object.keys(answer.body), ['alerts', 'periodsDue', 'tell', 'drive', 'reportDay', 'webhookRetry', 'lawWatch', 'fileSweep']);
     assert.deepEqual(Object.keys(answer.body.alerts).sort(), ['changed', 'failed', 'projects', 'raised', 'resolved']);
     assert.equal(answer.body.alerts.failed, 0);
     assert.ok(answer.body.alerts.projects >= 1);

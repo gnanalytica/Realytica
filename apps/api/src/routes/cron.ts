@@ -196,6 +196,8 @@ const webhookRetryJob: TimedJob = { key: 'webhookRetry', budgetMs: 45 * SECOND, 
 /** The daily run, in order. Alerts first, as before; the two that ask a model last. */
 export const DAILY_JOBS: readonly TimedJob[] = [
   { key: 'alerts', budgetMs: 80 * SECOND, run: async (now) => ({ ...(await sweepAlerts(now)) }) },
+  // A period that has ended and is not issued is told to whoever issues it, once: written here, and sent with the notices below.
+  { key: 'periodsDue', budgetMs: 30 * SECOND, run: async (now) => (await import('../cron/periods-due')).periodsDueSweep(now) },
   tellJob,
   driveJob,
   { key: 'reportDay', budgetMs: 45 * SECOND, run: async (now) => (await import('../cron/report-day')).reportDay(now) },

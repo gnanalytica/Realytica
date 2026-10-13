@@ -47,7 +47,7 @@ function noted(specs: Array<{ key: string; budgetMs?: number; run?: () => Promis
 
 describe('what each timer runs', () => {
   it('the daily run holds every job, alerts first and the two that ask a model last', () => {
-    assert.deepEqual(cron.DAILY_JOBS.map((job) => job.key), ['alerts', 'tell', 'drive', 'reportDay', 'webhookRetry', 'lawWatch', 'fileSweep']);
+    assert.deepEqual(cron.DAILY_JOBS.map((job) => job.key), ['alerts', 'periodsDue', 'tell', 'drive', 'reportDay', 'webhookRetry', 'lawWatch', 'fileSweep']);
   });
 
   it('the ten-minute run sends notices and retries webhooks; the hourly run reads the folders', () => {
