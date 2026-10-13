@@ -20,7 +20,7 @@ import { costReportIssuedBefore, costReportTotals, costReportsOf } from './cost-
 import { daySaid } from './said';
 import { scheduleWatch } from './milestone-schedule';
 import { DEPARTMENT_SHORT, menuDepartment } from './departments';
-import { PAPERS_OWED, paperPlace, papersHeldAt, papersOwed, type PaperLine, type PapersPlace } from './papers-owed';
+import { PAPERS_OWED, notAskedSaid, paperPlace, papersHeldAt, papersOwed, type PaperLine, type PapersPlace } from './papers-owed';
 import { projectDepartments } from './team';
 import type { DdProject } from './types';
 
@@ -159,7 +159,7 @@ export function projectBrief(project: DdProject, now: Date, opts: { outside?: bo
             ...(named.length > shown.length ? [{ text: `${named.length - shown.length} more`, open: at(named.slice(shown.length).flatMap((party) => party.lines)) }] : []),
           ]
         : [],
-      quiet: owed.notAsked ? `Nothing owed. ${plural(owed.notAsked, 'paper')} on the list, not asked for yet.` : owed.total ? `All ${owed.total} in hand.` : 'Nothing asked for yet. Load the list of papers on a department’s Documents.',
+      quiet: owed.notAsked ? notAskedSaid(owed.notAsked) : owed.total ? `All ${owed.total} in hand.` : 'Nothing asked for yet. Load the list of papers on a department’s Documents.',
       open: most,
     });
   }

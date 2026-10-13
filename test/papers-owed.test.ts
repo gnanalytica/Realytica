@@ -103,7 +103,7 @@ describe('papers owed, as one list', () => {
     const view = papersOwed(p, { now: NOW });
     assert.equal(view.total, 8);
     assert.deepEqual([view.owed, view.notAsked, view.asked, view.answered, view.inHand.length, view.overdue], [7, 4, 2, 1, 1, 1]);
-    assert.equal(papersOwedSaid(view), '7 owed · 1 to confirm · 2 asked for · 4 not asked · 1 overdue');
+    assert.equal(papersOwedSaid(view), '3 owed · 1 to confirm · 2 asked for · 4 not asked · 1 overdue');
     assert.equal(lineOf(p, 'Cube test results').standing, 'not_asked');
     assert.equal(lineOf(p, 'Lift shop drawings').standing, 'asked');
     assert.equal(lineOf(p, 'Pour cards for the raft').standing, 'answered');

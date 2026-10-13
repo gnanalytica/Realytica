@@ -284,6 +284,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     ),
     // A checklist names every party the firm is chasing, and for what.
     checklist: [],
+    // A tender form names the client and what it was asked: the firm's own, as the list it feeds is.
+    tenderForms: [],
     // An owner pack is cost, meetings and the checklist on one paper, and the report day names who in the firm is told.
     ownerPacks: [],
     reportDay: undefined,

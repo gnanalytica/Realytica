@@ -19,6 +19,7 @@ import { withLinks, type SetLinks } from './builders';
 import { CONSTRUCTION_SETS } from './construction-procurement/construction';
 import { PROCUREMENT_SETS } from './construction-procurement/procurement';
 import { SITE_SETS } from './construction-procurement/site';
+import { TENDER_TERMS_SETS } from './construction-procurement/tender-terms';
 
 export { CONSTRUCTION_PROCUREMENT_RULE_ROWS } from './construction-procurement/rule-rows';
 
@@ -127,4 +128,4 @@ const LINKS: SetLinks[] = [
   },
 ];
 
-export const CONSTRUCTION_PROCUREMENT_FIELD_SETS: FieldSet[] = withLinks([...CONSTRUCTION_SETS, ...SITE_SETS, ...PROCUREMENT_SETS], LINKS);
+export const CONSTRUCTION_PROCUREMENT_FIELD_SETS: FieldSet[] = withLinks([...CONSTRUCTION_SETS, ...SITE_SETS, ...PROCUREMENT_SETS, ...TENDER_TERMS_SETS], LINKS);

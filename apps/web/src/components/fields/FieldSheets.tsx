@@ -24,10 +24,15 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Check, ChevronLeft, ChevronRight, ListChecks, Plus } from 'lucide-react';
 import {
   DEPARTMENT_KEYS,
   FIELD_SETS,
+  cockpitPath,
+  functionSections,
+  papersNeedSaid,
+  papersOwed,
   NA_REASONS,
   NA_REASON_LABEL,
   NEED_LABEL,
@@ -174,6 +179,13 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
   // One issued period of a sheet, open over the page as it was issued.
   const [period, setPeriod] = useState<{ set: string; key: string; issuedAt?: string } | null>(null);
   const [open, setOpen] = useState<Opened | null>(null);
+  // What the department's list of papers needs of somebody: lines nobody was asked for, or that name nobody or no day.
+  const papers = useMemo(() => {
+    const department = workstreamDefinition(fn)?.department as DepartmentKey | undefined;
+    if (asAt || !department || !functionSections(fn).includes('documents')) return undefined;
+    const said = papersNeedSaid(papersOwed(live, { department }));
+    return said ? { said, to: cockpitPath(live.id, 'workstream', { workstream: fn, section: 'documents' }) } : undefined;
+  }, [live, fn, asAt]);
   // Every sheet opens as one line: its title, how full it is and where it stands. A person opens the one they came for.
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   // The place a line's Open, or a link, asked for: brought into view once it is drawn.
@@ -304,6 +316,7 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
       {part !== 'sheets' ? (
         <NeedsYou
           page={page}
+          owedPapers={papers}
           mayDecide={seat.mayDecide}
           actionOf={(exception) => needAction(page, exception, seat.mayDecideAt(exception.address?.fn), project, catalog)}
           onAccept={(exception) => run(() => api.decideField(project.id, { address: exception.address!, decision: 'accept', ...(exception.pick !== undefined ? { pick: exception.pick } : {}) }), 'That could not be accepted')}
@@ -503,6 +516,7 @@ const isoDay = (offsetDays: number): string => new Date(Date.now() + offsetDays 
 
 function NeedsYou({
   page,
+  owedPapers,
   mayDecide,
   actionOf,
   onAccept,
@@ -514,6 +528,8 @@ function NeedsYou({
   onOpen,
 }: {
   page: ReturnType<typeof readFunctionFields>;
+  /** What the department's papers owed need of somebody, in one line, and where they are worked. */
+  owedPapers?: { said: string; to: string };
   mayDecide: boolean;
   actionOf: (exception: FieldException) => NeedAction;
   onAccept: (exception: FieldException) => void;
@@ -543,11 +559,11 @@ function NeedsYou({
   }
   const wholePapers = (narrowed === 'accept' || all) && mayDecide ? [...papers.entries()].filter(([, paper]) => paper.plain > 1) : [];
   const waitingOn = page.waitingOn.map((group) => `${group.fields.length} on ${group.label.replace(/^The /, 'the ')}`).join(', ');
-  const quiet = page.assumed || page.snoozed.length || page.waitingOn.length;
+  const quiet = page.assumed || page.snoozed.length || page.waitingOn.length || owedPapers;
 
   return (
     <Card>
-      <CardHeader icon={<ListChecks size={15} />} title="Needs you" subtitle={counts.total ? `${page.recorded} of ${page.expected} recorded` : `Nothing needs you. ${page.recorded} of ${page.expected} recorded.`} />
+      <CardHeader icon={<ListChecks size={15} />} title="Needs you" subtitle={counts.total || owedPapers ? `${page.recorded} of ${page.expected} recorded` : `Nothing needs you. ${page.recorded} of ${page.expected} recorded.`} />
       {counts.total || quiet ? (
         <CardBody className="space-y-3">
           {chips.length ? (
@@ -697,6 +713,14 @@ function NeedsYou({
           ) : null}
           {quiet ? (
             <div className="space-y-1 text-[12px] text-ink-muted">
+              {owedPapers ? (
+                <p className="text-ink-secondary">
+                  {owedPapers.said}{' '}
+                  <Link to={owedPapers.to} className="underline underline-offset-2 hover:text-ink">
+                    Open the list
+                  </Link>
+                </p>
+              ) : null}
               {page.waitingOn.length ? <p>Waiting on others: {waitingOn}. Listed under Papers owed.</p> : null}
               {page.assumed ? <p>{plural(page.assumed, 'usual value')} in use.</p> : null}
               {page.snoozed.length ? (

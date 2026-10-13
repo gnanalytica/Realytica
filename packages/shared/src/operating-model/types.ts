@@ -1717,6 +1717,8 @@ export type ReportBoundSourceKind =
   | 'observations'
   | 'questionnaire'
   | 'requirement_sheet'
+  /** The count a consultant keeps at the foot of a tracked list: by package, how many papers are received, partial, to be assumed and pending. */
+  | 'information_status'
   | 'risk_summary'
   | 'site_photographs'
   /** The photographs of stations or of a place for a period, alone or beside the period before: resolved by code. */
@@ -2811,6 +2813,8 @@ export interface DdProject {
   requests?: ProjectRequest[];
   /** The project's own checklist of papers, loaded from a list somebody sent. Absent on a project that has none. */
   checklist?: import('./checklist').ChecklistItem[];
+  /** The tender forms loaded, each with the Tender terms record it fills and the rows a client marked not applicable that wait on a person. */
+  tenderForms?: import('./tender-form').TenderFormLoaded[];
   /** The day of the month reports are prepared on without being asked, and what the timer has prepared. Absent on a project that never set one. */
   reportDay?: import('./report-day').ReportDay;
   /** Owner packs kept as they read when prepared, each waiting to be issued or issued and frozen. */

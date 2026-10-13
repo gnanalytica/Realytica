@@ -217,3 +217,235 @@ describe('a checklist sent to the project', () => {
     assert.equal(reread.body.checklist.length, 3);
   });
 });
+
+/* ==================================================================== */
+/* A tracked list, and a tender form                                     */
+/* ==================================================================== */
+
+const TRACKED_HEAD = ['Ref No', 'Orig. Sl.No', 'Package', 'Description of Information Required', 'Availability (at request)', 'Request Ref', 'Client Response / Remarks', 'Current Status', 'Responsibility', 'Target Date', 'Next Action / NCC Comments'];
+
+/** A consultant's tracked list as pasted rows: a title, the columns, a section, and five items across three packages. */
+function trackedText(status: Record<string, string> = {}): string {
+  const rows = [
+    ['INFORMATION REQUIRED TO UPDATE THE BUDGET'],
+    TRACKED_HEAD,
+    ['1', '', '', 'GENERAL'],
+    ['1.1', 'A.1', 'General', 'Approved master plan with area statement', 'Not available', 'E mail 01', 'Attached', status['1.1'] ?? 'Received'],
+    ['1.2', 'A.2', 'General', 'Project programme with key dates', 'Partially available', 'E mail 01', 'Concept available', status['1.2'] ?? 'Partial'],
+    ['2', '', '', 'CIVIL & STRUCTURAL WORKS'],
+    ['2.1', 'B.1', 'Civil and structural', 'Soil investigation report', 'Not available', 'E mail 01', 'Cost to be considered based on area', status['2.1'] ?? 'NCC to assume'],
+    ['2.2', 'B.2', 'Civil and structural', 'Basement waterproofing specification', 'Not available', 'E mail 02', '', status['2.2'] ?? 'Pending'],
+    ['3', '', '', 'MEP'],
+    ['3.1', 'E.1', 'MEP', 'Lift traffic analysis', 'Not available', '', '', status['3.1'] ?? 'Pending'],
+  ];
+  return rows.map((row) => row.join('\t')).join('\n');
+}
+
+/** A tender form as a workbook: the lines above the table, the six columns, two sections and a signature block. */
+async function tenderForm(defects = '12 months'): Promise<Uint8Array> {
+  const ExcelJS = createRequire(path.resolve('apps/api/package.json'))('exceljs') as typeof import('../apps/api/node_modules/exceljs');
+  const book = new ExcelJS.Workbook();
+  book.addWorksheet('Client inputs').addRows([
+    ['INFORMATION AND DOCUMENTS REQUIRED FROM THE CLIENT FOR PREPARATION OF THE TENDER DOCUMENT'],
+    ['Project:', 'Lake Road offices', '', 'Client:', 'Lake Road Developers'],
+    ['Package:', 'Civil and structural works', '', 'Response required by:', '20/10/2026'],
+    [],
+    ['S.No', 'Information / Document Required', 'Details to be Provided', 'Client Response', 'Document Attached', 'Remarks'],
+    [3, 'MOBILIZATION ADVANCE'],
+    ['3.1', 'Mobilization advance applicable', 'Yes / No', 'Yes'],
+    ['3.2', 'Mobilization advance amount', '% of contract value', '10% of contract value'],
+    [4, 'MATERIALS SUPPLIED BY CLIENT'],
+    ['4.1', 'Materials supplied by the client', 'Cement, steel, others or none', 'Not Applicable'],
+    [7, 'TYPE OF CONTRACT'],
+    ['7.1', 'Type of contract', 'Item rate / lump sum', 'Item rate'],
+    ['7.4', 'Defect liability period', 'Months', defects],
+    ['7.5', 'Liquidated damages', 'Rate per week or day, cap %', ''],
+    [],
+    ['Name of client representative:', '', '', 'Date:', ''],
+  ]);
+  return new Uint8Array(await book.xlsx.writeBuffer());
+}
+
+describe('a tracked list sent to the project', () => {
+  it('is looked at first, goes to the desks its packages belong to, and updates its own lines when it is sent again', async () => {
+    const project = await seeded();
+    const at = `/api/projects/${project.id}/checklist`;
+    const preview = await call('POST', `${at}/import`, { department: 'finance', text: trackedText(), preview: true });
+    assert.equal(preview.status, 200);
+    assert.deepEqual([preview.body.kind, preview.body.list, preview.body.lines, preview.body.project], ['tracked', 'INFORMATION REQUIRED TO UPDATE THE BUDGET', 5, undefined]);
+    assert.deepEqual(preview.body.desks, [
+      { package: 'General', fn: 'finance.budget', department: 'finance' },
+      { package: 'Civil and structural', fn: 'design.structure', department: 'design' },
+      { package: 'MEP', fn: 'design.electrical', department: 'design' },
+    ]);
+    assert.equal(preview.body.report.added.length, 5);
+    assert.equal((await call('GET', `/api/projects/${project.id}`)).body.checklist ?? undefined, undefined, 'looking changes nothing');
+
+    // The firm sends MEP to another of its functions as it loads the list.
+    const loaded = await call('POST', `${at}/import`, { department: 'finance', text: trackedText(), desks: { MEP: 'design.fire' } });
+    assert.equal(loaded.status, 201);
+    assert.deepEqual([loaded.body.kind, loaded.body.added, loaded.body.said], ['tracked', 5, '5 added']);
+    const lines = loaded.body.project.checklist as Array<Record<string, any>>;
+    assert.deepEqual(
+      lines.map((line) => [line.ref, line.department, line.fn, line.round, Boolean(line.received), Boolean(line.partial), line.assumed?.assumer]),
+      [
+        ['1.1', 'finance', 'finance.budget', 'E mail 01', true, false, undefined],
+        ['1.2', 'finance', 'finance.budget', 'E mail 01', false, true, undefined],
+        ['2.1', 'design', 'design.structure', 'E mail 01', false, false, 'NCC'],
+        ['2.2', 'design', 'design.structure', 'E mail 02', false, false, undefined],
+        ['3.1', 'design', 'design.fire', undefined, false, false, undefined],
+      ],
+    );
+    assert.equal((await call('POST', `${at}/import`, { department: 'finance', text: trackedText(), desks: { MEP: 'no.such.function' } })).status, 400);
+
+    const again = await call('POST', `${at}/import`, { department: 'finance', text: trackedText({ '2.2': 'Received', '1.2': 'Received' }), desks: { MEP: 'design.fire' } });
+    assert.deepEqual([again.status, again.body.added, again.body.said], [201, 0, '2 now received']);
+    assert.deepEqual(again.body.report.becameReceived, ['1.2 Project programme with key dates', '2.2 Basement waterproofing specification']);
+    assert.equal(again.body.project.checklist.length, 5);
+  });
+
+  it('has its lines given a party and a day together, marked partly in hand, and marked to be assumed with the field they stand in for', async () => {
+    const project = await seeded();
+    const at = `/api/projects/${project.id}/checklist`;
+    const lines = (await call('POST', `${at}/import`, { department: 'finance', text: trackedText() })).body.project.checklist as Array<Record<string, any>>;
+    const id = (ref: string) => lines.find((line) => line.ref === ref)!.id as string;
+
+    const assigned = await call('POST', `${at}/assign`, { itemIds: [id('2.2'), id('3.1')], owedBy: 'Lake Road Developers', targetDate: '2026-11-20' });
+    assert.deepEqual([assigned.status, assigned.body.changed], [200, 2]);
+    assert.deepEqual(
+      (assigned.body.project.checklist as Array<Record<string, any>>).filter((line) => ['2.2', '3.1'].includes(line.ref)).map((line) => [line.owedBy, line.targetDate]),
+      [['Lake Road Developers', '2026-11-20'], ['Lake Road Developers', '2026-11-20']],
+    );
+    assert.equal((await call('POST', `${at}/assign`, { itemIds: [id('2.2')] })).status, 400);
+    assert.equal((await call('POST', `${at}/assign`, { itemIds: ['chk_nothing'], owedBy: 'X' })).status, 404);
+    assert.equal((await call('POST', `${at}/assign`, { itemIds: [id('2.2')], targetDate: 'soon' })).status, 400);
+
+    const partial = await call('PATCH', `${at}/${id('2.2')}`, { partial: { wanted: 'Tanking detail at the raft' }, remark: 'Specification received without details', targetDate: '2026-11-25' });
+    assert.equal(partial.status, 200);
+    const line = (partial.body.project.checklist as Array<Record<string, any>>).find((held) => held.ref === '2.2')!;
+    assert.deepEqual([line.partial.wanted, line.remark.text, line.remark.from, line.targetDate], ['Tanking detail at the raft', 'Specification received without details', 'person', '2026-11-25']);
+    assert.equal((await call('PATCH', `${at}/${id('2.2')}`, { partial: false })).body.project.checklist.find((held: Record<string, any>) => held.ref === '2.2').partial, undefined);
+
+    // A line to be assumed, standing in for a field of the budget's contingency sheet: the field reads the value as assumed.
+    const address = { fn: 'finance.budget', set: 'finance.budget.contingency', field: 'contingency_original' };
+    const assumed = await call('PATCH', `${at}/${id('1.2')}`, { assumed: { assumer: 'Northbank Cost Consultants', fields: [{ address, value: '4500000' }] } });
+    assert.equal(assumed.status, 200, JSON.stringify(assumed.body).slice(0, 200));
+    const held = (assumed.body.project.checklist as Array<Record<string, any>>).find((item) => item.ref === '1.2')!;
+    assert.deepEqual([held.assumed.assumer, held.assumed.fields, held.partial], ['Northbank Cost Consultants', [{ address, value: 4500000 }], undefined]);
+    const { readSheet } = await import('@realytica/shared');
+    const field = readSheet(assumed.body.project as DdProject, 'finance.budget.contingency')!.fields.find((view) => view.def.key === 'contingency_original')!;
+    assert.deepEqual([field.state, field.held?.value, field.source?.kind], ['assumed', 4500000, 'default']);
+    // A value the field cannot hold is refused, and the line is left as it was.
+    assert.equal((await call('PATCH', `${at}/${id('1.1')}`, { assumed: { assumer: 'NCC', fields: [{ address, value: 'about forty-five lakh' }] } })).status, 400);
+    assert.equal((await call('PATCH', `${at}/${id('1.1')}`, { assumed: { assumer: 'NCC', fields: [{ address: { ...address, fn: 'nowhere.atall' }, value: 1 }] } })).status, 400);
+    assert.equal((await call('PATCH', `${at}/${id('1.2')}`, { assumed: false })).body.project.checklist.find((item: Record<string, any>) => item.ref === '1.2').assumed, undefined);
+  });
+});
+
+describe('a load, as one step', () => {
+  it('says what the sheet held, is taken back whole, and a list is removed whole', async () => {
+    const project = await seeded();
+    const at = `/api/projects/${project.id}/checklist`;
+    const loaded = await call('POST', `${at}/import`, { department: 'finance', text: trackedText() });
+    // Nine rows under the header: five lines and three sections, and the title row above it is no paper.
+    assert.deepEqual(loaded.body.counted, { rows: 8, lines: 5, sections: 3, skipped: [] });
+    assert.match(loaded.body.load, /^load_/);
+    assert.equal(loaded.body.file, 'Pasted list');
+    assert.ok((loaded.body.project.checklist as Array<Record<string, any>>).every((line) => line.load === loaded.body.load));
+    // A later copy adds one line: taking that load back takes the one line.
+    const more = trackedText().replace('3.1\tE.1', '3.1\tE.1').concat('\n3.2\tE.2\tMEP\tFire pump schedule\tNot available\tE mail 02\t\tPending');
+    const second = await call('POST', `${at}/import`, { department: 'finance', text: more });
+    assert.deepEqual([second.body.added, second.body.project.checklist.length], [1, 6]);
+    const undone = await call('POST', `${at}/remove`, { load: second.body.load });
+    assert.deepEqual([undone.status, undone.body.removed, undone.body.project.checklist.length], [200, 1, 5]);
+    assert.equal((await call('POST', `${at}/remove`, { load: second.body.load })).status, 404);
+    assert.equal((await call('POST', `${at}/remove`, {})).status, 400);
+    assert.equal((await call('POST', `${at}/remove`, { load: 'a', list: 'b' })).status, 400);
+    // Several lines set together, as they are ticked on the screen.
+    const ids = (undone.body.project.checklist as Array<Record<string, any>>).filter((line) => ['2.2', '3.1'].includes(line.ref)).map((line) => line.id);
+    const set = await call('POST', `${at}/assign`, { itemIds: ids, standing: 'in_hand' });
+    assert.deepEqual((set.body.project.checklist as Array<Record<string, any>>).filter((line) => ids.includes(line.id)).map((line) => Boolean(line.received)), [true, true]);
+    assert.equal((await call('POST', `${at}/assign`, { itemIds: ids, standing: 'assumed' })).status, 400);
+    assert.equal((await call('POST', `${at}/assign`, { itemIds: ids, standing: 'lost' })).status, 400);
+    // The whole list taken off, in one act.
+    const removed = await call('POST', `${at}/remove`, { list: 'INFORMATION REQUIRED TO UPDATE THE BUDGET' });
+    assert.deepEqual([removed.status, removed.body.removed, removed.body.project.checklist], [200, 5, []]);
+    // A plain list says which of its lines were already there.
+    await call('POST', `${at}/import`, { department: 'finance', text: 'Soil report\nColumn schedule\n' });
+    const plain = await call('POST', `${at}/import`, { department: 'finance', text: 'Soil report\nBasic prices\n' });
+    assert.deepEqual([plain.body.added, plain.body.counted.skipped], [1, [{ row: 0, text: 'Soil report', reason: 'already on the list' }]]);
+  });
+
+  it('a file that cannot be read is refused in a sentence, never in an error’s own words', async () => {
+    const project = await seeded();
+    for (const [name, bytes] of [['broken.xlsx', 'not a workbook at all, only some words long enough to look for an index in'], ['empty.xlsx', '']] as const) {
+      const refused = await call('POST', `/api/projects/${project.id}/checklist/import`, upload(name, bytes));
+      assert.equal(refused.status, 400, name);
+      assert.ok(!/Cannot read properties|undefined|null \(|TypeError|is not a function|at Object/.test(refused.body.error), refused.body.error);
+      assert.match(refused.body.error, /^[A-Z].*\.$/);
+    }
+  });
+});
+
+describe('a tender form sent to the project', () => {
+  it('is read into Tender terms as answers to accept, its unanswered row is owed by the client, and the form is written back out', async () => {
+    const project = await seeded();
+    const at = `/api/projects/${project.id}`;
+    const preview = await call('POST', `${at}/checklist/import`, (() => { const form = upload('Client inputs.xlsx', '', 'procurement'); return form; })());
+    assert.equal(preview.status, 400, 'an empty file is no workbook');
+
+    const send = async (more: Record<string, string> = {}, defects?: string) => {
+      const form = upload('Client inputs.xlsx', await tenderForm(defects), 'procurement');
+      for (const [key, value] of Object.entries(more)) form.append(key, value);
+      return call('POST', `${at}/checklist/import`, form);
+    };
+    const looked = await send({ preview: '1' });
+    assert.deepEqual([looked.status, looked.body.kind, looked.body.said, looked.body.project], [200, 'tender_form', '5 values to accept · 1 not applicable · 1 still owed', undefined]);
+    const loaded = await send();
+    assert.equal(loaded.status, 201, JSON.stringify(loaded.body).slice(0, 200));
+    assert.deepEqual([loaded.body.kind, loaded.body.added, loaded.body.report.offered, loaded.body.report.unanswered], ['tender_form', 1, 5, 1]);
+    const held = loaded.body.project as DdProject;
+    const record = loaded.body.report.record as string;
+    const values = held.fieldSheets!['procurement.boq.tender_terms']!.records!.find((r) => r.id === record)!.values;
+    assert.deepEqual(
+      ['advance_applies', 'advance_pct', 'contract_type', 'defects_months', 'response_by'].map((key) => [values[key]!.value, values[key]!.state]),
+      [[true, 'proposed'], [10, 'proposed'], ['item rate', 'proposed'], [12, 'proposed'], ['2026-10-20', 'proposed']],
+    );
+    // The file, the sheet and the row, with a blank row of the sheet counted as the row it is.
+    assert.deepEqual(values.defects_months!.origin, { kind: 'external', source: 'Client inputs.xlsx · Client inputs · row 13', asOf: new Date().toISOString().slice(0, 10), quote: '12 months' });
+    assert.deepEqual(
+      held.checklist!.map((line) => [line.department, line.fn, line.ref, line.title, line.owedBy, line.targetDate, line.round]),
+      [['procurement', 'procurement.boq', '7.5', 'Liquidated damages', 'Lake Road Developers', '2026-10-20', 'Tender form']],
+    );
+    assert.deepEqual(held.tenderForms!.map((form) => [form.record, form.file, form.notApplicable.map((offer) => offer.no)]), [[record, 'Client inputs.xlsx', ['4.1']]]);
+
+    // Accepted on the field as any offered value is; the row marked not applicable is taken by a person.
+    const accepted = await call('POST', `${at}/fields/decide`, { address: { fn: 'procurement.boq', set: 'procurement.boq.tender_terms', field: 'record as offered', record }, decision: 'accept' });
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body).slice(0, 200));
+    const form = held.tenderForms![0]!;
+    assert.equal((await call('POST', `${at}/tender-forms/${form.id}/offers/${form.notApplicable[0]!.id}`, { decision: 'perhaps' })).status, 400);
+    const taken = await call('POST', `${at}/tender-forms/${form.id}/offers/${form.notApplicable[0]!.id}`, { decision: 'take' });
+    assert.equal(taken.status, 200);
+    const after = (taken.body.project as DdProject).fieldSheets!['procurement.boq.tender_terms']!.records![0]!.values;
+    assert.deepEqual([after.client_materials!.state, after.client_materials!.naReason, after.contract_type!.state], ['not_applicable', 'not_in_this_project', 'accepted']);
+    assert.deepEqual((taken.body.project as DdProject).tenderForms![0]!.notApplicable, []);
+    assert.equal((await call('POST', `${at}/tender-forms/${form.id}/offers/${form.notApplicable[0]!.id}`, { decision: 'take' })).status, 400);
+
+    // Written back out, in the form's own columns, and read back as the same values.
+    const out = await realFetch(`${base}${at}/tender-terms/${record}/form`);
+    assert.equal(out.status, 200);
+    assert.match(out.headers.get('content-type') ?? '', /spreadsheetml/);
+    const bytes = new Uint8Array(await out.arrayBuffer());
+    const back = await call('POST', `${at}/checklist/import`, (() => { const sent = upload('RYT-tender-form.xlsx', bytes, 'procurement'); sent.append('preview', '1'); sent.append('record', record); return sent; })());
+    assert.equal(back.status, 200, JSON.stringify(back.body).slice(0, 200));
+    assert.deepEqual([back.body.kind, back.body.report.offered, back.body.report.refused, back.body.report.unmatched], ['tender_form', 0, [], []]);
+    assert.ok(back.body.report.held >= 5);
+    assert.equal((await realFetch(`${base}${at}/tender-terms/rec_nothing/form`)).status, 400);
+
+    // The client's later copy answers the defects period differently: offered beside the one accepted, on the same record.
+    const later = await send({}, '24 months');
+    assert.deepEqual([later.status, later.body.report.record, later.body.report.offered], [201, record, 1]);
+    assert.equal((later.body.project as DdProject).fieldSheets!['procurement.boq.tender_terms']!.records!.length, 1);
+    assert.equal((later.body.project as DdProject).checklist!.length, 1);
+  });
+});
