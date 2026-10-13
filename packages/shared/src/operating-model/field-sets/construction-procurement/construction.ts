@@ -107,6 +107,8 @@ const PROGRESS_SETS: FieldSet[] = [
       { key: 'delays', label: 'Delays', showWhen: { situation: 'delay_event_open' } },
       { key: 'recovery', label: 'Recovery', showWhen: { situation: 'completion_slipping' } },
       { key: 'curve', label: 'Baseline curve', tier: 'expert' },
+      // The work in money. It is there only where every milestone is tied to a work package with a budget: a weight is not money.
+      { key: 'earned', label: 'Earned value', tier: 'expert', showWhen: { field: at(PROGRESS, SET.programme, 'earned_value'), is: 'set' } },
     ],
     fields: [
       text('programme_rev', 'Programme revision in force', { section: 'baseline', from: 'Programme' }),
@@ -114,8 +116,10 @@ const PROGRESS_SETS: FieldSet[] = [
       date('started_on', 'Work began on site on', { section: 'baseline', tier: 'situational', showWhen: { field: at(PROGRESS, SET.programme, 'actual_percent'), is: 'set' }, required: false, from: 'Site log' }),
       mirror('baseline_approved', 'Baseline approved', 'boolean', CHECK('schedule_progress.baseline', 'baseline_approved'), { section: 'baseline' }),
       mirror('baseline_date', 'Baseline dated', 'date', CHECK('schedule_progress.baseline', 'baseline_date'), { section: 'baseline' }),
-      mirror('planned_percent', 'Planned progress to date', 'percent', CHECK('schedule_progress.planned_vs_actual', 'planned_percent'), { section: 'progress' }),
-      computed('actual_percent', 'Progress, by the weight of the milestones', figure('progress.percent'), { section: 'progress', unit: '%', precision: 1, from: 'Milestones' }),
+      // Worked out from each milestone's planned start and finish by its weight: nobody types what the plan already says.
+      computed('planned_percent', 'Planned progress to date', figure('progress.planned_percent'), { section: 'progress', unit: '%', precision: 1, from: 'Schedule' }),
+      // Drawn month by month against the plan: the S-curve, from the readings the milestones keep.
+      computed('actual_percent', 'Progress, by the weight of the milestones', figure('progress.percent'), { section: 'progress', unit: '%', precision: 1, from: 'Milestones', trend: { over: 'periods', mark: 'line', against: 'planned_percent' } }),
       computed('milestones_late', 'Milestones past their planned finish', figure('progress.milestones_late'), { section: 'progress', precision: 0, from: 'Milestones' }),
       mirror('contractual_completion', 'Contractual completion', 'date', CHECK('schedule_progress.forecast_completion', 'contractual_completion'), { section: 'completion' }),
       mirror('forecast_completion', 'Forecast completion', 'date', CHECK('schedule_progress.forecast_completion', 'forecast_completion'), { section: 'completion' }),
@@ -162,6 +166,11 @@ const PROGRESS_SETS: FieldSet[] = [
         ],
       },
       { key: 'monsoon_allowance', label: 'Rain days allowed in the programme', kind: 'duration', unit: 'days', section: 'curve', required: false, from: 'Programme' },
+      computed('planned_value', 'Planned value', figure('progress.planned_value'), { section: 'earned', unit: 'INR', from: 'Schedule and work packages' }),
+      computed('earned_value', 'Earned value', figure('progress.earned_value'), { section: 'earned', unit: 'INR', from: 'Milestones and work packages' }),
+      computed('actual_cost', 'Certified to date', figure('cost.certified'), { section: 'earned', unit: 'INR', from: 'Running bills' }),
+      computed('schedule_index', 'Earned value over planned value', figure('progress.schedule_index'), { section: 'earned', precision: 2, from: 'Schedule and work packages' }),
+      computed('cost_index', 'Earned value over what is certified', figure('progress.cost_index'), { section: 'earned', precision: 2, from: 'Running bills and work packages' }),
     ],
     rules: [
       { kind: 'compare', fields: ['actual_percent', 'planned_percent'], tolerance: 0.05, say: 'Progress by the milestones is {a} against {b} planned: {divergence} apart.', severity: 'medium' },
@@ -246,11 +255,23 @@ const PROGRESS_SETS: FieldSet[] = [
       { key: 'note', label: 'Note', tier: 'expert' },
     ],
     fields: [
-      computed('progress', 'Progress', figure('progress.percent'), { section: 'work', unit: '%', precision: 1 }),
+      computed('progress', 'Progress', figure('progress.percent'), { section: 'work', unit: '%', precision: 1, trend: { over: 'periods', mark: 'line', last: 12 } }),
+      // How far the work has come since the last month issued, and a standing over it: a threshold is a status like any other.
+      computed('progress_added', 'Progress added since the last month issued', { op: 'moved', key: 'progress', since: 'last_period' }, { section: 'work', unit: 'points', precision: 1, tier: 'situational', showWhen: { field: at(PROGRESS, SET.month, 'progress_added'), is: 'set' } }),
+      {
+        key: 'pace',
+        label: 'Pace',
+        kind: 'status',
+        section: 'work',
+        tier: 'situational',
+        showWhen: { field: at(PROGRESS, SET.month, 'progress_added'), is: 'set' },
+        cases: [{ when: { kind: 'at_least', fields: ['progress_added'], against: 1, say: 'Progress has moved {a} since the last month issued.', severity: 'medium' }, label: 'Little progress since the last month', tone: 'warning' }],
+        otherwise: { label: 'Moving', tone: 'good' },
+      },
       computed('days_late', 'Days late at the current rate', figure('schedule.projected_days_late'), { section: 'work', unit: 'days', precision: 0 }),
       computed('days_reported', 'Days reported, of the last thirty', figure('site_log.days_reported_recent'), { section: 'work', precision: 0 }),
       computed('labour', 'Workers a day', figure('site_log.workers_average_recent'), { section: 'work', precision: 0 }),
-      { key: 'labour_planned', label: 'Workers a day planned', kind: 'number', min: 0, section: 'work', required: false, from: 'Programme resource plan' },
+      { key: 'labour_planned', label: 'Workers a day planned', kind: 'number', min: 0, section: 'work', required: false, from: 'Programme resource plan', trend: { over: 'history', mark: 'line' } },
       computed('decisions_awaited', 'Decisions awaited', sumOf(SET.decisions, 'open'), { section: 'work', precision: 0 }),
       computed('samples_failing', 'Cube samples below the limit', from(at(QAQC, SET.quality, 'samples_failing')), { section: 'quality', precision: 0 }),
       computed('ncrs_open', 'Non-conformances open', from(at(QAQC, SET.quality, 'ncrs_open')), { section: 'quality', precision: 0 }),

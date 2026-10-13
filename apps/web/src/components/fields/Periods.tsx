@@ -58,7 +58,7 @@ export function PeriodRecords({
   const filled = periods.open.reduce((sum, instance) => sum + instance.filled, 0);
   const total = periods.open.reduce((sum, instance) => sum + instance.total, 0);
   const said = periods.open.length
-    ? `${periods.shown!.label} · ${fieldsSaid(filled, total)}${periods.open[0]!.due ? ` · due ${daySaid(periods.open[0]!.due)}` : ''}`
+    ? `${periods.shown!.label} · ${fieldsSaid(filled, total)}${periods.open[0]!.due ? ` · ${periods.open[0]!.late ? 'was due' : 'due'} ${daySaid(periods.open[0]!.due)}` : ''}`
     : periods.pastSaid
       ? periods.pastSaid
       : loose.length

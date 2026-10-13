@@ -34,6 +34,7 @@ export interface FieldSet {
   extends?: string;      // adds these fields to a shared record in place of making a sheet
   sheets?: DepthSheet[]; // hard cases, each a small sheet opened from the holder that needs it
   reports?: FieldReportTemplate[]; // the reports this set's function hands over: see Reports
+  periodic?: Periodic;   // kept by period: opened from the last, compared with it, due, issued. See Periods
 }
 ```
 
@@ -127,6 +128,7 @@ match: { left:  { column: 'survey_no',  label: 'Survey numbers', of: { target: '
 | `dueFrom` | From when it is expected: a step of the project or a day. See Due and owed |
 | `owedBy` | Who owes it, where that is not the function's own people. See Due and owed |
 | `maxLength` | The cap on a `longtext` |
+| `trend` | How it is drawn over time, inside the popover its label opens: see Trends |
 | `retired`, `since` | No longer asked; the version that introduced it |
 
 ## Units
@@ -159,7 +161,7 @@ The key is stored and the label shown. Tones are `good`, `warning`, `critical`, 
 ## Addresses, mirrors and links
 
 ```ts
-type FieldAddress = { fn: string; set: string; field: string; column?: string; record?: string };
+type FieldAddress = { fn: string; set: string; field: string; column?: string; record?: string; period?: string };
 ```
 
 `set` is a field set's id or a check definition's id: every check's fields are in the same catalog, unchanged, under the check's id and the function the check sits in.
@@ -295,6 +297,8 @@ A function does not open on its form. It opens on at most five lines in all, the
 | **Due soon** | A day within its `expires.leadDays`; a rule at medium; a standing whose tone is a warning | Can wait a day |
 | **Missing** | A must-field the function's own people owe that holds nothing; a thing with no counterpart in a match | Last, because most of it is cured by filing a paper |
 
+A set kept by period (see Periods) adds one line of its own, of kind `due`: the latest period that has ended and is not issued, said as how full it is and when it is due ("October: 4 of 9 fields, due 7 Nov 2026"). It is counted under **Due soon** until its day and under **Failing** after it ("was due"), inside the five lines like any other. There is one for a set, whatever else the set is behind on; older periods nobody kept are said on the sheet, not here.
+
 Not on the card: expert fields; fields before their `dueFrom`; what another party owes (one quiet line, "Waiting on others"); usual values standing in (one quiet line); a rule at low, which is said on the sheet it is about.
 
 A line that rests on a rule row nobody has verified carries `ruleUnchecked` and the rows it read (`cites`), and one that rests on a usual value carries `assumes`, the labels of the fields nobody entered. The page marks the first "rule not checked" and the second "on an assumed value", on the line, on the value in its sheet, in a report ("worked out, on an assumed value") and on the chat's card. A line whose rule reads another function's records carries `target`, the address of the record there that causes it: the one a paper offered and nobody has accepted where there is one, else the one that meets the rule's condition, else the list. Open goes to it. "Today" is the day in India everywhere a day is compared with one (`indiaToday`): a date runs out, a field falls due and a rule row comes into force at midnight there.
@@ -335,7 +339,8 @@ A formula is a tree. Every leaf is a field, a figure or a rule row; nothing in i
 | `op` | Gives |
 |---|---|
 | `field` `{ key, at?, via? }` | A field of this set, or with `at` of any set. With `via` as well, `at` names a field of a set that repeats and `via` one of this set's own links: the field is read from the record that link holds (the agreed value of this ledger's unit) |
-| `figure` `{ key, of? }` | A figure a module of its own works out, read and never entered: see Figures from other modules |
+| `figure` `{ key, of?, asAt? }` | A figure a module of its own works out, read and never entered: see Figures from other modules. `asAt` names one of the holder's own dates: the figure is then read as the project stood when that day ended, where the day has gone by |
+| `moved` `{ key, since }` | How far one of the holder's own figures has moved: now less then. `since: 'last_period'` is since the last period issued of a set kept by period; `since: { days }` is since so many days ago, read from the project as it stood then. No answer where the record does not reach that far |
 | `const` | A figure. Never one a law sets: see the rule table |
 | `add` `subtract` `multiply` `divide` `power` `variance_pct` | Arithmetic on `left` and `right` |
 | `min` `max` `{ of: [] }` | The least or the most, leaving out what is not known |
@@ -358,7 +363,7 @@ Fields are worked out in the order of what they read, across sets and functions.
 
 Each of these is a pure function with its arithmetic written out in `test/formula-operators.test.ts`. A match table's side may likewise be read from a table inside records (`of: { records, table, column }`: the sellers named on every purchase).
 
-What formulas still cannot do, so that nobody hunts for it: group rows by a column and reduce each group, or run an ordered window over records (a running balance). A money field refuses a negative value unless it declares a negative `min` (an overdrawn balance, a net outflow).
+A formula takes the latest of dated records (`records` with `latest`), counts or sums the rows inside a window of days (`between`), counts the rows that stood on a past day (`asAt` on `count_if`), reads a figure as at a day the holder names (`figure` with `asAt`), and says how far a figure has moved since the last period or a number of days (`moved`). What formulas still cannot do, so that nobody hunts for it: group rows by a column and reduce each group, or run an ordered window over records (a running balance). A money field refuses a negative value unless it declares a negative `min` (an overdrawn balance, a net outflow).
 
 ## Figures from other modules
 
@@ -368,6 +373,8 @@ The schedule, the site log, the tender tracker, the cost register, the monthly c
 { key: 'actual_percent', label: 'Progress, by the weight of the milestones', kind: 'computed', unit: '%', formula: { op: 'figure', key: 'progress.percent' } }
 { key: 'awarded_on', label: 'Awarded on', kind: 'computed', yields: 'date', formula: { op: 'figure', key: 'package.award_day', of: 'package' } }   // of one work package: `of` names this set's own link to it
 ```
+
+Planned progress is one of them, and is typed by nobody: `progress.planned_percent` is each milestone's planned start and finish read by its weight (none before the start, all of it from the finish, a straight line between), and is null while any milestone has no planned finish. `progress.planned_value`, `progress.earned_value`, `progress.schedule_index` and `progress.cost_index` are the work in money, and are null unless every milestone is tied to a work package with a budget (`earnedValue` in `milestone-schedule.ts`): a milestone's weight is a share somebody judged, not money. `progress.building_percent` and `progress.building_planned_percent` are of one building, by the link the set names.
 
 `field-figures.ts` is the one door: `PROJECT_FIGURES` lists every figure by key (`progress.*`, `schedule.*`, `site_log.*`, `observations.*`, `tenders.*`, `cost.*`, `cost_report.*`, `comparables.*`, `value.*`, `cash_flow.*`, `project.*`, and `package.*` for one work package). One group of them is worked out from field records by code, because it moves milestones and a formula does not: what the extensions of time granted do to the schedule. The days of a search period no encumbrance certificate covers and the plan sanction as the last sanctioned revision leaves it used to be figures too; they are formulas now (`span_days`, `records` with `latest`). Each reads only values that stand, through `standing-records.ts`. A figure is read-only, is worked out afresh each time the sheet is read, and is null where its module cannot tell it yet, never zero. A day comes as a day number, for a field with `yields: 'date'`. A key that is not there, or a per-package figure with no link named, fails the catalog test. To expose a new figure, add a row to `PROJECT_FIGURES`.
 
@@ -465,11 +472,107 @@ origin?: { kind: 'paper', evidenceId, page, quote, reader } | { kind: 'external'
 entered?, proposedBy?, acceptedBy?, acceptedAt?, other?, declined?, naReason?, naNote?
 ```
 
+A value also carries `history`, what the field held before (see History), and `since` where the day it began to stand is neither `acceptedAt` nor `at`.
+
 Accepted, typed and assumed values stand. Typing over a value accepted from a paper does not replace it: the two are disputed until a lead or signer keeps one, and typing again adds a third beside them. Typing the value a field already holds changes nothing, source and all. A value accepted from a source is cleared only by a lead or signer, and is then kept among what was set aside; a disputed one is not cleared at all. Marking a field not applicable keeps what it held (`was`), and asking it again puts that back as it was. On screen an accepted or typed value carries no mark; pressing its label shows where it came from. Only what needs somebody is marked.
 
 **In a report and in the chat.** An accepted, entered or worked-out value prints with a footnote: the paper and page, the public source and the day read, or the person and the day. An assumed one prints "assumed". A proposed or disputed one prints "waiting" and never its figure. A figure from a rule row prints the row's citation and "not verified". A field that is not in play is left out. The chat's card says the same of each row, and calls a worked-out figure worked out, never accepted.
 
 **Who may do what.** Whoever edits in the function's department (lead, contributor, signer) types values, adds records and raises a dispute. Only a lead or signer accepts, keeps, sets aside, marks not applicable, sets a situation or takes a record off its list. A situation the whole project shares is set from a function that declares it or has fields waiting on it, and from no other. A check's field is decided on its check: a collaborator whose grant leaves that check out does not decide it. A decision sent to a mirror is made on the field it reads, in that field's function. An outside collaborator is handed a function's sheets only where their grant names a scope the function's checks sit in, and three functions ask for more (the Procurement scope by name, the Budget area, the Valuation area): the gates, what follows a sheet onto a copy and what is refused are in [auth.md](auth.md), under “Field sheets on a collaborator's copy”. They are never handed a set in `CUSTOMER_SETS` (buyers) or a party record one of those names, and are handed a department's additions to a shared record only where that department's function is in their reach.
+
+## History
+
+A field holds one value, and keeps what it held before on the value itself.
+
+```ts
+interface FieldPast {
+  value: string | number | boolean | string[] | null;   // never a table's rows: a table keeps `rows`, how many it had
+  rows?: number;
+  entered?: { value: number; unit: string; text?: string };
+  state: 'accepted' | 'typed' | 'not_applicable' | 'empty';
+  origin?: FieldOrigin;        // a paper's words cut to 80 characters
+  by: string; at: string;      // who made it stand, and from when
+  until: string;               // when it stopped standing
+}
+// CheckFieldValue.history?: FieldPast[]   newest first, at most 24
+```
+
+- **One writer.** `stand(holder, key, next, { at, by })` in `field-history.ts` is the only way a stored value changes: a sheet, a record, a check (`recordCheckFields`), an acceptance, an edit made while accepting, a field marked not applicable and asked again. A mirror holds nothing, and says its owner's past. Where the value that stood stops standing, it is kept with the moment it stopped; where what stands is unchanged (the same figure typed again, a value offered beside it) nothing is added. Clearing a field keeps its past on an empty value.
+- **Only what stood enters.** A value somebody offered, one in dispute and a usual value standing in are never history.
+- **Bounded.** Past 24 entries the first is kept, the latest 12, and of the rest the ones that stood at a month's end (`thinHistory`). An entry whose successor was dropped says so, so a day in the hole is never read as a day nothing stood.
+- **Read as at a day.** `fieldAsAt(value, day, project.historyFrom)` gives what stood when the day ended in India: the value held now, an entry of its history, nothing, or today's value marked `as_now` where the record does not reach that day. `fieldMoved(value, sinceDay)` gives then, now and the difference.
+- **No migration.** History begins at a field's first change after this was built. `project.historyFrom` is the moment a project's history is whole from: its making, or its first change of a field since. Before it, a past day reads as now and says so.
+- **On screen.** Nothing new on the sheet. The popover a label opens gains one line put together by code, "Was ₹4.1 Cr on 12 Aug 2026 (R. Iyer); now ₹4.32 Cr", and a small line where the field has held three figures or more (`fieldHistorySaid`).
+- **The trail** says what a field held and what it holds, as the field prints them (`oldValue`, `newValue` on `set_field_values`, `record_check_fields` and each `field_<decision>`).
+- **A collaborator's copy** cuts a field's past as it cuts the field: with the field, and each entry's citation only where its paper is on the copy.
+
+## Periods
+
+A set kept by period says so with `periodic`. There are two forms and one declaration.
+
+```ts
+interface Periodic {
+  every: 'week' | 'month' | 'quarter' | 'year' | { event: string; on?: string };  // event: a records set; `on`, its record's own day
+  by?: string;            // on a set that repeats: the field that names the period
+  per?: string[];         // on a set that repeats: what tells one instance from another in a period (the kind, the building)
+  carry?: string[];       // keys copied from the last period; the rest open blank
+  cumulative?: string[];  // running totals: what moved is this less the last
+  due: { days: number } | { rate: string };   // after the period ends; a day a law sets is a rule row, in days or months
+  issuer: 'lead' | 'signer' | OwedRole;       // an outside party's paper is recorded as issued, under the name it was signed by
+  attribute?: Array<{ field; rows: FormulaRows; date; amount; label; of?: 'movement' | 'amount' }>;
+  reasons?: string;       // the option set a person picks from for what the rows do not explain
+}
+```
+
+**Records as periods.** On a set that repeats, each record is one period's instance. `by` names the field the period is read from: a date (the month a cash record begins, the quarter a certificate ends), the year as a receipt writes it ("2026-27"), or for `{ event }` the link to the event's record. Storage is what it was; a record gains only `issued`, `frozen`, `revises`, `carried` and `reasons`.
+
+```ts
+{ id: 'finance.funding.rera_certificates', fn: 'finance.funding', title: 'RERA certificates', v: 1,
+  records: { of: 'certificate', titleField: 'kind', summaryFields: ['period_end', 'signed_on'] },
+  periodic: { every: 'quarter', by: 'period_end', per: ['kind'], carry: ['signed_by', 'membership_no'],
+              due: { rate: 'rera_quarterly_filing_days' }, issuer: 'consultant' },
+  fields: [ … ], rules: [] }
+```
+
+**A sheet as periods.** On a sheet held once, the sheet is the open period, and each period issued is kept beside it (`StoredFieldSheet.periods`) with every field frozen. It names no `by`.
+
+```ts
+{ id: 'finance.lenders.position', fn: 'finance.lenders', title: 'Loan position', v: 1,
+  periodic: { every: 'month', carry: ['account_class', 'outstanding_per_statement', 'outstanding_per_books'], due: { days: 7 }, issuer: 'lead' },
+  fields: [ … ], rules: [] }
+```
+
+- **Keys.** A period's key never changes: `2026-09`, `FY2026-Q2` (or `2026-Q3` where the project numbers quarters by the calendar year), `2026-W41` (Monday to Sunday, numbered as ISO 8601 numbers weeks), `FY2026`, and `evt:<record>` for an event. Days are days in India. `period-keys.ts` holds the calendar: `periodOfDay`, `periodOfKey`, `periodShift`.
+- **Opening.** `openPeriod` makes the period today falls in, or one named: a record for each instance the last period kept, with the `per` fields and the `carry` keys already filled and marked "Carried from September" until somebody writes them. Asked twice it makes nothing twice. Nothing carried is asked again.
+- **Comparing.** `comparePeriods` (a record) and `compareSheetPeriods` (a sheet) give each figure as it was and as it is, by its key, in one templated line: "Was ₹4.1 Cr in September; now ₹4.32 Cr", or for a `cumulative` key "+₹15 Cr in FY 2026-27: ₹10 Cr to ₹25 Cr". Where `attribute` names dated rows for a figure, their sum inside the period is set against the movement (or against the period's own amount, with `of: 'amount'`), and what is left is "Unexplained". A person settles it with a pick from `reasons`; no sentence is kept.
+- **Due, late, not kept.** A period is due `days` after it ends, or by what the rule row says. A set is expected only once somebody has kept a first instance of it. The latest period that has ended and is not issued is the set's one `due` line; past its day it is said to be late. A period that went by with nothing kept is said to be not kept ("2 periods not kept: September, July") and is filled in by nobody but a person: opened late, its record is dated the day it was made.
+- **Issuing.** `issuePeriod` (a record) and `issueSheetPeriod` (a sheet) issue a period under a person's name: a lead or signer of the function's department for `lead`, its signer alone for `signer`, and for an outside party's role a lead or signer who gives the name it was signed under. Refused while a value waits or is in dispute. Issuing writes down every field in play, the worked-out ones among them, as it read and as it printed, with its footnote (`frozen`): an issued period is never worked out again. A sheet then goes on as the next period's, keeping what it carries and opening the rest blank, with what it held in each field's history.
+- **An issued period is never edited.** Every write to it is refused. A correction is a revision kept beside it (`revisePeriod`, `reviseSheetPeriod`): a copy of what it held, worked on like any open period (a sheet's with `period` named on the write), and issued in its turn. Until then the issue stands and is what every figure reads; after, the revision does, and the first is kept as it was sent.
+- **Reading a set's periods in code.** `periodsOf(project, setId)` gives every instance, latest first (`PeriodInstance`: its period, status, who issued it, whether a revision replaced it, when it is due, how full it is). `currentPeriod(project, setId)` and `lastPeriod(project, setId)` give the period today falls in and the one before, each as `{ span, instances }`. `periodSeries(project, { set, field })` gives one figure period by period.
+- **The Cost Report** stays its own module. `periodsOf(project, 'finance.budget.cost_report')` reads its months as instances, so the due list and a chart see it as they see any set kept by period. Its reopen is a revision too: a draft beside the issued report, which is `superseded` once the draft is issued.
+
+Which sets are kept by period is listed in [departments.md](departments.md).
+
+## As at a day
+
+`projectAsAt(project, day)` (`as-at.ts`) is the project as it stood when a day ended in India: a reading, never saved. Fields are what stood then (`fieldAsAt`); a record is there where it had been made by then and not yet taken off its list; a milestone is at the percent last reported by then; the site log and the Cost Reports are those of the days up to it. `resolveFields(view, asAtMoment(day))` then gives every formula, standing and figure as at that day with no change to a formula.
+
+- **An issued period wins.** Where a period issued for a sheet covers the day, the sheet reads as that period was frozen, whatever would be worked out afresh.
+- **What keeps no past says so.** A value the record's history does not reach, and a figure of a module that keeps none (the cost register, the tenders), is today's and carries `asNow`; so does whatever is worked out from it. A report prints it "as now" with the footnote "As now: no history before 14 Oct 2026."
+- **Reports.** A field section with `asAt` on its source reads the project as at that day and says "Figures as at 30 Sep 2026." A function's report made for a period (`generateReport` with `period`) sets it to the period's last day; the owner pack for a period that has ended reads progress, the schedule and the functions' fields as at its last day. A report for September is not moved by what is recorded in October.
+- **On screen.** Live carries no mark. The sheets read as at a past day carry a band with the date that stays in view, and every control is off; so does an issued period opened from its sheet.
+
+## Trends
+
+A field says how it is drawn over time with `trend`, and it is drawn inside the popover its label opens.
+
+```ts
+trend?: { over: 'history' | 'periods'; mark: 'line' | 'bar'; against?: string; last?: number }
+```
+
+Four forms and no more: a line over periods, bars by period, either with a second field of the same holder drawn against it (`against`: planned against actual), and the stacked bar a table already draws. `over: 'periods'` reads the periods of a set kept by period (its issues, then the sheet as it reads now), or the month-by-month readings of a figure that keeps them (progress by the milestones, the plan by their dates). `over: 'history'` reads the values a typed field has held. `fieldTrend(project, address)` in `field-charts.ts` shapes the points, beside `fieldChart`. A threshold is an ordinary `status` over a `moved` field: "Little progress since the last month" is a case that fires when the figure moved less than one point. A report draws a field period by period with `chart: { of: { periods: setId }, y: field, moved? }`.
+
+**Progress.** A milestone keeps what was reported of it day by day for a hundred and twenty days, and past that its first report and each month's last (`thinReadings`): nothing is dropped outright. Planned against actual, month by month, is `progressCurve`, and is the trend the programme sheet declares. RERA's quarterly progress is a set of records, one a quarter and one for each building where the milestones say which building they are of (`legal.rera.progress_quarters`): every figure is read as at the quarter's end, and Law types none.
 
 ## Limits the catalog test holds you to
 
@@ -501,7 +604,7 @@ A report is put together by code from fields. A function's report is a template:
 ] }
 ```
 
-A section is one of `fields` (with `layout`), `table`, `records` (with `columns`), `chart`, `note` or `register` (a reading of the project's registers). `reportTemplateFaults()` names anything a template points at that is not there, and `test/report-fields.test.ts` holds every declared template to it, and to being fields, tables, charts and at most one capped note. Every department declares at least one; they are listed in [departments.md](departments.md). A function whose fields are on checks in Legal, Finance or Engineering also gets a generated `<fn>.checks` template.
+A section is one of `fields` (with `layout`), `table`, `records` (with `columns`), `chart`, `note` or `register` (a reading of the project's registers). A chart may draw a field of a set kept by period, period by period (`of: { periods }`). A report made for a period reads its field sections as at the period's last day: see As at a day. `reportTemplateFaults()` names anything a template points at that is not there, and `test/report-fields.test.ts` holds every declared template to it, and to being fields, tables, charts and at most one capped note. Every department declares at least one; they are listed in [departments.md](departments.md). A function whose fields are on checks in Legal, Finance or Engineering also gets a generated `<fn>.checks` template.
 
 ## The firm's own fields
 
@@ -538,7 +641,10 @@ A stored value may be one that waits. Code that acts on a field reads it through
 | `field-sets/builders.ts` | Shapes written once: one figure stated by several people, and a file's links to other departments (`withLinks`) |
 | `report-fields.ts` | A report's field sections: resolving, templates, freezing, and what a grant's copy keeps |
 | `sweep-rules.ts`, `law-change.ts`, `chat-answer.ts` | The daily review's rules, a law change as fields with its lists and offered rule rows, and the chat's card |
-| `field-charts.ts` | A table's rows shaped for its chart |
+| `field-history.ts` | What a field held before: the one writer, the bound, a field as at a day and how far it moved |
+| `period-keys.ts`, `field-periods.ts`, `sheet-periods.ts` | The calendar's periods; a set of records kept by period (open, compare, issue, revise, due); a sheet kept by period, and the Cost Report read as periods |
+| `as-at.ts` | The project as it stood when a past day ended |
+| `field-charts.ts` | A table's rows shaped for its chart, and a field's trend over time |
 | `rule-tables.ts`, `units.ts` | Dated figures a law sets; units and money |
 
-The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets folded to a line each, records and depth sheets, and the units' stack plan from `StackPlan.tsx`) over `CheckFields.tsx`, which draws every kind of field. Construction's Technical page draws its sheets too, though it is not laid out in parts.
+The screen is `apps/web/src/components/fields/FieldSheets.tsx` (Needs you, the sheets folded to a line each, records and depth sheets, the band a past day or an issued period is read under, and the units' stack plan from `StackPlan.tsx`) over `CheckFields.tsx`, which draws every kind of field and the popover a label opens. `Periods.tsx` draws a set kept by period (its open period, the one line that opens the past, the comparison, issue and revise), and `TrendChart.tsx` a field over time. Construction's Technical page draws its sheets too, though it is not laid out in parts.

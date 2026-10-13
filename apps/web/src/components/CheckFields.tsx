@@ -47,6 +47,7 @@ import {
   ruleSourceSaid,
   tableRows,
   type FieldSource,
+  type FieldTrend,
   type FieldValueDecision,
   type FieldView,
   type OptionDef,
@@ -63,6 +64,7 @@ import {
 } from '@realytica/shared';
 import { AiMark, Badge, cn } from './ui/kit';
 import { person } from '../lib/format';
+import { TrendChart } from './fields/TrendChart';
 import { ChartSvg, DirectedBar, GridLine, Legend, compactAxisNumber, niceTicks, padDomain, scaleLinear, useMeasure } from './charts/primitives';
 
 /** Statuses that mean the document is not actually on the file yet. */
@@ -105,6 +107,8 @@ interface Props {
   onDecide?: (def: CheckFieldDef, decision: FieldValueDecision, input?: { value?: unknown; pick?: number; reason?: string }) => void;
   /** Opens a paper at a page, where a value says it was read from one. */
   onOpenPaper?: (evidenceId: string, page?: number) => void;
+  /** A field drawn over time, where it declares a trend: asked only when its label is pressed. */
+  trendOf?: (def: CheckFieldDef) => FieldTrend | undefined;
   /** The shared lists a choice is read from, where they are not only the built-in ones: a firm's own lists are in its catalog. */
   lists?: ListOf;
 }
@@ -140,7 +144,7 @@ const SEVERITY_TONE: Record<FindingSeverity, 'critical' | 'serious' | 'warning' 
   low: 'neutral',
 };
 
-export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper, lists }: Props) {
+export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit, heading, views, choices, onDecide, onOpenPaper, trendOf, lists }: Props) {
   const listOf = lists ?? optionSetById;
   const [draft, setDraft] = useState<Record<string, string>>({});
   // The field whose source is open. Where a value came from is one press on its label away, and on nothing's face.
@@ -425,7 +429,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                   {values[def.key]!.at ? `, ${daySaid(values[def.key]!.at)}` : ''}
                 </span>
               ) : null}
-              {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} /> : null}
+              {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} trendOf={trendOf} /> : null}
               {blank && !derived && view?.state !== 'not_applicable' && (def.hint || def.from) ? (
                 <span className="mt-1 block text-[11px] leading-snug text-ink-muted">{[def.hint, def.from ? `Read from: ${def.from}.` : ''].filter(Boolean).join(' ')}</span>
               ) : null}
@@ -950,7 +954,7 @@ function DateBox({ value, disabled, label, className, compact, onCommit }: { val
       >
         <Calendar size={14} aria-hidden />
       </button>
-      <input ref={picker} type="date" tabIndex={-1} aria-hidden value={value} onChange={(e) => e.target.value && onCommit(e.target.value)} className="pointer-events-none absolute bottom-0 right-2 size-px opacity-0" />
+      <input ref={picker} type="date" tabIndex={-1} aria-hidden disabled={disabled} value={value} onChange={(e) => e.target.value && onCommit(e.target.value)} className="pointer-events-none absolute bottom-0 right-2 size-px opacity-0" />
       {bad ? <span className="mt-0.5 block text-[11px] text-critical">Write the day as 13 Oct 2026.</span> : null}
     </span>
   );
@@ -1330,7 +1334,7 @@ export function Sparkline({ points, label }: { points: number[]; label: string }
 function hasMore(def: CheckFieldDef, view: FieldView, may: boolean): boolean {
   const derived = def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
   if (view.state === 'proposed' || view.state === 'disputed' || view.state === 'not_applicable') return false;
-  return Boolean(view.source?.label || view.cites?.length || view.past || (may && !derived));
+  return Boolean(view.source?.label || view.cites?.length || view.past || def.trend || (may && !derived));
 }
 
 function sourceSaid(source: FieldSource | undefined): string {
@@ -1357,6 +1361,7 @@ function FieldMarks({
   disabled,
   onDecide,
   onOpenPaper,
+  trendOf,
 }: {
   def: CheckFieldDef;
   view: FieldView;
@@ -1365,7 +1370,10 @@ function FieldMarks({
   disabled?: boolean;
   onDecide?: Props['onDecide'];
   onOpenPaper?: Props['onOpenPaper'];
+  trendOf?: Props['trendOf'];
 }) {
+  // Worked out only once the label is pressed: a trend reads the field's periods, which a closed sheet has no use for.
+  const trend = shown && def.trend && trendOf ? trendOf(def) : undefined;
   const may = Boolean(onDecide) && !disabled;
   const derived = def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
   const open = (source: FieldSource | undefined) =>
@@ -1479,8 +1487,15 @@ function FieldMarks({
           {view.past ? (
             <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5" data-field-past>
               <span>{view.past.line}</span>
-              {view.past.spark ? <Sparkline points={view.past.spark} label={`${def.label} over ${view.past.spark.length} values`} /> : null}
+              {/* Where the field is drawn over time below, the small line would say the same thing twice. */}
+              {view.past.spark && !trend ? <Sparkline points={view.past.spark} label={`${def.label} over ${view.past.spark.length} values`} /> : null}
             </p>
+          ) : null}
+          {trend ? (
+            <div data-field-trend>
+              <TrendChart trend={trend} />
+              <p className="mt-0.5">{trend.said}</p>
+            </div>
           ) : null}
           {view.past && view.past.earlier > 1 && view.past.since ? (
             <p>

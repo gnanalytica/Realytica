@@ -22,16 +22,17 @@
  */
 
 import { APPROVAL_KINDS } from './approvals';
-import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, tableRows, fieldIsDerived, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
+import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, tableRows, fieldIsDerived, fieldNumber, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
 import { checkFieldsAsRead, checkOfferCards, checkOfferStanding, decideCheckWaiting, type CheckOffer } from './check-waiting';
 import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey, type DepartmentRole } from './departments';
 import { surveyNumbersIn } from './document-intake';
 import { paperCarries, type DocumentFact, type FactProof } from './document-parse';
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, proposedFacts, settled, standingFacts } from './fact-review';
-import { projectFigure } from './field-figures';
-import { AS_NOW_NO_HISTORY, fieldHistorySaid, figureReadsAsAt, stand, type FieldHistorySaid } from './field-history';
-import { setPeriods, type SetPeriods } from './field-periods';
+import { LIVE, projectFigure } from './field-figures';
+import { asAtMoment, isPastDay, projectAsAt } from './as-at';
+import { AS_NOW_NO_HISTORY, fieldHistorySaid, figureReadsAsAt, indiaDayEnd, stand, type FieldHistorySaid } from './field-history';
+import { periodsOf, periodsStanding, setPeriods, type SetPeriods } from './field-periods';
 import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { RULE_ROWS } from './field-sets';
@@ -284,14 +285,58 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       if (row) cites.push(ruleCitation(row));
       return row?.value ?? null;
     },
-    figure: (key, of) => {
+    figure: (key, of, asAt) => {
+      // A figure asked for as at one of the holder's own days is read from the project as it stood then, where the day has gone by.
+      const past = asAt && asAt !== project.asAt && isPastDay(asAt, at) ? pastOn(asAt) : undefined;
       // A figure of a module that keeps no past is today's, on whatever day the project is read as at.
-      if (project.asAt && !figureReadsAsAt(key) && !nowOf.has(assumes)) nowOf.set(assumes, AS_NOW_NO_HISTORY);
-      return projectFigure(project, key, at, of, figures);
+      if ((project.asAt || past) && !figureReadsAsAt(key) && !nowOf.has(assumes)) nowOf.set(assumes, AS_NOW_NO_HISTORY);
+      return past ? projectFigure(past.view, key, asAtMoment(asAt!), of, past.figures) : projectFigure(project, key, at, of, figures);
+    },
+    moved: (key, since) => {
+      const address: FieldAddress = { fn: set.fn, set: set.id, field: key, ...(recordId ? { record: recordId } : {}) };
+      const now = fieldNumber(read(address));
+      if (now === null) return null;
+      const less = (was: number | null): number | null => (was === null ? null : Math.round((now - was) * 100) / 100);
+      if (since === 'last_period') return less(lastPeriodFigure(set, recordId, key));
+      // So many days ago: the same field, read from the project as it stood then. Where the record's history does not reach that day, nothing is said.
+      const day = dayOfNumber(dayNumber(today)! - since.days);
+      const whole = project.historyFrom ? Date.parse(project.historyFrom) : Number.NaN;
+      if (Number.isNaN(whole) || indiaDayEnd(day) <= whole) return null;
+      const then = pastOn(day).resolution.read(address);
+      return then?.asNow ? null : less(fieldNumber(then));
     },
     record: recordId,
     today: at,
   });
+
+  // The project as it stood on a past day, read once for each day a field asks about.
+  const pasts = new Map<string, { view: DdProject; resolution: FieldResolution; figures: Map<string, unknown> }>();
+  const pastOn = (day: string) => {
+    let held = pasts.get(day);
+    if (!held) {
+      const view = projectAsAt(project, day);
+      // The figures of that day are told which project is today's: what a link names is asked of the project as it stands.
+      pasts.set(day, (held = { view, resolution: resolveFields(view, asAtMoment(day), catalog, rules), figures: new Map<string, unknown>([[LIVE, project]]) }));
+    }
+    return held;
+  };
+  /** What a figure read in the last period issued before this one: frozen on the sheet's last issue, or held by the record of the period before. */
+  const lastPeriodFigure = (set: FieldSet, recordId: string | undefined, key: string): number | null => {
+    if (!set.periodic || catalog.checks.has(set.id)) return null;
+    const kept = periodsStanding(periodsOf(project, set.id, at, catalog)).filter((instance) => instance.status === 'issued');
+    if (!recordId) {
+      const last = kept[0];
+      const issue = last ? sheetOf(project, set.id)?.periods?.find((period) => period.key === last.period.key && period.issuedAt === last.issued?.at) : undefined;
+      const frozen = issue?.frozen?.[key]?.value;
+      return typeof frozen === 'number' ? frozen : null;
+    }
+    const all = periodsStanding(periodsOf(project, set.id, at, catalog));
+    const here = all.find((instance) => instance.record === recordId);
+    if (!here) return null;
+    const per = here.id.slice(here.period.key.length);
+    const before = all.find((instance) => instance.period.from < here.period.from && instance.id.slice(instance.period.key.length) === per);
+    return before?.record ? fieldNumber(read({ fn: set.fn, set: set.id, field: key, record: before.record })) : null;
+  };
 
   const field = (set: FieldSet, recordId: string | undefined, def: CheckFieldDef): CheckFieldValue | undefined => {
     const key = `${set.id}::${recordId ?? ''}::${def.key}`;
@@ -839,7 +884,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
   const pending = Boolean(recordId) && !catalog.checks.has(setId) && !Object.values(held).some((value) => fieldStands(value) && !isBlank(value));
   const na = sheetOf(project, setId)?.na ?? {};
   // What this record was opened with from the last period, said by the period it came from.
-  const carriedOn = !set.periodic || catalog.checks.has(setId) ? undefined : recordId ? sheetOf(project, setId)?.records?.find((record) => record.id === recordId)?.carried : sheetOf(project, setId)?.open?.carried;
+  // Said only of the project as it stands: a reading as at a past day, or of a period as it was issued, is not the open period.
+  const carriedOn = !set.periodic || catalog.checks.has(setId) || project.asAt ? undefined : recordId ? sheetOf(project, setId)?.records?.find((record) => record.id === recordId)?.carried : sheetOf(project, setId)?.open?.carried;
   const carriedKeys = new Set(carriedOn?.keys ?? []);
   const carriedFrom = carriedOn ? (periodOfKey(carriedOn.from)?.short ?? 'the last one') : undefined;
   // An issued period: the record once issued, or the sheet read as at a day an issue covers.

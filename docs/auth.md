@@ -377,7 +377,7 @@ above applies to them unchanged.
 
 In Finance › Budget the same two columns hold. A lead, contributor or signer
 starts a Cost Report, fills its ledger, adds a contract or a bill, passes a
-line and records a payment. Issuing or reopening a Cost Report, issuing or
+line and records a payment. Issuing a Cost Report or opening a revision of one, issuing or
 withdrawing a bill's certificate, voiding a payment and removing a bill or a
 contract need a lead or signer in Finance, and answer 403 for anybody else
 (`allowed` in `routes/workspace.ts`).

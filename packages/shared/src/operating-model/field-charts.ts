@@ -16,8 +16,16 @@
  * as zero.
  */
 
-import { fieldOptions } from './check-fields';
-import type { CheckFieldDef, CheckTableRow, OptionSet } from './types';
+import { fieldOptions, fieldStands, formatFieldValue } from './check-fields';
+import { PROJECT_FIGURES } from './field-figures';
+import { standingSince } from './field-history';
+import { optionSetById, type FieldCatalog } from './field-registry';
+import { readSheet } from './field-sheets';
+import { fieldCatalogFor } from './firm-fields';
+import { indiaToday } from './quarters';
+import { daySaid } from './said';
+import { periodSeries } from './sheet-periods';
+import type { CheckFieldDef, CheckTableRow, DdProject, FieldAddress, FieldSet, OptionSet } from './types';
 
 export interface ChartPoint {
   /** The `x` as the table holds it. */
@@ -99,4 +107,86 @@ export function fieldChart(def: CheckFieldDef, rows: readonly CheckTableRow[], l
   }
 
   return { mark: 'bar', points: read.map(point) };
+}
+
+/* ==================================================================== */
+/* A field over time                                                     */
+/* ==================================================================== */
+
+/** One point of a field drawn over time. */
+export interface TrendPoint {
+  /** The period's key, or the day the value began to stand. */
+  x: string;
+  /** As a person reads it: "September", "12 Aug 2026". */
+  label: string;
+  y: number;
+  /** The figure as the field prints it. */
+  said: string;
+  /** The period still open: the sheet as it reads now. */
+  open?: true;
+}
+
+/**
+ * A field drawn over time, as its field declares (`trend`). Four forms and
+ * no more: a line over periods, bars by period, either of them with a second
+ * field of the same holder drawn against it (planned against actual), and,
+ * for a table, the stacked bar `fieldChart` already draws.
+ */
+export interface FieldTrend {
+  mark: 'line' | 'bar';
+  label: string;
+  points: TrendPoint[];
+  /** The field it is drawn against, on the same periods. */
+  against?: { label: string; points: TrendPoint[] };
+  /** One line put together from the points: how many, and where it stands at the last. */
+  said: string;
+}
+
+/** The most points a trend draws where its field does not say: the latest of them. */
+export const TREND_POINTS_MOST = 24;
+
+/** One field's figures over time, oldest first: by period, or one for each value it has held. */
+function trendPoints(project: DdProject, set: FieldSet, def: CheckFieldDef, over: 'history' | 'periods', recordId: string | undefined, at: Date, catalog: FieldCatalog): TrendPoint[] {
+  const lists = (id: string) => optionSetById(id, catalog);
+  const said = (y: number): string => formatFieldValue(def.kind === 'status' ? { ...def, kind: 'number' } : def, { value: y, at: '', by: '' }, lists);
+  if (over === 'history') {
+    // What a person or a paper gave it, each from the day it began to stand. Read off the sheet's own reading, which holds nothing that only waits.
+    const held = readSheet(project, set.id, recordId, undefined, catalog, at)?.fields.find((view) => view.def.key === def.key)?.held;
+    const past = [...(held?.history ?? [])].reverse().flatMap((entry) => (typeof entry.value === 'number' ? [{ at: entry.at, y: entry.value }] : []));
+    const now = held && fieldStands(held) && typeof held.value === 'number' ? [{ at: standingSince(held), y: held.value }] : [];
+    return [...past, ...now].map((point) => {
+      const day = indiaToday(new Date(point.at));
+      return { x: day, label: daySaid(day), y: point.y, said: said(point.y) };
+    });
+  }
+  // A figure whose module keeps readings (progress by the milestones, the plan by their dates) is drawn from them, month by month.
+  const figure = def.kind === 'computed' && def.formula?.op === 'figure' ? PROJECT_FIGURES[def.formula.key] : undefined;
+  if (figure?.series) return figure.series(project, at).flatMap((point) => (point.value === null ? [] : [{ x: point.period.key, label: point.period.label, y: point.value, said: said(point.value) }]));
+  return periodSeries(project, { set: set.id, field: def.key }, at, catalog).flatMap((point) => (point.value === null ? [] : [{ x: point.period.key, label: point.period.label, y: point.value, said: point.said, ...(point.status === 'open' ? { open: true as const } : {}) }]));
+}
+
+/**
+ * What a field's trend draws, or undefined where the field declares none or
+ * there are fewer than two points: one figure is not a trend.
+ */
+export function fieldTrend(project: DdProject, address: Pick<FieldAddress, 'set' | 'field' | 'record'>, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project)): FieldTrend | undefined {
+  const set = catalog.sets.get(address.set);
+  const def = set?.fields.find((field) => field.key === address.field);
+  if (!set || !def?.trend) return undefined;
+  const most = def.trend.last ?? TREND_POINTS_MOST;
+  const cut = (points: TrendPoint[]): TrendPoint[] => (points.length > most ? points.slice(-most) : points);
+  const points = cut(trendPoints(project, set, def, def.trend.over, address.record, at, catalog));
+  if (points.length < 2) return undefined;
+  const other = def.trend.against ? set.fields.find((field) => field.key === def.trend!.against) : undefined;
+  const beside = other ? cut(trendPoints(project, set, other, def.trend.over, address.record, at, catalog)) : [];
+  const last = points[points.length - 1]!;
+  const match = beside.find((point) => point.x === last.x);
+  const unit = def.trend.over === 'history' ? 'values' : 'periods';
+  return {
+    mark: def.trend.mark,
+    label: def.label,
+    points,
+    ...(other && beside.length ? { against: { label: other.label, points: beside } } : {}),
+    said: `${points.length} ${unit}. ${last.label}: ${last.said}${match && other ? ` against ${match.said} (${other.label.toLowerCase()})` : ''}${last.open ? ', still open' : ''}.`,
+  };
 }

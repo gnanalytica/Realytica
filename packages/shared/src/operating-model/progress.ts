@@ -97,8 +97,26 @@ export function addMilestones(project: DdProject, rows: ReadonlyArray<{ name: st
   return added;
 }
 
-/** How many days of readings a milestone keeps. */
-const READINGS_KEPT = 120;
+/** How many days of readings a milestone keeps day by day. Older than this, it keeps the first and each month's last. */
+export const READINGS_KEPT_DAYS = 120;
+
+/**
+ * A milestone's readings as they are kept: every one of the last hundred
+ * and twenty days, and of what is older the first ever reported and the
+ * last of each month. Nothing older is thrown away outright, so a curve can
+ * still be drawn through a job that runs for years, and what was reported at
+ * a month's end can still be read.
+ */
+export function thinReadings(readings: ReadonlyArray<{ on: string; percent: number }>, today: string): Array<{ on: string; percent: number }> {
+  const ordered = [...readings].sort((a, b) => a.on.localeCompare(b.on));
+  const cut = new Date(Date.parse(`${today.slice(0, 10)}T00:00:00Z`) - READINGS_KEPT_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const old = ordered.filter((reading) => reading.on <= cut);
+  if (old.length <= 1) return ordered;
+  const lastOfMonth = new Map<string, { on: string; percent: number }>();
+  for (const reading of old) lastOfMonth.set(reading.on.slice(0, 7), reading);
+  const kept = new Set<{ on: string; percent: number }>([old[0]!, ...lastOfMonth.values()]);
+  return ordered.filter((reading) => reading.on > cut || kept.has(reading));
+}
 
 /**
  * Record how far along a milestone is. `on` is the day the reading is of,
@@ -109,7 +127,7 @@ export function setMilestonePercent(project: DdProject, milestoneId: string, per
   if (!m) throw new Error('No milestone by that id.');
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new Error('Progress is a percentage between 0 and 100.');
   m.percent = Math.round(percent);
-  m.readings = [...(m.readings ?? []).filter((r) => r.on !== on), { on, percent: m.percent }].sort((a, b) => a.on.localeCompare(b.on)).slice(-READINGS_KEPT);
+  m.readings = thinReadings([...(m.readings ?? []).filter((r) => r.on !== on), { on, percent: m.percent }], at.slice(0, 10));
   m.updatedAt = at;
   m.updatedBy = actor;
   if (m.percent === 100 && !m.completedOn) m.completedOn = at.slice(0, 10);

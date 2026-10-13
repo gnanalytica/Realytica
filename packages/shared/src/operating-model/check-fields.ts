@@ -354,8 +354,10 @@ export interface FormulaOutside {
   records(setId: string): Array<Record<string, CheckFieldValue>> | undefined;
   /** A figure from the rule table for the project's place, in force on a day, under conditions. */
   rate?(table: string, on: string | undefined, conditions: Record<string, string | number>): number | null;
-  /** A figure another part of the product works out, by its key, of one thing where it is of one. */
-  figure?(key: string, of?: string): number | null;
+  /** A figure another part of the product works out, by its key, of one thing where it is of one, and as the project stood when a day ended where one is named. */
+  figure?(key: string, of?: string, asAt?: string): number | null;
+  /** How far one of the holder's own figures has moved since the last period issued, or since so many days ago. Null where the record does not say. */
+  moved?(key: string, since: 'last_period' | { days: number }): number | null;
   /** The record the formula is worked out for, where its set repeats. */
   record?: string;
   today?: Date;
@@ -592,8 +594,13 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
     case 'figure': {
       const of = formula.of ? values[formula.of]?.value : undefined;
       if (formula.of && (typeof of !== 'string' || !of)) return null;
-      return outside?.figure?.(formula.key, typeof of === 'string' ? of : undefined) ?? null;
+      // A figure as at one of the holder's own days gives no answer until that day is recorded.
+      const day = formula.asAt ? values[formula.asAt]?.value : undefined;
+      if (formula.asAt && (typeof day !== 'string' || dayNumber(day) === null)) return null;
+      return outside?.figure?.(formula.key, typeof of === 'string' ? of : undefined, typeof day === 'string' ? day.slice(0, 10) : undefined) ?? null;
     }
+    case 'moved':
+      return outside?.moved?.(formula.key, formula.since) ?? null;
     case 'records': {
       const rows = outside?.records(formula.set);
       if (!rows) return null;

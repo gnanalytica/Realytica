@@ -4,6 +4,8 @@ import {
   constructionGate,
   daySaid,
   departmentRole,
+  fieldTrend,
+  progressReadings,
   progressSummary,
   roleCanDecide,
   roleCanEdit,
@@ -15,6 +17,8 @@ import {
   type SiteLogEntry,
 } from '@realytica/shared';
 import { person } from '../../lib/format';
+import { Sparkline } from '../CheckFields';
+import { TrendChart } from '../fields/TrendChart';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
@@ -71,6 +75,7 @@ function MilestoneRow({
   const [value, setValue] = useState(String(milestone.percent));
   const [busy, setBusy] = useState(false);
   const moved = milestone.baselineFinish && milestone.baselineFinish !== milestone.plannedFinish;
+  const readings = useMemo(() => progressReadings(project, milestone), [project, milestone]);
 
   async function save(patch: Parameters<typeof workspaceApi.updateMilestone>[2]) {
     setBusy(true);
@@ -102,6 +107,8 @@ function MilestoneRow({
           {watch.level === 'late' ? 'Late' : watch.level === 'behind' ? 'Behind' : 'Late at the current rate'}
         </Badge>
       ) : null}
+      {/* What was reported of it, day by day, as a small line where there are three readings or more. */}
+      {readings.length >= 3 ? <Sparkline points={readings.map((reading) => reading.percent)} label={`${milestone.name}: ${readings.length} readings from ${daySaid(readings[0]!.on)} to ${daySaid(readings[readings.length - 1]!.on)}`} /> : null}
       <div className="h-1.5 w-32 overflow-hidden rounded-full bg-sunken">
         <div className={cn('h-full rounded-full', milestone.percent >= 100 ? 'bg-good' : 'bg-brand')} style={{ width: `${milestone.percent}%` }} />
       </div>
@@ -248,6 +255,8 @@ export function ProgressBoard({
   const [importing, setImporting] = useState(false);
   const summary = useMemo(() => progressSummary(project), [project]);
   const schedule = useMemo(() => scheduleWatch(project, new Date()), [project]);
+  // Planned against actual, month by month: the readings the milestones keep, drawn against what their dates planned.
+  const curve = useMemo(() => fieldTrend(project, { set: 'construction.progress.programme', field: 'actual_percent' }), [project]);
   const gate = useMemo(() => constructionGate(project), [project]);
   const role = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, 'construction') : undefined;
   const mayEdit = roleCanEdit(role);
@@ -302,6 +311,17 @@ export function ProgressBoard({
             Pair a phone for the site log
           </Button>
         </CardBody>
+        {curve ? (
+          <CardBody className="border-t border-hairline">
+            <div data-progress-curve>
+              <p className="text-[12px] font-medium text-ink">Planned against actual, by month</p>
+              <div className="mt-1 max-w-xl">
+                <TrendChart trend={curve} width={520} height={120} />
+              </div>
+              <p className="mt-1 text-[12px] text-ink-muted">{curve.said}</p>
+            </div>
+          </CardBody>
+        ) : null}
       </Card>
 
       <Card>

@@ -922,7 +922,7 @@ export const LENDER_SETS: FieldSet[] = [
       rupees('interest_paid', 'Interest paid to date', once(SET.facilities, 'sanctioned_amount', sumOf(SET.repayments, 'interest_paid')), { section: 'position' }),
       worked('days_past_due', 'Days past due', { op: 'records', set: SET.repayments, reduce: 'max', field: 'days_past_due' }, { section: 'position', unit: 'days', precision: 0 }),
       choice('account_class', 'Lender’s classification of the account', 'lender_account_class', { section: 'position', required: false, from: 'Lender’s statement' }),
-      money('outstanding_per_statement', 'Outstanding per the lender’s statement', { section: 'statement', from: 'Loan statement' }),
+      money('outstanding_per_statement', 'Outstanding per the lender’s statement', { section: 'statement', from: 'Loan statement', trend: { over: 'periods', mark: 'line', last: 12 } }),
       money('outstanding_per_books', 'Outstanding per the books', { section: 'statement', from: 'Loan ledger export' }),
       standing(
         'position_standing',

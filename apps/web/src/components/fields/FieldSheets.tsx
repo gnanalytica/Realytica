@@ -32,6 +32,7 @@ import {
   NA_REASON_LABEL,
   NEED_LABEL,
   asAtMoment,
+  fieldTrend,
   isPastDay,
   periodIssuedSaid,
   periodsOf,
@@ -174,6 +175,8 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
     disabled: !seat.mayEdit || issued,
     choices,
     onOpenPaper,
+    // A field that declares a trend is drawn over time when its label is pressed: its periods, or the values it has held.
+    trendOf: (def: CheckFieldDef) => fieldTrend(project, { set: reading.set.id, field: def.key, ...(reading.recordId ? { record: reading.recordId } : {}) }, asAt ? asAtMoment(asAt) : new Date(), catalog),
     onCommit: (values: Record<string, CheckFieldWrite>) => run(() => api.setFieldValues(project.id, { set: reading.set.id, record: reading.recordId, values }), 'That value could not be saved'),
     onDecide: seat.mayEdit && !issued
       ? (def: CheckFieldDef, decision: FieldValueDecision, input?: { value?: unknown; pick?: number; reason?: string }) =>

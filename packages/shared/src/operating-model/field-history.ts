@@ -296,7 +296,8 @@ export const AS_NOW_NO_HISTORY = 'no_history';
 
 /** The figures other modules work out that a reading as at a day turns back with the project (`projectAsAt`). Every other figure is today's. */
 export function figureReadsAsAt(key: string): boolean {
-  return /^(progress|schedule|site_log|cost_report|cash_flow)\./.test(key);
+  // Progress in money reads the cost register's budgets and certificates, which keep no past: it is today's.
+  return /^(progress|schedule|site_log|cost_report|cash_flow)\./.test(key) && !/^progress\.(planned_value|earned_value|schedule_index|cost_index)$/.test(key);
 }
 
 /** How a value that is today's on a reading as at a past day says so. */

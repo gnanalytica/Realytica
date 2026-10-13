@@ -33,9 +33,10 @@ import { waitingOnCanvas } from './cockpit';
 import { functionOfDocument, papersOwedOpen } from './chat-places';
 import { checklistOwed } from './checklist';
 import { requirementSheet } from './requirement-sheet';
-import { compareCostReports, costReportDecisions } from './cost-report-compare';
-import { costReportIssuedBefore, costReportPeriodOrder, costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
+import { costReportDecisions } from './cost-report-compare';
+import { costReportPeriodOrder, costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
 import { costRegister, moneySaid } from './cost';
+import { COST_REPORT_PERIODS, periodSeries } from './sheet-periods';
 import { scheduleWatch, type ScheduleLevel } from './milestone-schedule';
 import { openAlerts, type AlertSeverity } from './alerts';
 import { DEPARTMENT_SHORT, functionDepartment, menuDepartment, menuDepartmentsOf, workstreamOfCheck, type DepartmentKey } from './departments';
@@ -243,6 +244,15 @@ const ALERT_SEVERITY_ORDER: Record<AlertSeverity, number> = { critical: 0, warni
 
 const LEVEL_SAID: Record<ScheduleLevel, string> = { late: 'Late', behind: 'Behind', slipping: 'Slipping' };
 
+/**
+ * The figures read across projects period by period, each by the address a set kept by period answers to
+ * (`periodSeries`). A short list, and no code of its own for any of them: the Cost Report's forecast and its budget.
+ */
+export const ACROSS_SERIES = [
+  { set: COST_REPORT_PERIODS, field: 'anticipatedCost' },
+  { set: COST_REPORT_PERIODS, field: 'budget' },
+] as const;
+
 function lastIssued(project: Pick<DdProject, 'costReports'>): CostReportPeriod | undefined {
   return costReportsOf(project)
     .filter((report) => report.status === 'issued')
@@ -288,8 +298,10 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
     const report = lastIssued(project);
     if (report) {
       const totals = costReportTotals(report);
-      const previous = costReportIssuedBefore(project, report);
-      const comparison = previous ? compareCostReports(previous, report, costRegister(project).bills) : undefined;
+      // The forecast and the budget month by month, as any figure kept by period is read (`ACROSS_SERIES`): the last point is this
+      // report's, and the one before it is what the forecast has moved from.
+      const [forecast, budget] = ACROSS_SERIES.map((address) => periodSeries(project, address, now));
+      const [latest, before] = [forecast!.at(-1), forecast!.at(-2)];
       const source = reportSaid(report);
       const asks = costReportDecisions(report);
       const overBudget = asks.overBudget.map((pack) => ({
@@ -304,10 +316,10 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
         currency: project.currency,
         reportId: report.id,
         reportLabel: report.label,
-        budget: totals.budget,
-        forecast: totals.anticipatedCost,
+        budget: budget!.at(-1)?.value ?? totals.budget,
+        forecast: latest?.value ?? totals.anticipatedCost,
         over: totals.anticipatedVariance,
-        ...(comparison && previous ? { movement: comparison.totals.figures.anticipatedCost.change, previousLabel: previous.label } : {}),
+        ...(latest && before && latest.value !== null && before.value !== null ? { movement: Math.round((latest.value - before.value) * 100) / 100, previousLabel: before.period.label } : {}),
         overBudget: figure(overBudget),
       });
       decisions.push(...overBudget);

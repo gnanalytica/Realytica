@@ -862,9 +862,18 @@ export type CheckFormula =
    * A figure another part of the product already works out: progress from
    * the milestones, the last day on the site log, a package's award. Read,
    * never entered here (`field-figures.ts`). `of` names one of this set's own
-   * links, where the figure is of one thing: a work package.
+   * links, where the figure is of one thing: a work package, a building.
+   * `asAt` names one of this holder's own dates: the figure is then read as
+   * the project stood when that day ended, where the day has gone by (the
+   * progress a quarter's row reports is the progress at the quarter's end).
    */
-  | { op: 'figure'; key: string; of?: string }
+  | { op: 'figure'; key: string; of?: string; asAt?: string }
+  /**
+   * How far a figure of this holder has moved: what it is now less what it was. `last_period` is since the last period
+   * issued of a set kept by period; `{ days }` is since so many days ago, read from the record as it stood then. No
+   * answer where the record does not reach that far: a movement nobody can tell is not nought.
+   */
+  | { op: 'moved'; key: string; since: 'last_period' | { days: number } }
   /** Over the records of a set that repeats: how many there are, or one numeric field of theirs summed. */
   | { op: 'records'; set: string; reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct'; field?: string }
   /**
@@ -1011,6 +1020,12 @@ export interface CheckFieldDef {
   retired?: true;
   /** The version of its set that introduced it. */
   since?: number;
+  /**
+   * How the field is drawn over time, inside the popover its label opens: a line or bars, one point a period (`periods`,
+   * on a set kept by period or a figure that keeps readings) or one for each value it has held (`history`). `against`
+   * names a second field of the same holder drawn beside it: planned against actual. `last` keeps the latest so many.
+   */
+  trend?: { over: 'history' | 'periods'; mark: 'line' | 'bar'; against?: string; last?: number };
   /** The kinds of paper that state it, by the register's document type. A paper of one of these kinds filed on the project offers its value here. */
   fromTypes?: string[];
   /** The key a paper's reading files the value under, where it is not this field's own. */

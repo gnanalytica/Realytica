@@ -197,7 +197,7 @@ export const FUNDING_SETS: FieldSet[] = [
       choice('figures_from', 'Figures taken from', 'cash_figures_from', { section: 'position', control: 'segmented' }),
       money('opening_balance', 'Opening balance', { ...SIGNED, section: 'position', from: 'Bank statement' }),
       rupees('net_to_date', 'Net cash to date', totalOf(SET.cashMonths, 'net'), { section: 'position' }),
-      rupees('closing_by_months', 'Closing balance, by the months', plus(f('opening_balance'), f('net_to_date')), { section: 'position' }),
+      rupees('closing_by_months', 'Closing balance, by the months', plus(f('opening_balance'), f('net_to_date')), { section: 'position', trend: { over: 'periods', mark: 'line', last: 12 } }),
       rupees('bank_total', 'Balances per the banks', totalOf('shared.accounts', 'bank_balance'), { section: 'position' }),
       rupees('months_less_banks', 'Months less the banks', minus(f('closing_by_months'), f('bank_total')), { section: 'position' }),
       rupees('collections_to_date', 'Collections to date', totalOf(SET.cashMonths, 'collections'), { section: 'plan' }),

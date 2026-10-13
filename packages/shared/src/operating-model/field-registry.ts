@@ -269,7 +269,9 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
     case 'date':
       return [formula.at ?? own(formula.key), ...(formula.via ? [own(formula.via)] : [])];
     case 'figure':
-      return formula.of ? [own(formula.of)] : [];
+      return [...(formula.of ? [own(formula.of)] : []), ...(formula.asAt ? [own(formula.asAt)] : [])];
+    case 'moved':
+      return [own(formula.key)];
     case 'records':
       if (formula.reduce === 'latest') return [formula.field, formula.by, ...(formula.orBy ? [formula.orBy] : []), ...whereColumns(formula.where)].map((field) => ({ fn: set.fn, set: formula.set, field })).concat(joined(formula.where));
       return [{ fn: set.fn, set: formula.set, field: formula.field ?? '' }];
@@ -343,11 +345,19 @@ function formulaRates(formula: CheckFormula): string[] {
 }
 
 /** The figures of other parts of the product a formula reads, wherever in it they sit, each with the own link it is asked of. */
-function formulaFigures(node: unknown): Array<{ key: string; of?: string }> {
+function formulaFigures(node: unknown): Array<{ key: string; of?: string; asAt?: string }> {
   if (!node || typeof node !== 'object') return [];
-  const held = node as { op?: unknown; key?: unknown; of?: unknown };
-  const here = held.op === 'figure' ? [{ key: String(held.key), ...(typeof held.of === 'string' ? { of: held.of } : {}) }] : [];
+  const held = node as { op?: unknown; key?: unknown; of?: unknown; asAt?: unknown };
+  const here = held.op === 'figure' ? [{ key: String(held.key), ...(typeof held.of === 'string' ? { of: held.of } : {}), ...(typeof held.asAt === 'string' ? { asAt: held.asAt } : {}) }] : [];
   return [...here, ...Object.values(node).flatMap(formulaFigures)];
+}
+
+/** Every place a formula asks how far a field moved, wherever in it they sit. */
+function formulaMoved(node: unknown): Array<{ key: string; since: 'last_period' | { days: number } }> {
+  if (!node || typeof node !== 'object') return [];
+  const held = node as { op?: unknown; key?: unknown; since?: unknown };
+  const here = held.op === 'moved' ? [{ key: String(held.key), since: held.since as 'last_period' | { days: number } }] : [];
+  return [...here, ...Object.values(node).flatMap(formulaMoved)];
 }
 
 function conditionRates(when: FormulaCondition): string[] {
@@ -520,6 +530,17 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
         const known = PROJECT_FIGURES[figure.key];
         if (!known) faults.push(`${at(def.key)}: reads the figure "${figure.key}", which nothing works out.`);
         else if (Boolean(known.of) !== Boolean(figure.of)) faults.push(`${at(def.key)}: the figure "${figure.key}" ${known.of ? `is of one ${known.of}: name the link to it` : 'is of the project, not of one thing'}.`);
+        if (figure.asAt && set.fields.find((field) => field.key === figure.asAt)?.kind !== 'date') faults.push(`${at(def.key)}: reads the figure "${figure.key}" as at "${figure.asAt}", which is not a date of this set.`);
+      }
+      for (const moved of def.formula ? formulaMoved(def.formula) : []) {
+        if (!set.fields.some((field) => field.key === moved.key)) faults.push(`${at(def.key)}: says how far "${moved.key}" moved, which is not a field of this set.`);
+        if (moved.since === 'last_period' && !set.periodic) faults.push(`${at(def.key)}: says how far "${moved.key}" moved since the last period, on a set that is not kept by period.`);
+      }
+      if (def.trend) {
+        if (def.trend.against && !set.fields.some((field) => field.key === def.trend!.against)) faults.push(`${at(def.key)}: its trend is drawn against "${def.trend.against}", which is not a field of this set.`);
+        const figured = def.kind === 'computed' && def.formula?.op === 'figure' && Boolean(PROJECT_FIGURES[def.formula.key]?.series);
+        if (def.trend.over === 'periods' && !set.periodic && !figured) faults.push(`${at(def.key)}: a trend over periods needs a set kept by period, or a figure that keeps readings.`);
+        if (def.trend.over === 'history' && fieldIsWorkedOut(def)) faults.push(`${at(def.key)}: a field that is worked out holds no history to draw: draw it over periods.`);
       }
       if (def.kind === 'status' && !def.cases?.length) faults.push(`${at(def.key)}: a status field needs cases.`);
       if (def.kind === 'computed' && !def.formula) faults.push(`${at(def.key)}: a computed field needs a formula.`);

@@ -34,6 +34,7 @@ const REGISTRATION = 'legal.rera.registration';
 const PHASES = 'legal.rera.phases';
 const COMPLIANCE = 'legal.rera.compliance';
 const FILINGS = 'legal.rera.filings';
+const PROGRESS_QUARTERS = 'legal.rera.progress_quarters';
 const CONVEYANCE = 'legal.handover.conveyance';
 const REGISTER = 'legal.approvals.register';
 const LAND_USE = 'legal.approvals.land_use';
@@ -865,6 +866,50 @@ const RERA_SETS: FieldSet[] = [
       mirror('cost_incurred', 'Spent to date', 'money', at('finance.budget', 'cost_quantity.budget_current', 'spent_to_date'), { unit: 'INR', section: 'position', tier: 'situational' }),
       mirror('construction_complete', 'Actual progress', 'percent', at('construction.progress', 'schedule_progress.planned_vs_actual', 'actual_percent'), { section: 'position', tier: 'situational' }),
       { key: 'deposit_share', label: 'Share of buyers’ money kept in the designated account', kind: 'computed', unit: '%', section: 'position', tier: 'situational', formula: rate('rera_deposit_share') },
+    ],
+    rules: [],
+  },
+  // What a quarterly update reports of the work: one row a quarter, and one for each building where the milestones say which
+  // building they are of. Law types no figure here. Each is worked out as the project stood when the quarter ended: progress
+  // from what the milestones had reported by then, the plan from their dates, and what was paid from the Cost Report issued by then.
+  {
+    id: PROGRESS_QUARTERS,
+    fn: RERA,
+    title: 'Quarterly progress',
+    v: 1,
+    records: { of: 'quarter', titleField: 'quarter_ending', summaryFields: ['building', 'progress', 'planned'] },
+    periodic: { every: 'quarter', by: 'quarter_ending', per: ['building'], due: { rate: 'rera_quarterly_filing_days' }, issuer: 'lead' },
+    fields: [
+      { key: 'quarter_ending', label: 'Quarter ending', kind: 'date' },
+      { key: 'building', label: 'Building or wing', kind: 'ref', target: 'building', required: false, hint: 'Left empty, the row is of the whole project.' },
+      {
+        key: 'progress',
+        label: 'Progress at the quarter’s end',
+        kind: 'computed',
+        unit: '%',
+        precision: 1,
+        from: 'Milestones',
+        formula: { op: 'if', when: { field: 'building', is: 'set' }, then: { op: 'figure', key: 'progress.building_percent', of: 'building', asAt: 'quarter_ending' }, else: { op: 'figure', key: 'progress.percent', asAt: 'quarter_ending' } },
+      },
+      {
+        key: 'planned',
+        label: 'Planned by the quarter’s end',
+        kind: 'computed',
+        unit: '%',
+        precision: 1,
+        from: 'Schedule',
+        formula: { op: 'if', when: { field: 'building', is: 'set' }, then: { op: 'figure', key: 'progress.building_planned_percent', of: 'building', asAt: 'quarter_ending' }, else: { op: 'figure', key: 'progress.planned_percent', asAt: 'quarter_ending' } },
+      },
+      { key: 'behind', label: 'Points behind the plan', kind: 'computed', unit: 'points', precision: 1, formula: minus({ op: 'field', key: 'planned' }, { op: 'field', key: 'progress' }) },
+      { key: 'milestones_complete', label: 'Milestones complete at the quarter’s end', kind: 'computed', precision: 0, from: 'Milestones', formula: { op: 'figure', key: 'progress.milestones_complete', asAt: 'quarter_ending' } },
+      { key: 'paid', label: 'Paid, on the Cost Report issued by the quarter’s end', kind: 'computed', unit: 'INR', from: 'Cost Report', formula: { op: 'figure', key: 'cost_report.amount_paid', asAt: 'quarter_ending' } },
+      {
+        key: 'quarter_standing',
+        label: 'Against the plan',
+        kind: 'status',
+        cases: [{ when: { kind: 'at_most', fields: ['behind'], against: 5, say: 'Progress at the quarter’s end was {a} behind the plan.', severity: 'medium' }, label: 'Behind the plan', tone: 'warning' }],
+        otherwise: { label: 'In step with the plan', tone: 'good' },
+      },
     ],
     rules: [],
   },

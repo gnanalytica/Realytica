@@ -363,7 +363,9 @@ const STOCK_SET: FieldSet = {
   ],
   fields: [
     workedCount('units_total', 'Units on the register', countOf(UNITS), { section: 'stock' }),
-    workedCount('units_sold', 'Sold', countWhere(UNITS, { column: 'sale_status', is: 'in', value: SOLD }), { section: 'stock' }),
+    workedCount('units_sold', 'Sold', countWhere(UNITS, { column: 'sale_status', is: 'in', value: SOLD }), { section: 'stock', trend: { over: 'periods', mark: 'bar', last: 12 } }),
+    // What the week added: this week's count less the count the last week was issued with. There once a week has been issued.
+    workedCount('sold_since_last_week', 'Sold since the last week issued', { op: 'moved', key: 'units_sold', since: 'last_period' }, { section: 'stock', tier: 'situational', showWhen: { field: at(SALES, STOCK, 'sold_since_last_week'), is: 'set' } }),
     workedShare('sold_pct', 'Sold, of the register', share(f('units_sold'), f('units_total')), { section: 'stock' }),
     workedMoney('unsold_value', 'Value of stock at list price', sumWhere(UNITS, 'sale_list_price', { column: 'sale_status', is: 'in', value: IN_STOCK }), { section: 'value' }),
     worked('unsold_carpet_area', 'Carpet area in stock', sumWhere(UNITS, 'carpet_area', { column: 'sale_status', is: 'in', value: IN_STOCK }), { section: 'value', dimension: 'area' }),
@@ -672,7 +674,7 @@ const ENQUIRIES_SET: FieldSet = {
         { key: 'visits', label: 'Site visits', kind: 'number', min: 0 },
       ],
     },
-    { key: 'enquiries', label: 'Enquiries to date', kind: 'number', min: 0, precision: 0, section: 'funnel', from: 'CRM export', since: 2 },
+    { key: 'enquiries', label: 'Enquiries to date', kind: 'number', min: 0, precision: 0, section: 'funnel', from: 'CRM export', since: 2, trend: { over: 'periods', mark: 'bar', last: 12 } },
     { key: 'qualified', label: 'Qualified to date', kind: 'number', min: 0, precision: 0, section: 'funnel', from: 'CRM export', required: false, since: 2 },
     { key: 'visits', label: 'Site visits to date', kind: 'number', min: 0, precision: 0, section: 'funnel', from: 'CRM export', since: 2 },
     workedShare('enquiry_to_visit_pct', 'Enquiry to visit', share(f('visits'), f('enquiries')), { section: 'funnel' }),
