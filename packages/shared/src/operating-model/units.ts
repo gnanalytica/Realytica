@@ -299,7 +299,9 @@ export function formatMoneyIn(amount: number, unit: MoneyUnit, currency: FieldCu
   if (currency !== 'INR' || unit === 'rupees') return `${minus}${sign}${Math.abs(amount).toLocaleString(locale, { maximumFractionDigits: 0 })}`;
   const { size, word } = MONEY_UNIT[unit];
   const figure = (Math.abs(amount) / size).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${Number(figure.replace(/,/g, '')) === 0 ? '' : minus}${sign}${figure} ${word}`;
+  // Nothing is written as nothing, whatever the column's unit: "₹0", never "₹0.00 lakh" under "₹16.75 Cr".
+  if (Number(figure.replace(/,/g, '')) === 0) return `${sign}0`;
+  return `${minus}${sign}${figure} ${word}`;
 }
 
 /** An amount written out to the rupee, for where two amounts would read the same in lakh and crore. */

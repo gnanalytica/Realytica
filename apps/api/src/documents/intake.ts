@@ -71,6 +71,22 @@ const PAGES = new WeakMap<ChatIngestFile, PaperPages>();
 /** Where each word sat on its page, with OCR's confidence in it: for judging a value a later reader lays over this one. Never stored. */
 const LAYOUTS = new WeakMap<ChatIngestFile, PageLayout[]>();
 
+/** Where OCR found each word on the large picture of a page that also has type, as fractions of the picture: for setting a table's words in columns. Never stored. */
+const PICTURES = new WeakMap<ChatIngestFile, PageLayout[]>();
+
+/** The other reading OCR made of a page's picture, where it made two. Never stored. */
+const ALTERNATES = new WeakMap<ChatIngestFile, NonNullable<DocumentText['alternates']>>();
+
+/** The other reading of each page's picture, where OCR read one twice: for a reader of tables to try both. */
+export function alternatesOf(file: ChatIngestFile): NonNullable<DocumentText['alternates']> | undefined {
+  return ALTERNATES.get(file);
+}
+
+/** Where each word of a page's picture sits on the picture, where this process read it by OCR beside the page's own type. */
+export function picturesOf(file: ChatIngestFile): PageLayout[] | undefined {
+  return PICTURES.get(file);
+}
+
 /** Where each word of an ingest row's pages sits, where this process read it. Not stored: it is as large as the paper. */
 export function layoutOf(file: ChatIngestFile): PageLayout[] | undefined {
   return LAYOUTS.get(file);
@@ -306,6 +322,8 @@ export async function readIngestLocally(
     const out = { ...row, reading: coverage(pages, route, text.pageReads ?? []) };
     PAGES.set(out, pages);
     if (text.layout) LAYOUTS.set(out, text.layout);
+    if (text.pictures) PICTURES.set(out, text.pictures);
+    if (text.alternates) ALTERNATES.set(out, text.alternates);
     return out;
   };
   if (text.method === 'none') {
@@ -402,6 +420,10 @@ export function mergeModelReading(local: ChatIngestFile, model: ChatIngestFile |
   if (pages.kept) PAGES.set(merged, pages.kept);
   const layout = LAYOUTS.get(local);
   if (layout) LAYOUTS.set(merged, layout);
+  const pictures = PICTURES.get(local);
+  if (pictures) PICTURES.set(merged, pictures);
+  const alternates = ALTERNATES.get(local);
+  if (alternates) ALTERNATES.set(merged, alternates);
   return merged;
 }
 
@@ -411,6 +433,10 @@ function carry(from: ChatIngestFile, to: ChatIngestFile): void {
   if (pages) PAGES.set(to, pages);
   const layout = LAYOUTS.get(from);
   if (layout) LAYOUTS.set(to, layout);
+  const pictures = PICTURES.get(from);
+  if (pictures) PICTURES.set(to, pictures);
+  const alternates = ALTERNATES.get(from);
+  if (alternates) ALTERNATES.set(to, alternates);
 }
 
 /**

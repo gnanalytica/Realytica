@@ -92,3 +92,23 @@ export function agreeSaid(text: string): string {
 export function countSaid(n: number, one: string, many = `${one}s`): string {
   return `${n.toLocaleString('en-IN')} ${n === 1 ? one : many}`;
 }
+
+/** Pages by number, a run of three or more as "6 to 9": "page 4", "pages 2 and 3", "pages 1 and 6 to 12". Empty for none. */
+export function pagesSaid(pages: readonly number[]): string {
+  const sorted = [...new Set(pages)].sort((a, b) => a - b);
+  if (!sorted.length) return '';
+  const runs: string[] = [];
+  for (let i = 0; i < sorted.length; i += 1) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j]! + 1) j += 1;
+    if (j - i >= 2) runs.push(`${sorted[i]} to ${sorted[j]}`);
+    else for (let k = i; k <= j; k += 1) runs.push(String(sorted[k]));
+    i = j;
+  }
+  return sorted.length === 1 ? `page ${runs[0]}` : `pages ${runs.length === 1 ? runs[0] : `${runs.slice(0, -1).join(', ')} and ${runs.at(-1)}`}`;
+}
+
+/** A line of words with every day written "2026-09-29" in it written as a day is written everywhere else: "29 Sep 2026". */
+export function daysInWords(text: string): string {
+  return text.replace(/\b\d{4}-\d{2}-\d{2}\b(?!T)/g, (day) => daySaid(day) || day);
+}

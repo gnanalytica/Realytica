@@ -47,6 +47,8 @@ export interface CostReportPackageRow {
   kind?: CostRowKind;
   /** The paper the row was accepted from: its page, and the line as the page writes it. */
   from?: { evidenceId: string; page: number; quote: string };
+  /** The row made its work package: there was none of its name before it. Taking the row off takes the package with it, where nothing else uses it. */
+  madePackage?: true;
 }
 
 /** Why the project cost moved: a variation drawn against contingency or the budget. */
@@ -451,10 +453,12 @@ export type CostReportRowInput = {
 export function addCostReportPackage(project: DdProject, reportId: string, input: CostReportRowInput, actor: string): CostReportPackageRow {
   const report = costReportOf(project, reportId);
   assertCostReportDraft(report);
+  const before = new Set(costRegister(project).workPackages.map((pack) => pack.id));
   const row: CostReportPackageRow = { id: newId('crp'), ...rowFields(project, input, actor) };
   if (report.rows.some((r) => r.workPackageId === row.workPackageId)) {
     throw new Error('That work package is already on this Cost Report.');
   }
+  if (!before.has(row.workPackageId)) row.madePackage = true;
   report.rows = [...report.rows, row];
   report.updatedAt = nowIso();
   report.updatedBy = actor;
@@ -500,7 +504,7 @@ export function updateCostReportRow(
     ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
     ...(patch.from ? { from: patch.from } : {}),
   };
-  const next: CostReportPackageRow = { id: held.id, ...rowFields(project, nextInput, actor, held) };
+  const next: CostReportPackageRow = { id: held.id, ...rowFields(project, nextInput, actor, held), ...(held.madePackage ? { madePackage: true as const } : {}) };
   report.rows[at] = next;
   report.updatedAt = nowIso();
   report.updatedBy = actor;
@@ -530,6 +534,31 @@ export function removeCostReportPackage(project: DdProject, reportId: string, ro
     entityId: report.id,
     oldValue: held.name,
   });
+  // A package the row itself made, that nothing else uses, goes with the row: its name is not left in the tenders' and the tender terms' lists.
+  if (held.madePackage && !workPackageUsed(project, held.workPackageId)) {
+    const register = costRegister(project);
+    const pack = register.workPackages.find((other) => other.id === held.workPackageId);
+    if (pack) {
+      register.workPackages = register.workPackages.filter((other) => other.id !== pack.id);
+      recordAuditEvent(project, { actor, action: 'remove_work_package', entityType: 'work_package', entityId: pack.id, oldValue: `${pack.name}, with the Cost Report row that made it` });
+    }
+  }
+}
+
+/**
+ * Whether anything on the project refers to a work package: a row of any
+ * Cost Report, a variation logged against it, a contract, a bill's line, a
+ * tender, or a field that links to it (a tender's terms, a package plan, a
+ * transfer between packages).
+ */
+export function workPackageUsed(project: DdProject, workPackageId: string): boolean {
+  const register = costRegister(project);
+  if (costReportsOf(project).some((report) => report.rows.some((row) => row.workPackageId === workPackageId) || (report.variations ?? []).some((line) => line.workPackageId === workPackageId))) return true;
+  if (register.contracts.some((contract) => contract.workPackageIds.includes(workPackageId))) return true;
+  if (register.bills.some((bill) => bill.lines.some((line) => line.workPackageId === workPackageId))) return true;
+  if (project.procurement?.tenders.some((tender) => tender.workPackageId === workPackageId)) return true;
+  // A link from a field holds the package's id as its value: on a sheet, or on a record of one.
+  return JSON.stringify(project.fieldSheets ?? {}).includes(`"${workPackageId}"`);
 }
 
 export function setCostReportNote(project: DdProject, reportId: string, note: string | null, actor: string): CostReportPeriod {

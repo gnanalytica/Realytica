@@ -92,9 +92,11 @@ describe('one way to write money', () => {
     const ledger = [43_875_000, 1_047_000, 250_000_000, 0, 295_922_000];
     assert.equal(moneyUnitFor(ledger), 'crore');
     const column = moneyColumn(ledger, 'INR');
-    assert.deepEqual(ledger.map((n) => column.cell(n).text), ['₹4.39 Cr', '₹0.10 Cr', '₹25.00 Cr', '₹0.00 Cr', '₹29.59 Cr']);
+    assert.deepEqual(ledger.map((n) => column.cell(n).text), ['₹4.39 Cr', '₹0.10 Cr', '₹25.00 Cr', '₹0', '₹29.59 Cr']);
+    // Nothing is written as nothing in any unit: "₹0", never "₹0.00 lakh" under "₹16.75 Cr".
+    assert.deepEqual([formatMoneyIn(0, 'crore'), formatMoneyIn(0, 'lakh'), formatMoneyIn(0, 'rupees'), formatMoneyIn(-10, 'crore')], ['₹0', '₹0', '₹0', '₹0']);
     assert.equal(column.cell(1_047_000).title, '₹10,47,000');
-    assert.ok(ledger.every((n) => column.cell(n).text.endsWith(' Cr')), 'no row of it is in another unit');
+    assert.ok(ledger.every((n) => n === 0 || column.cell(n).text.endsWith(' Cr')), 'no row of it is in another unit');
     // A column that a crore would flatten to nothing is written in lakh; one of small sums, to the rupee.
     assert.equal(moneyUnitFor([43_875_000, 18_000]), 'lakh');
     assert.deepEqual([43_875_000, 18_000].map((n) => formatMoneyIn(n, 'lakh')), ['₹438.75 lakh', '₹0.18 lakh']);

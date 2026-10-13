@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FilePlus2, Lock, Printer, Unlock } from 'lucide-react';
 import {
+  costAmount,
   costReportBottomLine,
   costReportTotals,
   costReportsOf,
@@ -40,12 +41,15 @@ function money(amount: number, currency: DdProject['currency']): string {
 /** A column of money as its cells are written: one unit for every row and the total. */
 type MoneyCol = ReturnType<typeof moneyColumn>;
 
+/** An amount as typed in a box: digits with commas, or with its unit ("1.6 Cr", "12 lakh"). Nothing typed, or a dash, is nought; undefined is something that is no amount, which is refused and never taken as nought. */
 function parseMoney(raw: string): number | undefined {
-  const cleaned = raw.replace(/[, ]/g, '').trim();
-  if (!cleaned) return 0;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : undefined;
+  if (!raw.trim()) return 0;
+  const amount = costAmount(raw);
+  return amount === undefined ? 0 : amount === null || amount < 0 ? undefined : amount;
 }
+
+/** Why a box was refused, in one line. */
+const notAnAmount = (typed: string): string => `“${typed.trim()}” is not an amount. Type the figure, with commas if you like, or with its unit, as in 1.6 Cr or 12 lakh.`;
 
 export function BudgetDesk({ project, onChanged }: { project: DdProject; onChanged: (p: DdProject) => void }) {
   const toast = useToast();
@@ -519,7 +523,7 @@ function PackageLedger({
       return;
     }
     if (budget === undefined) {
-      toast('Budget must be a number.', 'critical');
+      toast(notAnAmount(newBudget), 'critical');
       return;
     }
     setBusy(true);
@@ -664,15 +668,22 @@ function LedgerRow({
   // The box being typed in shows the figure as typed; every other shows it as its column is written.
   const [typing, setTyping] = useState<number | null>(null);
 
+  const toast = useToast();
   const certifiedTyped = certified.trim() ? parseMoney(certified) : null;
   const dirty =
-    Number(budget) !== row.budget || Number(po) !== row.poIssued || Number(paid) !== row.amountPaid || Number(anticipated) !== row.anticipatedCost || (certifiedTyped ?? undefined) !== row.certified;
+    parseMoney(budget) !== row.budget || parseMoney(po) !== row.poIssued || parseMoney(paid) !== row.amountPaid || parseMoney(anticipated) !== row.anticipatedCost || (certifiedTyped ?? undefined) !== row.certified;
 
   function commit() {
     const b = parseMoney(budget);
     const p = parseMoney(po);
     const a = parseMoney(paid);
     const ant = parseMoney(anticipated);
+    // Refused with why, in the box's own words: never saved as nought, and never passed over in silence.
+    const refused = [[budget, b], [po, p], [paid, a], [anticipated, ant], [certified, certifiedTyped]].find(([, read]) => read === undefined);
+    if (refused) {
+      toast(notAnAmount(String(refused[0])), 'critical');
+      return;
+    }
     if (b === undefined || p === undefined || a === undefined || ant === undefined || certifiedTyped === undefined) return;
     onSave({ budget: b, poIssued: p, amountPaid: a, anticipatedCost: ant, ...((certifiedTyped ?? undefined) !== row.certified ? { certified: certifiedTyped } : {}) });
   }
@@ -735,6 +746,7 @@ function LedgerRow({
           <Input
             value={written ? written.text : value}
             title={written?.title}
+            aria-label={`${['Budget', 'PO issued', 'Certified', 'Paid', 'Anticipated'][i]} of ${row.name}`}
             inputMode="decimal"
             disabled={busy}
             onFocus={() => setTyping(i)}

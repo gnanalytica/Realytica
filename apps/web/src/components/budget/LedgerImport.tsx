@@ -12,7 +12,7 @@
 
 import { useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
-import { COST_COLUMN_LABEL, COST_LINE_SAID, formatMoneyInFull, type CostImportPreview, type CostReportPeriod, type DdProject } from '@realytica/shared';
+import { COST_COLUMN_LABEL, COST_LINE_SAID, formatMoneyInFull, type CostImportPreview, type CostReportPeriod, type CostTotalsMoved, type DdProject } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { workspaceApi } from '../../lib/workspace-api';
@@ -150,13 +150,15 @@ function Preview({ shown, currency, busy, onConfirm, onCancel }: { shown: { prev
       ) : null}
       {check ? (
         <p className="text-[13px] font-medium text-[var(--status-critical-text)]">The rows do not add up to the table’s total. {check}</p>
-      ) : read.addsUp ? (
+      ) : read.tie.holds ? (
         <p className="text-[12px] text-[var(--status-good-text)]">
-          The rows add up to the table’s own total: {held.map((line) => `${COST_COLUMN_LABEL[line.column]} ${formatMoneyInFull(line.stated, currency)}`).join(', ')}.
+          {read.tie.said}
+          {held.length ? ` ${held.map((line) => `${COST_COLUMN_LABEL[line.column]} ${formatMoneyInFull(line.stated, currency)}`).join(', ')}, before GST.` : ''}
         </p>
       ) : (
         <p className="text-[12px] text-ink-secondary">The table states no total, so the rows are held to none.</p>
       )}
+      <TotalsMoved totals={preview.totals} currency={currency} />
       {unplaced ? (
         <p className="text-[12px] text-[var(--status-warning-text)]">
           {unplaced === 1 ? '1 row has' : `${unplaced} rows have`} a figure that could not be read into its column. It is imported without that figure, to be typed on the ledger.
@@ -195,15 +197,17 @@ function Preview({ shown, currency, busy, onConfirm, onCancel }: { shown: { prev
           </tbody>
         </table>
       </div>
-      {read.lines.length ? (
-        <details>
-          <summary className="cursor-pointer text-[12px] text-ink-secondary">Not taken as packages: {read.lines.length}</summary>
+      {read.lines.length || preview.notTaken.length ? (
+        <details open>
+          <summary className="cursor-pointer text-[12px] text-ink-secondary">Not taken as packages: {read.lines.length + preview.notTaken.length}, each with why</summary>
           <ul className="mt-1 space-y-0.5 text-[12px] text-ink-secondary">
-            {read.lines.map((line) => (
-              <li key={line.line}>
-                <span className="text-ink">{line.label}</span>: {COST_LINE_SAID[line.as]}
-              </li>
-            ))}
+            {[...read.lines.map((line) => ({ line: line.line, label: line.label, why: COST_LINE_SAID[line.as] })), ...preview.notTaken.map((row) => ({ line: row.line, label: row.quote, why: row.why }))]
+              .sort((a, b) => a.line - b.line)
+              .map((line) => (
+                <li key={line.line}>
+                  <span className="text-ink">{line.label}</span>: {line.why}
+                </li>
+              ))}
           </ul>
         </details>
       ) : null}
@@ -216,5 +220,17 @@ function Preview({ shown, currency, busy, onConfirm, onCancel }: { shown: { prev
         </Button>
       </div>
     </div>
+  );
+}
+
+/** The ledger's totals as they stand and as they would stand once the rows shown are written. */
+export function TotalsMoved({ totals, currency }: { totals: CostTotalsMoved; currency: DdProject['currency'] }) {
+  const { before, after } = totals;
+  const line = (label: string, was: number, now: number) => (was === now ? null : `${label} ${formatMoneyInFull(was, currency)} to ${formatMoneyInFull(now, currency)}`);
+  const moved = [line('budget', before.budget, after.budget), line('PO issued', before.poIssued, after.poIssued), line('certified', before.certified, after.certified), line('paid', before.amountPaid, after.amountPaid), line('anticipated', before.anticipatedCost, after.anticipatedCost)].filter((said): said is string => said !== null);
+  return (
+    <p className="text-[12px] text-ink-secondary">
+      The ledger holds {before.rows === 1 ? '1 row' : `${before.rows} rows`} now and would hold {after.rows}.{moved.length ? ` Its totals would go: ${moved.join('; ')}.` : ' Its totals would not change.'}
+    </p>
   );
 }

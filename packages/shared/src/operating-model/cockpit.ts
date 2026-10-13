@@ -18,7 +18,8 @@ import { contestedKeys, decideCheckFields, departmentOfCheck, departmentOfPaper,
 import type { MayDecide } from './team';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { moneySaid } from './cost';
-import { costPapersOf } from './cost-import';
+import { costPaperPagesSaid, costPapersOf } from './cost-import';
+import { pagesSaid } from './said';
 import { observationsWaitingFrom } from './report-observations';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import {
@@ -2078,7 +2079,9 @@ export function applyProjectChat(
       // "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym.
       const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
       // A paper of typed pages with scanned ones among them is not a scan: only those pages were read by OCR.
-      return f.read!.method === 'text' ? label : f.read!.method === 'mixed' ? `${label} (its scanned pages read by OCR)` : `${label} (scan, read by OCR)`;
+      // Which pages, where the reading kept them: "its scanned pages" said of a report whose observations are on two typed pages reads as if those were scanned.
+      const byOcr = pagesSaid(f.reading?.ocrPages ?? []);
+      return f.read!.method === 'text' ? label : f.read!.method === 'mixed' ? `${label} (${byOcr ? `${byOcr} read by OCR, the rest from the file’s own text` : 'its scanned pages read by OCR'})` : `${label} (scan, read by OCR)`;
     });
     const redFlags = rows.filter((p) => p.kind === 'add_finding');
     const patches = rows.filter((p) => p.kind === 'patch_project').length;
@@ -2148,7 +2151,9 @@ export function applyProjectChat(
     const observed = options.outside ? 0 : observationsWaitingFrom(project, filedIds);
     const rowsLine = [
       rowsWaiting ? `${plural(rowsWaiting, 'row')} of its cost table ${rowsWaiting === 1 ? 'is' : 'are'} offered to the Cost Report on Finance › Budget, each with its page. None is on the report until a lead or signer of Finance accepts it there.` : '',
-      tablesUnread ? `Its tables are pictures and no row could be read from them${options.modelReader === false ? ': no model reader is set up here' : ''}. The table can be pasted on Finance › Budget, with the paper open beside it.` : '',
+      // Page by page: which rows are held by the page's own totals, and which pages were left because they are pictures not read reliably or state again what another page does.
+      ...costRows.flatMap((paper) => (paper.offers.length ? costPaperPagesSaid(paper) : [])),
+      tablesUnread ? `Its tables are pictures and no row could be read from them reliably${options.modelReader === false ? ': no model reader is set up here' : ''}. The table can be pasted on Finance › Budget, with the paper open beside it.` : '',
       observed ? `${plural(observed, 'observation')} ${observed === 1 ? 'is' : 'are'} offered under Engineering › Technical, each with its risk and its page, to accept there.` : '',
     ]
       .filter(Boolean)

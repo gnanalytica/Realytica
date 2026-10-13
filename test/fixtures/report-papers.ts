@@ -68,6 +68,27 @@ export async function costReportWithPictureOn(what: 'table' | 'photographs'): Pr
   return pdf.save();
 }
 
+/**
+ * An invented cost report whose table is two pictures as a spreadsheet prints
+ * them to a screen's size: a cover, then two pages each with a line of type
+ * over one picture. The headings, sub-totals and totals are white on bands
+ * of colour, the table runs on from the first page to the second, and one
+ * contractor's name sits in a cell merged down four rows
+ * (`documents/make_banded_report.py`).
+ */
+export async function costReportBandedPictures(): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  lines(pdf.addPage(A4_ACROSS), font, ['MONTHLY COST REPORT', 'Cost Report No. 7 - October 2026', 'Harbour Court, Kadamba', 'Prepared by Meridian Cost Consultants for Harbour Court Homes', 'INVENTED FOR TESTS - NOT A REAL REPORT'], 480, 16);
+  for (const [n, name, height] of [[1, 'Cost_Table_Banded_Page_1.png', 404], [2, 'Cost_Table_Banded_Page_2.png', 326]] as const) {
+    const page = pdf.addPage(A4_ACROSS);
+    page.drawText(`Harbour Court, Kadamba - Cost Report No. 7 - budget against forecast, part ${n} of 2`, { x: 30, y: 560, size: 9, font });
+    page.drawImage(await pdf.embedPng(fixture(name)), { x: 30, y: 540 - height, width: 782, height });
+    page.drawText(`${n + 1}`, { x: 800, y: 20, size: 9, font });
+  }
+  return pdf.save();
+}
+
 /** The thirteen observations of the invented due diligence report: what it is of, what was seen, the risk, and what is recommended. */
 export const OBSERVATIONS: Array<{ of: string; seen: string; risk: 'Critical' | 'High' | 'Medium' | 'Low'; action: string }> = [
   { of: 'Basement retaining wall', seen: 'Seepage along the construction joint at grid C-4, with staining to the floor below.', risk: 'High', action: 'Inject the joint with polyurethane grout and test again after the monsoon.' },

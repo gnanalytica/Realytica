@@ -122,12 +122,22 @@ describe('a pasted table with sub-totals and GST', () => {
     assert.deepEqual(read.rows.filter((row) => row.kind).map((row) => [row.name, row.kind]), [['Design contingency', 'contingency'], ['Project management consultancy fee', 'fee']]);
   });
 
-  it('says a mismatch, with the difference, where a row is a rupee out', () => {
+  it('says a row a rupee out is within what rounding comes to, and keeps the difference', () => {
     const lines = COST_LINES.map((cells) => (cells[1] === 'Painting' ? [...cells.slice(0, 2), '95,00,001', ...cells.slice(3)] : cells));
     const off = readCostSheet([COST_HEADINGS, ...lines]);
-    assert.equal(off.addsUp, false);
+    assert.equal(off.addsUp, false, 'not to the rupee');
     assert.deepEqual(off.checks.find((check) => check.column === 'budget'), { column: 'budget', taken: COST_TOTAL.budget + 1, stated: COST_TOTAL.budget, difference: 1 });
-    assert.equal(costCheckSaid(off, 'INR'), 'Budget: the rows come to ₹29,85,00,001 and the table’s total is ₹29,85,00,000, ₹1 over.');
+    // A consultant rounds each row to the rupee: a table a rupee out over its rows is held, and is said to be held to within that rupee.
+    assert.deepEqual([off.tie.holds, off.tie.rounding], [true, 1]);
+    assert.match(off.tie.said, /to within ₹1 of rounding/);
+    assert.equal(costCheckSaid(off, 'INR'), '');
+  });
+
+  it('says a mismatch, with the difference, where a row is further out than rounding can be', () => {
+    const lines = COST_LINES.map((cells) => (cells[1] === 'Painting' ? [...cells.slice(0, 2), '95,00,900', ...cells.slice(3)] : cells));
+    const off = readCostSheet([COST_HEADINGS, ...lines]);
+    assert.equal(off.tie.holds, false);
+    assert.equal(costCheckSaid(off, 'INR'), 'Budget: the rows come to ₹29,85,00,900 and the table’s total is ₹29,85,00,000, ₹900 over.');
   });
 
   it('works out the total before GST where the table states only a grand total and its GST', () => {
@@ -382,10 +392,13 @@ describe('rows a cost report offers', () => {
     const report = startCostReport(p, { month: '2026-08-01', seedPackages: false }, 'tester');
     const text = costTableAsPageText().replace('4 Flooring and tiling 3,10,00,000 - - 3,10,00,000 - 258', '4 Flooring and tiling 3,10,00,000 3,10,00,000 258');
     offerCostRowsFromPages(p, evidenceId, [{ page: 2, text, reader: 'text' }], 2);
-    assert.deepEqual(acceptCostOffersOnPage(p, evidenceId, 2, report.id, 'lead'), { accepted: 10, left: 1 });
+    // A row that could not be set in its columns leaves the page short of its own total: its rows are not to be had together.
+    assert.throws(() => acceptCostOffersOnPage(p, evidenceId, 2, report.id, 'lead'), /do not add up to the total it states\. Look at each and accept them one at a time/);
+    assert.equal(costReportOf(p, report.id).rows.length, 0, 'and nothing was written');
     const unplaced = p.costPapers![0]!.offers.find((offer) => offer.unplaced)!;
     assert.throws(() => acceptCostOffer(p, evidenceId, unplaced.id, report.id, 'lead'), /Type them from the page, then accept/);
     acceptCostOffer(p, evidenceId, unplaced.id, report.id, 'lead', { budget: 3_10_00_000, anticipatedCost: 3_10_00_000 });
+    for (const offer of p.costPapers![0]!.offers.filter((held) => held.status === 'offered')) acceptCostOffer(p, evidenceId, offer.id, report.id, 'lead');
     assert.equal(costReportTotals(costReportOf(p, report.id)).budget, COST_TOTAL.budget);
   });
 

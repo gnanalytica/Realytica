@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  costAmount,
   moneySaid,
   projectPhotos,
   type CostReportBasicPrice,
@@ -67,9 +68,11 @@ function VariationLog({
   const amounts = moneyColumn([...rows.map((row) => row.amount), total], project.currency);
 
   async function add() {
-    const n = Number(amount.replace(/[, ]/g, ''));
+    // An amount with its unit is read ("4.2 lakh"); a saving is typed with a minus or in brackets.
+    const read = costAmount(amount);
+    const n = typeof read === 'number' ? read : Number.NaN;
     if (!description.trim() || !Number.isFinite(n)) {
-      toast('Give a description and an amount.', 'critical');
+      toast(description.trim() ? `“${amount.trim()}” is not an amount. Type the figure, with commas if you like, or with its unit, as in 4.2 lakh.` : 'Give a description and an amount.', 'critical');
       return;
     }
     setBusy(true);

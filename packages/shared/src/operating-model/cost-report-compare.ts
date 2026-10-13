@@ -21,6 +21,7 @@
 import type { DdProject } from './types';
 import { billPosition, costRegister, type CostBill } from './cost';
 import { costReportIssuedBefore, costReportOf, costReportTotals, type CostReportPackageRow, type CostReportPeriod, type CostReportStatus } from './cost-report';
+import { awardedToNamed } from './cost-table';
 
 /** The figures of a package row that are compared, by the field that holds each. `variations` is the sum logged against it. */
 export type CostReportFigure = 'budget' | 'poIssued' | 'variations' | 'amountPaid' | 'anticipatedCost';
@@ -123,8 +124,10 @@ export interface CostReportComparison {
   decisions: {
     /** Packages now expected to cost more than their budget. */
     overBudget: Array<{ workPackageId: string; code?: string; name: string; budget: number; anticipatedCost: number; over: number }>;
-    /** Packages with no PO issued. */
+    /** Packages awarded to nobody: no PO issued, and no party named as who it was awarded to. */
     unawarded: Array<{ workPackageId: string; code?: string; name: string; budget: number }>;
+    /** Packages awarded to a named party with no PO value entered: awarded, with a figure to type. Never "not awarded". */
+    awardedNoPo: Array<{ workPackageId: string; code?: string; name: string; budget: number; awardedTo: string }>;
   };
   /** Absent when no running bill is dated in the span. */
   billed?: CostReportBilled;
@@ -210,8 +213,11 @@ export function costReportDecisions(report: Pick<CostReportPeriod, 'rows'>): Cos
       })),
     unawarded: report.rows
       // Money set aside, a fee, tax and a sub-total are not packages waiting to be awarded.
-      .filter((row) => row.poIssued === 0 && !packageAwaitsNoAward(row))
+      .filter((row) => row.poIssued === 0 && !packageAwaitsNoAward(row) && !awardedToNamed(row.awardedTo))
       .map((row) => ({ workPackageId: row.workPackageId, ...(row.code ? { code: row.code } : {}), name: row.name, budget: row.budget })),
+    awardedNoPo: report.rows
+      .filter((row) => row.poIssued === 0 && !packageAwaitsNoAward(row) && awardedToNamed(row.awardedTo))
+      .map((row) => ({ workPackageId: row.workPackageId, ...(row.code ? { code: row.code } : {}), name: row.name, budget: row.budget, awardedTo: awardedToNamed(row.awardedTo) })),
   };
 }
 

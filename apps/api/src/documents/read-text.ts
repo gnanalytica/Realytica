@@ -52,6 +52,21 @@ export interface DocumentText {
    */
   layout?: PageLayout[];
   /**
+   * Where OCR found each word on the large picture of a page that also has a
+   * line or two of type, as fractions of the picture, not of the page. Good
+   * for setting a table's words in columns and for nothing that points at the
+   * page. Never stored.
+   */
+  pictures?: PageLayout[];
+  /**
+   * The other readings OCR made of a page's picture, where it read one twice
+   * (as it stands, and with its shaded rows and rules lifted). The surer
+   * reading is the page's; the other is kept for a reader of tables to try,
+   * since the surer one is not always the one whose figures are right. Places
+   * are fractions of the picture. Never stored.
+   */
+  alternates?: Array<{ page: number; text: string; words: LayoutWord[] }>;
+  /**
    * How each page of the file was read, one entry a page, in order. Longer
    * than `pages` when the file was cut: a page past the cut is here as unread.
    */
@@ -538,6 +553,84 @@ function withoutRules(from: Grey): { page: Grey; strokes: number } {
   return { page: { grey: out, width: w, height: h }, strokes };
 }
 
+/** A row of pixels whose middle value is darker than this (of 255) lies on a band of colour, not on paper. */
+const BAND_BELOW = 175;
+/** A band this many rows deep is a shaded row of a table; a thinner one is a rule. */
+const BAND_ROWS = 6;
+
+/**
+ * A page with its shaded bands turned to dark writing on white, and how many
+ * bands were turned.
+ *
+ * A spreadsheet's table is printed with its heading row, its sub-totals and
+ * its total in white on a band of colour. The recogniser reads dark on light,
+ * and lifting the rules paints a dark band out whole, so the lines a table's
+ * rows are held to (its sub-totals and its total) were the ones lost. Each
+ * run of pixel rows whose middle value is dark is a band: its ground goes to
+ * white and whatever is lighter than the ground goes to ink, by how much
+ * lighter it is.
+ */
+function bandsMadePlain(from: Grey): { page: Grey; bands: number } {
+  const { grey, width: w, height: h } = from;
+  const out = Buffer.from(grey);
+  const middle = (y: number): number => {
+    const counts = new Uint32Array(256);
+    for (let x = 0; x < w; x += 1) counts[grey[y * w + x]!]! += 1;
+    let seen = 0;
+    for (let v = 0; v < 256; v += 1) {
+      seen += counts[v]!;
+      if (seen * 2 >= w) return v;
+    }
+    return 255;
+  };
+  let bands = 0;
+  let start = -1;
+  for (let y = 0; y <= h; y += 1) {
+    const ground = y < h ? middle(y) : 255;
+    const dark = ground < BAND_BELOW;
+    if (dark && start < 0) start = y;
+    if (!dark && start >= 0) {
+      if (y - start >= BAND_ROWS) {
+        bands += 1;
+        for (let row = start; row < y; row += 1) {
+          const base = middle(row);
+          const span = Math.max(1, 255 - base);
+          for (let x = 0; x < w; x += 1) {
+            const v = grey[row * w + x]!;
+            out[row * w + x] = v <= base ? 255 : Math.round(255 - ((v - base) / span) * 255);
+          }
+        }
+      }
+      start = -1;
+    }
+  }
+  return { page: { grey: out, width: w, height: h }, bands };
+}
+
+/** A page at twice its size, each new pixel weighed from the four it lies between: small type as a screen draws it is too small for the recogniser. */
+function twiceTheSize(from: Grey): Grey {
+  const { grey, width: w, height: h } = from;
+  const width = w * 2;
+  const height = h * 2;
+  const out = Buffer.alloc(width * height);
+  for (let y = 0; y < height; y += 1) {
+    const fy = Math.min(h - 1, Math.max(0, (y + 0.5) / 2 - 0.5));
+    const y0 = Math.floor(fy);
+    const y1 = Math.min(h - 1, y0 + 1);
+    const ty = fy - y0;
+    for (let x = 0; x < width; x += 1) {
+      const fx = Math.min(w - 1, Math.max(0, (x + 0.5) / 2 - 0.5));
+      const x0 = Math.floor(fx);
+      const x1 = Math.min(w - 1, x0 + 1);
+      const tx = fx - x0;
+      const top = grey[y0 * w + x0]! * (1 - tx) + grey[y0 * w + x1]! * tx;
+      const bottom = grey[y1 * w + x0]! * (1 - tx) + grey[y1 * w + x1]! * tx;
+      out[y * width + x] = Math.round(top * (1 - ty) + bottom * ty);
+    }
+  }
+  return { grey: out, width, height };
+}
+
 /** A stroke with this much ink across a strip of the page (of 255) is a drawn rule: a line of writing puts far less there. */
 const RULE_INK = 80;
 /** The steps either side of a rule that carry its blur, and are left out with it. */
@@ -843,6 +936,8 @@ interface OcrRead {
   /** See `UNSURE_PAGE_CONFIDENCE`. */
   unsure: boolean;
   words?: LayoutWord[];
+  /** Another reading of the same picture that was not the surer one. */
+  other?: { text: string; words: LayoutWord[] };
 }
 
 /**
@@ -930,11 +1025,17 @@ async function ocrPage(image: PageImage, rotate: number): Promise<OcrRead & { tu
   // A page ruled into a table, read unsurely: read once more with its rules lifted, and the surer reading kept.
   if (best.unsure && best.confidence >= TURN_BELOW_CONFIDENCE) {
     const scale = Math.max(image.width, image.height) > MAX_OCR_EDGE ? 2 : 1;
-    const { page, strokes } = withoutRules(quarterTurns(greyPixels(image, scale), best.turn));
+    const upright = quarterTurns(greyPixels(image, scale), best.turn);
+    // Shaded rows first, so a sub-total printed white on a band is still there once the rules are lifted.
+    const plain = bandsMadePlain(upright);
+    const { page: lifted, strokes } = withoutRules(plain.page);
     if (strokes >= RULED_FROM_STROKES) {
+      // A table drawn at a screen's size has type too small to read surely: it is read at twice the size.
+      const page = Math.max(lifted.width, lifted.height) * 2 <= MAX_OCR_EDGE ? twiceTheSize(lifted) : lifted;
       try {
         const unruled = await ocrImage(Buffer.concat([Buffer.from(`P5\n${page.width} ${page.height}\n255\n`), page.grey]), { width: page.width, height: page.height });
-        if (unruled.confidence > best.confidence) best = { ...unruled, turn: best.turn };
+        const [kept, other] = unruled.confidence > best.confidence ? [unruled, best] : [best, unruled];
+        best = { ...kept, turn: best.turn, ...(other.words?.length ? { other: { text: other.text, words: other.words } } : {}) };
       } catch {
         /* the reading with its rules stands */
       }
@@ -945,6 +1046,7 @@ async function ocrPage(image: PageImage, rotate: number): Promise<OcrRead & { tu
     ...read,
     // Boxes are kept as the page is shown, which is how it is drawn for a person to look at.
     words: read.words?.map((word) => unturned(word, (turn - shown + 4) % 4)),
+    ...(read.other ? { other: { text: read.other.text.trim(), words: read.other.words.map((word) => unturned(word, (turn - shown + 4) % 4)) } } : {}),
     ...(turn ? { turned: (turn * 90) as 90 | 180 | 270 } : {}),
   };
 }
@@ -1045,6 +1147,8 @@ export async function readDocumentText(
   const ocrPages: number[] = [];
   const confidences: number[] = [];
   const layout: PageLayout[] = [];
+  const pictures: PageLayout[] = [];
+  const alternates: NonNullable<DocumentText['alternates']> = [];
   const pageReads: PageRead[] = [];
   /** Pictures on pages of type that OCR was run on and that did not read as writing. */
   let pictureTries = 0;
@@ -1092,6 +1196,7 @@ export async function readDocumentText(
             if (ocr.text.replace(/\s/g, '').length > text.replace(/\s/g, '').length) {
               text = ocr.text.trim();
               words = ocr.words ?? [];
+              if (ocr.other) alternates.push({ page: n, ...ocr.other });
               ocrPages.push(n);
               confidences.push(ocr.confidence);
               read.reader = 'ocr';
@@ -1122,7 +1227,9 @@ export async function readDocumentText(
             if (ocr.confidence >= TURN_BELOW_CONFIDENCE && ocr.text.replace(/\s/g, '').length >= MIN_TEXT_CHARS) {
               pictureTries -= 1;
               text = `${text}\n${ocr.text.trim()}`;
-              // Where OCR found each word is a place on the picture, which is not the whole page, so its words are kept and their places are not.
+              // Where OCR found each word is a place on the picture, which is not the whole page: kept apart from the page's own layout, for reading a table's columns.
+              if (ocr.words?.length) pictures.push({ page: n, words: ocr.words });
+              if (ocr.other) alternates.push({ page: n, ...ocr.other });
               ocrPages.push(n);
               confidences.push(ocr.confidence);
               read.reader = 'ocr';
@@ -1180,6 +1287,8 @@ export async function readDocumentText(
     totalPages,
     truncated: totalPages > last || cut,
     ...(layout.length ? { layout } : {}),
+    ...(pictures.length ? { pictures } : {}),
+    ...(alternates.length ? { alternates } : {}),
     pageReads,
   };
 }

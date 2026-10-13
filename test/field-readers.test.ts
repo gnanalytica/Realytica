@@ -74,6 +74,9 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(sheet.values).length > 0', why: 'whether a project keeps any sheet value at all, so a status report knows to carry a field section: no value is read, and the section itself is resolved through `readSheet`' },
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(check.fields ?? {}).length > 0', why: 'the same question of a project’s checks: a count of keys, never a value' },
 
+  // Asking whether anything points at a thing before it is taken away or renamed: a guard on a write, which acts on no value.
+  { file: 'packages/shared/src/operating-model/cost-report.ts', has: 'JSON.stringify(project.fieldSheets ?? {})', why: 'whether any field, standing or waiting, links to a work package, before the package is taken off with the Cost Report row that made it: a link that only waits still must not be left pointing at nothing' },
+
   // Copying a project for somebody whose grant does not reach all of it. Nothing is acted on: what is copied is read again by the field system.
   { file: 'packages/shared/src/operating-model/project-view.ts', why: 'cuts the stored sheets to what a grant reaches and strips the citations of papers it does not, standing or not' },
 ];

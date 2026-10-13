@@ -50,10 +50,11 @@ function accountOf(change: CostReportPackageChange, currency: Currency): Array<{
 }
 
 function decisionLines(comparison: CostReportComparison, currency: Currency): string[] {
-  const { overBudget, unawarded } = comparison.decisions;
+  const { overBudget, unawarded, awardedNoPo } = comparison.decisions;
   return [
     ...(overBudget.length ? [`Over budget: ${overBudget.map((p) => `${packageLabel(p)} by ${moneySaid(p.over, currency)}`).join(', ')}`] : []),
     ...(unawarded.length ? [`Not awarded: ${unawarded.map(packageLabel).join(', ')}`] : []),
+    ...(awardedNoPo.length ? [`Awarded, PO value not entered: ${awardedNoPo.map(packageLabel).join(', ')}`] : []),
   ];
 }
 
