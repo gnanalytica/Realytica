@@ -147,6 +147,8 @@ export interface ChatAnswerRow {
   mark?: string;
   /** For a figure worked out from the rule table: each row it read, as the instrument is cited, and whether a person has verified it. */
   rules?: Array<{ said: string; verified: boolean }>;
+  /** For a figure worked out on a usual value nobody entered: the fields that value stands in for, by label. Said as "on an assumed value". */
+  assumes?: string[];
 }
 
 export interface ChatAnswerCard {
@@ -185,6 +187,7 @@ function fieldRow(view: FieldView, where: string): ChatAnswerRow {
     // A worked-out figure or a standing is nobody's acceptance: it is said to be worked out, with the rule rows it read.
     standing: waiting ? 'proposed' : (view.def.kind === 'computed' || view.def.kind === 'status') && !isBlank(view.held) ? 'worked_out' : view.state,
     ...(view.cites?.length ? { rules: view.cites.map((cite) => ({ said: `${cite.label}: ${ruleSourceSaid(cite.source)}`, verified: cite.verified })) } : {}),
+    ...(view.assumes?.length && !isBlank(view.held) ? { assumes: view.assumes } : {}),
     ...(sourceRow(waiting ? waiting.source : view.source) ? { source: sourceRow(waiting ? waiting.source : view.source) } : {}),
     address: view.address,
   };
@@ -327,7 +330,7 @@ export function chatAnswerText(card: ChatAnswerCard, given: { question?: string;
   for (const row of card.rows) {
     if (row.kind === 'fact') lines.push(`- ${row.value} [${row.mark}]${row.source ? ` (${row.source.label})` : ''}`);
     else if (row.kind === 'passage') lines.push(`- ${row.label}, page ${row.source?.page}: “${row.value}” [ev:${row.source?.evidenceId}:p${row.source?.page}]`);
-    else lines.push(`- ${row.label}: ${row.value} (${[CHAT_STANDING_LABEL[row.standing], sourceSaid(row), ...(row.rules ?? []).map((rule) => `${rule.said}${rule.verified ? '' : ', not verified'}`)].filter(Boolean).join('; ')})`);
+    else lines.push(`- ${row.label}: ${row.value} (${[CHAT_STANDING_LABEL[row.standing], sourceSaid(row), ...(row.rules ?? []).map((rule) => `${rule.said}${rule.verified ? '' : ', not verified'}`), row.assumes?.length ? `on an assumed value: nobody entered ${row.assumes.join(', ')}` : ''].filter(Boolean).join('; ')})`);
   }
   if (said.proposed) lines.push(said.proposed);
   if (said.lookAt) {

@@ -219,7 +219,6 @@ import {
   extractFactsFromProject,
   recallForProject,
   renderMemoryForPrompt,
-  basicChatModel,
   runProjectChat,
   runProjectOrchestratorAgent,
 } from '@realytica/agents';
@@ -1805,19 +1804,6 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
          * of those surfaces is a fix missing from the others.
          */
         agent.text = linkRecordIds(canvas, agent.text);
-        /*
-         * Which rung answered, said beside the answer: a free model's reply
-         * and the senior model's read the same, and while the ladder is being
-         * tried out a person should be able to tell them apart.
-         */
-        agent.toolCalls = [
-          ...agent.toolCalls,
-          agent.handedOverBecause
-            ? { name: 'senior_model', summary: `Senior model — ${agent.handedOverBecause}` }
-            : basicChatModel()
-              ? { name: 'basic_model', summary: 'Free model' }
-              : null,
-        ].filter((t): t is { name: string; summary: string } => Boolean(t));
         const result = applyProjectAgentTurn(canvas, question, agent);
         sayWhatIsMissing(seen, question, result);
         /*

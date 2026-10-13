@@ -128,7 +128,8 @@ function valueOf(fact: MemFact): string {
   return form === 'lower' ? fact.value.replaceAll('_', ' ') : fact.value;
 }
 
-const HOW_READ: Record<string, string> = { rules: 'read by the rules', model: 'read by a model', card: 'raised on a card' };
+// Said to a partner: where the value came from, never which part of the product read it.
+const HOW_READ: Record<string, string> = { rules: 'read off its paper', model: 'read off its paper', card: 'raised in the chat' };
 const WHAT_HAPPENED: Record<string, string> = { accepted: 'accepted', corrected: 'corrected', set_aside: 'set aside', reopened: 'reopened', changed: 'changed' };
 
 /** One line of something said, and the fact whose tag it prints, with where in the line the tag stands. */

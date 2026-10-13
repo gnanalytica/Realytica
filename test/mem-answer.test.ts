@@ -96,7 +96,7 @@ describe('under an answer the chat gave by rule', () => {
     const land = memUnderAnswer(project, facts, { question: 'What is the land area?' })!;
     assert.equal(
       land.text,
-      ['In this project’s memory:', '- Land area: 1,300 sqm [waiting] raised on a card, 6 Oct 2026, “Update land”', `- Land area: 1,210 sqm [approved] by ${LEAD}, 5 Oct 2026`].join('\n'),
+      ['In this project’s memory:', '- Land area: 1,300 sqm [waiting] raised in the chat, 6 Oct 2026, “Update land”', `- Land area: 1,210 sqm [approved] by ${LEAD}, 5 Oct 2026`].join('\n'),
     );
     assert.deepEqual(land.rests.map((rest) => [rest.tag, rest.stands]), [['proposed', false], ['approved', undefined]]);
     placesHold(land);
@@ -257,7 +257,7 @@ describe('a question put to memory itself', () => {
       undecided.text,
       [
         'Still undecided about the land area:',
-        '- Land area: 1,300 sqm [waiting] raised on a card, 6 Oct 2026, “Update land”',
+        '- Land area: 1,300 sqm [waiting] raised in the chat, 6 Oct 2026, “Update land”',
         '',
         'Agreed so far:',
         `- Land area: 1,210 sqm [approved] by ${LEAD}, 5 Oct 2026`,

@@ -614,7 +614,8 @@ export function createProjectTools(
           : [readSheet(project, named.id, typeof record === 'string' ? record : undefined)].flatMap((r) => r ?? [])
         : readFunctionFields(project, of).sheets.flatMap((sheet) => (sheet.reading ? [sheet.reading] : (sheet.records ?? [])));
       const page = named ? undefined : readFunctionFields(project, of);
-      bag.toolCalls.push({ name: 'get_fields', summary: `${named?.title ?? of}: ${readings.reduce((n, r) => n + r.filled, 0)}/${readings.reduce((n, r) => n + r.total, 0)} recorded` });
+      // Said on the chat's line of what was read: the sheet or the function by the name on its page, never by its key.
+      bag.toolCalls.push({ name: 'get_fields', summary: `${named?.title ?? workstreamDefinition(of)?.label ?? 'The sheets'}: ${readings.reduce((n, r) => n + r.filled, 0)} of ${readings.reduce((n, r) => n + r.total, 0)} recorded` });
       return JSON.stringify({
         fn: of,
         sheets: readings.map((reading) => ({ set: reading.set.id, title: reading.set.title, ...(reading.recordId ? { record: reading.recordId, recordTitle: reading.title } : {}), repeats: Boolean(reading.set.records), fields: reading.fields.map((view) => describeField(view, catalog)) })),
@@ -1221,7 +1222,14 @@ export function createProjectTools(
       if (open.some((p) => p.title === title) || bag.proposals.some((p) => p.title === title)) {
         return JSON.stringify({ error: 'A card with that title is already open. Do not duplicate it.' });
       }
-      const card = createChatProposal(kind as ChatProposalKind, title, rationale, impact, payload, actor);
+      // The papers it is about, each with the page and the page's own words where a search of the papers found them this turn.
+      // The card shows those, and no reason of the model's.
+      const papers = (Array.isArray(about?.records) ? about.records : []).filter((id): id is string => typeof id === 'string' && project.evidence.some((row) => row.id === id));
+      const cites = papers.flatMap((id) => {
+        const hit = (bag.passages ?? []).find((passage) => passage.evidenceId === id);
+        return hit ? [{ evidenceId: id, page: hit.page, quote: hit.quote.replace(/\s+/g, ' ').trim().slice(0, 220) }] : [];
+      });
+      const card = createChatProposal(kind as ChatProposalKind, title, rationale, impact, payload, actor, { ...(papers.length ? { citedEvidenceIds: papers } : {}), ...(cites.length ? { cites } : {}) });
       bag.proposals.push(card);
       bag.toolCalls.push({ name: 'propose_update', summary: title });
       const pane = paneForProposalKind(kind as ChatProposalKind);

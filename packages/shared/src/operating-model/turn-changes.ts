@@ -284,6 +284,8 @@ function reach(root: unknown, path: readonly string[]): Reached {
 
 const FIELD_SAID: Record<string, string> = {
   name: 'the project’s name',
+  // A paper dropped offers values to the sheets, and a person types and accepts them there: said as what it is, never as the store's own word for it.
+  fieldSheets: 'values on the sheets',
   description: 'the description',
   location: 'the location',
   city: 'the city',

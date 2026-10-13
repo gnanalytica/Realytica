@@ -992,7 +992,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   const pagesInFile = isPdf ? ((await pdfPageCount(fileBytes)) ?? documentPages) : 1;
   const pagesSent = pdfWindow ? pdfWindow.pages.map((page) => page + 1) : Array.from({ length: pagesInFile }, (_, i) => i + 1);
 
-  emit({ kind: 'tool_call', label: `Requesting classification & extraction from ${model} (${tier} tier)`, toolName: EXTRACTION_TOOL_NAME });
+  // What a person watching sees while it reads: the plain act. Which model and which tier are in the trace's own fields, not in its words.
+  emit({ kind: 'tool_call', label: 'Reading the paper', toolName: EXTRACTION_TOOL_NAME });
 
   // Built once and handed to the port. Everything provider-specific — the
   // `cache_control` marker, `citations: { enabled: true }`, the base64

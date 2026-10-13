@@ -537,7 +537,7 @@ export interface TurnChip {
   kind: 'waiting' | 'filed' | 'graph';
   /** On a waiting chip: how many decisions wait. */
   count?: number;
-  /** What the chip says: "waiting on the Title documents", "Approvals documents", "In the graph". */
+  /** What the chip says: "to accept on the Title papers", "Approvals documents", "In the graph". */
   words: string;
   /** On a waiting chip: the first thing waiting, for the review that walks the rest. */
   entry?: WaitingEntry;
@@ -570,8 +570,9 @@ function waitingChips(project: DdProject, entries: readonly WaitingEntry[], here
       held.count = (held.count ?? 0) + entry.count;
       continue;
     }
-    const what = entry.pane === 'evidence' ? 'documents' : 'checks';
-    const words = byFunction ? `waiting on the ${entry.fn ? `${chatPlaceLabel({ fn: entry.fn })} ` : ''}${what}` : `waiting under ${chatPlaceLabel({ pane: entry.pane, fn: entry.fn })}`;
+    // One name for one thing: what a person has to look at and accept is "to accept", wherever it sits.
+    const what = entry.pane === 'evidence' ? 'papers' : 'checks';
+    const words = byFunction ? `to accept on the ${entry.fn ? `${chatPlaceLabel({ fn: entry.fn })} ` : ''}${what}` : `to accept under ${chatPlaceLabel({ pane: entry.pane, fn: entry.fn })}`;
     const open = entry.pane === 'scope' ? checksPart(project, entry.fn, here) : undefined;
     const chip: TurnChip = { key, kind: 'waiting', count: entry.count, words, entry, ...(open ? { open } : {}) };
     byKey.set(key, chip);
@@ -595,7 +596,7 @@ export function waitingSentence(project: DdProject, waiting: { entries: readonly
   const total = chips.reduce((n, chip) => n + (chip.count ?? 0), 0);
   if (!total) return '';
   const count = `${total}${more ? ' more' : ''} ${total === 1 ? 'is' : 'are'}`;
-  return `${count} waiting: ${andList(chips.map((chip) => `${chip.count} ${chip.words.replace(/^waiting /, '')}`))}.`;
+  return `${count} waiting: ${andList(chips.map((chip) => `${chip.count} ${chip.words.replace(/^to accept /, '')}`))}.`;
 }
 
 /** How many of the last reply's cards are offered one by one. Past that the list is a register, and the rest are said with where they wait. */
@@ -662,7 +663,7 @@ export function waitingChoices(
     choices.push({
       id: 'take_all',
       label: total === 1 ? 'The one from the last reply' : `All ${total} from the last reply`,
-      detail: andList(chips.map((chip) => `${chip.count} ${chip.words.replace(/^waiting /, '')}`)),
+      detail: andList(chips.map((chip) => `${chip.count} ${chip.words.replace(/^to accept /, '')}`)),
       send: CHOICE_SENTENCE.all,
       kind,
       sitting: { decision: 'accept', proposalIds: cards.map((card) => card.id), evidenceIds: papers },
@@ -683,7 +684,7 @@ export function waitingChoices(
     });
   });
   const past = cards.slice(CARDS_OFFERED);
-  const places = where(own.filter((entry) => past.some((card) => card.id === entry.proposalId))).map((chip) => chip.words.replace(/^waiting /, ''));
+  const places = where(own.filter((entry) => past.some((card) => card.id === entry.proposalId))).map((chip) => chip.words.replace(/^to accept /, ''));
   return { choices, more: past.length ? `and ${past.length} more waiting ${andList(places)}` : '' };
 }
 

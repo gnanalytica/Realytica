@@ -213,7 +213,7 @@ describe('where a dropped paper goes', () => {
       paper('Conversion order.pdf', 'conversion', fact('conversion_date', 'Date of the conversion order', '2019-04-02', '2 Apr 2019')),
     );
     const chips = chipsOf(p, out);
-    assert.ok(chips.some((c) => c.kind === 'waiting' && c.words === 'waiting on the Approvals documents'));
+    assert.ok(chips.some((c) => c.kind === 'waiting' && c.words === 'to accept on the Approvals papers'));
     assert.ok(!chips.some((c) => c.kind === 'filed'), 'one way to the Approvals documents, not two');
   });
 });
@@ -467,7 +467,7 @@ describe('where a dropped paper’s values go', () => {
   it('have a chip for each function, opening its page at the checks that wait', () => {
     const { p, out } = both();
     const chips = chipsOf(p, out).filter((c) => c.kind === 'waiting' && c.words.endsWith('checks'));
-    assert.deepEqual(chips.map((c) => [c.words, c.count]), [['waiting on the Title checks', 2], ['waiting on the Approvals checks', 2]]);
+    assert.deepEqual(chips.map((c) => [c.words, c.count]), [['to accept on the Title checks', 2], ['to accept on the Approvals checks', 2]]);
     assert.deepEqual(
       chips.map((c) => cockpitPath(p.id, c.open!.pane, c.open!.extra)),
       [`/projects/${p.id}/w/legal.title?stage=land&part=checks`, `/projects/${p.id}/w/legal.approvals?stage=land&part=checks`],
@@ -748,11 +748,11 @@ describe('what a dropped paper disagrees with', () => {
     assert.match(out.assistantTurn.text, new RegExp(`PID 81-120-99 \\(p\\.1\\) against 81-120-12 in \\[ev:${receipt.id}\\]`));
     assert.ok(!p.chatProposals.some((c) => c.status === 'proposed' && out.assistantTurn.proposalIds?.includes(c.id)));
     // The chips under the reply are for the khata: nothing counts the order's date, and no chip goes to its function.
-    assert.deepEqual(chipsOf(p, out).map((c) => [c.kind, c.words, c.count]), [['waiting', 'waiting on the Title documents', 1], ['graph', 'In the graph', undefined]]);
+    assert.deepEqual(chipsOf(p, out).map((c) => [c.kind, c.words, c.count]), [['waiting', 'to accept on the Title papers', 1], ['graph', 'In the graph', undefined]]);
 
     const approved = applyProjectChat(p, 'approve all');
     // The receipt says what it left: the order's date, on the paper and on the check.
-    assert.equal(approved.assistantTurn.text, 'Accepted 1 value on 1 document. 2 more are waiting: 1 on the Approvals documents and 1 on the Approvals checks.');
+    assert.equal(approved.assistantTurn.text, 'Accepted 1 value on 1 document. 2 more are waiting: 1 on the Approvals papers and 1 on the Approvals checks.');
     assert.equal(acceptedFacts(rowOf(p, 'Khata.pdf')).length, 1, 'the khata’s own value is accepted');
     assert.deepEqual(proposedFacts(order).map((f) => f.key), ['conversion_date'], 'the order’s date still waits for a person');
     assert.equal(checkOf(p, 'regulatory.land_use').fields?.conversion_date, undefined, 'and is not on the check');
@@ -767,7 +767,7 @@ describe('what a dropped paper disagrees with', () => {
     reviewFacts(p, rowOf(p, 'Khata.pdf').id, 'all', 'accept', 'tester');
 
     const out = applyProjectChat(p, 'approve all');
-    assert.equal(out.assistantTurn.text, 'Nothing from the last reply is left to accept. 2 more are waiting: 1 on the Approvals documents and 1 on the Approvals checks. Each is accepted where it is shown.');
+    assert.equal(out.assistantTurn.text, 'Nothing from the last reply is left to accept. 2 more are waiting: 1 on the Approvals papers and 1 on the Approvals checks. Each is accepted where it is shown.');
     assert.deepEqual(proposedFacts(order).map((f) => f.key), ['conversion_date'], 'nothing of another reply was taken');
     assert.equal(checkOf(p, 'regulatory.land_use').fields?.conversion_date, undefined);
     // Saying which ones is still an instruction.
@@ -956,11 +956,11 @@ describe('what a drop took in that is no paper read', () => {
     p.chatProposals.push(card);
     const waiting = waitingOnCanvas(p);
     const [chip] = turnChips(p, { proposalIds: [card.id] }, waiting, {});
-    assert.deepEqual([chip!.kind, chip!.count, chip!.words, chip!.entry?.fn], ['waiting', 1, 'waiting under Progress', 'construction.progress'], 'the page the chip opens is the page it names');
+    assert.deepEqual([chip!.kind, chip!.count, chip!.words, chip!.entry?.fn], ['waiting', 1, 'to accept under Progress', 'construction.progress'], 'the page the chip opens is the page it names');
     assert.equal(waitingSentence(p, { entries: waiting.entries.filter((entry) => entry.proposalId === card.id) }, {}, false), '1 is waiting: 1 under Progress.');
     // With no Progress page on the project the card waits on Overview, and is said to.
     setProjectDepartments(p, ['legal'], 'tester');
-    assert.equal(turnChips(p, { proposalIds: [card.id] }, waitingOnCanvas(p), {})[0]!.words, 'waiting under Overview');
+    assert.equal(turnChips(p, { proposalIds: [card.id] }, waitingOnCanvas(p), {})[0]!.words, 'to accept under Overview');
   });
 
   it('counts photographs on one chip, tells two questionnaires apart by title, and still names where the papers went', () => {
@@ -1011,10 +1011,10 @@ describe('papers read off the page', () => {
 
     assert.equal(landing(p, out), `/projects/${p.id}/w/legal.title?stage=land&part=documents`);
     assert.deepEqual(chipsOf(p, out).map((c) => c.words), [
-      'waiting on the Title documents',
-      'waiting on the Approvals documents',
-      'waiting on the Title checks',
-      'waiting on the Approvals checks',
+      'to accept on the Title papers',
+      'to accept on the Approvals papers',
+      'to accept on the Title checks',
+      'to accept on the Approvals checks',
       'In the graph',
     ]);
   });

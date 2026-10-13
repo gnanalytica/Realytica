@@ -102,6 +102,30 @@ export function TurnWaiting({
 }
 
 /**
+ * The papers a card rests on: each by its title and page, with that page's own
+ * words under it where the card carries them. Never a reason somebody wrote.
+ */
+function ProposalPapers({ item, papers }: { item: ChatProposal; papers: Array<{ id: string; title: string }> }) {
+  if (!papers.length) return null;
+  const cites = item.cites ?? [];
+  if (!cites.length) return <span className="block truncate text-[12px] text-ink-muted">From {papers.map((row) => row.title).join(', ')}</span>;
+  return (
+    <span className="block space-y-0.5 text-[12px] leading-snug text-ink-muted">
+      {papers.map((row) => {
+        const cite = cites.find((held) => held.evidenceId === row.id);
+        return (
+          <span key={row.id} className="block">
+            From {row.title}
+            {cite ? `, p. ${cite.page}` : ''}
+            {cite?.quote ? <span className="block">“{cite.quote}”</span> : null}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
  * One proposal waiting where it would land: what it is, what it would change,
  * the papers it rests on, and the decision. The reason a model gave for it is
  * a model's sentence, and is not drawn: what a person reads here is the
@@ -137,12 +161,12 @@ function WaitingCard({
           // A site entry's lines unfold under it. Nothing else has more to show than the card already says.
           <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="min-w-0 flex-1 text-left">
             <span className="block break-words text-[13px] font-medium text-ink">{item.title}</span>
-          {papers.length ? <span className="block truncate text-[12px] text-ink-muted">From {papers.map((row) => row.title).join(', ')}</span> : null}
+          <ProposalPapers item={item} papers={papers} />
           </button>
         ) : (
           <div className="min-w-0 flex-1">
             <span className="block break-words text-[13px] font-medium text-ink">{item.title}</span>
-          {papers.length ? <span className="block truncate text-[12px] text-ink-muted">From {papers.map((row) => row.title).join(', ')}</span> : null}
+          <ProposalPapers item={item} papers={papers} />
           </div>
         )}
         <DecideButtons

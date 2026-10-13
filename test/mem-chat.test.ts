@@ -271,7 +271,7 @@ describe('an answer the chat gives by rule, and a question put to memory itself'
     assert.equal(asked, before, 'no model was asked');
     const [answer, under] = assistantTurn.text.split('\n\nIn this project’s memory:\n');
     assert.ok(answer && !answer.includes('1,300'), 'the rule’s own answer says nothing of the value that waits');
-    assert.match(under ?? '', /^- Land area: 1,300 sqm \[waiting\] raised on a card, 6 Oct 2026, “Update land”\n- Land area: 1,210 sqm \[approved\] by lead@example\.com, \d{1,2} \w{3} \d{4}$/);
+    assert.match(under ?? '', /^- Land area: 1,300 sqm \[waiting\] raised in the chat, 6 Oct 2026, “Update land”\n- Land area: 1,210 sqm \[approved\] by lead@example\.com, \d{1,2} \w{3} \d{4}$/);
     assert.deepEqual(assistantTurn.restsOn?.map((rest) => [rest.tag, rest.stands]), [['proposed', false], ['approved', undefined]], 'the turn keeps the facts, as a model’s answer does');
     assert.deepEqual(drawn(assistantTurn), ['waiting', 'approved'], 'and the page draws their tags');
 
@@ -297,7 +297,7 @@ describe('an answer the chat gives by rule, and a question put to memory itself'
     for (const question of ['What is still undecided about the land area?', 'Tell me what memory holds about the land area and whether anything about it is still undecided']) {
       const { assistantTurn } = await ask(question);
       assert.deepEqual(assistantTurn.toolCalls?.map((call) => call.name), ['memory_answer'], question);
-      assert.match(assistantTurn.text, /^Still undecided about the land area:\n- Land area: 1,300 sqm \[waiting\] raised on a card, 6 Oct 2026, “Update land”\n\nAgreed so far:\n- Land area: 1,210 sqm \[approved\] by lead@example\.com, /);
+      assert.match(assistantTurn.text, /^Still undecided about the land area:\n- Land area: 1,300 sqm \[waiting\] raised in the chat, 6 Oct 2026, “Update land”\n\nAgreed so far:\n- Land area: 1,210 sqm \[approved\] by lead@example\.com, /);
       assert.deepEqual(drawn(assistantTurn), ['waiting', 'approved']);
     }
     const known = await ask('What do we know about the Municipal certificate of the plot?');

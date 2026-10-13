@@ -2241,6 +2241,12 @@ export interface ChatProposal {
   status: ChatProposalStatus;
   payload: Record<string, unknown>;
   citedEvidenceIds?: string[];
+  /**
+   * Where on the papers it cites: the page, and that page's own words as this
+   * server read them. What a card shows of why it is offered. Never a sentence
+   * a model wrote: a passage is put here only from a search of the papers.
+   */
+  cites?: Array<{ evidenceId: string; page: number; quote: string }>;
   citedNodeIds?: string[];
   createdAt: string;
   createdBy: string;

@@ -658,7 +658,8 @@ export const LENDER_SETS: FieldSet[] = [
     fields: [
       rupees('equity_in', 'Promoter contribution brought in', far(at(FIN, SET.plan, 'equity_in')), { section: 'equity' }),
       rupees('drawn', 'Drawn to date', far(at(LEN, SET.drawdown, 'drawn')), { section: 'equity' }),
-      share('equity_share', 'Promoter share of the money in so far', asPct(f('equity_in'), plus(f('equity_in'), f('drawn'))), { section: 'equity' }),
+      // A share of no money is no share: with nothing brought in and nothing drawn there is no figure, and no rule speaks of one.
+      share('equity_share', 'Promoter share of the money in so far', when({ left: plus(f('equity_in'), f('drawn')), is: 'gt', right: n(0) }, asPct(f('equity_in'), plus(f('equity_in'), f('drawn'))), nothing), { section: 'equity' }),
       share('equity_minimum', 'Lender’s minimum', { op: 'records', set: SET.facilities, reduce: 'max', field: 'min_promoter_share' }, { section: 'equity' }),
       standing(
         'equity_standing',

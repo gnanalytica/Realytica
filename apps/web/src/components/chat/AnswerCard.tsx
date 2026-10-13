@@ -52,6 +52,8 @@ function Row({ row, onOpenEvidence }: { row: ChatAnswerRow; onOpenEvidence?: (id
           {rule.verified ? null : <span className="text-warning"> · not verified</span>}
         </p>
       ))}
+      {/* And a figure that rests on a usual value says so, with what nobody entered. */}
+      {row.assumes?.length ? <p className="text-[11px] leading-4 text-ink-muted">On an assumed value: nobody entered {row.assumes.join(', ')}.</p> : null}
     </li>
   );
 }
