@@ -539,7 +539,7 @@ export async function onePagePdf(bytes: Buffer, page: number): Promise<Buffer | 
 
 export const SECOND_READING_TOOL_NAME = 'record_page_values';
 
-function secondReadingTool(): LlmSchemaTool {
+export function secondReadingTool(): LlmSchemaTool {
   return {
     kind: 'schema',
     name: SECOND_READING_TOOL_NAME,

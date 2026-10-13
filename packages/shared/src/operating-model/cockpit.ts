@@ -463,6 +463,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     citedNodeIds: extra.citedNodeIds,
     toolCalls: extra.toolCalls,
     choices: extra.choices,
+    ...(extra.card ? { card: extra.card } : {}),
     unsupportedClaims: extra.unsupportedClaims,
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
@@ -1072,6 +1073,8 @@ export function applyProjectAgentTurn(
     citedNodeIds?: string[];
     /** What the call cost. Rendered beside the turn, never summed in prose. */
     spend?: TurnSpend;
+    /** The answer as a card of fields. `text` is then code's rendering of it, and is kept whole. */
+    card?: import('./chat-answer').ChatAnswerCard;
   },
 ): ProjectChatResult {
   ensureProjectShape(project);
@@ -1102,9 +1105,11 @@ export function applyProjectAgentTurn(
    * model asks three, the person answers the last, and two are lost. Held
    * rather than cut, so the interview continues.
    */
-  const brief = trimTurn(agent.text);
+  // A card's text is one line a row, made by code: there is no prose in it to trim and no question to hold back.
+  const brief = agent.card ? { text: agent.text, heldQuestions: [], trimmed: false } : trimTurn(agent.text);
   const assistantTurn = turn('assistant', brief.text, {
     choices: agent.choices?.length ? agent.choices : undefined,
+    card: agent.card,
     heldQuestions: brief.heldQuestions.length ? brief.heldQuestions : undefined,
     trimmed: brief.trimmed || undefined,
     unsupportedClaims: attribution.unsupported.length ? attribution.unsupported.map((c) => c.text) : undefined,

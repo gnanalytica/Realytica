@@ -10,7 +10,7 @@
 
 import type { ChatProposal, DdProject, OrchestratorRun } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
-import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
+import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute } from '../providers';
 import type { LlmClientTool, LlmMessage } from '../providers';
 import { createProjectTools, type ProjectAgentCollectors } from '../tools/project-tools';
 
@@ -24,7 +24,7 @@ Use get_project and search_registers. Then:
 - Do NOT call run_capability(orchestrate) — that already ran and would duplicate drafts
 - Do NOT claim anything is written. Cards are proposals.
 
-Return a short spoken plan (under 180 words): what you recommend, in order, and what a person must still approve. Indicative value is not a certified IBBI certificate.`;
+You write no plan and no summary: what you recommend is the cards you propose and the page you open. Anything you write beside your tool calls is thrown away.`;
 
 export interface RunProjectOrchestratorAgentResult {
   summary: string;
@@ -87,7 +87,9 @@ export async function runProjectOrchestratorAgent(
       messages,
       maxIterations: 6,
     });
-    const summary = textOf(result).trim() || prior?.summary || 'Orchestrator planner finished. Review the cards and drafts.';
+    // The summary is the rules' own, with a count of what the planner proposed. Nothing the model wrote is read: `result` is only run for its tool calls.
+    void result;
+    const summary = `${prior?.summary ?? 'The rules ran.'} The planner proposed ${bag.proposals.length} ${bag.proposals.length === 1 ? 'card' : 'cards'} for a person to review.`;
     if (!bag.navigations.some((n) => n.target === 'drafts' || n.target === 'orchestrate')) {
       bag.navigations.push({ target: 'orchestrate' });
     }

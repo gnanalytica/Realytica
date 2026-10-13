@@ -7,6 +7,8 @@
  * before register writes) when the person asked for that work.
  */
 
+import { PROPOSAL_CONCERNS, PROPOSAL_NEXT, structuredProposal } from '@realytica/shared';
+import { paperCellValue } from '../agents/review-answers';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
   allChecks,
@@ -179,6 +181,8 @@ export interface ProjectAgentCollectors {
    * configured.
    */
   choices: ChatChoice[];
+  /** Passages a search of the papers found in this turn, each under the mark an answer picks it by. */
+  passages?: import('@realytica/shared').ChatPassage[];
 }
 
 function openTalk(bag: ProjectAgentCollectors, sitting: ReturnType<typeof sittingFromCitedId>): void {
@@ -1036,7 +1040,7 @@ export function createProjectTools(
   const suggestAnswersTool = betaTool({
     name: 'suggest_answers',
     description:
-      'Lay answers beside questionnaire questions as SUGGESTIONS for a person to confirm. Use only what a filed document states or a site record shows: give the evidenceId, and the page and a short quote when it is a document. Never guess, and never answer from general knowledge — leave a question unanswered instead. A question a person already answered is left alone. Call get_questionnaire first for the question ids, and read the documents with the other tools before answering.',
+      'Lay answers beside questionnaire questions as SUGGESTIONS for a person to confirm. You write no answer: name the field whose value answers, or give the paper and its exact words. Use only what a filed document states or a site record shows: give the evidenceId, and the page and a short quote when it is a document. Never guess, and never answer from general knowledge — leave a question unanswered instead. A question a person already answered is left alone. Call get_questionnaire first for the question ids, and read the documents with the other tools before answering.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -1048,14 +1052,21 @@ export function createProjectTools(
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['questionId', 'answer', 'evidenceId'],
+            required: ['questionId'],
             properties: {
               questionId: { type: 'string' },
-              answer: { type: 'string', description: 'Short and factual, in the units the question asks for.' },
+              field: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['set', 'field'],
+                properties: { set: { type: 'string' }, field: { type: 'string' }, record: { type: 'string' } },
+                description: 'The field whose value answers, by its address from get_fields. The answer is then the value as the record holds it.',
+              },
               source: { type: 'string', enum: [...ANSWER_SOURCES], description: 'document for a filed paper, site for a photograph or site entry.' },
               evidenceId: { type: 'string', description: 'The filed document or photograph the answer rests on.' },
               page: { type: 'number' },
-              quote: { type: 'string', description: 'The words on the page, under 300 characters.' },
+              quote: { type: 'string', description: 'The words on the page that answer, copied exactly, under 300 characters. With no field, the answer is these words.' },
+              value: { type: 'string', description: 'The value inside the quoted words, copied exactly: a figure, a date, a name. Never a sentence of your own.' },
             },
           },
         },
@@ -1063,7 +1074,17 @@ export function createProjectTools(
     } as const,
     run: async ({ questionnaireId, answers }) => {
       const known = new Set(project.evidence.map((e) => e.id));
-      const usable = (answers ?? []).filter((x) => x.answer?.trim() && known.has(x.evidenceId));
+      // An answer is a field's value as the record holds it, or a paper's own words. Nothing a model composed is laid beside a question.
+      const usable = (answers ?? []).flatMap((x) => {
+        const set = x.field ? fieldSet(String(x.field.set)) : undefined;
+        const view = set ? readSheet(project, set.id, typeof x.field?.record === 'string' ? x.field.record : undefined)?.fields.find((held) => held.def.key === x.field?.field) : undefined;
+        if (view && view.state !== 'empty' && view.state !== 'proposed' && view.state !== 'disputed') {
+          const evidenceId = view.source?.evidenceId ?? (known.has(String(x.evidenceId)) ? String(x.evidenceId) : undefined);
+          return evidenceId && known.has(evidenceId) ? [{ questionId: x.questionId, answer: view.text, source: x.source, evidenceId, page: view.source?.page ?? x.page, quote: view.source?.quote ?? x.quote }] : [];
+        }
+        const quote = typeof x.quote === 'string' ? x.quote.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+        return quote && known.has(String(x.evidenceId)) ? [{ questionId: x.questionId, answer: paperCellValue(typeof x.value === 'string' ? x.value : undefined, quote), source: x.source, evidenceId: String(x.evidenceId), page: x.page, quote }] : [];
+      });
       const dropped = (answers ?? []).length - usable.length;
       try {
         const landed = suggestAnswers(
@@ -1079,7 +1100,7 @@ export function createProjectTools(
         );
         bag.toolCalls.push({ name: 'suggest_answers', summary: `${landed} answer(s) suggested` });
         if (!bag.navigations.some((n) => n.target === 'workstream')) bag.navigations.push({ target: 'workstream', workstream: 'construction.quality' });
-        return JSON.stringify({ suggested: landed, droppedForNoProof: dropped, note: 'They show as suggestions on the questionnaire. A person confirms each, or all at once.' });
+        return JSON.stringify({ suggested: landed, droppedForNoProof: dropped, note: 'They show as suggestions on the questionnaire, each a field\'s value or a paper\'s own words. A person confirms each, or all at once.' });
       } catch (err) {
         return JSON.stringify({ error: err instanceof Error ? err.message : 'Could not suggest those answers.' });
       }
@@ -1128,29 +1149,40 @@ export function createProjectTools(
   const proposeUpdate = betaTool({
     name: 'propose_update',
     description:
-      'Queue a propose-and-review card. Nothing is written to a register until a person approves. Use for findings, risks, actions, decisions, evidence requests, starting a DD, reports, or a property screen. Do not propose a duplicate of an already-open card.',
+      'Queue a propose-and-review card. Nothing is written to a register until a person approves. Use for findings, risks, actions, decisions, evidence requests, starting a DD, reports, or a property screen. You write no title, reason or description: say what the card is about (fields by address, records by id) and pick a concern or a next step, and the card is worded from the record. Do not propose a duplicate of an already-open card.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['kind', 'title', 'rationale', 'impact', 'payloadJson'],
+      required: ['kind', 'about', 'payloadJson'],
       properties: {
         kind: { type: 'string', enum: [...PROPOSE_KINDS] },
-        title: { type: 'string' },
-        rationale: { type: 'string', description: 'Why this follows from the registers. Cite record ids in prose.' },
-        impact: { type: 'string', description: 'What lands on the project if approved.' },
+        about: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            fields: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['set', 'field'], properties: { set: { type: 'string' }, field: { type: 'string' }, record: { type: 'string' } } }, description: 'Addresses of the fields it is about, from get_fields or get_check_fields.' },
+            records: { type: 'array', items: { type: 'string' }, description: 'Ids of the records it is about: a paper, a finding, an action, a check, a milestone.' },
+          },
+        },
+        concern: { type: 'string', enum: [...PROPOSAL_CONCERNS], description: 'For add_finding and add_risk: what it is concerned with. Severity and the next step come from this.' },
+        next: { type: 'string', enum: [...PROPOSAL_NEXT], description: 'For add_action: what is to be done.' },
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind, holding ids, picks and values only. Any sentence in it (description, comments, rationale, text) is taken out and written from the record. record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,
-    run: async ({ kind, title, rationale, impact, payloadJson }) => {
+    run: async ({ kind, about, concern, next, payloadJson }) => {
       if (!(PROPOSE_KINDS as readonly string[]).includes(kind)) {
         return JSON.stringify({ error: `"${kind}" is not a proposable kind.` });
       }
-      const payload = parsePayload(payloadJson);
-      if ('error' in payload) return JSON.stringify(payload);
+      const sent = parsePayload(payloadJson);
+      if ('error' in sent) return JSON.stringify(sent);
+      // The card's words are made from the record: its title, its reason and any sentence its payload needs. A sentence the model sent is taken out.
+      const made = structuredProposal(project, { kind: kind as ChatProposalKind, about, concern, next }, sent);
+      if ('error' in made) return JSON.stringify(made);
+      const { title, rationale, impact, payload } = made;
       const invalid = validateProposal(kind as ChatProposalKind, payload);
       if (invalid) return JSON.stringify({ error: invalid });
       const open = project.chatProposals.filter((p) => p.status === 'proposed');
@@ -1548,13 +1580,22 @@ export function createProjectTools(
       const papers = papersAsked(project, { words: String(words ?? ''), ...(paper ? { paper: String(paper) } : {}) });
       const found = papers.length ? await paperSearch({ id: project.id, evidence: papers }, String(words ?? '')) : { hits: [], opened: 0, notOpened: 0 };
       bag.toolCalls.push({ name: 'search_papers', summary: found.hits.length ? `Searched the papers: ${found.hits.length === 1 ? '1 page' : `${found.hits.length} pages`}` : 'Searched the papers: nothing found' });
+      // Each passage under a mark, so an answer names it and code prints the page's own words.
+      const held = (bag.passages ??= []);
+      const marked = found.hits.map((hit) => {
+        const known = held.find((passage) => passage.evidenceId === hit.evidenceId && passage.page === hit.page && passage.quote === hit.snippet);
+        if (known) return { hit, mark: known.mark };
+        const passage = { mark: `p${held.length + 1}`, evidenceId: hit.evidenceId, title: hit.title, page: hit.page, quote: hit.snippet };
+        held.push(passage);
+        return { hit, mark: passage.mark };
+      });
       return JSON.stringify({
         searched: true,
-        hits: found.hits.map((hit) => ({ evidenceId: hit.evidenceId, paper: hit.title, fileName: hit.fileName, page: hit.page, readBy: hit.reader, passage: hit.snippet, cite: `[ev:${hit.evidenceId}:p${hit.page}]` })),
+        hits: marked.map(({ hit, mark }) => ({ mark, evidenceId: hit.evidenceId, paper: hit.title, fileName: hit.fileName, page: hit.page, readBy: hit.reader, passage: hit.snippet, cite: `[ev:${hit.evidenceId}:p${hit.page}]` })),
         papersSearched: found.opened,
         papersNotSearched: found.notOpened,
         note: found.hits.length
-          ? 'These are the papers\' own words. Quote them as that, each with its cite, and state none as a value on the file.'
+          ? 'These are the papers\' own words. Give the marks of the passages that answer in answer_with_fields: the words are printed from the page, never by you.'
           : papers.length
             ? 'No page of the papers searched holds all of those words. Try fewer words, or say that the papers do not mention it.'
             : 'No paper on this project goes by that name.',

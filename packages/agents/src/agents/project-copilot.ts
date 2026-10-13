@@ -1,19 +1,28 @@
 /**
- * Project copilot — tool-using agent over one DdProject.
+ * Project copilot: a tool-using agent over one DdProject, which answers by
+ * picking and writes no sentence.
  *
- * Thinks with live registers, then helps: answers, proposes the next DD /
- * evidence / finding / action / decision, and can run orchestrate/screen as
- * cards. Register writes stay propose-and-review unless the person already
- * issued a deterministic command (handled by applyProjectChat, not here).
+ * It reads the live registers and field sheets with tools. Then it answers
+ * with one call (`answer_with_fields`): the addresses of the fields that
+ * answer the question, the ids of records, the marks of memory lines and of
+ * passages a search of the papers found. Code looks each up and makes the
+ * card (`chatAnswerCard`), and the words round the card are a template's.
+ * Whatever text the model writes beside its tool calls is thrown away: it
+ * is not shown, stored or sent on.
+ *
+ * It can still propose (a card that waits for a person), offer a choice
+ * where a name is unclear, and open a page. Register writes stay
+ * propose-and-review unless the person already issued a deterministic
+ * command (handled by applyProjectChat, not here).
  */
 
-import type { AgentStep, ChatChoice, ChatPlace, ChatProposal, CockpitPathExtra, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
-import { MEM_ANSWER_RULES, chatPlaceLine, memNoteOfReply, sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
+import type { AgentStep, ChatAnswerCard, ChatAnswerPicks, ChatChoice, ChatPlace, ChatProposal, CockpitPathExtra, CopilotTurn, DdProject, MemContext, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
+import { CHAT_OUTCOMES, MEM_MARK_KINDS, chatAnswerCard, chatAnswerSaid, chatAnswerText, chatPicksFrom, chatPlaceLine, memMarkSaid, sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import { agentCapability, describeError } from '../client';
 import { basicChatModel } from '../config';
-import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
-import type { LlmClientTool, LlmContentBlock, LlmMessage } from '../providers';
+import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute } from '../providers';
+import type { LlmClientTool, LlmMessage } from '../providers';
 import { createProjectTools, type ProjectAgentCollectors } from '../tools/project-tools';
 import { randomUUID } from 'node:crypto';
 import { priceTokens } from '../telemetry/pricing';
@@ -23,45 +32,88 @@ const MAX_TOOL_ITERATIONS = 8;
 const BASIC_TOOL_ITERATIONS = 6;
 
 /**
- * The language of the answer: the language of the question.
- *
- * People ask in Hindi, Kannada, Tamil and Telugu, typed or spoken. What the
- * record holds is not translated with the sentence around it: a figure, a
- * name or a document number that comes back changed is a different fact, and
- * the check of an answer's figures against the file reads them as written.
+ * The language of an answer: the language of the question, for the words a
+ * template says round the card (`CHAT_TEMPLATES`), where the template
+ * exists in it. What the record holds is never translated: a figure, a name
+ * or a document number that comes back changed is a different fact.
  */
 export const ANSWER_LANGUAGE_RULE =
-  'Answer in the language the question is written in, in that language\'s own script: a question in Hindi, Kannada, Tamil, Telugu or any other language is answered in it, and a question in English in English. Whatever the language, copy these exactly as the record holds them, never translated, transliterated or rounded: figures with their digits and units, dates, names of people, firms and places, survey, document and registration numbers, the titles of registers and papers, ids, and every token in square brackets.';
+  'The person may ask in Hindi, Kannada, Tamil, Telugu or any other language. Read the question in its own language. You write no answer in any language: you pick fields, records and marks, and the reply is printed from the record as the record holds it.';
 
-const SYSTEM = `You are Realytica's project due-diligence copilot. You sit in the project cockpit: chat on the left, live registers and DD on the right.
+export const ANSWER_TOOL = 'answer_with_fields';
 
-You actually think. Read the project with tools before answering. Search registers before proposing a duplicate. Then help: explain what the registers show, recommend the next assessment or scope, request missing evidence, draft findings/risks/actions/decisions as cards, or run a capability the person asked for.
+/** Why a first model hands a question on. A fixed list: the reason is shown beside the answer, and no model words it. */
+export const HAND_OVER_REASONS = ['needs_judgement', 'compares_papers', 'legal_standing', 'estimates_money', 'asks_for_a_draft', 'not_sure'] as const;
+export type HandOverReason = (typeof HAND_OVER_REASONS)[number];
+export const HAND_OVER_LABEL: Record<HandOverReason, string> = {
+  needs_judgement: 'it needed judgement',
+  compares_papers: 'it compares papers',
+  legal_standing: 'it is about title or legal standing',
+  estimates_money: 'it estimates money',
+  asks_for_a_draft: 'it asked for a draft',
+  not_sure: 'the first model was not sure',
+};
+
+const SYSTEM = `You are Realytica's project copilot. You sit in the project cockpit: chat on the left, live registers, field sheets and papers on the right.
+
+You never write an answer. You look things up with tools, and you answer by PICKING: the fields, records, memory lines and passages that answer the question. The reply the person reads is printed by the system from what you pick, with each value, where it stands and its source, as the record holds them. Any sentence you write is thrown away unread. So do not explain, summarise, advise or greet: pick.
+
+How a turn goes:
+1. Read before you pick. get_project and get_sitting for where the file stands; get_fields for a function's field sheets (each field comes with its address); get_check_fields for a check's fields; search_registers for findings, risks, actions, decisions and papers by id; search_papers for what a paper says that no field holds (each passage comes with a mark, p1, p2 and on). A question may come with memory lines, each under a mark (m1, m2 and on).
+2. End every turn with exactly one call to ${ANSWER_TOOL}:
+   - fields: the addresses (set, field, and record where the set repeats) of the fields that answer the question, copied from get_fields or get_check_fields.
+   - records: the ids of the findings, risks, actions, decisions, milestones, checks or papers that answer it.
+   - facts: the marks of the memory lines that answer it.
+   - passages: the marks of the passages that answer it.
+   - outcome: answered when what you picked answers the question; partly when it answers part; not_on_record when nothing on the record or in the papers does.
+   - look_at: when the answer is not on the record, the fields that would hold it (their addresses, though empty) and the ids of the papers that would state it. This is how you say what would unblock the question. Never guess the missing value.
+   - mark: optional. Leave a mark for the project's memory only when this turn showed something worth keeping that no memory line says: what it is about (a field's address, or a record's id) and one kind: open_question, contradiction or follow_up. null otherwise.
+3. Pick only what you read in this turn or were given. An address, id or mark that is not on the record is dropped. Pick the few that answer, not everything you read.
 
 Hard rules:
-1. Evidence before assertion. If the registers do not support a claim, say so. Do not invent documents, areas, values, statutes, or sign-off.
-2. Model conclusions are propose-and-review. Call propose_update or run_capability(screen|valuation) — never claim a finding/risk/action is already on the project.
-2a. What you propose waits on the canvas, in the register it would change, for the person to accept or set aside there. Say where it is waiting ("waiting under Findings"). Never say "approve below", "approve the card" or "say approve all": the chat holds no buttons.
-3. Person commands are not yours to invent. Do not close an action, change owner, or start a DD because you think it would be tidy. Propose a card. If they already said "set owner to X" that path is handled outside this agent.
-3a. Never guess which record they meant. If the words they used could be more than one check, scope, DD, finding, risk or action — or match none exactly — call ask_to_choose with their phrase and let them pick. Say plainly that you have changed nothing. This matters most when they asked you to CHANGE something: a wrong guess on a question wastes a turn, a wrong guess on a command writes to a register. Do not answer a different question confidently because it was the nearest one you could answer.
-3b. You may PROPOSE a check result with propose_update kind=record_check, never record one. A person saying "mark it compliant" is handled outside this agent and executes as their own instruction; you concluding the same thing is a card they accept. Your comments field must say what in the evidence supports the result — a recorded result raises a finding for every material outcome, and a finding with no reason behind it is what the critic exists to catch.
-3c. When they ask for something you have no tool for, say so in one line and offer the nearest thing you CAN do. Never let "I opened it" stand in for "I did it".
-3d. The report is half alive. Call get_report before touching it. A section marked live reads the registers — its words are not yours to write, and propose_update will refuse them. To change what a live section says, either propose a source change on that block, or propose a paragraph beside it. To rewrite prose somebody wrote, propose blockId+text and say what you changed. A person saying "add a note: ..." or "detach the findings section" is handled outside this agent and executes as their own instruction.
-4. Indicative valuation is not a certified IBBI certificate. Say so whenever value is discussed.
-5. When you name a DD, scope, or check, call navigate_pane with those ids so the right-hand field opens. When you cite evidence, include the evidence id.
-5a. The question comes with the page the person is on: a department, one of its functions (Title, Approvals, Progress), or a place the whole project shares, and the stage it is being looked at in. "What is missing", "summarise" and "which findings are critical" are about that page unless they name the project or the file; open your answer by saying which you answered ("On Title: ..."). Asked to open a page or look at a stage, call navigate_pane with department, function and stage. Looking at a stage never moves the project to it: moving the project is a change_stage proposal, and only when they ask for the move.
-5b. For what a paper says that no register holds (a clause, a right of way, who witnessed a deed), call search_papers and quote the passage as the paper's own words, with the cite it returns.
-6. BE SHORT AND ASK ONE THING. Three sentences is a normal answer; the payload goes on cards, not into prose. Ask exactly ONE question per turn — the single most decisive unknown — and never stack two. If you need four facts, ask for the first and say what you will ask next. Every turn ends with one named next action, not a list of options. A turn with more than one question is trimmed before the person sees it, so the ones you stack are the ones you lose. Cite register titles in prose (Fire NOC, Approval conditions) — not truncated ids. You may put an id in parentheses after the title.
-7. If you cannot help from the registers, say what evidence would unblock you.
-8. Name one next move. Follow the Next line from get_project / get_sitting. Pack completeness (title, survey, sanction, fire NOC) is the health figure — do not list the evidence library.
-8a. Interviewing is how you gather. When a check has blank fields, call get_check_fields and ask for ONE of them by its label and unit — "what extent does the title recite, in sqm?" — not for everything at once. When you have the values, propose record_check_fields with the exact keys. Never guess a value to fill a gap, and never state a divergence: the engine computes those from the values and hands them to you as insights.
-8b. "How bad is it", "what will it cost", "write the technical summary" — call get_standards_view. It hands you the RICS condition-rating spread, the remedial cost banded by when the money falls, and any finding escalated for immediate action. Do not add up the actions yourself, and never quote the total without the shortfall beside it: a band with nothing priced is not a cheap band, and the caveat field says how many are unpriced. The rating is derived from severity — you may read it, you may not set one.
-8c. Before saying anything about condition, what was seen on site, or a master plan, call get_site_record. Never write that something was inspected without reading that visit's limitations — "no defect found" and "the roof was not looked at" are different sentences and only one of them is honest. A photograph's geotag is what the camera claimed; a sheet placement is derived from points a person clicked. Say which when either is load-bearing.
-9. Call get_sitting when the person is on a check. Call review_findings only when they ask to criticise unevidenced findings — never record a check.
-10. Connections on this file: get_subgraph and trace_conclusion. Those hits are this project's registers, not the law. For IBBI, NBC, PTCL, Registration Act and similar, call lookup_reference — cite title and asOf, never file the URL as evidence.
-11. Gated portals (Kaveri, Bhoomi, e-Khata, BBMP tax, Fire NOC): call get_portal_route or read get_sitting.portal. Tell the person to download after login/OTP and attach the file on this check. Never claim you fetched the extract.
-12. Master plan / zoning overlay: call compare_planning. The locality pack and a geocoded pin are not the RMP sheet. Do not claim a geometric intersection with the master plan. OSM, BBMP GIS WMS lakes/parks, and OpenCity GBA wards / BBMP lakes are CONTEXT. BMRDA maps are the sitting for Harohalli. Do not overlay DPPlans, GISMaps.in, or withdrawn RMP-2031 PDFs as the plan in force. Propose obtaining the sheet or zoning certificate; never file those URLs as this project's extract.
-13. ${MEM_ANSWER_RULES}
-14. ${ANSWER_LANGUAGE_RULE}`;
+- Never state, estimate or work out a value. If the fields do not hold it, the outcome is not_on_record and look_at says where it would be.
+- The question comes with the page the person is on. "What is missing" and "which findings are critical" are about that page unless they name the project or the file. Read that page's fields first.
+- Model conclusions are propose-and-review. To suggest a value for a field, call propose_field_values with its source: a paper's page and exact words, or a public source and the date read. To suggest a finding, risk, action, decision or check result, call propose_update. What you propose waits on the page for a person. Nothing you propose is on the project.
+- Person commands are not yours to invent. Do not close an action, change an owner or start a DD because it would be tidy.
+- Never guess which record they meant. If their words could be more than one check, scope, DD, finding, risk or action, or match none exactly, call ask_to_choose with their phrase.
+- When you name a DD, scope, check, department, function or stage, call navigate_pane so the page opens beside the answer. Looking at a stage never moves the project to it.
+- For a question about the law itself (IBBI, NBC, PTCL, the Registration Act), call lookup_reference. For gated portals (Kaveri, Bhoomi, e-Khata), call get_portal_route. You fetch nothing from them.
+- ${ANSWER_LANGUAGE_RULE}`;
+
+const address = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['set', 'field'],
+  properties: { set: { type: 'string' }, field: { type: 'string' }, record: { type: 'string' } },
+} as const;
+
+/** The one way a model answers: keys, and nowhere to put a sentence. */
+export const ANSWER_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['outcome', 'fields', 'records', 'facts', 'passages'],
+  properties: {
+    outcome: { type: 'string', enum: [...CHAT_OUTCOMES] },
+    fields: { type: 'array', items: address, description: 'Addresses of the fields that answer, from get_fields or get_check_fields.' },
+    records: { type: 'array', items: { type: 'string' }, description: 'Ids of records that answer: a finding, risk, action, decision, milestone, check or paper.' },
+    facts: { type: 'array', items: { type: 'string' }, description: 'Marks of memory lines that answer: m1, m2.' },
+    passages: { type: 'array', items: { type: 'string' }, description: 'Marks of passages search_papers returned: p1, p2.' },
+    look_at: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        fields: { type: 'array', items: address, description: 'Fields that would hold the answer and are empty.' },
+        papers: { type: 'array', items: { type: 'string' }, description: 'Ids of papers that would state it.' },
+      },
+    },
+    mark: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', enum: [...MEM_MARK_KINDS] }, field: address, record: { type: 'string' } },
+    },
+  },
+} as const;
 
 export interface RunProjectCopilotParams {
   project: DdProject;
@@ -72,6 +124,8 @@ export interface RunProjectCopilotParams {
   place?: ChatPlace;
   history?: CopilotTurn[];
   memory?: string;
+  /** The memory lines the question came with, by their marks: what an answer's picked marks are looked up in. */
+  remembered?: Pick<MemContext, 'lines'>;
   sitting?: SittingRef;
   graphRag?: import('../tools/project-tools').ProjectGraphRagPort;
   lookupShelf?: (query: string, extra?: { scopeKey?: ScopeKey; checkTitle?: string }) => Promise<string>;
@@ -85,7 +139,10 @@ export interface RunProjectCopilotParams {
 }
 
 export interface RunProjectCopilotResult {
+  /** The reply as text: code's rendering of `card` and a template's line. Never a model's words. */
   text: string;
+  /** The answer as a card of fields. Absent only where no model was reached. */
+  card?: ChatAnswerCard;
   proposals: ChatProposal[];
   /** Options offered instead of guessing which record was meant. */
   choices: ChatChoice[];
@@ -94,51 +151,16 @@ export interface RunProjectCopilotResult {
   citedEvidenceIds: string[];
   citedNodeIds: string[];
   /**
-   * What the answer asked to be kept in the project's memory: the sentence,
-   * and the id it named as what the sentence is about. Taken off the answer's
-   * last line, so `text` does not carry it. Nothing has checked the id.
+   * What the answer marked for the project's memory, as memory keeps it: one
+   * line made by code from the mark's kind and the name of what it is about,
+   * and the id it is filed under. The model gave a kind and an address or an
+   * id, never the line.
    */
   note?: { note: string; about?: string };
   /** What the call cost, when one was made. Absent on every failure path. */
   spend?: TurnSpend;
   /** Why the model handed the question over, when it did — the answer is then not its own. */
   handedOver?: string;
-}
-
-/**
- * Tools that show or offer something and hand back nothing the answer needs.
- * Words written beside one of these are the answer, not a note on the way to it.
- */
-const ANSWERING_TOOLS = new Set(['navigate_pane', 'ask_to_choose', 'propose_update', 'propose_drafts']);
-
-/**
- * The answer a loop wrote: every word from its last lookup onwards.
- *
- * Reading only the last message lost answers. Measured on Claude Sonnet 5.5
- * through OpenRouter: the copilot wrote its answer beside `navigate_pane`
- * (which rule 5 asks for whenever it names a DD), then closed with "I've
- * opened the BSNL NOC finding on the right" — and that one line was all the
- * person saw.
- *
- * So the answer runs back from the end through every message that only
- * showed, offered or proposed something, and stops at the last one that
- * looked something up. That message's own words came before what the lookup
- * returned — "let me check" — so they are not part of it.
- */
-export function answerOfLoop(messages: LlmContentBlock[][]): string {
-  const parts: string[] = [];
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const blocks = messages[i]!;
-    const looked = blocks.some((b) => b.type === 'tool_use' && !ANSWERING_TOOLS.has(b.name));
-    if (looked) break;
-    const words = blocks
-      .filter((b): b is Extract<LlmContentBlock, { type: 'text' }> => b.type === 'text')
-      .map((b) => b.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
-    if (words) parts.unshift(words);
-  }
-  return parts.join('\n\n');
 }
 
 function citeIds(text: string, project: DdProject): { citedEvidenceIds: string[]; citedNodeIds: string[] } {
@@ -198,6 +220,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
   const bag: ProjectAgentCollectors = { proposals: [], navigations: [], toolCalls: [], choices: [] };
   const model = params.model ?? route.model;
   const handOver = { reason: '' };
+  const answered: { picks?: ChatAnswerPicks } = {};
   const tools: LlmClientTool[] = [
     ...createProjectTools(project, actor, bag, {
       sitting: params.sitting,
@@ -211,20 +234,29 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
           betaTool({
             name: 'hand_over',
             description:
-              'Hand this question to the senior analyst instead of answering it. Call it FIRST, before any other tool, when the question needs judgement rather than a lookup: why or should questions, comparing or reconciling documents, anything about title or legal standing, estimating money, drafting a finding or report text, or anything you are not sure you can answer exactly from the registers. Do not call it for a lookup the tools answer — who owns it, what a document says, what is open.',
+              'Hand this question to the senior analyst instead of answering it. Call it FIRST, before any other tool, when the question needs judgement rather than a lookup: why or should questions, comparing or reconciling documents, anything about title or legal standing, estimating money, a draft, or anything you are not sure you can answer exactly from the registers. Do not call it for a lookup the tools answer: who owns it, what a document says, what is open.',
             inputSchema: {
               type: 'object',
               additionalProperties: false,
               required: ['reason'],
-              properties: { reason: { type: 'string', description: 'One short line: why this needs the senior analyst.' } },
+              properties: { reason: { type: 'string', enum: [...HAND_OVER_REASONS] } },
             } as const,
             run: async ({ reason }) => {
-              handOver.reason = String(reason ?? '').trim().slice(0, 160) || 'it needed judgement';
-              return 'Handed over. Stop now and write nothing else.';
+              handOver.reason = HAND_OVER_LABEL[HAND_OVER_REASONS.find((known) => known === reason) ?? 'needs_judgement'];
+              return 'Handed over. Stop now.';
             },
           }),
         ]
       : []),
+    betaTool({
+      name: ANSWER_TOOL,
+      description: 'Answer the question by picking what answers it: field addresses, record ids, the marks of memory lines and of passages. The reply is printed from the record. Call it once, last.',
+      inputSchema: ANSWER_SCHEMA,
+      run: async (input) => {
+        answered.picks = chatPicksFrom(input);
+        return 'Recorded. Stop now.';
+      },
+    }),
   ].map(clientToolFromRunnable);
 
   const emit = (step: Omit<AgentStep, 'id' | 'at'>): void => {
@@ -261,7 +293,6 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
 
   try {
     emit({ kind: 'plan', label: 'Reading the sitting' });
-    const written: LlmContentBlock[][] = [];
     const result = await provider.runTools({
       agent: 'analyst_copilot',
       caseId: project.id,
@@ -272,7 +303,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       messages,
       maxIterations: params.canHandOver ? BASIC_TOOL_ITERATIONS : MAX_TOOL_ITERATIONS,
       onMessage: (message) => {
-        written.push(message.content);
+        // Only the tool calls are read. A message's words are not kept in any variable here: they are not the answer.
         for (const block of message.content) {
           if (block.type === 'tool_use') {
             emit({ kind: 'tool_call', label: `Looking up ${block.name.replace(/_/g, ' ')}`, toolName: block.name });
@@ -280,10 +311,14 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
         }
       },
     });
-    // The note the answer leaves for memory is its last line. It comes off before anything reads the answer: it is not said to the person.
-    const said = memNoteOfReply(answerOfLoop(written) || textOf(result).trim());
-    const text = said.text || 'I looked at the project. Anything I proposed is waiting on the right.';
-    const cites = citeIds(text, project);
+    // The answer is what was picked, looked up on the record. A model that picked nothing answered nothing, whatever it wrote.
+    const picks = answered.picks ?? chatPicksFrom(undefined);
+    const card = chatAnswerCard(project, picks, { remembered: params.remembered, passages: bag.passages });
+    card.said = chatAnswerSaid(card, { question, proposals: bag.proposals.length, choices: bag.choices.length, navigations: bag.navigations.length });
+    const text = chatAnswerText(card);
+    const note = memMarkSaid(project, picks.mark);
+    // What the answer cites: the records and papers its rows are, and those named in the text code printed.
+    const cites = citeIds([text, ...card.rows.flatMap((row) => [row.recordId ?? '', row.source?.evidenceId ?? ''])].join(' '), project);
     /*
      * What the turn cost, carried out with the answer.
      *
@@ -300,13 +335,14 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     });
     return {
       text,
+      card,
       proposals: bag.proposals,
       choices: bag.choices,
       navigations: bag.navigations,
       toolCalls: bag.toolCalls.length ? bag.toolCalls : [{ name: 'project_copilot', summary: 'Thought with project tools' }],
       citedEvidenceIds: cites.citedEvidenceIds,
       citedNodeIds: cites.citedNodeIds,
-      ...(said.note ? { note: { note: said.note, ...(said.about ? { about: said.about } : {}) } } : {}),
+      ...(note ? { note } : {}),
       spend: { usd: price.costUsd, exact: price.confidence === 'exact' },
       ...(handOver.reason ? { handedOver: handOver.reason } : {}),
     };
@@ -329,8 +365,6 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
 /* ==================================================================== */
 /* The ladder                                                            */
 /* ==================================================================== */
-
-const FALLBACK_ANSWER = 'I looked at the project. Anything I proposed is waiting on the right.';
 
 /** Questions that go straight to the senior model: writing that will be read as the firm's. */
 function needsSeniorOutright(question: string): string | undefined {
@@ -375,7 +409,8 @@ export async function runProjectChat(params: RunProjectCopilotParams): Promise<P
     try {
       const first = await runProjectCopilot({ ...params, model: basic, canHandOver: true });
       firstSpend = first.spend;
-      const nothing = !first.text.trim() || (first.text === FALLBACK_ANSWER && !first.proposals.length && !first.choices.length);
+      // Nothing picked that is on the record, nothing to look at, nothing proposed or offered: the first model had no answer.
+      const nothing = !first.card?.rows.length && !first.card?.look.length && !first.proposals.length && !first.choices.length;
       because =
         first.handedOver
         ?? (nothing ? 'it had no answer' : undefined)

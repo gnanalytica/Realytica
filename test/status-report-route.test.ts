@@ -147,16 +147,15 @@ describe('a status report asked for in the chat', () => {
     assert.ok(answer.steps.includes('Putting the report in plain words'));
   });
 
-  it('has a model reword its lines once, from the lines alone, and keeps only the wording that holds', () => {
-    assert.equal(asked, 1, 'asked once, and not to word the reply');
-    assert.match(sent, /^The report is for the owner\.$/m);
-    assert.ok(!sent.includes(LEAD) && !sent.includes(VALUER), 'the lines are sent without who did what');
+  it('asks no model to reword its lines: every line reads as code made it from the record', () => {
+    assert.equal(asked, 0, 'no model was asked, for the reply or for the lines');
+    assert.equal(sent, '');
 
     const changed = report.body.blocks[0]!;
-    assert.deepEqual(changed.wording, [{ said: 'Filed and read: “Khata certificate” · accepted: Extent per khata 11,850 sq ft.', as: 'The “Khata certificate” was filed and read, and its extent of 11,850 sq ft was accepted.' }]);
+    assert.equal(changed.wording, undefined);
     const table = resolveReportBlock(stored(), changed).table!;
     assert.deepEqual(table.rows.map((row) => [row.cells[1], row.worded === true]), [
-      ['The “Khata certificate” was filed and read, and its extent of 11,850 sq ft was accepted.', true],
+      ['Filed and read: “Khata certificate” · accepted: Extent per khata 11,850 sq ft.', false],
       ['Overdue: “Send the survey sketch”, due 15 Sep 2026.', false],
     ]);
     assert.deepEqual(table.rows[0]!.cells.slice(2), ['14 Sep 2026', `${LEAD}, ${VALUER}`, 'on file', '“Khata certificate”, Khata certificate and extract'], 'the day, the people and what is behind the line are the file’s own');

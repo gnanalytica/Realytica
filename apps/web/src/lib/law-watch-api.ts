@@ -1,4 +1,4 @@
-import type { DepartmentKey, LawChange, LawProposedAction, LawSource, LawSourceInput } from '@realytica/shared';
+import type { DepartmentKey, LawChange, LawChangeFields, LawProposedAction, LawRuleRowOffer, LawSource, LawSourceInput } from '@realytica/shared';
 import { request } from './api';
 
 /**
@@ -17,7 +17,9 @@ export interface LawWatchShown {
   sources: LawSource[];
   waiting: LawWaiting[];
   decided: LawChange[];
-  /** Whether a model is set up to propose what a change means. */
+  /** Rule rows confirmed changes offered, each unverified until a firm admin marks it verified. */
+  offeredRows?: LawRuleRowOffer[];
+  /** Whether a model is set up to fill a change's fields. */
   model: boolean;
   mayManage: boolean;
   mayReview: boolean;
@@ -34,6 +36,7 @@ export const lawWatchApi = {
   remove: (sourceId: string) => request<LawWatchShown>(`/law-watch/sources/${sourceId}`, { method: 'DELETE' }),
   look: (sourceId: string) => request<LawWatchShown>(`/law-watch/sources/${sourceId}/look`, send('POST')),
   pages: (changeId: string) => request<{ before: string; after: string }>(`/law-watch/changes/${changeId}/pages`),
-  confirm: (changeId: string, summary: string, projects: Array<{ projectId: string; actions: LawProposedAction[] }>) => request<LawWatchShown>(`/law-watch/changes/${changeId}/confirm`, send('POST', { summary, projects })),
+  confirm: (changeId: string, fields: LawChangeFields, projects: Array<{ projectId: string; actions: LawProposedAction[] }>) => request<LawWatchShown>(`/law-watch/changes/${changeId}/confirm`, send('POST', { fields, projects })),
+  verifyRow: (offerId: string) => request<LawWatchShown>(`/law-watch/rule-rows/${offerId}/verify`, send('POST')),
   dismiss: (changeId: string, why?: string) => request<LawWatchShown>(`/law-watch/changes/${changeId}/dismiss`, send('POST', why ? { why } : {})),
 };

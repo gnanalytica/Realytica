@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnswerCard } from './chat/AnswerCard';
 import { AttachControls, type VoiceInfo } from './chat/AttachControls';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, PanelLeftClose, SearchX, X } from 'lucide-react';
@@ -222,14 +223,20 @@ function TurnBubble({
             </span>
           </p>
         ) : null}
-        <AnswerBody
-          text={turn.text}
-          evidence={evidence}
-          nodes={nodes}
-          rests={turn.restsOn}
-          onOpenEvidence={onOpenEvidence}
-          onOpenNode={onOpenNode}
-        />
+        {turn.card ? (
+          <AnswerCard card={turn.card} text={turn.text} onOpenEvidence={onOpenEvidence} />
+        ) : (
+          <AnswerBody
+            text={turn.text}
+            evidence={evidence}
+            nodes={nodes}
+            rests={turn.restsOn}
+            onOpenEvidence={onOpenEvidence}
+            onOpenNode={onOpenNode}
+          />
+        )}
+        {/* Only a model's turn carries what it cost. One with no card was kept before answers were cards: its words are the model's own. */}
+        {!turn.card && turn.spend && !turn.unanswered ? <p className="mt-1 text-mini text-ink-muted">Written by a model, before this change.</p> : null}
         {/*
           Deduped. The agent loops up to eight times and routinely consults
           the same tool twice — the observed answer showed "Looking up get

@@ -3,28 +3,39 @@
  *
  * Rules fire when a record is saved, and the daily timer runs the fixed
  * alert rules. Neither reads one part of the file against another. Once a
- * day a model is handed a brief of the project and asked for cross-checks:
- * two papers that disagree, a date that cannot be right given another, an
- * approval a logged activity depends on that is missing or lapsed, cost that
- * moved with no reason recorded, schedule and cost telling different
- * stories, an action nobody owns.
+ * day the review does, for six kinds of thing.
  *
- * What it answers is a suggestion and nothing more. It is kept beside the
- * project and not on it (`FileSweepState`), so it is in no report, no
+ * Four are rules, worked out by code (`sweep-rules.ts`): two papers that
+ * state the same field differently, a date that cannot be right given
+ * another, an approval work depends on that is missing or lapsed, an action
+ * nobody is named for. No model is asked for these.
+ *
+ * Two are left to a model's eye: cost that moved with no reason recorded,
+ * and schedule and cost telling different stories. A model is handed a brief
+ * of the record and answers with nominations only: a kind, and the marks of
+ * the lines it read. Code then works out the difference from those lines'
+ * own figures, takes severity and the next step from a table, and makes the
+ * line a person reads from a template (`sweepSaid`). No sentence a model
+ * writes is read, stored or shown.
+ *
+ * What comes of either is a suggestion and nothing more. It is kept beside
+ * the project and not on it (`FileSweepState`), so it is in no report, no
  * notification, no chat answer and no collaborator's copy. A lead or signer
  * of its department accepts it, and it becomes a finding or a risk the way
  * any other does, or dismisses it with a reason, and the same matter is not
  * raised again.
  *
- * Three things here are code's and not the model's:
- *
  * - the brief (`sweepBrief`): bounded, built from the record alone, every
  *   line under a mark that stands for one entry on the record;
- * - the holding (`sweepProposalsHeld`): a proposal is kept only where every
- *   mark it cites is a line of the brief it was given, so each suggestion
- *   carries its sources, paper and page where a paper states them;
+ * - the holding (`sweepNominationsHeld`): a nomination is kept only where
+ *   every mark it cites is a line of the brief it was given and code can
+ *   work out what it claims, so each suggestion carries its sources, paper
+ *   and page where a paper states them;
  * - the memory (`sweepRaise`): a matter already open, accepted or dismissed
  *   is told by what it is about, not by its wording, and is not raised twice.
+ *
+ * A suggestion stored before this (a statement, a why and an action a model
+ * wrote) still reads, and is shown as written by a model before the change.
  *
  * Everything in this file is pure but the two decisions, which change the
  * project as a person's act does.
@@ -36,7 +47,7 @@ import { checklistOwed } from './checklist';
 import { moneySaid } from './cost';
 import { costReportTotals, costReportsOf } from './cost-report';
 import { costReportChanges } from './cost-report-compare';
-import { DEPARTMENT_KEYS, SUB_STAGE_LABEL, stageAndStep, type DepartmentKey } from './departments';
+import { SUB_STAGE_LABEL, stageAndStep, type DepartmentKey } from './departments';
 import { openAlerts } from './alerts';
 import { memHash } from './mem-delta';
 import { memoryFacts, type MemFact } from './mem-facts';
@@ -45,7 +56,7 @@ import { addFinding, addRisk, recordAuditEvent } from './operations';
 import { waitingOn } from './project-requests';
 import { decisionRefused } from './review';
 import { projectDepartments, type MayDecide } from './team';
-import type { DdProject, FindingRecord, FindingSeverity, ImpactScore, RiskImpactType, RiskRecord, ScopeKey } from './types';
+import type { DdProject, FieldAddress, FindingRecord, FindingSeverity, ImpactScore, RiskImpactType, RiskRecord, ScopeKey } from './types';
 
 /* ==================================================================== */
 /* What is asked for                                                     */
@@ -64,7 +75,7 @@ export const SWEEP_KIND_LABEL: Record<SweepKind, string> = {
   action_unowned: 'An action nobody owns',
 };
 
-/** What each kind is, as a model is told it. */
+/** What each kind is, in a line. A model is told only the two it may nominate (`SWEEP_MODEL_KINDS`). */
 export const SWEEP_KIND_ASKED: Record<SweepKind, string> = {
   papers_disagree: 'two entries state the same thing differently: an area, a date, a name, a number, an amount',
   date_impossible: 'a date that cannot be right given another: a finish before its start, a validity that ends before it begins, work logged before the approval it needs was issued',
@@ -119,6 +130,12 @@ export interface SweepEntry {
   paper?: { evidenceId: string; title: string; page?: number };
   /** The day it is of: recorded, logged, issued or due. */
   on?: string;
+  /** What the line is about, as the record names it: a package, a milestone, an approval, an action. */
+  subject?: string;
+  /** Money the line is about, in the project's currency: a package's movement that nothing accounts for. */
+  amount?: number;
+  /** A share the line states, 0 to 100: a milestone's work done, a report's forecast paid. */
+  percent?: number;
 }
 
 export type SweepSectionKey = 'facts' | 'waiting' | 'schedule' | 'approvals' | 'site_log' | 'cost' | 'actions' | 'decisions' | 'owed' | 'register' | 'changes';
@@ -204,7 +221,7 @@ function factEntries(project: DdProject, facts: readonly MemFact[], kind: 'fact'
     const paper = papers.get(fact.source) ?? papers.get(fact.aboutId);
     if (!paper) return [];
     const on = day(fact.at ?? fact.recordedAt);
-    return [{ ref: fact.id, kind, says: line(factSaid(fact)), paper: { evidenceId: paper.id, title: paper.title, ...(fact.page ? { page: fact.page } : {}) }, ...(on ? { on } : {}) }];
+    return [{ ref: fact.id, kind, subject: fact.label, says: line(factSaid(fact)), paper: { evidenceId: paper.id, title: paper.title, ...(fact.page ? { page: fact.page } : {}) }, ...(on ? { on } : {}) }];
   });
 }
 
@@ -218,6 +235,8 @@ function scheduleEntries(project: DdProject, now: Date): Drafted[] {
     out.push({
       ref: m.id,
       kind: 'milestone',
+      subject: m.name,
+      percent: m.percent,
       says: line(
         [
           `${m.name}: ${m.percent}% done`,
@@ -244,6 +263,7 @@ function approvalEntries(project: DdProject, now: Date): Drafted[] {
       return {
         ref: `approval:${held.kind.key}`,
         kind: 'approval',
+        subject: held.kind.label,
         says: line(
           [
             `${held.kind.label}, needed before ${SUB_STAGE_LABEL[held.kind.neededBy]}: ${APPROVAL_STATUS_LABEL[held.status]}`,
@@ -286,6 +306,9 @@ function costEntries(project: DdProject): Drafted[] {
     {
       ref: report.id,
       kind: 'cost',
+      subject: `Cost Report ${report.label}`,
+      ...(moved?.totals.unexplained ? { amount: moved.totals.unexplained } : {}),
+      ...(totals.anticipatedCost > 0 ? { percent: Math.round((totals.amountPaid / totals.anticipatedCost) * 100) } : {}),
       says: line(
         [
           `Cost Report ${report.label} (${report.from} to ${report.to}): forecast ${money(totals.anticipatedCost)} against a budget of ${money(totals.budget)}, ${money(totals.amountPaid)} paid`,
@@ -303,6 +326,9 @@ function costEntries(project: DdProject): Drafted[] {
     out.push({
       ref: `${report.id}:${change.workPackageId}`,
       kind: 'cost',
+      subject: `${change.code ? `${change.code} ` : ''}${change.name}`,
+      // Movement nothing accounts for, and only where nobody typed a reason for it either.
+      ...(change.unexplained && !change.reason ? { amount: change.unexplained } : {}),
       says: line(
         [
           `${change.code ? `${change.code} ` : ''}${change.name}: ${change.status === 'added' ? `new on the report at ${money(current ?? 0)}` : change.status === 'removed' ? `no longer on the report, was ${money(previous ?? 0)}` : `forecast ${money(previous ?? 0)} to ${money(current ?? 0)} (${signed(by)})`}`,
@@ -332,6 +358,7 @@ function actionEntries(project: DdProject, now: Date): Drafted[] {
     .map((action): Drafted => ({
       ref: action.id,
       kind: 'action',
+      subject: line(action.title, 160),
       // Whether somebody is named, never who: a name is no part of any cross-check.
       says: line(`${action.title}: ${nobody(action) ? 'nobody named for it' : 'somebody is named for it'}; ${action.dueDate ? `due ${day(action.dueDate)}` : 'no due date'}; ${ACTION_STATUS_LABEL[action.status]}`),
       ...(day(action.dueDate) ? { on: day(action.dueDate) } : {}),
@@ -414,6 +441,28 @@ const entryText = (entry: Pick<SweepEntry, 'mark' | 'says' | 'paper'>): string =
   `[${entry.mark}] ${entry.says}${entry.paper ? ` — paper “${line(entry.paper.title, 80)}”${entry.paper.page ? `, page ${entry.paper.page}` : ''}` : ''}`;
 
 /**
+ * Every line the record gives, by section, before any is cut to length. The
+ * brief is these cut to its bounds; the rules (`sweep-rules.ts`) read them
+ * whole, so what a rule finds rests on the same lines, under the same ids,
+ * as what a model is shown.
+ */
+export function sweepDrafts(project: DdProject, now: Date, since: string, facts: readonly MemFact[] = memoryFacts(project).held): Record<SweepSectionKey, Array<Omit<SweepEntry, 'mark'>>> {
+  return {
+    facts: factEntries(project, facts.filter((fact) => fact.tag === 'approved'), 'fact'),
+    waiting: factEntries(project, facts.filter((fact) => fact.tag === 'proposed'), 'waiting'),
+    schedule: scheduleEntries(project, now),
+    approvals: approvalEntries(project, now),
+    site_log: siteLogEntries(project),
+    cost: costEntries(project),
+    actions: actionEntries(project, now),
+    decisions: decisionEntries(project),
+    owed: owedEntries(project, now),
+    register: registerEntries(project),
+    changes: changeEntries(project, since),
+  };
+}
+
+/**
  * The project as a model is handed it for the daily review: what stands on
  * its papers with paper and page, what waits, the schedule and its warnings,
  * the approvals, the site log, cost since the last report, open actions and
@@ -432,19 +481,7 @@ export function sweepBrief(project: DdProject, options: { now: Date; since?: str
   const since = options.since ?? new Date(now.getTime() - SWEEP_FIRST_LOOK_DAYS * 86_400_000).toISOString();
   // The newest first: where a section is cut to its length, what was recorded last is what stays.
   const facts = [...memoryFacts(project).held].sort((a, b) => (a.recordedAt < b.recordedAt ? 1 : a.recordedAt > b.recordedAt ? -1 : 0));
-  const drafted: Record<SweepSectionKey, Drafted[]> = {
-    facts: factEntries(project, facts.filter((fact) => fact.tag === 'approved'), 'fact'),
-    waiting: factEntries(project, facts.filter((fact) => fact.tag === 'proposed'), 'waiting'),
-    schedule: scheduleEntries(project, now),
-    approvals: approvalEntries(project, now),
-    site_log: siteLogEntries(project),
-    cost: costEntries(project),
-    actions: actionEntries(project, now),
-    decisions: decisionEntries(project),
-    owed: owedEntries(project, now),
-    register: registerEntries(project),
-    changes: changeEntries(project, since),
-  };
+  const drafted = sweepDrafts(project, now, since, facts);
   const sections = (Object.keys(SECTION_HEADING) as SweepSectionKey[]).map((key) => {
     const all = drafted[key];
     const kept = all.slice(0, SWEEP_SECTION_AT_MOST[key]);
@@ -488,7 +525,7 @@ export function sweepBriefText(brief: SweepBrief): string {
 }
 
 /* ==================================================================== */
-/* Holding what a model answered                                         */
+/* What a suggestion is                                                  */
 /* ==================================================================== */
 
 /** What a suggestion rests on: one entry of the record, as the brief gave it. */
@@ -504,85 +541,239 @@ export interface SweepSource {
 
 export type SweepAs = 'finding' | 'risk';
 
+/** What a person might do next. A fixed list: nobody, and no model, writes one. */
+export const SWEEP_NEXT = ['correct_value', 'request_paper', 'assign_owner', 'record_reason', 'renew_approval'] as const;
+
+export type SweepNext = (typeof SWEEP_NEXT)[number];
+
+export const SWEEP_NEXT_LABEL: Record<SweepNext, string> = {
+  correct_value: 'Correct the value',
+  request_paper: 'Ask for the paper',
+  assign_owner: 'Name who it is on',
+  record_reason: 'Record the reason',
+  renew_approval: 'Renew the approval',
+};
+
+/** The kinds code finds by a rule over the record. A model is not asked for them, and one it names is thrown away. */
+export const SWEEP_RULE_KINDS = ['papers_disagree', 'date_impossible', 'approval_missing', 'action_unowned'] as const satisfies readonly SweepKind[];
+
+/** The kinds a model may nominate: it names the kind and the lines, and code works out the rest. */
+export const SWEEP_MODEL_KINDS = ['cost_unexplained', 'schedule_cost_differ'] as const satisfies readonly SweepKind[];
+
+/**
+ * What each kind is taken to be: how grave, what accepting it makes, and
+ * what a person does next. A table, so no suggestion's standing is anybody's
+ * judgement on the day. A rule may name a graver row for its own case.
+ */
+export const SWEEP_KIND_TABLE: Record<SweepKind, { severity: FindingSeverity; as: SweepAs; next: SweepNext }> = {
+  papers_disagree: { severity: 'high', as: 'finding', next: 'correct_value' },
+  date_impossible: { severity: 'medium', as: 'finding', next: 'correct_value' },
+  approval_missing: { severity: 'high', as: 'finding', next: 'request_paper' },
+  cost_unexplained: { severity: 'medium', as: 'finding', next: 'record_reason' },
+  schedule_cost_differ: { severity: 'medium', as: 'risk', next: 'record_reason' },
+  action_unowned: { severity: 'low', as: 'risk', next: 'assign_owner' },
+};
+
+/**
+ * A suggestion before it is stored: its kind, what it is about, the two
+ * things set against each other and how far apart they are, and the record's
+ * lines it rests on. Every member is a key off a fixed list, a figure code
+ * worked out, or the record's own words for a thing. No sentence is kept:
+ * the line a person reads is made from these each time (`sweepSaid`).
+ */
 export interface SweepProposal {
   kind: SweepKind;
-  /** What looks wrong, in a sentence. */
-  statement: string;
-  /** Why, from the entries it cites. */
-  why: string;
-  /** What a person might do about it. */
-  action: string;
+  /** What found it: a rule over the record, or a model's nomination that code then worked out. Absent on one kept before suggestions were fields. */
+  by?: 'rule' | 'model';
+  /** The fields it is about, where it is about fields. */
+  subjects?: FieldAddress[];
+  /** The two things set against each other, each as the record names it. */
+  left?: string;
+  right?: string;
+  /** How far apart they are: an amount, days, points of a share, or a percentage. */
+  difference?: number;
+  /** What `difference` is counted in: a currency code, `days`, `points` or `%`. */
+  unit?: string;
   department: DepartmentKey;
   severity: FindingSeverity;
   /** What accepting it makes. */
   as: SweepAs;
+  /** Absent on one kept before suggestions were fields. */
+  next?: SweepNext;
   sources: SweepSource[];
+  /**
+   * Written by a model, before suggestions were fields. Read back from what
+   * was stored then and shown marked as such; nothing new carries them.
+   */
+  statement?: string;
+  why?: string;
+  action?: string;
 }
 
-/** The most suggestions one review may raise. */
+/** The most suggestions one review may raise from a model's nominations. */
 export const SWEEP_PROPOSALS_AT_MOST = 8;
 
-export const SWEEP_LIMITS = { statement: 300, why: 600, action: 300, cites: 8, reason: 300 } as const;
+/** The most suggestions the rules may raise in one review, the gravest first. */
+export const SWEEP_RULES_AT_MOST = 12;
 
-const SEVERITIES: readonly FindingSeverity[] = ['low', 'medium', 'high', 'critical'];
+export const SWEEP_LIMITS = { cites: 8, reason: 300 } as const;
 
-function words(value: unknown, atMost: number): string {
-  return typeof value === 'string' ? line(value, atMost) : '';
+const SEVERITY_ORDER: Record<FindingSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+export function sweepSourceOf(entry: Omit<SweepEntry, 'mark'>): SweepSource {
+  return {
+    ref: entry.ref,
+    kind: entry.kind,
+    says: entry.says,
+    ...(entry.paper ? { evidenceId: entry.paper.evidenceId, paper: entry.paper.title, ...(entry.paper.page ? { page: entry.paper.page } : {}) } : {}),
+    ...(entry.on ? { on: entry.on } : {}),
+  };
+}
+
+/** The department a suggestion falls to: the one asked for where the project uses it, else the kind's own, else the project's first. */
+export function sweepDesk(project: DdProject, kind: SweepKind, asked?: DepartmentKey): DepartmentKey {
+  const desks = projectDepartments(project);
+  return asked && desks.includes(asked) ? asked : desks.includes(SWEEP_KIND_DESK[kind]) ? SWEEP_KIND_DESK[kind] : (desks[0] ?? SWEEP_KIND_DESK[kind]);
+}
+
+/* ==================================================================== */
+/* The line a person reads                                               */
+/* ==================================================================== */
+
+function apart(matter: Pick<SweepProposal, 'difference' | 'unit'>): string {
+  const { difference: n, unit } = matter;
+  if (n === undefined || !unit) return '';
+  const size = Math.abs(n);
+  if (unit === 'days') return `${size} day${size === 1 ? '' : 's'}`;
+  if (unit === 'points') return `${size} point${size === 1 ? '' : 's'}`;
+  if (unit === '%') return `${size}%`;
+  return `${n > 0 ? '+' : n < 0 ? '-' : ''}${moneySaid(size, unit === 'EUR' ? 'EUR' : 'INR')}`;
+}
+
+/** Each kind's line, made from the suggestion's own members. Where a member is missing the line is the kind's name. */
+const SWEEP_SAY: Record<SweepKind, (m: SweepProposal) => string> = {
+  papers_disagree: (m) => (m.left && m.right ? `${m.left} against ${m.right}${m.unit === '%' && m.difference ? `: ${apart(m)} apart` : ''}.` : ''),
+  date_impossible: (m) => (m.left && m.right ? `${m.left} is after ${m.right}${apart(m) ? `, by ${apart(m)}` : ''}.` : ''),
+  approval_missing: (m) => (m.left ? `${m.left}: ${m.right ?? 'not in force'}, and work depends on it.` : ''),
+  cost_unexplained: (m) => (m.left && apart(m) ? `${m.left}: ${apart(m)} that no variation, award or reason accounts for.` : ''),
+  schedule_cost_differ: (m) =>
+    m.left && m.right ? (m.unit === 'points' && m.difference !== undefined ? `${m.left} against ${m.right}: money paid and work done are ${apart(m)} apart.` : `${m.left} against ${m.right}: cost and schedule differ.`) : '',
+  action_unowned: (m) => (m.left ? `${m.left}: ${m.right ?? 'nobody is named for it'}.` : ''),
+};
+
+/** Why each kind matters, once, the same for every suggestion of it. */
+export const SWEEP_KIND_WHY: Record<SweepKind, string> = {
+  papers_disagree: 'Two papers on the file state the same thing differently, and only one can stand.',
+  date_impossible: 'One date on the record cannot be right given another.',
+  approval_missing: 'Work is logged or scheduled that needs an approval the register does not show in force.',
+  cost_unexplained: 'The forecast moved and the cost report gives no variation, award or typed reason for it.',
+  schedule_cost_differ: 'The cost report and the schedule do not describe the same progress.',
+  action_unowned: 'An open action has nobody named for it, so nothing brings it to anyone.',
+};
+
+export interface SweepSaid {
+  /** The one line. */
+  line: string;
+  why: string;
+  /** What a person does next, from the fixed list. */
+  next: string;
+  /** True where the wording is a model's, kept before suggestions were fields. */
+  byModelBefore: boolean;
 }
 
 /**
- * What of a model's answer is kept.
- *
- * A proposal is dropped, whole, where it is not one of the kinds asked for,
- * says nothing, cites nothing, cites a mark that is no line of the brief it
- * was given, cites no entry of a kind its own kind is about (`SWEEP_CITES`),
- * or sets one thing against another and cites only one. What is
- * kept carries each cited entry as the brief wrote it, so a person reads the
- * record's words beside the model's. The department is one the project
- * uses: the model's where it named one, else the kind's own.
+ * A suggestion as a person reads it. For one kept since suggestions were
+ * fields, every word is a template's or the record's. For one kept before,
+ * the model's sentences are given back as they were stored, marked.
  */
-export function sweepProposalsHeld(project: DdProject, brief: SweepBrief, said: unknown): { kept: SweepProposal[]; dropped: number } {
+export function sweepSaid(matter: SweepProposal): SweepSaid {
+  if (matter.statement && !matter.by) {
+    return { line: matter.statement, why: matter.why ?? '', next: matter.action ?? '', byModelBefore: true };
+  }
+  return {
+    line: SWEEP_SAY[matter.kind](matter) || `${SWEEP_KIND_LABEL[matter.kind]}.`,
+    why: SWEEP_KIND_WHY[matter.kind],
+    next: matter.next ? SWEEP_NEXT_LABEL[matter.next] : '',
+    byModelBefore: false,
+  };
+}
+
+/* ==================================================================== */
+/* Holding what a model nominated                                        */
+/* ==================================================================== */
+
+/** What a model answers: a kind off the list and the marks of the lines it read. Nothing else is read from it. */
+export interface SweepNomination {
+  kind: SweepKind;
+  cites: string[];
+}
+
+/**
+ * What of a model's answer becomes a suggestion.
+ *
+ * Only a kind and marks are read from a nomination: any sentence, severity,
+ * department or advice beside them is ignored and never stored. A nomination
+ * is dropped, whole, where its kind is not one a model is asked for
+ * (`SWEEP_MODEL_KINDS`), it cites nothing, cites a mark that is no line of
+ * the brief it was given, cites no entry of a kind its own kind is about
+ * (`SWEEP_CITES`), sets one thing against another and cites only one, or
+ * where code cannot work out the difference it claims: unexplained cost
+ * cites a line that carries an unexplained amount, and schedule against cost
+ * cites a line of each.
+ *
+ * What is kept is worked out here: the two things from the record's own
+ * names, the difference from the lines' own figures, and severity, next step
+ * and department from tables.
+ */
+export function sweepNominationsHeld(project: DdProject, brief: SweepBrief, said: unknown): { kept: SweepProposal[]; dropped: number } {
   const byMark = new Map(sweepEntries(brief).map((entry) => [entry.mark, entry]));
-  const desks = projectDepartments(project);
   const kept: SweepProposal[] = [];
   let dropped = 0;
   for (const raw of Array.isArray(said) ? said : []) {
     const given = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-    const kind = SWEEP_KINDS.find((known) => known === given.kind);
-    const statement = words(given.statement, SWEEP_LIMITS.statement);
-    const why = words(given.why, SWEEP_LIMITS.why);
+    const kind = SWEEP_MODEL_KINDS.find((known) => known === given.kind);
     const marks = Array.isArray(given.cites) ? [...new Set(given.cites.map((mark) => String(mark).trim().replace(/^\[|\]$/g, '')))] : [];
-    const cited = marks.map((mark) => byMark.get(mark));
-    const resolved = cited.filter((entry): entry is SweepEntry => Boolean(entry));
+    const resolved = marks.map((mark) => byMark.get(mark)).filter((entry): entry is SweepEntry => Boolean(entry));
     const refs = new Set(resolved.map((entry) => entry.ref));
     const fits = Boolean(kind) && resolved.some((entry) => SWEEP_CITES[kind!].includes(entry.kind));
-    if (!kind || !statement || !why || !marks.length || marks.length > SWEEP_LIMITS.cites || resolved.length !== marks.length || !fits || (SWEEP_PAIRED.has(kind) && refs.size < 2) || kept.length >= SWEEP_PROPOSALS_AT_MOST) {
+    const worked = kind && fits ? workedOut(project, kind, resolved) : undefined;
+    if (!kind || !marks.length || marks.length > SWEEP_LIMITS.cites || resolved.length !== marks.length || !fits || (SWEEP_PAIRED.has(kind) && refs.size < 2) || !worked || kept.length >= SWEEP_PROPOSALS_AT_MOST) {
       dropped += 1;
       continue;
     }
-    const asked = DEPARTMENT_KEYS.find((key) => key === given.department);
-    const department = asked && desks.includes(asked) ? asked : desks.includes(SWEEP_KIND_DESK[kind]) ? SWEEP_KIND_DESK[kind] : (desks[0] ?? SWEEP_KIND_DESK[kind]);
+    const table = SWEEP_KIND_TABLE[kind];
     kept.push({
       kind,
-      statement,
-      why,
-      action: words(given.action, SWEEP_LIMITS.action),
-      department,
-      severity: SEVERITIES.find((known) => known === given.severity) ?? 'medium',
-      as: given.as === 'risk' ? 'risk' : 'finding',
-      sources: [...refs].map((ref) => {
-        const entry = resolved.find((held) => held.ref === ref)!;
-        return {
-          ref,
-          kind: entry.kind,
-          says: entry.says,
-          ...(entry.paper ? { evidenceId: entry.paper.evidenceId, paper: entry.paper.title, ...(entry.paper.page ? { page: entry.paper.page } : {}) } : {}),
-          ...(entry.on ? { on: entry.on } : {}),
-        };
-      }),
+      by: 'model',
+      ...worked,
+      department: sweepDesk(project, kind),
+      severity: table.severity,
+      as: table.as,
+      next: table.next,
+      sources: [...refs].map((ref) => sweepSourceOf(resolved.find((held) => held.ref === ref)!)),
     });
   }
   return { kept, dropped };
+}
+
+/** The two things and the difference a nomination claims, from the lines it cites. Nothing where the lines do not carry them. */
+function workedOut(project: DdProject, kind: (typeof SWEEP_MODEL_KINDS)[number], cited: readonly SweepEntry[]): Pick<SweepProposal, 'left' | 'right' | 'difference' | 'unit'> | undefined {
+  if (kind === 'cost_unexplained') {
+    // A package before the whole report: the narrower line is the one to act on.
+    const moved = cited.filter((entry) => entry.kind === 'cost' && entry.subject && entry.amount).sort((a, b) => Number(b.ref.includes(':')) - Number(a.ref.includes(':')))[0];
+    return moved ? { left: moved.subject, difference: moved.amount, unit: project.currency } : undefined;
+  }
+  const cost = cited.find((entry) => entry.kind === 'cost' && entry.subject);
+  const work = cited.find((entry) => entry.kind === 'milestone' || entry.kind === 'schedule');
+  if (!cost?.subject || !work) return undefined;
+  const right = work.subject ?? 'The schedule';
+  if (cost.percent !== undefined && work.percent !== undefined) return { left: cost.subject, right, difference: cost.percent - work.percent, unit: 'points' };
+  return { left: cost.subject, right };
+}
+
+/** The gravest first, and no more than a review may raise. */
+export function sweepRulesKept(found: readonly SweepProposal[]): SweepProposal[] {
+  return [...found].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]).slice(0, SWEEP_RULES_AT_MOST);
 }
 
 /* ==================================================================== */
@@ -771,23 +962,25 @@ export function acceptSweepSuggestion(
   const rests = held.sources.map(sweepSourceSaid).join('; ');
   const papers = [...new Set(held.sources.map((source) => source.evidenceId).filter((id): id is string => Boolean(id) && project.evidence.some((row) => row.id === id)))];
   const origin = `Suggested by the daily review on ${held.raisedAt.slice(0, 10)}, accepted by ${by.actor} on ${at.slice(0, 10)}.`;
+  // The record's title and cause are the suggestion's line and its kind's reason: a template's words, or for one kept before suggestions were fields, what was stored then.
+  const said = sweepSaid(held);
   let record: FindingRecord | RiskRecord;
   if (as === 'risk') {
     const risk = addRisk(
       project,
-      { title: held.statement, category: KIND_IMPACT[held.kind], cause: `${held.why} Rests on: ${rests}`, impactType: KIND_IMPACT[held.kind], probability: 'possible', impactScore: SEVERITY_IMPACT[held.severity], materiality: held.severity, ...(held.action ? { mitigation: held.action } : {}) },
+      { title: said.line, category: KIND_IMPACT[held.kind], cause: `${said.why} Rests on: ${rests}`, impactType: KIND_IMPACT[held.kind], probability: 'possible', impactScore: SEVERITY_IMPACT[held.severity], materiality: held.severity, ...(said.next ? { mitigation: said.next } : {}) },
       by.actor,
     );
     risk.evidenceIds = papers;
     risk.residualNote = origin;
     record = risk;
   } else {
-    const finding = addFinding(project, { title: held.statement, description: `${held.why}\n\nRests on: ${rests}`, severity: held.severity, discipline: DESK_SCOPE[held.department], evidenceIds: papers }, by.actor);
-    if (held.action) finding.mitigation = held.action;
+    const finding = addFinding(project, { title: said.line, description: `${said.why}\n\nRests on: ${rests}`, severity: held.severity, discipline: DESK_SCOPE[held.department], evidenceIds: papers }, by.actor);
+    if (said.next) finding.mitigation = said.next;
     finding.confidenceNote = origin;
     record = finding;
   }
-  recordAuditEvent(project, { actor: by.actor, action: 'accept_review_suggestion', entityType: as, entityId: record.id, newValue: held.statement, reason: SWEEP_KIND_LABEL[held.kind], at });
+  recordAuditEvent(project, { actor: by.actor, action: 'accept_review_suggestion', entityType: as, entityId: record.id, newValue: said.line, reason: SWEEP_KIND_LABEL[held.kind], at });
   Object.assign(held, { status: 'accepted', decidedAt: at, decidedBy: by.actor, record: { type: as, id: record.id } } satisfies Partial<SweepSuggestion>);
   return { suggestion: held, record };
 }
