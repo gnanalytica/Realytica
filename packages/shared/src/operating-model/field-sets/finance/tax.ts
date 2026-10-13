@@ -20,7 +20,7 @@
  */
 
 import type { FieldSet } from '../../types';
-import { EXISTING, IF_JOINT, JOINT_DEVELOPMENT, NOT_ADVICE, PAPER, SET } from './names';
+import { EXISTING, IF_JOINT, NOT_ADVICE, PAPER, SET } from './names';
 import {
   TAX,
   addDays,
@@ -533,7 +533,7 @@ export const TAX_SETS: FieldSet[] = [
     v: 1,
     records: { of: 'property', titleField: 'pid', summaryFields: ['khata', 'holder'] },
     optionSets: [
-      options('khata_kind', 'Khata', [
+      options('tax_khata_kind', 'Khata', [
         ['A-Khata', 'A khata', 'good'],
         ['B-Khata', 'B khata', 'warning'],
         ['E-Khata', 'E-khata', 'good'],
@@ -559,7 +559,7 @@ export const TAX_SETS: FieldSet[] = [
       link('parcel', 'Parcel', 'parcel', { required: false }),
       link('building', 'Building', 'building', { required: false }),
       choice('authority', 'Taxing authority', 'property_tax_authority'),
-      choice('khata', 'Khata', 'khata_kind', { control: 'segmented', from: 'Khata certificate', fromTypes: [PAPER.khata], factKey: 'khata_type' }),
+      choice('khata', 'Khata', 'tax_khata_kind', { control: 'segmented', from: 'Khata certificate', fromTypes: [PAPER.khata], factKey: 'khata_type' }),
       link('holder', 'Khata in the name of', 'party'),
       choice('assessed_use', 'Use assessed', 'property_assessed_use'),
       area('assessed_area', 'Area assessed', { from: 'Self-assessment form' }),
@@ -594,7 +594,6 @@ export const TAX_SETS: FieldSet[] = [
     fn: TAX,
     title: 'Joint development: the facts',
     v: 1,
-    situations: [JOINT_DEVELOPMENT],
     optionSets: [
       options('jda_land_held_as', 'Owner holds the land as', [
         ['capital_asset', 'Capital asset'],
@@ -638,7 +637,6 @@ export const TAX_SETS: FieldSet[] = [
     fn: TAX,
     title: 'Joint development: tax at completion',
     v: 1,
-    situations: [JOINT_DEVELOPMENT],
     sections: [
       { key: 'values', label: `Values from the accountant: ${NOT_ADVICE}`, showWhen: IF_JOINT },
       { key: 'position', label: 'Position', showWhen: IF_JOINT },
@@ -677,7 +675,6 @@ export const TAX_SETS: FieldSet[] = [
     fn: TAX,
     title: 'Money paid to the landowner',
     v: 1,
-    situations: [JOINT_DEVELOPMENT],
     records: { of: 'payment', titleField: 'paid_on', summaryFields: ['amount', 'kind'] },
     optionSets: [
       options('jda_payment_kind', 'Paid as', [

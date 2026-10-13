@@ -118,14 +118,8 @@ const rule = (kind: CheckInsightRule['kind'], fields: string[], say: string, sev
 
 /* --- Situations more than one of these functions answers to ------------ */
 
-const JOINT_DEVELOPMENT: Situation = {
-  key: 'joint_development',
-  label: 'Joint development',
-  scope: 'project',
-  hint: 'The land comes in under a joint development agreement.',
-  proposeFrom: { documentTypes: ['Joint development agreement'] },
-};
-const LENDER_FUNDED: Situation = { key: 'lender_funded', label: 'Lender funded', scope: 'project', hint: 'A lender funds part of the project.' };
+// joint_development is Law's to declare (the agreement is its paper), lender_funded is Lenders' (a facility recorded), tdr_or_premium_far is the
+// Architect's and agricultural_needs_conversion is Liaison's. They are named here and declared once, in their owners' files.
 const FOR_LENDING: Situation = { key: 'valuation_for_lending', label: 'For lending', scope: 'function', hint: 'The valuation is for a lender.', derive: { field: instruction('purpose'), is: 'equals', value: 'lending' } };
 const FOR_INSOLVENCY: Situation = { key: 'valuation_for_insolvency', label: 'For insolvency', scope: 'function', hint: 'The valuation is for an insolvency process.', derive: { field: instruction('purpose'), is: 'equals', value: 'insolvency' } };
 
@@ -363,17 +357,14 @@ const VALUATION: FieldSet[] = [
     title: 'Inputs by approach',
     v: 1,
     situations: [
-      { key: 'market_comparison_used', label: 'Market comparison', scope: 'function', hint: 'The value rests on comparable sales or listings.', proposeFrom: { field: comparableInput('rate_per_sqm') } },
-      { key: 'cost_approach_used', label: 'Cost approach', scope: 'function', hint: 'What stands on the land is valued at its depreciated replacement cost.', proposeFrom: { field: costInput('replacement_rate') } },
-      { key: 'income_approach_used', label: 'Income approach', scope: 'function', hint: 'The property is let, or valued on the rent it can earn.', proposeFrom: { documentTypes: ['Lease deed'], field: incomeInput('cap_rate_pct') } },
-      { key: 'residual_approach_used', label: 'Residual approach', scope: 'function', hint: 'The land is valued by what a scheme on it leaves.', proposeFrom: { field: residualInput('gdv') } },
+      // The four approaches are declared with the valuation checks whose inputs they bring into play (check-conditions.ts): one key each, in play as soon as an input is recorded.
       { key: 'asset_under_construction', label: 'Under construction', scope: 'function', hint: 'What is valued is part built.' },
     ],
     sections: [
-      { key: 'market', label: 'Market comparison', showWhen: { situation: 'market_comparison_used' } },
-      { key: 'cost', label: 'Cost', showWhen: { situation: 'cost_approach_used' } },
-      { key: 'income', label: 'Income', showWhen: { situation: 'income_approach_used' } },
-      { key: 'residual', label: 'Residual', showWhen: { situation: 'residual_approach_used' } },
+      { key: 'market', label: 'Market comparison', showWhen: { situation: 'comparable_approach' } },
+      { key: 'cost', label: 'Cost', showWhen: { situation: 'cost_approach' } },
+      { key: 'income', label: 'Income', showWhen: { situation: 'income_approach' } },
+      { key: 'residual', label: 'Residual', showWhen: { situation: 'residual_approach' } },
       { key: 'in_progress', label: 'Work in progress', showWhen: { situation: 'asset_under_construction' } },
     ],
     fields: [
@@ -777,7 +768,6 @@ const FEASIBILITY: FieldSet[] = [
     fn: FEA,
     title: 'Areas the appraisal rests on',
     v: 1,
-    situations: [{ key: 'tdr_or_premium_far', label: 'TDR or premium FAR', scope: 'project', hint: 'Development rights or premium floor area are bought to build more.' }],
     sections: [
       { key: 'areas', label: 'Areas' },
       { key: 'far', label: 'Floor area ratio' },
@@ -824,7 +814,6 @@ const FEASIBILITY: FieldSet[] = [
     fn: FEA,
     title: 'Revenue',
     v: 1,
-    situations: [JOINT_DEVELOPMENT],
     sections: [
       { key: 'price', label: 'Price' },
       { key: 'pace', label: 'Pace of sales' },
@@ -880,16 +869,6 @@ const FEASIBILITY: FieldSet[] = [
     fn: FEA,
     title: 'Costs',
     v: 1,
-    situations: [
-      LENDER_FUNDED,
-      {
-        key: 'agricultural_needs_conversion',
-        label: 'Land to be converted',
-        scope: 'function',
-        hint: 'The land is recorded as agricultural and has to be converted.',
-        derive: { field: CONVERSION, is: 'equals', value: 'agricultural' },
-      },
-    ],
     sections: [
       { key: 'land', label: 'Land' },
       { key: 'build', label: 'Construction' },
@@ -1013,7 +992,6 @@ const FEASIBILITY: FieldSet[] = [
     fn: FEA,
     title: 'Cash flow by month',
     v: 1,
-    situations: [LENDER_FUNDED],
     records: { of: 'month', titleField: 'month', summaryFields: ['collections', 'outflow', 'net'] },
     fields: [
       { key: 'month', label: 'Month', kind: 'date', hint: 'The first day of the month.' },
@@ -1039,7 +1017,6 @@ const FEASIBILITY: FieldSet[] = [
     fn: FEA,
     title: 'Cash flow and returns',
     v: 1,
-    situations: [LENDER_FUNDED],
     sections: [
       { key: 'cash', label: 'Cash flow' },
       { key: 'returns', label: 'Returns' },
@@ -1502,7 +1479,6 @@ const BUDGET: FieldSet[] = [
     title: 'Cost to complete',
     v: 1,
     situations: [
-      LENDER_FUNDED,
       { key: 'forecast_over_budget', label: 'Forecast over the budget', scope: 'function', hint: 'The forecast final cost is above the budget.', derive: { field: at(BUD, B_TO_COMPLETE, 'overrun'), is: 'gt', value: 0 } },
     ],
     optionSets: [

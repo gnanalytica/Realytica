@@ -184,8 +184,8 @@ describe('Finance: the RERA designated account', () => {
     assert.equal(situation(p, 'finance.funding', 'designated_account_kept'), 'on');
     assert.equal(sheet(p, COST).shown().length, 12);
     assert.equal(sheet(p, COST).view('construction_estimated').missing, true);
-    // The deposit sheet's thirteenth is folded until it holds something: the count of designated accounts, which now holds one.
-    assert.deepEqual([sheet(p, WITHDRAWAL).shown().length, sheet(p, DEPOSIT).shown().length], [10, 13]);
+    // The deposit sheet's thirteenth, the count of designated accounts, is worked out and expert: it stays folded as the working behind the standing.
+    assert.deepEqual([sheet(p, WITHDRAWAL).shown().length, sheet(p, DEPOSIT).shown().length], [10, 12]);
   });
 
   it('counts construction cost at the lower of the engineer’s figure and the books, and says so when the books are higher', () => {

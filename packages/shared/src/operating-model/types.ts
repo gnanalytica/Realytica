@@ -863,6 +863,8 @@ export interface CheckFieldDef {
   sheet?: string;
   /** Added by the firm, not built in. Set by the firm's overlay. */
   firm?: true;
+  /** Set by the catalog on a field a department adds to a shared record with `extends`: the function that added it. Never declared. */
+  addedBy?: string;
 }
 
 /** Anything a caller may write into a field. Mirrors `CheckFieldValue['value']`. */

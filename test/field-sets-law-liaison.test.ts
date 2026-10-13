@@ -491,7 +491,7 @@ describe('Approvals: a plan sanction that is being revised', () => {
     const height = sheet(p, HEIGHT);
     assert.equal(height.text('height'), '44.8 m');
     assert.equal(height.value('high_rise'), 'High-rise');
-    assert.deepEqual(height.view('high_rise').cites?.map((c) => [c.key, c.value, c.verified]), [['high_rise_height', 21, false]]);
+    assert.deepEqual(height.view('high_rise').cites?.map((c) => [c.key, c.value, c.verified]), [['high_rise_height_m', 21, false]]);
     assert.equal(height.view('fire_noc').shown, 'shown');
     assert.equal(height.value('top_elevation'), 949.8);
     assert.equal(height.value('height_clearance_applies'), 'Needed');

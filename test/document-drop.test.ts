@@ -235,7 +235,7 @@ describe('a paper no function holds', () => {
     const out = drop(p, paper('Meeting notes.pdf', 'notes'));
     const choices = out.assistantTurn.choices ?? [];
 
-    assert.deepEqual(choices.map((c) => c.label), ['Legal › Title', 'Legal › Approvals', 'Legal › Litigation']);
+    assert.deepEqual(choices.map((c) => c.label), ['Legal › Title', 'Legal › Approvals', 'Legal › RERA']);
     for (const choice of choices) {
       assert.ok(asksToFileUnder(p, choice.send), `“${choice.send}” is a sentence the chat reads`);
       assert.equal(wantsDeterministicProjectChat(p, choice.send), true, 'and reads with no model');

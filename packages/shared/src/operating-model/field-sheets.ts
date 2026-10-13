@@ -545,6 +545,39 @@ export interface SheetReading {
   unasked: Array<{ key: string; text: string }>;
   filled: number;
   total: number;
+  /** On a shared record read for one function (`sheetSeenFrom`): the other functions that keep facts of their own on it, with how many each holds. */
+  elsewhere?: Array<{ fn: string; held: number }>;
+}
+
+/**
+ * A shared record as one function sees it.
+ *
+ * A unit is one record, and Sales, Tax, the Architect and the site each add
+ * their own facts to it. Read whole it is every department's fields at once.
+ * A function's page shows the record's own fields and the ones that function
+ * added; what the others keep on it is counted and named, and opened on
+ * their pages. Nothing is hidden from a formula or a rule: this narrows what
+ * is drawn, and `readSheet` still reads the whole record.
+ */
+export function sheetSeenFrom(reading: SheetReading, fn: string): SheetReading {
+  const own = (view: FieldView) => !view.def.addedBy || view.def.addedBy === fn;
+  if (reading.fields.every(own)) return reading;
+  const kept = new Set(reading.fields.filter(own).map((view) => view.def.key));
+  const findings = reading.findings.filter((found) => (reading.set.rules[found.rule]?.fields ?? []).some((key) => kept.has(key)));
+  const answerable = reading.fields.filter((view) => own(view) && view.expected);
+  const recorded = (view: FieldView) => (fieldStands(view.held) && !isBlank(view.held)) || view.state === 'not_applicable';
+  const others = new Map<string, number>();
+  for (const view of reading.fields) if (!own(view) && !fieldIsDerived(view.def) && !isBlank(view.held)) others.set(view.def.addedBy!, (others.get(view.def.addedBy!) ?? 0) + 1);
+  return {
+    ...reading,
+    sections: reading.sections.map((section) => ({ ...section, fields: section.fields.filter(own) })).filter((section) => section.fields.length > 0),
+    fields: reading.fields.filter(own),
+    findings,
+    insights: findings.filter((found) => !found.sheet).map((found) => found.insight),
+    filled: answerable.filter(recorded).length,
+    total: answerable.length,
+    elsewhere: [...others].map(([other, held]) => ({ fn: other, held })),
+  };
 }
 
 /** A value under a key nothing declares, as plainly as it can be said. */
@@ -972,7 +1005,7 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
     counts.total += 1;
     needs[exception.need].push(exception);
   }
-  const shared = fn === SHARED_FN ? [] : sharedSetsOf(fn, catalog).map((set) => ({ set, records: fieldRecords(project, set.id).flatMap((record) => readSheet(project, set.id, record.id, resolution, catalog, at) ?? []) }));
+  const shared = fn === SHARED_FN ? [] : sharedSetsOf(fn, catalog).map((set) => ({ set, records: fieldRecords(project, set.id).flatMap((record) => readSheet(project, set.id, record.id, resolution, catalog, at) ?? []).map((reading) => sheetSeenFrom(reading, fn)) }));
   const views = readings.flatMap((read) => read.fields);
   return {
     fn,

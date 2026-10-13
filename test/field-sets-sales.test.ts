@@ -54,7 +54,8 @@ function sheet(p: DdProject, set: string, record?: string) {
     view,
     value: (key: string) => view(key).held?.value ?? null,
     shown: (key: string) => view(key).shown,
-    showing: () => reading.fields.filter((f) => f.shown === 'shown').map((f) => f.def.key),
+    // What shows as Commercial draws it: the record's own fields and the ones its functions add. What Tax, the Architect and the site add to a unit is on their pages.
+    showing: () => reading.fields.filter((f) => f.shown === 'shown' && (!f.def.addedBy || f.def.addedBy.startsWith('commercial.'))).map((f) => f.def.key),
     said: () => reading.insights.map((i) => i.text),
   };
 }
@@ -284,10 +285,11 @@ describe('a unit and its sale', () => {
     assert.equal(before.shown('sale_lender_consent'), 'hidden');
     assert.equal(before.view('sale_lender_consent').missing, false);
     assert.ok(!before.said().some((text) => /lender/.test(text)));
-    assert.deepEqual(page(p, 'commercial.inventory').situations.map((s) => [s.situation.key, s.state]), [['joint_development', 'off'], ['lender_funded', 'off'], ['leads_contacted_by_phone_or_message', 'off'], ['channel_partners_engaged', 'off']]);
+    assert.deepEqual(page(p, 'commercial.inventory').situations.map((s) => [s.situation.key, s.state]), [['leads_contacted_by_phone_or_message', 'off'], ['channel_partners_engaged', 'off'], ['joint_development', 'off'], ['lender_funded', 'off']]);
 
     setSituation(p, 'commercial.inventory', 'joint_development', true, LEAD);
-    setSituation(p, 'commercial.inventory', 'lender_funded', true, LEAD);
+    // A lender is not said: a facility on Lenders' register is one.
+    add(p, 'finance.lenders.facilities', { name: 'Construction loan' });
     const after = sheet(p, UNITS, id);
     assert.equal(after.shown('sale_allotted_to'), 'shown');
     assert.equal(after.shown('sale_lender_consent'), 'shown');
@@ -364,7 +366,7 @@ describe('demands and collections', () => {
 
     const collections = sheet(p, 'commercial.buyers.collections');
     assert.deepEqual(['demanded', 'received', 'outstanding', 'efficiency_pct', 'interest_rate'].map(collections.value), [2_600_000, 700_000, 1_900_000, 26.9, 10.8]);
-    assert.deepEqual(collections.view('interest_rate').cites?.map((c) => [c.key, c.value, c.verified]), [['rera_interest_over_lending_rate', 2, false]]);
+    assert.deepEqual(collections.view('interest_rate').cites?.map((c) => [c.key, c.value, c.verified]), [['rera_delay_interest_spread', 2, false]]);
 
     const dues = sheet(p, 'commercial.buyers.dues');
     assert.deepEqual(

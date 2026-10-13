@@ -123,16 +123,6 @@ export const SALES_MARKETING_RULE_ROWS: RuleRow[] = [
     source: agreement('clauses 7.5 and 9.2'),
     verified: false,
   },
-  {
-    key: 'rera_interest_over_lending_rate',
-    label: 'Interest on delay, by promoter or allottee: points above the State Bank of India’s highest marginal cost of lending rate',
-    jurisdiction: KARNATAKA,
-    value: 2,
-    unit: '% points',
-    from: MODEL_FORMS_FROM,
-    source: letter('clauses 8, 9 and 12'),
-    verified: false,
-  },
 
   /* --- Area, possession, conveyance, defects ------------------------------ */
   {
@@ -153,16 +143,6 @@ export const SALES_MARKETING_RULE_ROWS: RuleRow[] = [
     unit: 'months',
     from: MODEL_FORMS_FROM,
     source: agreement('clause 7.2'),
-    verified: false,
-  },
-  {
-    key: 'rera_conveyance_within_months',
-    label: 'Time from the occupancy certificate to the registered conveyance',
-    jurisdiction: KARNATAKA,
-    value: 3,
-    unit: 'months',
-    from: MODEL_FORMS_FROM,
-    source: agreement('clauses 7.2 and 10'),
     verified: false,
   },
   {

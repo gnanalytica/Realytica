@@ -351,22 +351,7 @@ const STOCK_SET: FieldSet = {
   fn: SALES,
   title: 'Inventory',
   v: 1,
-  situations: [
-    {
-      key: 'joint_development',
-      label: 'Joint development',
-      scope: 'project',
-      hint: 'The land is developed under an agreement that shares the units with its owner.',
-      proposeFrom: { documentTypes: ['Joint development agreement'] },
-    },
-    {
-      key: 'lender_funded',
-      label: 'Funded by a lender',
-      scope: 'project',
-      hint: 'A lender holds a charge on the project, so a unit is sold with its consent.',
-      proposeFrom: { documentTypes: ['Loan sanction letter'] },
-    },
-  ],
+  // joint_development is declared by Law and lender_funded by Lenders; the fields here that wait on them name them.
   sections: [
     { key: 'stock', label: 'Stock' },
     { key: 'value', label: 'Unsold stock' },
@@ -976,7 +961,7 @@ const COLLECTIONS_SET: FieldSet = {
     workedMoney('outstanding', 'Outstanding', minus(f('demanded'), f('received')), { section: 'totals' }),
     workedShare('efficiency_pct', 'Collected, of what was demanded', share(f('received'), f('demanded')), { section: 'totals' }),
     { key: 'lending_rate', label: 'State Bank of India’s highest marginal cost of lending rate', kind: 'percent', max: 100, precision: 2, section: 'interest', from: 'State Bank of India, published rates', hint: 'A year. Read from the bank’s page, with the day it was read.' },
-    worked('interest_rate', 'Interest rate on delay, a year', add(f('lending_rate'), rate('rera_interest_over_lending_rate')), { section: 'interest', unit: '%', precision: 2, hint: 'The same rate runs against the promoter and the allottee.' }),
+    worked('interest_rate', 'Interest rate on delay, a year', add(f('lending_rate'), rate('rera_delay_interest_spread')), { section: 'interest', unit: '%', precision: 2, hint: 'The same rate runs against the promoter and the allottee.' }),
     workedMoney('interest_accrued', 'Interest accrued on overdue demands', sumOf(DEMANDS, 'interest_accrued'), { section: 'interest' }),
     {
       key: 'demands_to_milestones',
@@ -1189,7 +1174,7 @@ const POSSESSION_SET: FieldSet = {
     { key: 'oc_issued', label: 'Occupancy certificate issued', kind: 'boolean', section: 'certificate', sameAs: OC_ISSUED, required: false },
     { key: 'oc_date', label: 'Date of the certificate', kind: 'date', section: 'certificate', sameAs: OC_DATE, required: false },
     workedDay('offer_due', 'Possession to be offered by', { op: 'add_months', date: { op: 'date', key: 'oc_date' }, months: rate('rera_possession_offer_within_months') }, { section: 'certificate' }),
-    workedDay('conveyance_due', 'Sale deeds to be registered by', { op: 'add_months', date: { op: 'date', key: 'oc_date' }, months: rate('rera_conveyance_within_months') }, { section: 'certificate' }),
+    workedDay('conveyance_due', 'Sale deeds to be registered by', { op: 'add_months', date: { op: 'date', key: 'oc_date' }, months: rate('rera_conveyance_months') }, { section: 'certificate' }),
     workedCount('units_offered', 'Possession offered', countWhere(UNITS, { column: 'handover_offered_on', is: 'set' }), { section: 'units' }),
     workedCount('units_to_offer', 'Sold, with possession still to offer', once('oc_date', minus(f('units_sold', at(SALES, STOCK, 'units_sold')), f('units_offered'))), { section: 'units' }),
     workedCount('units_handed_over', 'Handed over', countWhere(UNITS, { column: 'sale_status', is: 'equals', value: UNIT_STATUS.handedOver }), { section: 'units' }),

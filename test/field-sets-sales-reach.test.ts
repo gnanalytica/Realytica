@@ -145,7 +145,10 @@ describe('buyers, with sign-in on', () => {
     for (const set of CUSTOMER_SETS) assert.equal(body.fieldSheets?.[set], undefined, set);
     assert.ok(body.fieldSheets!['legal.title.holding'], 'their own function’s sheet is theirs');
     assert.deepEqual(parties(body), ['M. Vendor'], 'the vendor Title names is there; the buyer and the co-applicant are not');
-    assert.equal(body.fieldSheets!['shared.units'], undefined, 'Title links to no unit');
+    // Legal links to units (a notice names one, the land agreement allots them), so the unit is theirs to read: as a unit, never as a sale.
+    const unit = body.fieldSheets!['shared.units']!.records!.find((record) => record.id === ids.unit)!;
+    assert.equal(unit.values.number!.value, 'A-501');
+    assert.deepEqual(Object.keys(unit.values).filter((key) => key.startsWith('sale_') || key.startsWith('handover_')), [], 'what Sales and Handover add to the unit does not go with Legal');
     assert.ok(!JSON.stringify(body.fieldSheets).includes('Buyer'));
   });
 

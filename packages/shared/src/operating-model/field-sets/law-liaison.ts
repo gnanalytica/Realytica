@@ -1439,7 +1439,7 @@ const SITE_SETS: FieldSet[] = [
     ],
     fields: [
       { key: 'height', label: 'Tallest building, as sanctioned', kind: 'computed', dimension: 'length', section: 'height', formula: { op: 'records', set: BUILDING, reduce: 'max', field: 'sanctioned_height' } },
-      { key: 'height_short_of_high_rise', label: 'Short of the height that makes a high-rise', kind: 'computed', dimension: 'length', section: 'height', formula: minus(rate('high_rise_height'), fld('height')) },
+      { key: 'height_short_of_high_rise', label: 'Short of the height that makes a high-rise', kind: 'computed', dimension: 'length', section: 'height', formula: minus(rate('high_rise_height_m'), fld('height')) },
       {
         key: 'high_rise',
         label: 'High-rise',

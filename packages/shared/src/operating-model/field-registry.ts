@@ -32,6 +32,8 @@ export interface FieldCatalog {
   situations: ReadonlyMap<string, Situation>;
   /** The check sets of each function, by id: what its check screens record. */
   checkSets: ReadonlyMap<string, string[]>;
+  /** The sets by which each function adds its own facts to a shared record. */
+  extending: ReadonlyMap<string, FieldSet[]>;
 }
 
 /** Both conditions, where there are two. */
@@ -101,19 +103,22 @@ export function buildFieldCatalog(declared: readonly FieldSet[]): FieldCatalog {
     }
   }
   // A set that extends another adds its fields to it: one record, every department's facts about it.
+  const extending = new Map<string, FieldSet[]>();
   for (const extra of sheets) {
     const target = extra.extends ? sets.get(extra.extends) : undefined;
     if (!target || checks.has(target.id)) continue;
     const merged: FieldSet = {
       ...target,
-      fields: [...target.fields, ...extra.fields.filter((def) => !target.fields.some((held) => held.key === def.key))],
+      // Each added field says which function added it, so that function's page shows its own facts of the record and not every department's.
+      fields: [...target.fields, ...extra.fields.filter((def) => !target.fields.some((held) => held.key === def.key)).map((def): CheckFieldDef => ({ ...def, addedBy: extra.fn }))],
       rules: [...target.rules, ...extra.rules],
       sections: [...(target.sections ?? []), ...(extra.sections ?? []).filter((section) => !(target.sections ?? []).some((held) => held.key === section.key))],
     };
     sets.set(target.id, merged);
+    extending.set(extra.fn, [...(extending.get(extra.fn) ?? []), extra]);
     byFn.set(target.fn, (byFn.get(target.fn) ?? []).map((held) => (held.id === target.id ? merged : held)));
   }
-  return { sets, sheets: byFn, checks, optionSets, situations, checkSets };
+  return { sets, sheets: byFn, checks, optionSets, situations, checkSets, extending };
 }
 
 /** Every list a match table pairs: its left, its right, and any further ones. */
@@ -151,6 +156,8 @@ export function sharedSetsOf(fn: string, catalog = fieldCatalog()): FieldSet[] {
       for (const side of matchSides(def)) from(side.of);
     }
   }
+  // And the records it adds facts of its own to: those facts are filled from its page, whether or not a sheet of it links to one.
+  for (const extra of catalog.extending.get(fn) ?? []) ids.add(extra.extends!);
   return [...ids].flatMap((id) => {
     const set = catalog.sets.get(id);
     return set && set.fn === SHARED_FN ? [set] : [];
@@ -197,7 +204,8 @@ export function situationsOf(fn: string, catalog = fieldCatalog()): Array<{ at: 
     else if ('all' in when) when.all.forEach(collect);
     else if ('any' in when && Array.isArray(when.any)) when.any.forEach(collect);
   };
-  for (const set of fieldSetsOf(fn, catalog)) {
+  // Its own sheets, and what it adds to a shared record: a unit's sale waits on a lender as much as a sheet does.
+  for (const set of [...fieldSetsOf(fn, catalog), ...(catalog.extending.get(fn) ?? [])]) {
     for (const situation of set.situations ?? []) named.add(situation.key);
     for (const section of set.sections ?? []) collect(section.showWhen);
     for (const def of set.fields) collect(def.showWhen);

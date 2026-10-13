@@ -19,7 +19,7 @@
  */
 
 import type { FieldSet } from '../../types';
-import { EXISTING, IF_JOINT, JOINT_DEVELOPMENT, SET } from './names';
+import { EXISTING, IF_JOINT, SET } from './names';
 import {
   SIGNED,
   LED,
@@ -68,9 +68,9 @@ export const LEDGER_SETS: FieldSet[] = [
     extends: 'shared.parties',
     fields: [
       tick('small_enterprise', 'Registered micro or small enterprise', { from: 'Udyam registration certificate' }),
-      text('udyam_no', 'Udyam registration number', { required: false, from: 'Udyam registration certificate' }),
+      text('udyam_no', 'Udyam registration number', { required: false, tier: 'situational', showWhen: { field: { fn: 'shared', set: 'shared.parties', field: 'small_enterprise' }, is: 'true' }, from: 'Udyam registration certificate' }),
     ],
-    rules: [],
+    rules: [{ kind: 'require_if', fields: ['small_enterprise', 'udyam_no'], whenIn: ['true'], say: 'They are recorded as a small enterprise with no registration number.', severity: 'low' }],
   },
 
   /* ================================================================== */
@@ -221,7 +221,6 @@ export const LEDGER_SETS: FieldSet[] = [
     fn: LED,
     title: 'Collections',
     v: 1,
-    situations: [JOINT_DEVELOPMENT],
     sections: [
       { key: 'totals', label: 'Received from customers', showWhen: { records: SET.customerLedgers, is: 'any' } },
       { key: 'owner', label: 'Landowner’s account', showWhen: IF_JOINT },

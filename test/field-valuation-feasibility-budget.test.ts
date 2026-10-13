@@ -94,7 +94,6 @@ describe('the sets of Valuation, Feasibility and Budget', () => {
     const ids = new Set(MINE.map((set) => set.id));
     assert.deepEqual(catalogFaults().filter((fault) => [...ids].some((id) => fault.startsWith(id))), []);
     assert.deepEqual(catalogLimits().filter((breach) => ids.has(breach.set)), []);
-    assert.deepEqual(catalogFaults(MINE.concat(FIELD_SETS.filter((set) => set.fn === 'shared'))), [], 'and stand on the shared records alone');
     assert.deepEqual(ruleRowFaults(RULE_ROWS), []);
   });
 
@@ -124,7 +123,6 @@ describe('the sets of Valuation, Feasibility and Budget', () => {
 
   it('never call a sheet in order over a figure that is not there, and face a new project with few fields', () => {
     const p = project();
-    for (const fn of [VAL, FEA, BUD]) setSituation(p, fn, 'lender_funded', false, 'tester');
     for (const set of MINE.filter((s) => !s.records && !s.extends)) {
       const reading = readSheet(p, set.id, undefined, undefined, undefined, NOW)!;
       const good = reading.fields.filter((f) => f.def.kind === 'status' && f.tone === 'good').map((f) => `${f.def.key}: ${f.held?.value}`);
@@ -156,7 +154,7 @@ describe('Valuation', () => {
     assert.deepEqual(sheet(p, 'finance.valuation.approaches').shown(), []);
     assert.equal(sheet(p, 'finance.valuation.approaches').reading.total, 0, 'and nothing of it is counted');
 
-    setSituation(p, VAL, 'income_approach_used', true, 'tester');
+    setSituation(p, VAL, 'income_approach', true, 'tester');
     const income = sheet(p, 'finance.valuation.approaches');
     assert.deepEqual(income.shown(), ['occupancy', 'let_area', 'achievable_rent', 'vacancy_pct', 'opex_pct', 'cap_rate_pct', 'income_value', 'leases_count', 'rent_roll_monthly', 'rent_on_leases', 'income_standing']);
     assert.deepEqual(income.missing(), ['occupancy'], 'the one field of it a person fills here; the rest are read from the income check');
@@ -227,7 +225,7 @@ describe('Valuation', () => {
     assert.equal(lease.value('land_standing'), 'In order');
     assert.equal(lease.view('share_valued_pct').shown, 'shown', 'a leasehold brings the interest’s fields into play, and nobody set it');
     assert.equal(lease.view('share_valued_pct').missing, true);
-    assert.deepEqual(readFunctionFields(p, VAL, NOW).situations.filter((s) => s.state === 'on').map((s) => s.situation.key), ['partial_or_limited_interest']);
+    assert.deepEqual(readFunctionFields(p, VAL, NOW).situations.filter((s) => s.state === 'on').map((s) => s.situation.key), ['partial_or_limited_interest', 'cost_approach'], 'and the cost approach is in play by the rate recorded for it');
   });
 });
 
@@ -325,7 +323,8 @@ describe('Feasibility', () => {
     assert.equal(funded.view('interest_total').shown, 'hidden');
 
     // A lender: the debt assumed counts toward the peak, and each month takes the loan's columns.
-    setSituation(p, FEA, 'lender_funded', true, 'tester');
+    // Nobody says so: a facility on Lenders' register does.
+    add(p, 'finance.lenders.facilities', { name: 'Construction loan' });
     write(p, 'finance.feasibility.returns', { equity: '10 Cr' });
     write(p, 'finance.feasibility.costs', { debt_assumed: '14 Cr', interest_rate_assumed_pct: 11 });
     assert.equal(sheet(p, 'finance.feasibility.returns').value('funds'), 24 * CR);
@@ -410,7 +409,7 @@ describe('Budget', () => {
   it('opens the overrun’s fields only when the forecast is over the budget, and holds it against a contingency that is thin', () => {
     const { p } = job();
     const before = sheet(p, 'finance.budget.to_complete');
-    assert.deepEqual(before.shown(), ['forecast_final_cost', 'forecast_dated', 'certified_to_date', 'paid_to_date', 'cost_to_complete', 'cash_to_complete', 'budget_total', 'overrun', 'contingency_left', 'overrun_standing', 'forecast_age_limit', 'progress_gap_limit']);
+    assert.deepEqual(before.shown(), ['forecast_final_cost', 'forecast_dated', 'certified_to_date', 'paid_to_date', 'cost_to_complete', 'cash_to_complete', 'budget_total', 'overrun', 'contingency_left', 'overrun_standing'], 'the two limits read from the rule table are expert and worked out: they stay folded as the working behind the standings');
     assert.equal(before.view('funded_by').shown, 'hidden');
     assert.deepEqual(before.missing(), [], 'every figure of it is read or worked out');
 
@@ -444,7 +443,7 @@ describe('Budget', () => {
     assert.ok(over.said().includes('The forecast is over the budget and how the overrun is funded is not said.'));
     assert.deepEqual(readFunctionFields(p, BUD, NOW).situations.filter((s) => s.state === 'on').map((s) => s.situation.key), ['forecast_over_budget']);
 
-    setSituation(p, BUD, 'lender_funded', true, 'tester');
+    add(p, 'finance.lenders.facilities', { name: 'Construction loan' });
     assert.deepEqual(sheet(p, 'finance.budget.to_complete').missing(), ['overrun_causes', 'funded_by', 'lender_told_on']);
     write(p, 'finance.budget.to_complete', { funded_by: 'promoter', lender_told_on: '2026-10-01', overrun_causes: [{ cause: 'Variations', amount: 1.2 * CR }, { cause: 'Price rise', amount: 1.8 * CR }] });
     const explained = sheet(p, 'finance.budget.to_complete');

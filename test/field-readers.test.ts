@@ -51,6 +51,11 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   // Another thing called fields: the columns a checklist line asks for, not a check's stored values.
   { file: 'packages/shared/src/operating-model/document-intake.ts', has: 'for (const field of check.fields ?? []) if (keys.has(field.key))', why: 'a requirement’s list of field definitions, which holds no value' },
 
+  // The appraisal's months, added up for three figures: each value is asked `fieldStands` before it is counted.
+  { file: 'packages/shared/src/operating-model/field-figures.ts', has: 'project.fieldSheets?.[CASH_FLOW_SET]?.records', why: 'the cash-flow months behind the peak-funding figures: a record taken off its list is left out, and each value is counted only where `fieldStands` says it stands' },
+  { file: 'packages/shared/src/operating-model/field-figures.ts', has: 'record.values[CASH_FLOW_MONTH]', why: 'the month of one of those records, asked `fieldStands` on the next line' },
+  { file: 'packages/shared/src/operating-model/field-figures.ts', has: 'amount(record.values[CASH_FLOW_IN])', why: 'the money in and out of one month, through `amount`, which reads nothing that does not stand' },
+
   // Asking whether anything is kept at all, not what it says.
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(sheet.values).length > 0', why: 'whether a project keeps any sheet value at all, so a status report knows to carry a field section: no value is read, and the section itself is resolved through `readSheet`' },
   { file: 'packages/shared/src/operating-model/report-fields.ts', has: 'Object.keys(check.fields ?? {}).length > 0', why: 'the same question of a project’s checks: a count of keys, never a value' },

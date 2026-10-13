@@ -457,7 +457,7 @@ export const FUNDING_SETS: FieldSet[] = [
     records: { of: 'year', titleField: 'year_end', summaryFields: ['excess_withdrawn', 'year_standing'] },
     fields: [
       day('year_end', 'Financial year ending'),
-      worked('report_due', 'Report due', addMonths(dateOf('year_end'), rate('rera_annual_audit_months')), { yields: 'date' }),
+      worked('report_due', 'Report due', addMonths(dateOf('year_end'), rate('rera_annual_report_months')), { yields: 'date' }),
       day('report_signed_on', 'Report signed on', { required: false }),
       link('auditor', 'Statutory auditor', 'party'),
       percent('completed', 'Project completed, per the report'),

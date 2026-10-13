@@ -129,16 +129,6 @@ export const LAW_LIAISON_RULE_ROWS: RuleRow[] = [
 
   /* --- Height ---------------------------------------------------------- */
   {
-    key: 'high_rise_height',
-    label: 'Height from which a building is a high-rise',
-    jurisdiction: KARNATAKA,
-    value: 21,
-    unit: 'm',
-    from: READ_ON,
-    source: { regulation: 'Karnataka Fire Force (Amendment) Act, 2023', url: 'https://prsindia.org/files/bills_acts/bills_states/karnataka/2023/Bill3of2023Karnataka.pdf' },
-    verified: false,
-  },
-  {
     key: 'electrical_inspection_height',
     label: 'Height above which a building’s installation is inspected before it is energised',
     jurisdiction: {},

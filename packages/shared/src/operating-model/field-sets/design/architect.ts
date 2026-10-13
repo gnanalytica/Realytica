@@ -340,7 +340,8 @@ export const ARCHITECT_FIELD_SETS: FieldSet[] = [
     fn: FN.compliance,
     title: 'Plot, zone and FAR',
     v: 1,
-    situations: [{ key: 'tdr_or_premium_far', label: 'Premium FAR or TDR', scope: 'function', hint: 'More floor area is bought as premium FAR or brought in as development rights.' }],
+    // Of the project, not of this function alone: Feasibility prices the rights this brings into play.
+    situations: [{ key: 'tdr_or_premium_far', label: 'Premium FAR or TDR', scope: 'project', hint: 'More floor area is bought as premium FAR or brought in as development rights.' }],
     sections: [
       { key: 'basis', label: 'Plot and regulations' },
       { key: 'far', label: 'FAR' },
@@ -775,7 +776,7 @@ export const ARCHITECT_FIELD_SETS: FieldSet[] = [
     fn: FN.sanction,
     title: 'Design against the sanction',
     v: 1,
-    situations: [{ key: 'revised_sanction', label: 'Sanction being revised', scope: 'function', hint: 'A modified plan is applied for, or a second sanctioned plan is on file.' }],
+    // revised_sanction is declared by Liaison: it holds once a revision of the sanctioned plan is on its register.
     sections: [
       { key: 'sanction', label: 'Sanction' },
       { key: 'design', label: 'Design against it' },

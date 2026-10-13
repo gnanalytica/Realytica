@@ -37,7 +37,6 @@ const row = (key: string, label: string, value: number, unit: string, from: stri
 export const FINANCE_RULE_ROWS: RuleRow[] = [
   /* --- RERA ------------------------------------------------------------ */
   row('rera_deposit_share_stressed', 'Share of allottees’ money kept in the project account once receivables fall below the cost left to complete (in force from the year the regulations name)', 100, '%', '2022-01-01', { ...KRERA_FORMS, clause: 'Form 4, additional information (5)' }, { jurisdiction: KA }),
-  row('rera_annual_audit_months', 'Months after the year end by which the audited statement of the project account is due', 6, 'months', '2017-05-01', { regulation: 'Real Estate (Regulation and Development) Act, 2016', clause: 'section 4(2)(l)(D), third proviso' }),
 
   /* --- GST on a unit --------------------------------------------------- */
   row('gst_scheme_generation', 'GST scheme for housing in force when a project began (1: with input credit)', 1, 'scheme', '2017-07-01', { regulation: GST_RATE, url: GST_FAQ }, { to: '2019-03-31' }),

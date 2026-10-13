@@ -615,8 +615,7 @@ const VENDORS_SETS: FieldSet[] = [
     fields: [
       { key: 'vendor_kind', label: 'Supplies as', kind: 'multi_enum', required: false, options: ['contractor', 'labour contractor', 'supplier', 'manufacturer', 'consultant', 'testing laboratory'] },
       { key: 'vendor_trades', label: 'Trades', kind: 'multi_enum', optionSet: 'package_trade', required: false },
-      { key: 'small_enterprise', label: 'Registered as a small enterprise', kind: 'boolean', control: 'switch', required: false, from: 'Udyam registration certificate' },
-      text('udyam_no', 'Udyam registration number', { tier: 'situational', showWhen: { field: at('shared', PARTIES, 'small_enterprise'), is: 'true' }, from: 'Udyam registration certificate' }),
+      // Whether they are a registered small enterprise, and the number, are on the party record once, with Finance's facts of it (finance.ledgers.supplier_facts).
       money('prequalified_limit', 'Prequalified up to', { required: false, from: 'Prequalification note' }),
       date('prequalified_to', 'Prequalified until', { required: false, from: 'Prequalification note', expires: { leadDays: 30 } }),
       { key: 'debarred', label: 'Debarred', kind: 'boolean', control: 'switch', required: false, tier: 'expert' },
@@ -629,7 +628,6 @@ const VENDORS_SETS: FieldSet[] = [
       computed('incidents_on_workforce', 'Incidents among their workers', countWhere(SET.incidents, own('employer')), { precision: 0 }),
     ],
     rules: [
-      { kind: 'require_if', fields: ['small_enterprise', 'udyam_no'], whenIn: ['true'], say: 'They are recorded as a small enterprise with no registration number.', severity: 'low' },
       { kind: 'at_most', fields: ['work_in_hand', 'prequalified_limit'], say: 'They hold {a} of contracts on this project, above the {b} they are prequalified up to.', severity: 'medium' },
     ],
   },

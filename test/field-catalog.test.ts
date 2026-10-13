@@ -459,6 +459,34 @@ describe('a shared record', () => {
     assert.ok(catalogFaults([...FIELD_SETS, { ...extra, fields: [{ key: 'name', label: 'Name', kind: 'text' }] }]).some((f) => /already has a field of this key/.test(f)));
   });
 
+  it('refuses a key two departments both add to it, and one of a depth sheet of the record', () => {
+    const one: FieldSet = { id: 'commercial.buyers.party_more', fn: 'commercial.buyers', title: 'Customer', v: 1, extends: 'shared.parties', fields: [{ key: 'resident_abroad', label: 'Resident abroad', kind: 'boolean', required: false }], rules: [] };
+    const two: FieldSet = { ...one, id: 'finance.tax.party_more', fn: 'finance.tax' };
+    assert.ok(catalogFaults([...FIELD_SETS, one, two]).some((f) => /finance\.tax\.party_more\/resident_abroad: "commercial\.buyers\.party_more" already adds a field of this key to "shared\.parties"/.test(f)));
+    const deep: FieldSet = { ...one, id: 'legal.title.owner_more', fn: 'legal.title', extends: 'legal.title.owners', fields: [{ key: 'date_of_birth', label: 'Born on', kind: 'date', required: false }] };
+    assert.ok(catalogFaults([...FIELD_SETS, deep]).some((f) => /owner_more\/date_of_birth: "legal\.title\.owners" already has a field of this key/.test(f)), 'the Guardianship sheet of an owner already holds it');
+  });
+
+  it('is drawn on a function’s page with that function’s own additions, and says who else keeps facts on it', () => {
+    const tax: FieldSet = { id: 'finance.tax.unit_levy', fn: 'finance.tax', title: 'Levy', v: 1, extends: 'shared.units', fields: [{ key: 'levy_paid', label: 'Levy paid', kind: 'money', required: false }], rules: [] };
+    const site: FieldSet = { id: 'construction.site.unit_keys', fn: 'construction.site', title: 'Keys', v: 1, extends: 'shared.units', fields: [{ key: 'keys_cut', label: 'Keys cut', kind: 'number', required: false }], rules: [] };
+    const link = set('finance.funding.unit_link', [{ key: 'pledged_unit', label: 'Pledged unit', kind: 'ref', target: 'unit', required: false }]);
+    const catalog = buildFieldCatalog([...FIELD_SETS.filter((held) => held.fn === 'shared'), tax, site, link]);
+    const p = project();
+    const unit = addFieldRecord(p, 'shared.units', { number: 'A-101', levy_paid: 12_000, keys_cut: 3 }, 'Lead', {}, catalog).record!;
+
+    const whole = readSheet(p, 'shared.units', unit.id, undefined, catalog)!;
+    assert.deepEqual(whole.fields.filter((f) => f.def.addedBy).map((f) => [f.def.key, f.def.addedBy]), [['levy_paid', 'finance.tax'], ['keys_cut', 'construction.site']], 'read whole, the record holds every department’s facts, each saying whose it is');
+
+    const onTax = readFunctionFields(p, 'finance.tax', new Date(), catalog).shared.find((held) => held.set.id === 'shared.units')!.records[0]!;
+    assert.ok(onTax.fields.some((f) => f.def.key === 'levy_paid') && !onTax.fields.some((f) => f.def.key === 'keys_cut'), 'Tax draws the unit with its own facts, and lists the unit though no sheet of it links to one');
+    assert.deepEqual(onTax.elsewhere, [{ fn: 'construction.site', held: 1 }]);
+
+    const onFunding = readFunctionFields(p, FN, new Date(), catalog).shared.find((held) => held.set.id === 'shared.units')!.records[0]!;
+    assert.deepEqual(onFunding.fields.map((f) => f.def.key), ['number', 'tower', 'floor', 'type', 'carpet_area'], 'a function that only links to it draws the record’s own fields');
+    assert.deepEqual(onFunding.elsewhere, [{ fn: 'finance.tax', held: 1 }, { fn: 'construction.site', held: 1 }]);
+  });
+
   it('are the ones the catalogs name, each a set that repeats', () => {
     const catalog = fieldCatalog();
     for (const id of ['shared.parties', 'shared.parcels', 'shared.buildings', 'shared.units', 'shared.drawings', 'shared.approvals', 'shared.matters', 'shared.contracts', 'shared.accounts']) assert.ok(catalog.sets.get(id)?.records, id);

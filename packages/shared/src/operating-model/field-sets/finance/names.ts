@@ -123,18 +123,12 @@ export const LENDER_FUNDED: Situation = {
   derive: { records: SET.facilities, is: 'any' },
 };
 
-/** Its home is Legal, which holds the agreement. Declared here so Tax and Ledgers can answer to it. */
-export const JOINT_DEVELOPMENT: Situation = {
-  key: 'joint_development',
-  label: 'Joint development',
-  scope: 'project',
-  hint: 'The land is developed under an agreement with its owner.',
-  proposeFrom: { documentTypes: [PAPER.jda] },
-};
+/** Joint development is declared by Legal, which holds the agreement; Tax and Ledgers answer to it by its key. */
+export const JOINT_DEVELOPMENT_KEY = 'joint_development';
 
 export const IF_DESIGNATED: ShowWhen = { situation: DESIGNATED_ACCOUNT_KEPT.key };
 export const IF_LENDER: ShowWhen = { situation: LENDER_FUNDED.key };
-export const IF_JOINT: ShowWhen = { situation: JOINT_DEVELOPMENT.key };
+export const IF_JOINT: ShowWhen = { situation: JOINT_DEVELOPMENT_KEY };
 
 /** What every Tax sheet says of itself, in its first section's name. */
 export const NOT_ADVICE = 'a record for the firm’s accountant to confirm, not tax advice';

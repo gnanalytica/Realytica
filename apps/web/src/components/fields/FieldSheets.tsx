@@ -28,6 +28,7 @@ import {
   NEED_KINDS,
   NEED_LABEL,
   NEED_LINES_SHOWN,
+  FUNCTION_SHORT,
   SNOOZE_DAYS_MOST,
   departmentRole,
   optionSetById,
@@ -203,7 +204,15 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part }: Props
         {opened && depth ? (
           <DepthBody depth={depth} props={sheetProps(opened)} back={open?.record ? { label: opened.title, onBack: () => setOpen({ set: open.set, record: open.record }) } : undefined} />
         ) : opened && open?.record ? (
-          <SheetBody reading={opened} props={sheetProps(opened)} onOpenDepth={(id) => setOpen({ set: open.set, record: open.record, depth: id })} />
+          <>
+            <SheetBody reading={opened} props={sheetProps(opened)} onOpenDepth={(id) => setOpen({ set: open.set, record: open.record, depth: id })} />
+            {/* One record, every department's facts: this page draws its own, and says who else keeps something on it. */}
+            {opened.elsewhere?.length ? (
+              <p className="mt-3 border-t border-hairline pt-2 text-[12px] text-ink-muted">
+                Also kept on this record: {opened.elsewhere.map((other) => `${FUNCTION_SHORT[other.fn] ?? workstreamDefinition(other.fn)?.label ?? other.fn} (${other.held})`).join(' · ')}. Each is on its own function’s page.
+              </p>
+            ) : null}
+          </>
         ) : null}
       </Modal>
     </div>
