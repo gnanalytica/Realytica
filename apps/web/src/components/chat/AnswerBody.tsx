@@ -102,7 +102,7 @@ export function AnswerBody({
                 : 'bg-provenance/10 text-provenance-ink ring-provenance/40',
           )}
         >
-          {span.tag}
+          {MEMORY_TAG_SHOWN[span.tag]}
         </span>
       );
     }
@@ -191,11 +191,19 @@ export function AnswerBody({
   );
 }
 
+/**
+ * What each tag is drawn as. Two words only: a value a person accepted, and
+ * one that waits. The record keeps a finer mark for a reading the rules made
+ * surely ("waiting · stands"); to a reader it waits like any other, and is
+ * told as a fact nowhere until somebody accepts it.
+ */
+const MEMORY_TAG_SHOWN: Record<MemTagWords, string> = { approved: 'accepted', 'waiting · stands': 'to accept', waiting: 'to accept', thought: 'earlier note' };
+
 /** What each tag means, said on hover. */
 const MEMORY_TAG_SAYS: Record<MemTagWords, string> = {
   approved: 'A person typed or accepted this.',
-  'waiting · stands': 'Read off a paper and not yet accepted. The file lets it be acted on meanwhile.',
-  waiting: 'Read off a paper or raised on a card. Nobody has accepted it yet.',
+  'waiting · stands': 'Read off a paper and not yet accepted. It is offered to its field or check, and told as a fact nowhere until somebody accepts it.',
+  waiting: 'Read off a paper or raised in the chat. Nobody has accepted it yet.',
   thought: 'The assistant’s own earlier note, not a fact of the file.',
 };
 

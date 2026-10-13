@@ -271,6 +271,17 @@ export function factKeysAsked(question: string): string[] {
   return topic ? [...(TOPIC_KEYS[topic] ?? [])] : [];
 }
 
+/**
+ * Whether a paper is one a topic is about. A key is not enough where two
+ * kinds of paper share a word: a lender's sanction letter has a date of
+ * sanction too, and it is no answer to whether the building plan is
+ * sanctioned.
+ */
+function aboutTopic(topic: string, paper: Pick<EvidenceRecord, 'documentType' | 'title'>): boolean {
+  if (topic !== 'sanction') return true;
+  return !/\b(?:loan|lender|bank|facility)\b/i.test(`${paper.documentType ?? ''} ${paper.title}`);
+}
+
 /** What waits, in a line: the reading, where it is, and that it is not on file. */
 function waitingLine(rows: Sourced[]): string {
   const first = rows[0]!;
@@ -289,7 +300,7 @@ function waitingLine(rows: Sourced[]): string {
 /** An answer with what waits for its topic said after it; or, where the answer was that nothing is on file, said in its place. */
 function withWaiting(project: DdProject, topic: string, answer: FileAnswer | null): FileAnswer | null {
   const keys = TOPIC_KEYS[topic];
-  const waiting = keys ? readingsUnacceptedOnFile(project).filter((row) => keys.includes(row.fact.key)) : [];
+  const waiting = keys ? readingsUnacceptedOnFile(project).filter((row) => keys.includes(row.fact.key) && aboutTopic(topic, row.evidence)) : [];
   if (!waiting.length) return answer;
   const line = waitingLine(waiting);
   const lead = waiting[0]!;
@@ -543,7 +554,7 @@ function answerValue(project: DdProject, facts: Sourced[]): FileAnswer | null {
     lines.push(`Indicative ${inr(run.indicatedValue, run.currency)} (range ${inr(run.low, run.currency)}–${inr(run.high, run.currency)}).`);
   }
   const hasValue = lines.length > 0;
-  if (!hasValue) lines.push('No indicative value yet — say “run the property screen” and I’ll work one out from what is on file.');
+  if (!hasValue) lines.push('No indicative value yet. Say “run the property screen” to work one out from what is on file.');
   if (paid) lines.push(`It last changed hands for ${paid.fact.display}. ${cite(paid)}`);
   if (hasValue) lines.push('Indicative only — not an IBBI-registered valuation.');
   return { text: lines.join('\n'), summary: 'Value', citedEvidenceIds: paid ? [paid.evidence.id] : [], citedNodeIds: [], navigate: { pane: 'valuation' } };
@@ -987,7 +998,7 @@ function answerFromFileUnfitted(project: DdProject, question: string, here: Chat
       case 'zoning':
         return withWaiting(project, topic, answerZoning(project, facts));
       case 'sanction':
-        return withWaiting(project, topic, answerSanction(project, facts));
+        return withWaiting(project, topic, answerSanction(project, facts.filter((row) => aboutTopic(topic, row.evidence))));
       case 'tax':
         return withWaiting(project, topic, answerTax(facts));
       case 'title':

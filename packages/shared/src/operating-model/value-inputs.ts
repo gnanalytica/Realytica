@@ -37,7 +37,7 @@ import type { CheckInstance, DdAssessment, DdProject, EvidenceRecord } from './t
 import type { DocumentFact } from './document-parse';
 import { CHECK_FIELDS } from './check-schemas';
 import { isBlank, standingField } from './check-fields';
-import { factReview, standingFacts, waitingReadings } from './fact-review';
+import { acceptedStanding, factReview, standingFacts, waitingReadings } from './fact-review';
 import { createAssessment, recordAuditEvent, recordCheckFields } from './operations';
 import { patchProject } from './capabilities';
 import {
@@ -322,11 +322,16 @@ export interface OwnSale {
   recent: boolean;
 }
 
-/** What this parcel's own registered sales recite, newest first. */
-export function ownSales(project: DdProject, now = new Date()): OwnSale[] {
+/**
+ * What this parcel's own registered sales recite, newest first. As an offer
+ * to a valuation (something a person then accepts) it reads what stands on
+ * the deed. Told as a fact on a page, with `accepted`, it reads only what a
+ * person has accepted there.
+ */
+export function ownSales(project: DdProject, now = new Date(), only: { accepted?: boolean } = {}): OwnSale[] {
   const out: OwnSale[] = [];
   for (const row of (project.evidence ?? []).filter(onFile)) {
-    const facts = standingFacts(row);
+    const facts = only.accepted ? acceptedStanding(row) : standingFacts(row);
     const consideration = facts.find((f) => f.key === 'consideration');
     const extent = facts.find((f) => f.key === 'extent_title');
     const registered = facts.find((f) => f.key === 'registration_date');

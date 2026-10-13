@@ -173,7 +173,8 @@ export default function WorkstreamPage() {
           <div className="min-w-0">
             <p className="text-[12px] font-medium text-ink-muted">{dept.label}</p>
             <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{ws.label}</h2>
-            <p className="mt-0.5 text-[13px] text-ink-secondary">{ws.purpose}</p>
+            {/* On a phone the page's own sentence gives way: what needs the reader is the first thing on the screen. */}
+            <p className="mt-0.5 hidden text-[13px] text-ink-secondary sm:block">{ws.purpose}</p>
           </div>
         </div>
       </Reveal>

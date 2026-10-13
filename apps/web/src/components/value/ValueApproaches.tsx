@@ -107,11 +107,12 @@ export function ValueApproaches({
         // for nothing.
         const history =
           key === 'comparable' && !building
-            ? ownSales(project)
+            ? // Told as a fact, so only from what a person has accepted on the deed.
+              ownSales(project, new Date(), { accepted: true })
                 .filter((sale) => !sale.recent)
                 .map(
                   (sale) =>
-                    `This parcel sold on ${daySaid(sale.registeredOn)} for ${money(sale.price, 'INR')} — ₹${Math.round(sale.ratePerSqm).toLocaleString('en-IN')}/sqm, ${sale.ageYears.toFixed(1)} years ago (${sale.document}). Too old to stand as the rate without a time adjustment, so it is not offered as one.`,
+                    `Sold on ${daySaid(sale.registeredOn)} for ${money(sale.price, 'INR')}: ₹${Math.round(sale.ratePerSqm).toLocaleString('en-IN')}/sqm, ${sale.ageYears.toFixed(1)} years ago (${sale.document}). Not offered as a rate: it is older than a comparable may be.`,
                 )
             : [];
         return (

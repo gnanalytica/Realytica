@@ -225,7 +225,7 @@ describe('the bidders of a tender', () => {
     assert.throws(() => addTenderBidder(project, tender.id, { name: 'Bidder B', lines: [{ item: 'Earthing', amount: 1 }, { item: ' earthing ', amount: 2 }] }, ACTOR), /priced twice/);
     const revised = updateTenderBidder(project, tender.id, a.id, { revised: 53_900_000, exclusions: null }, ACTOR);
     assert.deepEqual([revised.quoted, revised.revised, revised.exclusions, revised.qualifications], [54_800_000, 53_900_000, undefined, 'Price holds for 90 days.']);
-    assert.equal(project.audit.at(-1)?.newValue, 'Bidder A, quoted ₹5,48,00,000, revised ₹5,39,00,000');
+    assert.equal(project.audit.at(-1)?.newValue, 'Bidder A, quoted ₹5.48 Cr, revised ₹5.39 Cr');
     removeTenderBidder(project, tender.id, a.id, ACTOR);
     assert.equal(tendersOf(project)[0]!.bidders.length, 0);
     assert.throws(() => removeTenderBidder(project, tender.id, a.id, ACTOR), /No bidder by that id/);
@@ -401,7 +401,7 @@ describe('the recommendation and the letter of acceptance', () => {
     assert.equal(costReportOf(project, report.id).rows.find((held) => held.id === row.id)!.poIssued, 53_500_000);
     const line = project.audit.at(-1)!;
     assert.deepEqual([line.action, line.actor, line.oldValue], ['accept_tender_offer', 'finance@builders.example', 'PO issued ₹0']);
-    assert.match(line.newValue!, /^PO issued ₹5,35,00,000 on October 2026, from the letter of acceptance for E1 Electrical works$/);
+    assert.match(line.newValue!, /^PO issued ₹5.35 Cr on October 2026, from the letter of acceptance for E1 Electrical works$/);
     assert.deepEqual(tenderOffersWaiting(project), []);
     assert.throws(() => acceptTenderOffer(project, tender.id, 'finance@builders.example'), /accepted already/);
     assert.throws(() => withdrawLetterOfAcceptance(project, tender.id, ACTOR), /Finance has accepted/);
