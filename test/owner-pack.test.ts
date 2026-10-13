@@ -336,25 +336,29 @@ describe('cost in an owner pack', () => {
     assert.equal(said(partOf(pack, 'cost', 'Forecast'))[1], 'At the last report: forecast ₹1,000 against a budget of ₹1,000, on budget. The forecast has not moved since.');
   });
 
-  it('reads the report whose period takes in a day of the pack’s, to the day', () => {
+  it('reads the latest report issued for a period that ends on or before the pack’s last day, to the day', () => {
     const { p, august, september } = costed();
     const reads = (from: string, to: string) => ownerPackCostReport(p, ownerPackPeriod({ from, to }))?.id;
-    assert.equal(reads('2026-09-30', '2026-10-31'), september, 'the last day of September is a day of the report');
-    assert.equal(reads('2026-10-01', '2026-10-31'), undefined, 'the day after is not');
-    assert.equal(reads('2026-07-01', '2026-08-01'), august, 'the first day of August is a day of the report');
-    assert.equal(reads('2026-07-01', '2026-07-31'), undefined, 'the day before is not');
-    assert.equal(reads('2026-08-15', '2026-09-15'), september, 'of two it takes in, the later');
+    assert.equal(reads('2026-09-30', '2026-10-31'), september, 'September has ended by the pack’s last day');
+    assert.equal(reads('2026-10-01', '2026-10-31'), september, 'a pack for October reads September’s while October’s is not issued, so one pack shows cost and time');
+    assert.equal(reads('2026-09-01', '2026-09-30'), september, 'the last day of September is the pack’s last day');
+    assert.equal(reads('2026-09-01', '2026-09-29'), august, 'a day short of it, September has not ended: the one before is read');
+    assert.equal(reads('2026-07-01', '2026-08-30'), undefined, 'a report for a period that ends later is never read into an earlier pack');
+    assert.equal(reads('2026-07-01', '2026-07-31'), undefined, 'none had ended by then');
   });
 
-  it('says in one line that no Cost Report is issued for the period, and never gives a draft’s figures', () => {
+  it('says which report it reads where none is issued for the period, and never gives a draft’s figures', () => {
     const { p } = costed();
     const october = startCostReport(p, { month: '2026-10-01' }, LEAD);
     updateCostReportRow(p, october.id, costReportOf(p, october.id).rows[0]!.id, { anticipatedCost: 7777 }, LEAD);
     const pack = ownerPack(p, ownerPackPeriod({ month: '2026-10' }), NOW);
-    assert.deepEqual(partsOf(pack, 'cost'), [{ lines: [], empty: "No Cost Report has been issued for October 2026. The one for October 2026 is a draft, and a draft's figures are not given. The last one issued is September 2026." }]);
+    const forecast = said(partOf(pack, 'cost', 'Forecast'));
+    assert.equal(forecast[0], 'No Cost Report is issued for October 2026 (the one for it is a draft, and a draft’s figures are not given). What follows is the latest issued before it: September 2026, for the period to 30 Sep 2026.');
+    assert.match(forecast[1]!, /^As at September 2026: forecast /);
     assert.doesNotMatch(JSON.stringify(pack), /7,777/);
-    // Nor do its packages ask the owner for anything.
-    assert.deepEqual(said(partOf(pack, 'decisions')), []);
+    // With no report issued at all, it says so in one line.
+    const bare = createProject({ name: 'Lake Road offices', type: 'commercial', location: 'Lake Road', city: 'Kadamba', currentStage: 'construction' }, 'RYT-L9');
+    assert.deepEqual(partsOf(ownerPack(bare, ownerPackPeriod({ month: '2026-10' }), NOW), 'cost'), [{ lines: [], empty: 'No Cost Report has been issued for October 2026.' }]);
   });
 });
 

@@ -141,13 +141,25 @@ export function ownerPackTitle(project: Pick<DdProject, 'name'>, period: StatusP
   return `Owner pack — ${project.name}, ${statusPeriodSaid(period)}`;
 }
 
-/** The Cost Report a pack reads for a period: the last one issued whose own period takes in a day of it. A draft is never read. */
+/**
+ * The Cost Report a pack reads for a period: the latest one issued whose own
+ * period ends on or before the pack's last day, so a pack for October reads
+ * September's report while October's is not issued, and one pack shows cost
+ * and time for the same month. A report for a later period is never read into
+ * an earlier pack, and a draft is never read.
+ */
 export function ownerPackCostReport(project: Pick<DdProject, 'costReports'>, period: StatusPeriod): CostReportPeriod | undefined {
-  const [first, last] = [period.from.slice(0, 10), new Date(Date.parse(period.to) - 1).toISOString().slice(0, 10)];
+  const last = new Date(Date.parse(period.to) - 1).toISOString().slice(0, 10);
   return costReportsOf(project)
-    .filter((report) => report.status === 'issued' && report.from <= last && report.to >= first)
+    .filter((report) => report.status === 'issued' && report.to <= last)
     .sort(costReportPeriodOrder)
     .at(-1);
+}
+
+/** Whether a Cost Report is of a pack's own period: its period takes in a day of it. */
+function costReportOfPeriod(report: CostReportPeriod, period: StatusPeriod): boolean {
+  const [first, last] = [period.from.slice(0, 10), new Date(Date.parse(period.to) - 1).toISOString().slice(0, 10)];
+  return report.from <= last && report.to >= first;
 }
 
 const LEVEL_ORDER: Record<ScheduleLevel, number> = { late: 0, behind: 1, slipping: 2 };
@@ -184,10 +196,23 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   const lastReported = [...reportedOn.values()].filter((on): on is string => Boolean(on)).sort().at(-1);
   const schedule = `the schedule: ${counted(milestones.length, 'milestone', 'milestones')} on the progress board${lastReported ? `, last reported ${meetingDay(lastReported)}` : ''}`;
   const standing: OwnerPackLine[] = [{ what: `Stage: ${stageAndStep(project.currentStage)}.`, source: 'the project record' }];
+  /** Read as at a past day: the milestones nothing was reported of on or before it, which are not dated as done by then. */
+  const unread = milestones.filter((m) => m.unread);
+  const noReading = asAt && unread.length > 0 && unread.length === milestones.filter((m) => m.percent < 100).length;
   if (progress.percent === null) {
     standing.push({ what: 'No milestones are on the schedule, so there is no percent complete and no completion date.', source: 'the progress board' });
+  } else if (noReading) {
+    // Nothing was reported of any unfinished milestone by the period's end: no percent is made up for it, and no late count.
+    standing.push({
+      what: `No reading for ${periodSaid}: no progress is dated on or before ${meetingDay(asAt!)} for ${counted(unread.length, 'milestone', 'milestones')}. ${progress.complete} of ${counted(progress.milestones, 'milestone', 'milestones')} ${progress.complete === 1 ? 'is' : 'are'} dated as finished by then.`,
+      source: schedule,
+    });
+    if (watch.plannedCompletion) standing.push({ what: `Planned completion: ${meetingDay(watch.plannedCompletion)}.`, when: watch.plannedCompletion, source: schedule });
   } else {
-    standing.push({ what: `${progress.percent}% complete: ${progress.complete} of ${counted(progress.milestones, 'milestone', 'milestones')} finished, each weighted by its share of the work.`, source: schedule });
+    standing.push({
+      what: `${progress.percent}% complete: ${progress.complete} of ${counted(progress.milestones, 'milestone', 'milestones')} finished, each weighted by its share of the work.${unread.length ? ` ${counted(unread.length, 'milestone has', 'milestones have')} no reading for ${periodSaid} and ${unread.length === 1 ? 'is' : 'are'} counted as not begun.` : ''}`,
+      source: schedule,
+    });
     standing.push(
       watch.plannedCompletion
         ? { what: `Planned completion: ${meetingDay(watch.plannedCompletion)}.`, when: watch.plannedCompletion, source: schedule }
@@ -218,13 +243,14 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
     .filter((m): m is MilestoneWatch & { level: ScheduleLevel } => Boolean(m.level))
     .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level] || (a.daysToFinish ?? 0) - (b.daysToFinish ?? 0));
   const soon = watch.milestones
-    .filter((m) => m.percent < 100 && m.daysToFinish !== undefined && m.daysToFinish >= 0 && m.daysToFinish <= OWNER_PACK_DUE_DAYS)
+    .filter((m) => m.percent < 100 && !m.unread && m.daysToFinish !== undefined && m.daysToFinish >= 0 && m.daysToFinish <= OWNER_PACK_DUE_DAYS)
     .sort((a, b) => a.daysToFinish! - b.daysToFinish!);
   const time: OwnerPackPart[] = [
     {
       heading: 'Late, behind or slipping',
       ...shown(warned.map((m) => ({ what: `${m.name}: ${m.say}`, when: m.plannedFinish, overdue: m.level === 'late', source: milestoneSource(m), recordId: m.id }))),
-      empty: milestones.length ? 'No milestone is late, behind or slipping.' : 'No milestones are on the schedule.',
+      empty: !milestones.length ? 'No milestones are on the schedule.' : unread.length ? 'No milestone with a reading is late, behind or slipping.' : 'No milestone is late, behind or slipping.',
+      ...(unread.length ? { note: `No reading for ${periodSaid}: ${listed(unread.map((m) => m.name))}. Nothing is said of ${unread.length === 1 ? 'it' : 'them'} here.` } : {}),
     },
     {
       heading: `Due in the next ${OWNER_PACK_DUE_DAYS} days`,
@@ -254,7 +280,13 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
     const bills = costRegister(project).bills;
     const comparison = previous ? compareCostReports(previous, report, bills) : undefined;
     const totals = costReportTotals(report);
-    const forecast: OwnerPackLine[] = [{ what: `Now: ${against(totals.anticipatedCost, totals.budget)}.`, source }];
+    const forecast: OwnerPackLine[] = [];
+    // Which report this is, where it is not of the pack's own period: said first, so nobody reads August's figures as October's.
+    if (!costReportOfPeriod(report, period)) {
+      const draft = costReportsOf(project).find((held) => held.status === 'draft' && held.from <= lastDay && held.to >= firstDay);
+      forecast.push({ what: `No Cost Report is issued for ${periodSaid}${draft ? ' (the one for it is a draft, and a draft’s figures are not given)' : ''}. What follows is the latest issued before it: ${report.label}, for the period to ${meetingDay(report.to)}.`, source });
+    }
+    forecast.push({ what: `${costReportOfPeriod(report, period) ? 'Now' : `As at ${report.label}`}: ${against(totals.anticipatedCost, totals.budget)}.`, source });
     if (previous && comparison) {
       const then = costReportTotals(previous);
       const moved = comparison.totals.figures.anticipatedCost.change;
@@ -333,6 +365,8 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
     for (const pack of [...asks.overBudget].sort((x, y) => y.over - x.over)) overBudget.push({ what: `Over budget: ${packageLabel(pack)}, ${against(pack.anticipatedCost, pack.budget)}.`, source });
     const unawarded = asks.unawarded.filter((pack) => !packageAwaitsNoAward(pack.name) && pack.budget > 0).sort((x, y) => y.budget - x.budget);
     for (const pack of unawarded) toAward.push({ what: `Not awarded: ${packageLabel(pack)}, budget ${money(pack.budget)}, no PO issued.`, source });
+    // Awarded to a party the report names, with no PO figure typed: awarded, and said so. It is a figure to enter, not a decision.
+    for (const pack of asks.awardedNoPo) toAward.push({ what: `Awarded, PO value not entered: ${packageLabel(pack)}, to ${pack.awardedTo}, budget ${money(pack.budget)}.`, source });
     if (unawarded.length > OWNER_PACK_LINES_SHOWN) toAwardNote = `${counted(unawarded.length, 'package', 'packages')} not awarded, ${money(unawarded.reduce((total, pack) => total + pack.budget, 0))} of budget in all.`;
   }
   const extension: OwnerPackLine[] = [];

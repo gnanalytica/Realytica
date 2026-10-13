@@ -22,6 +22,7 @@
 import { MILESTONE_PHOTO_WAIVERS, MILESTONE_PHOTO_WAIVER_LABEL, milestonePhotoChecklist, milestonePhotosRefusal, milestonePhotosWanting, type MilestonePhotoWaiver } from './photo-stations';
 import { recordAuditEvent } from './operations';
 import { setMilestonePercent, type Milestone } from './progress';
+import { indiaToday } from './quarters';
 import type { DdProject } from './types';
 
 /** A milestone was asked to be marked complete with a required photograph not taken. */
@@ -39,6 +40,8 @@ export class MilestonePhotosWanting extends Error {
 export interface MilestoneMark {
   /** The moment it is marked at. */
   now?: Date;
+  /** The day the reading is of, where that is an earlier day than the one it is typed on: YYYY-MM-DD, never a day still to come. */
+  on?: string;
   /** Why it is complete without its photographs: one of `MILESTONE_PHOTO_WAIVERS`. */
   waiver?: string;
   /** Whether the person marking it may accept in Construction: a lead or a signer. Only they record a waiver. */
@@ -71,7 +74,9 @@ export function markMilestonePercent(project: DdProject, milestoneId: string, pe
     if (!mark.mayWaive) throw new Error('Why a milestone is complete without its photographs is picked by a lead or a signer of Construction.');
   }
   const at = now.toISOString();
-  const milestone = setMilestonePercent(project, milestoneId, percent, actor, at);
+  if (mark.on !== undefined && (!/^\d{4}-\d{2}-\d{2}$/.test(mark.on) || Number.isNaN(Date.parse(`${mark.on}T00:00:00Z`)))) throw new Error('The day a reading is of is a calendar day.');
+  if (mark.on !== undefined && mark.on > indiaToday(now)) throw new Error('A reading is of a day that has come: not one still ahead.');
+  const milestone = setMilestonePercent(project, milestoneId, percent, actor, at, mark.on ?? at.slice(0, 10));
   if (waiver) {
     milestone.photoWaiver = { reason: waiver, by: actor, at };
     recordAuditEvent(project, { actor, action: 'milestone_photo_waiver', entityType: 'milestone', entityId: milestone.id, newValue: `${milestone.name}: ${MILESTONE_PHOTO_WAIVER_LABEL[waiver]} (${wanting.map((station) => station.label).join(', ')})`, at });

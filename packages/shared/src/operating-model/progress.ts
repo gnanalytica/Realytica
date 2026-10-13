@@ -31,6 +31,8 @@ export interface Milestone {
   /** What was reported and on which day, one a day, oldest first: the rate a projected finish is read from. */
   readings?: Array<{ on: string; percent: number }>;
   completedOn?: string;
+  /** On a reading as at a past day only (`projectAsAt`): nothing was reported of it on or before that day, and it is not dated as done by then. Never stored. */
+  unread?: true;
   /**
    * It was marked complete with a required photograph not taken, and a lead or signer of Construction said why by a
    * pick from `MILESTONE_PHOTO_WAIVERS` (`photo-stations.ts`). Never a sentence. Gone once the milestone is reopened.
@@ -144,7 +146,11 @@ export function setMilestonePercent(project: DdProject, milestoneId: string, per
   m.percent = m.readings.at(-1)!.percent;
   m.updatedAt = at;
   m.updatedBy = actor;
-  if (m.percent === 100 && !m.completedOn) m.completedOn = at.slice(0, 10);
+  // Done on the day the reading that took it to 100% is of: a reading dated in the past finishes it then, not on the day it was typed.
+  if (m.percent === 100 && !m.completedOn) {
+    const run = [...m.readings].reverse().findIndex((reading) => reading.percent < 100);
+    m.completedOn = (run < 0 ? m.readings[0]! : m.readings[m.readings.length - run]!).on;
+  }
   if (m.percent < 100) {
     delete m.completedOn;
     delete m.photoWaiver;

@@ -86,15 +86,29 @@ function sheetAsAt(sheet: StoredFieldSheet, day: string, end: number, wholeFrom:
   };
 }
 
-/** A milestone at the percent last reported on or before a day. One with nothing ever reported of it is left as it is. */
+/**
+ * A milestone as it stood when a day ended.
+ *
+ * A reading and a done date are facts about the day they name, whenever they
+ * were typed: a schedule brought in during October that dates a milestone as
+ * finished in June was finished in June. So a milestone is done on a past day
+ * where the record dates it as done on or before it, and otherwise stands at
+ * the percent last reported of a day on or before it. Where it has readings
+ * and none is of a day that early, nothing is known of it then: it is marked
+ * `unread`, and nobody is told it stood at nought. One with no dated reading
+ * at all is taken as read on the day it was last written.
+ */
 function milestoneAsAt(project: Pick<DdProject, 'siteLog'>, milestone: Milestone, day: string): Milestone {
   const readings = progressReadings(project, milestone);
-  if (!readings.length) return milestone;
+  const { completedOn, unread: _unread, ...rest } = milestone;
   const then = readings.filter((reading) => reading.on <= day);
-  const percent = then.at(-1)?.percent ?? 0;
-  const { completedOn, ...rest } = milestone;
-  const done = percent >= 100 ? (then.find((reading) => reading.percent >= 100)?.on ?? completedOn) : undefined;
-  return { ...rest, percent, readings: (milestone.readings ?? []).filter((reading) => reading.on <= day), ...(done ? { completedOn: done } : {}) };
+  const kept = (milestone.readings ?? []).filter((reading) => reading.on <= day);
+  const doneBy = completedOn && completedOn.slice(0, 10) <= day ? completedOn.slice(0, 10) : then.at(-1) && then.at(-1)!.percent >= 100 ? then.find((reading) => reading.percent >= 100)!.on : undefined;
+  if (doneBy) return { ...rest, percent: 100, readings: kept, completedOn: doneBy };
+  // Nothing dated was ever reported of it: its percent was typed on the day it was last written. Written after the day asked of, it says nothing of that day; at nought, it had not begun then either.
+  if (!readings.length) return milestone.percent > 0 && milestone.updatedAt.slice(0, 10) > day ? { ...rest, percent: 0, unread: true } : milestone;
+  if (!then.length) return { ...rest, percent: 0, readings: kept, unread: true };
+  return { ...rest, percent: then.at(-1)!.percent, readings: kept };
 }
 
 /** The Cost Reports issued by a moment, each standing as it stood then: one a revision has replaced since was still the issued one. */

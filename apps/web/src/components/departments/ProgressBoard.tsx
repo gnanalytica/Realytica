@@ -12,6 +12,7 @@ import {
   milestonePhotosWanting,
   departmentRole,
   fieldTrend,
+  indiaToday,
   progressReadings,
   progressSummary,
   roleCanDecide,
@@ -42,7 +43,7 @@ function Ring({ percent }: { percent: number | null }) {
       <circle cx="42" cy="42" r={r} fill="none" stroke="var(--surface-3)" strokeWidth="9" />
       <circle cx="42" cy="42" r={r} fill="none" stroke="rgb(var(--brand-rgb))" strokeWidth="9" strokeLinecap="round" strokeDasharray={`${share * c} ${c}`} transform="rotate(-90 42 42)" />
       <text x="42" y="47" textAnchor="middle" fontSize="17" fontWeight="600" fill="var(--text-primary)">
-        {percent === null ? '—' : `${Math.round(percent)}%`}
+        {percent === null ? '—' : `${percent}%`}
       </text>
     </svg>
   );
@@ -82,6 +83,10 @@ function MilestoneRow({
   const toast = useToast();
   const [value, setValue] = useState(String(milestone.percent));
   const [busy, setBusy] = useState(false);
+  // The day the reading is of: today, unless a person says it was seen on an earlier day and is being typed now.
+  const today = indiaToday(new Date());
+  const [on, setOn] = useState(today);
+  const earlier = on < today;
   const moved = milestone.baselineFinish && milestone.baselineFinish !== milestone.plannedFinish;
   const readings = useMemo(() => progressReadings(project, milestone), [project, milestone]);
   // The photographs it needs before it reads complete: the stations with none this period, and how a completion already made stands.
@@ -135,14 +140,15 @@ function MilestoneRow({
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(value);
-            if (!Number.isFinite(n) || n < 0 || n > 100 || n === milestone.percent) return;
-            if (Math.round(n) === 100 && wanting.length) setRefused(true);
-            else void save({ percent: n });
+            if (!Number.isFinite(n) || n < 0 || n > 100 || (n === milestone.percent && !earlier) || !on || on > today) return;
+            if (Math.round(n) === 100 && wanting.length && !earlier) setRefused(true);
+            else void save({ percent: n, ...(earlier ? { on } : {}) }).then(() => setOn(today));
           }}
         >
           <Input aria-label={`${milestone.name} percent complete`} type="number" min={0} max={100} value={value} onChange={(e) => setValue(e.target.value)} className="h-8 w-16 text-right" />
-          <span className="text-[12px] text-ink-muted">%</span>
-          <Button size="sm" type="submit" loading={busy} disabled={Number(value) === milestone.percent}>
+          <span className="text-[12px] text-ink-muted">% on</span>
+          <Input aria-label={`The day this reading of ${milestone.name} is of`} title="The day the reading is of. Pick an earlier day for progress seen then and typed now." type="date" max={today} value={on} onChange={(e) => setOn(e.target.value)} className="h-8 w-[8.5rem]" />
+          <Button size="sm" type="submit" loading={busy} disabled={(Number(value) === milestone.percent && !earlier) || !on || on > today}>
             Save
           </Button>
         </form>

@@ -535,6 +535,8 @@ projectWorkspaceRouter.post<Params>('/milestones', async (req, res) => {
 
 const milestonePatch = z.object({
   percent: z.number().min(0).max(100).optional(),
+  /** The day the reading is of, where it is an earlier day than today: progress seen on site and typed afterwards. */
+  on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** Why it is complete with a required photograph not taken: a pick from the list, by a lead or signer of Construction. */
   photoWaiver: z.enum(MILESTONE_PHOTO_WAIVERS).optional(),
   name: z.string().trim().min(1).max(120).optional(),
@@ -558,6 +560,7 @@ projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:mil
     if (parsed.data.percent !== undefined || parsed.data.photoWaiver) {
       markMilestonePercent(project, milestone.id, parsed.data.percent ?? milestone.percent, actor, {
         ...(parsed.data.photoWaiver ? { waiver: parsed.data.photoWaiver } : {}),
+        ...(parsed.data.on ? { on: parsed.data.on } : {}),
         mayWaive: roleCanDecide(roleIn(req, project, 'construction')),
       });
     }

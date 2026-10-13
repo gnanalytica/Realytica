@@ -322,6 +322,8 @@ export interface MilestoneWatch {
   level?: ScheduleLevel;
   /** The warning in one line, when there is one. */
   say?: string;
+  /** Read as at a past day: nothing was reported of it on or before that day. It carries no warning. */
+  unread?: true;
 }
 
 const days = (n: number): string => `${n} day${n === 1 ? '' : 's'}`;
@@ -373,6 +375,8 @@ export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: M
     out.expectedPercent = today >= plannedFinish ? 100 : today <= plannedStart ? 0 : Math.round((daysFrom(plannedStart, today) / span) * 100);
   }
   if (percent >= 100) return out;
+  // Read as at a past day with nothing reported of it by then: nothing is known of it, so it is neither late nor behind.
+  if (milestone.unread) return { ...out, unread: true };
 
   const projected = projectedFinish(progressReadings(project, milestone), percent, today);
   if (projected) {
@@ -402,6 +406,8 @@ export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: M
  * date has passed. Nothing where it is on time.
  */
 function milestoneSlip(m: MilestoneWatch): number {
+  // Nothing is known of a milestone with no reading by the day asked of: it is counted as slipping by nothing.
+  if (m.unread) return 0;
   return Math.max(m.projectedDaysLate ?? 0, m.daysToFinish !== undefined && m.daysToFinish < 0 ? -m.daysToFinish : 0);
 }
 
