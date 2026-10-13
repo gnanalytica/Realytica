@@ -933,7 +933,8 @@ export function fieldTone(def: CheckFieldDef, value: CheckFieldValue | undefined
 export function formatFieldValue(def: CheckFieldDef, value: CheckFieldValue | undefined, optionSet?: (id: string) => OptionSet | undefined): string {
   if (isBlank(value)) return '—';
   const raw = value!.value;
-  if (def.optionSet && (def.kind === 'enum' || def.kind === 'multi_enum')) {
+  // A choice prints as its label, whether its list is shared or written on the field: never the key kept for it.
+  if ((def.optionSet || def.options?.length) && (def.kind === 'enum' || def.kind === 'multi_enum')) {
     const options = fieldOptions(def, optionSet);
     const label = (key: unknown) => options.find((o) => o.key === key)?.label ?? String(key);
     return Array.isArray(raw) ? raw.map(label).join(', ') : label(raw);

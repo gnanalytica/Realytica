@@ -583,7 +583,7 @@ const CHAIN: FieldSet = {
     none('unregistered', 'Links in the chain with no registered instrument: {a}.', 'high'),
     none('without_conveyance', 'Links that rest on a power of attorney or an agreement, with no conveyance after it: {a}.', 'critical'),
     { kind: 'at_least', fields: ['years_established', 'years_required'], say: 'The chain is established for {a} and {b} are required.', severity: 'high' },
-    { kind: 'compare', fields: ['instruments', 'on_check'], at: { on_check: title('legal.title_chain', 'instrument_count') }, tolerance: 0, when: anyRecord(T.instruments), say: 'Here {a} instruments are recorded and the chain check lists {b}.', severity: 'low' },
+    { kind: 'compare', fields: ['instruments', 'on_check'], at: { on_check: title('legal.title_chain', 'instrument_count') }, tolerance: 0, when: anyRecord(T.instruments), say: 'Instruments recorded here: {a}. The chain check lists {b}.', severity: 'low' },
     none('principal_not_living', '{a} deed(s) were signed by an attorney after the principal had died.', 'critical'),
     none('poa_unregistered', '{a} deed(s) were signed under a power of attorney that is not registered.', 'high'),
     none('unregistered_partitions', '{a} partition(s) rest on an unregistered deed.', 'critical'),
@@ -770,7 +770,7 @@ const ENCUMBRANCE: FieldSet = {
     none('gap_days', 'The certificates leave {a} of the search period uncovered.', 'medium', anyRecord(T.certificates)),
     { kind: 'at_least', fields: ['years_covered', 'required'], at: { required: title('legal.title_chain', 'years_required') }, say: 'The search covers {a} and the chain is required for {b}.', severity: 'high' },
     none('charges_open', 'Charges on the land not released: {a}.', 'high'),
-    { kind: 'compare', fields: ['charges_open', 'on_check'], at: { on_check: title('legal.encumbrances', 'subsisting_charges') }, tolerance: 0, when: anyRecord(T.charges), say: 'Here {a} charges are open and the encumbrance check records {b}.', severity: 'low' },
+    { kind: 'compare', fields: ['charges_open', 'on_check'], at: { on_check: title('legal.encumbrances', 'subsisting_charges') }, tolerance: 0, when: anyRecord(T.charges), say: 'Charges open here: {a}. The encumbrance check records {b}.', severity: 'low' },
     { kind: 'at_least', fields: ['charges', 'liabilities_on_rtc'], say: 'Parcels whose RTC carries a liability: {b}. Charges recorded: {a}.', severity: 'medium' },
   ],
 };
