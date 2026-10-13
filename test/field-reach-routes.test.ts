@@ -24,6 +24,10 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import {
   addFieldRecord,
+  addMilestones,
+  gatherPeriodsDue,
+  markMilestonePercent,
+  startSheetPeriod,
   attachEvidenceFile,
   createChatProposal,
   addEvidence,
@@ -295,6 +299,15 @@ before(async () => {
   const revised = revisePeriod(project, 'finance.funding.cash_months', cashMonth, OWNER);
   assert.deepEqual(setFieldValues(project, { set: 'finance.funding.cash_months', record: revised.id }, { collections: 612_999_876 }, OWNER).rejected, []);
   marked.push({ fn: 'finance.funding', set: 'finance.funding.cash_months', forms: ['612345678', '612999876', 'Zq7 Issuer Named'] });
+  // A period that fell due, told to the firm's own person who issues it: the notice names Finance's set, and is nobody else's.
+  // The lender's sheet, issued once, is behind too; and the notice of the photograph round is written further down, once a station is kept.
+  const told = gatherPeriodsDue(project, [{ email: OWNER, workspaceRole: 'owner' }], new Date());
+  assert.ok(told.some((notice) => notice.setId === 'finance.funding.cash_months') && told.some((notice) => notice.setId === 'finance.lenders.position'));
+  marked.push({ fn: 'finance.funding', set: 'finance.funding.cash_months', forms: ['period_due:finance.funding.cash_months'], buyer: true });
+  marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['period_due:finance.lenders.position'], buyer: true });
+  // A sheet started on its first period by a named person, with what it holds: Commercial's, and gone with Commercial's sheets.
+  startSheetPeriod(project, 'commercial.buyers.collections', OWNER, {}, { period: '2026-09', at: new Date('2026-09-10T06:00:00.000Z') });
+  assert.equal(project.fieldSheets!['commercial.buyers.collections']!.open!.key, '2026-09');
 
   // What this round added that carries data. An approved variation Finance has not taken: its amount is Procurement's, and
   // the procurement route tells it as waiting on Finance.
@@ -324,6 +337,12 @@ before(async () => {
   const siteEntry = logSiteEntry(project, { clientId: 'zq7-phone-entry-1', date: lastMonth, photos: [{ storageKey: `site_${project.id}_zq7.png`, fileName: 'Zq7-site-shot.png', mimeType: 'image/png', caption: 'Zq7 Caption From Site', stationId }] }, OWNER).entry;
   assert.equal(placeEntryShots(project, siteEntry), 1);
   marked.push({ fn: 'construction.site', set: 'construction.site.stations', forms: ['Zq7 Station Stair', stationId] });
+  // A milestone that station is needed for, completed without its photograph by a pick from the list: the pick and who made it stay on the milestone.
+  const [needsShot] = addMilestones(project, [{ name: 'Zq7 Milestone Stair', weight: 1 }], OWNER);
+  add('construction.site.stations', { label: 'Zq7 Station Unshot', every: 'month', milestone: needsShot!.id, needed: true });
+  marked.push({ fn: 'construction.site', set: 'construction.site.stations', forms: ['Zq7 Station Unshot'] });
+  assert.throws(() => markMilestonePercent(project, needsShot!.id, 100, OWNER), /Zq7 Station Unshot/);
+  assert.equal(markMilestonePercent(project, needsShot!.id, 100, OWNER, { waiver: 'no_access', mayWaive: true }).photoWaiver!.reason, 'no_access');
   marked.push({ fn: 'construction.site', set: 'the site log’s own photograph', forms: ['Zq7 Caption From Site', 'Zq7-site-shot.png'], buyer: true });
 
   // A marked value on one check of every scope the project has.
