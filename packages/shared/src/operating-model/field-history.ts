@@ -39,7 +39,7 @@ export function indiaDayEnd(day: string): number {
 }
 
 /** The day it is in India at a moment kept as text. */
-function indiaDayOf(iso: string): string {
+export function indiaDayOf(iso: string): string {
   const at = Date.parse(iso);
   return Number.isNaN(at) ? '' : new Date(at + INDIA_OFFSET_MS).toISOString().slice(0, 10);
 }

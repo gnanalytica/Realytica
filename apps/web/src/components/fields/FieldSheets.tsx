@@ -38,7 +38,10 @@ import {
   NEED_LABEL,
   asAtMoment,
   compareSheetPeriods,
+  enteredAfterPeriod,
+  fieldIsDerived,
   fieldTrend,
+  isBlank,
   frozenAsNowSaid,
   isPastDay,
   periodIssuedSaid,
@@ -76,6 +79,7 @@ import { useFirmCatalog } from '../../lib/firmFields';
 import { personNamed } from '../../lib/format';
 import { useMe } from '../../lib/useMe';
 import { CheckFields } from '../CheckFields';
+import { ConfirmIssue } from '../ui/kit';
 import { AsAtPick, Comparison, PeriodHead, PeriodRecords, ReadOnlyBand, SheetPeriodsBar, type AsAtChoice } from './Periods';
 import { PhotoHolder, PhotoProject, SheetInside } from '../site/PhotoSeries';
 import { StackPlan, drawsAsStackPlan } from './StackPlan';
@@ -160,6 +164,7 @@ function keepAsAt(key: string, day: string | null): void {
 
 export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, marked, onOpenCheck, onOpenFunction }: Props) {
   const toast = useToast();
+  const me = useMe();
   // The sheets as they stand, or as they stood when a past day ended: a reading of the same project, with every control off.
   // The day holds while a person moves between the function's parts.
   const asAtKey = `${live.id}:${fn}`;
@@ -191,6 +196,8 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
   // The place a line's Open, or a link, asked for: brought into view once it is drawn.
   const [focus, setFocus] = useState<{ set: string; record?: string; field?: string; at: number } | null>(null);
   const choices = useMemo(() => (target: RefTarget | undefined) => refChoices(project, target, catalog), [project, catalog]);
+  // A name just typed that is not one of the project's parties yet.
+  const [newParty, setNewParty] = useState<string | null>(null);
 
   const run = (work: () => Promise<{ project: DdProject }>, failed: string) => {
     void work()
@@ -205,15 +212,24 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
     const periods = record ? page.sheets.find((sheet) => sheet.set.id === set)?.periods : undefined;
     return periods ? [...periods.open, ...periods.past].find((instance) => instance.record === record) : undefined;
   };
-  const actOnPeriod = (set: string, body: Omit<Parameters<typeof api.fieldPeriod>[1], 'set'>) =>
+  type PeriodBody = Omit<Parameters<typeof api.fieldPeriod>[1], 'set'>;
+  const sendPeriod = (set: string, body: PeriodBody) =>
     void api
       .fieldPeriod(project.id, { set, ...body })
       .then((out) => {
         onChanged(out.project);
         // A period just opened, or a revision of one, is the next thing to work on.
         if ((body.act === 'open' || body.act === 'revise') && out.recordId) setOpen({ set, record: out.recordId });
+        // An earlier period kept beside a sheet ("Also keep September") opens to be filled.
+        else if (body.act === 'open' && body.period && readSheetPeriod(out.project, set, body.period, catalog)?.editable) setPeriod({ set, key: body.period });
       })
       .catch((error: unknown) => toast(error instanceof Error ? error.message : 'That could not be done', 'critical'));
+  // Issuing is asked once: what is frozen, who is named, and what was entered after the period ended.
+  const [issuing, setIssuing] = useState<{ set: string; body: PeriodBody } | null>(null);
+  const actOnPeriod = (set: string, body: PeriodBody) => (body.act === 'issue' ? setIssuing({ set, body }) : sendPeriod(set, body));
+  const issuingSpan = issuing ? (issuing.body.period ? periodOfKey(issuing.body.period) : instanceOf(issuing.set, issuing.body.record)?.period) : undefined;
+  const issuingSet = issuing ? catalog.sets.get(issuing.set) : undefined;
+  const issuingLate = useMemo(() => (issuingSpan ? enteredAfterPeriod(live, issuingSpan, catalog) : []), [live, issuingSpan, catalog]);
 
   const sheetProps = (reading: SheetReading) => {
     // An issued period is read only: every control is off, and nothing on it is decided.
@@ -229,7 +245,15 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
     named: (who: string) => personNamed(live, who),
     // A field that declares a trend is drawn over time when its label is pressed: its periods, or the values it has held.
     trendOf: (def: CheckFieldDef) => fieldTrend(project, { set: reading.set.id, field: def.key, ...(reading.recordId ? { record: reading.recordId } : {}) }, asAt ? asAtMoment(asAt) : new Date(), catalog),
-    onCommit: (values: Record<string, CheckFieldWrite>) => run(() => api.setFieldValues(project.id, { set: reading.set.id, record: reading.recordId, values }), 'That value could not be saved'),
+    onCommit: (values: Record<string, CheckFieldWrite>) => {
+      // A name typed where a party is meant, that is not one of the project's parties yet, is offered to be added to them.
+      for (const def of reading.set.fields) {
+        const typed = def.kind === 'text' && def.suggest === 'party' ? values[def.key] : undefined;
+        const name = typeof typed === 'string' ? typed.replace(/\s+/g, ' ').trim() : '';
+        if (name && !choices('party').some((choice) => choice.label.split(',')[0]!.trim().toLowerCase() === name.toLowerCase())) setNewParty(name);
+      }
+      run(() => api.setFieldValues(project.id, { set: reading.set.id, record: reading.recordId, values }), 'That value could not be saved');
+    },
     onDecide: seat.mayEdit && !issued
       ? (def: CheckFieldDef, decision: FieldValueDecision, input?: { value?: unknown; pick?: number; reason?: string }) =>
           run(() => api.decideField(project.id, { address: { fn, set: reading.set.id, field: def.key, ...(reading.recordId ? { record: reading.recordId } : {}) }, decision, ...input }), 'That could not be decided')
@@ -295,18 +319,32 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
   }, [focus]);
 
   const sheetsInPlay = page.sheets.filter((sheet) => sheet.reading && inPlay(sheet.reading)).length;
-  // Whether a set kept by period is drawn here: the as-at control sits beside its period line.
-  const periodLine = page.sheets.some((sheet) => sheet.periods && !sheet.periods.first && (sheet.reading ? inPlay(sheet.reading) : sheet.periods.open.length + sheet.periods.past.length > 0));
+  // The period the function's sets are on, said once at its head: the as-at control sits beside this line.
+  const onPeriods = [...new Set(page.sheets.filter((sheet) => sheet.periods && !sheet.periods.first && (sheet.reading ? inPlay(sheet.reading) : sheet.periods.open.length + sheet.periods.past.length > 0)).map((sheet) => sheet.periods!.shown?.label).filter((label): label is string => Boolean(label)))];
+  const periodLine = onPeriods.length ? `Kept by period: ${onPeriods.join(', ')}` : '';
   const notYet = page.sheets.filter((sheet) => sheet.reading && !inPlay(sheet.reading));
   const holders: SheetReading[] = [...page.sheets.flatMap((sheet) => (sheet.reading ? [sheet.reading] : (sheet.records ?? []))), ...page.shared.flatMap((sheet) => sheet.records)];
   const opened = open ? holders.find((reading) => reading.set.id === open.set && reading.recordId === open.record) : undefined;
   const depth = opened && open?.depth ? opened.depth.find((held) => held.sheet.id === open.depth) : undefined;
+  // The record Add has just made, until something is entered on it: closed blank, it is taken away again.
+  const [fresh, setFresh] = useState<{ set: string; record: string } | null>(null);
+  const closeHolder = () => {
+    const made = fresh && open?.record === fresh.record ? fresh : null;
+    // Blank as the page reads it: nothing a person fills holds a value, and nothing waits on it. The server asks the same of what is stored.
+    const blank = Boolean(opened && opened.fields.every((view) => fieldIsDerived(view.def) || (isBlank(view.held) && view.waiting.length === 0)));
+    setOpen(null);
+    setFresh(null);
+    if (made && blank) run(() => api.removeFieldRecord(live.id, made.set, made.record), 'The empty record could not be taken away');
+  };
   const addRecord = (set: string) =>
     void api
       .addFieldRecord(project.id, set)
       .then((out) => {
         onChanged(out.project);
-        if (out.recordId) setOpen({ set, record: out.recordId });
+        if (out.recordId) {
+          setFresh({ set, record: out.recordId });
+          setOpen({ set, record: out.recordId });
+        }
       })
       .catch((error: unknown) => toast(error instanceof Error ? error.message : 'That could not be added', 'critical'));
 
@@ -344,9 +382,11 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
             >
               <span className="font-semibold">As at {daySaid(asAt)}</span> · read only. A period issued for that day reads as it was issued.
             </ReadOnlyBand>
-          ) : !periodLine && (sheetsInPlay || page.sheets.some((sheet) => sheet.records?.length)) ? (
-            // No set here is kept by period, so there is no period line to sit beside: the control heads the sheets.
-            <div className="flex justify-end px-1">
+          ) : sheetsInPlay || page.sheets.some((sheet) => sheet.records?.length) ? (
+            // The function's header: the period its sheets are on, and beside it the one control that reads them as at a past day.
+            // It is here, on the page, and never inside a sheet that has to be opened to find it.
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-1" data-function-periods>
+              <span className="text-[12px] text-ink-secondary">{periodLine}</span>
               <AsAtPick asAt={asAtChoice} />
             </div>
           ) : null}
@@ -369,7 +409,6 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
                   head={
                     sheet.periods ? (
                       <SheetPeriodsBar
-                        asAt={asAtChoice}
                         project={project}
                         set={sheet.set}
                         periods={sheet.periods}
@@ -397,7 +436,6 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
                 onOpen={(record) => setOpen({ set: sheet.set.id, record })}
                 onAdd={() => addRecord(sheet.set.id)}
                 onAct={(body) => actOnPeriod(sheet.set.id, body)}
-                asAt={asAtChoice}
               />
             ) : (
               <Records key={sheet.set.id} set={sheet.set} records={sheet.records ?? []} mayEdit={seat.mayEdit} open={unfolded.has(sheet.set.id)} onToggle={() => toggle(sheet.set.id)} onOpen={(record) => setOpen({ set: sheet.set.id, record })} onAdd={() => addRecord(sheet.set.id)} />
@@ -429,6 +467,39 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
           {!sheetsInPlay && !page.sheets.some((sheet) => sheet.records) && !notYet.length ? <p className="px-1 text-[12px] text-ink-muted">No sheet here yet.</p> : null}
         </>
       ) : null}
+      {newParty ? (
+        <div data-new-party data-layer="toast" className="fixed inset-x-3 bottom-3 z-[60] mx-auto flex max-w-xl flex-wrap items-center gap-2 rounded-xl bg-surface px-3 py-2 text-[13px] text-ink shadow-pop ring-1 ring-[var(--ring)]">
+          <p className="min-w-0 flex-1">{newParty} is not one of the project’s parties yet.</p>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              run(() => api.addFieldRecord(live.id, 'shared.parties', { name: newParty }), 'That party could not be added');
+              setNewParty(null);
+            }}
+          >
+            Add to the parties
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setNewParty(null)}>
+            Not now
+          </Button>
+        </div>
+      ) : null}
+      <ConfirmIssue
+        open={Boolean(issuing)}
+        what={`${issuingSpan?.label ?? 'this period'} of ${issuingSet?.title ?? 'this set'}`}
+        issuer={issuing?.body.name?.trim() || personNamed(live, me?.email) || 'you'}
+        lines={[
+          ...(issuingLate.length ? [`Entered after ${issuingSpan?.short ?? 'the period'} ended, and dated in it:`] : []),
+          ...issuingLate.slice(0, 6).map((entry) => `${entry.said}, by ${personNamed(live, entry.by)}`),
+          ...(issuingLate.length > 6 ? [`And ${issuingLate.length - 6} more.`] : []),
+        ]}
+        onClose={() => setIssuing(null)}
+        onConfirm={() => {
+          if (issuing) sendPeriod(issuing.set, issuing.body);
+          setIssuing(null);
+        }}
+      />
       <PeriodSheet
         project={live}
         catalog={catalog}
@@ -457,7 +528,7 @@ export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, m
       */}
       <Modal
         open={Boolean(opened && (open?.record || depth))}
-        onClose={() => setOpen(null)}
+        onClose={closeHolder}
         title={depth ? `${opened!.set.records ? `${opened!.title} · ` : ''}${depth.sheet.title}` : (opened?.title ?? '')}
         // A record that shows photographs side by side is given the room for two.
         width={opened?.set.fields.some((def) => def.viewer === 'series') ? 'lg' : 'md'}
@@ -563,7 +634,7 @@ function NeedsYou({
 
   return (
     <Card>
-      <CardHeader icon={<ListChecks size={15} />} title="Needs you" subtitle={counts.total || owedPapers ? `${page.recorded} of ${page.expected} recorded` : `Nothing needs you. ${page.recorded} of ${page.expected} recorded.`} />
+      <CardHeader icon={<ListChecks size={15} />} title="Needs you" subtitle={counts.total || owedPapers ? `${page.recorded} of ${page.expected} fields filled` : `Nothing needs you. ${page.recorded} of ${page.expected} fields filled.`} />
       {counts.total || quiet ? (
         <CardBody className="space-y-3">
           {chips.length ? (
@@ -610,7 +681,8 @@ function NeedsYou({
                 const action = actionOf(exception);
                 const valued = exception.kind === 'proposed' || exception.kind === 'disputed';
                 const where = needWhere(exception);
-                const under = [where, valued ? '' : exception.text].filter(Boolean).join(' · ');
+                // Said once: a line whose own words are the sheet's name again ("Programme · Programme") says the name alone.
+                const under = [where, valued || exception.text === where ? '' : exception.text].filter(Boolean).join(' · ');
                 const source = needSource(exception.source);
                 return (
                   <li key={exception.key} data-need={exception.need} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
@@ -862,7 +934,8 @@ function Sheet({
   const missing = reading.fields.filter((view) => view.missing).length;
   const waiting = reading.fields.filter((view) => view.shown !== 'hidden' && (view.state === 'proposed' || view.waiting.length > 0)).length;
   // Where the sheet stands, as its own rules work it out: said on the line, so nobody opens a sheet to learn it is in order.
-  const standings = reading.fields.filter((view) => view.def.kind === 'status' && view.shown !== 'hidden' && view.held && view.held.value !== null && view.held.value !== '');
+  // A sheet nobody has filled has no standing to say: "In order" beside nothing recorded would be a claim about nothing.
+  const standings = reading.filled ? reading.fields.filter((view) => view.def.kind === 'status' && view.shown !== 'hidden' && view.held && view.held.value !== null && view.held.value !== '') : [];
   return (
     <div data-holder={`${reading.set.id}::`} className="scroll-mt-16">
       <Card>
@@ -871,8 +944,8 @@ function Sheet({
             <span className="block truncate text-[14px] font-semibold tracking-tight text-ink">{reading.set.title}</span>
             <span className="mt-0.5 block text-xs leading-snug text-ink-secondary">
               {periodSaid ? `${periodSaid} · ` : ''}
-              {reading.filled} of {reading.total} recorded
-              {missing ? ` · ${missing} still to fill` : ''}
+              {reading.filled ? `${reading.filled} of ${reading.total} fields filled` : `Nothing filled yet · ${reading.total} ${reading.total === 1 ? 'field' : 'fields'}`}
+              {missing && reading.filled ? ` · ${missing} still to fill` : ''}
               {waiting ? ` · ${waiting} to accept` : ''}
             </span>
           </span>
@@ -896,9 +969,9 @@ function Sheet({
   );
 }
 
-/** How full a depth sheet is and what is wrong on it, in one line: "2 of 2 recorded · 1 failing". */
+/** How full a depth sheet is and what is wrong on it, in one line: "2 of 2 filled · 1 failing". */
 function depthSaid(depth: DepthReading): string {
-  return [`${depth.filled} of ${depth.total} recorded`, depth.waiting ? `${depth.waiting} to accept` : '', depth.failing ? `${depth.failing} failing` : ''].filter(Boolean).join(' · ');
+  return [`${depth.filled} of ${depth.total} filled`, depth.waiting ? `${depth.waiting} to accept` : '', depth.failing ? `${depth.failing} failing` : ''].filter(Boolean).join(' · ');
 }
 
 /** The fields of a set of views, drawn a section at a time: what shows, then what is folded under More. */
@@ -1040,7 +1113,7 @@ function SheetBody({
               <button type="button" onClick={() => onOpenDepth(held.sheet.id)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-left hover:bg-sunken coarse:min-h-11">
                 <span className="min-w-0 flex-1 text-[13px] font-medium text-ink">{held.sheet.title}</span>
                 <span className="font-mono text-[12px] text-ink-muted">
-                  {held.filled} of {held.total} recorded
+                  {held.filled} of {held.total} filled
                 </span>
                 {held.waiting ? <AiMark size="xs" /> : null}
                 {held.failing ? <Badge tone="critical">{held.failing} failing</Badge> : null}
@@ -1148,12 +1221,20 @@ function PeriodSheet({
               action={
                 mayDecide ? (
                   <Button size="sm" variant="secondary" onClick={() => onAct(held.reading.set.id, { act: 'issue', period: held.period.key })}>
-                    Issue the revision
+                    {held.period.revises ? 'Issue the revision' : `Issue ${instance.period.short}`}
                   </Button>
                 ) : undefined
               }
             >
-              <span className="font-semibold">A revision, not issued.</span> Worked out as at {daySaid(held.period.to)}. The period as first issued stands until this is.
+              {held.period.revises ? (
+                <>
+                  <span className="font-semibold">A revision, not issued.</span> Worked out as at {daySaid(held.period.to)}. The period as first issued stands until this is.
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">{instance.period.label}, not issued.</span> Kept beside the sheet, and worked out as at {daySaid(held.period.to)}.
+                </>
+              )}
             </ReadOnlyBand>
           ) : (
             <ReadOnlyBand

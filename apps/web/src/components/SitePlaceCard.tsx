@@ -1,3 +1,4 @@
+import { daySaid } from '@realytica/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { MapPin, RefreshCw } from 'lucide-react';
 import type { AmenityKind, DdProject, SiteContext } from '@realytica/shared';
@@ -181,7 +182,7 @@ export function SitePlaceCard({ project }: { project: DdProject }) {
               loading="lazy"
             />
             <p className="text-mini text-ink-muted">
-              Captured {streetView.capturedAt}. This is where the camera stood, not the property boundary.
+              Captured {daySaid(streetView.capturedAt)}. This is where the camera stood, not the property boundary.
             </p>
           </div>
         ) : null}

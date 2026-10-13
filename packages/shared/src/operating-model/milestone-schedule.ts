@@ -396,6 +396,44 @@ export function milestoneWatch(project: Pick<DdProject, 'siteLog'>, milestone: M
   return out;
 }
 
+/**
+ * How many days after its planned finish an open milestone stands to finish:
+ * by its own rate where it has one, and by the days already gone where its
+ * date has passed. Nothing where it is on time.
+ */
+function milestoneSlip(m: MilestoneWatch): number {
+  return Math.max(m.projectedDaysLate ?? 0, m.daysToFinish !== undefined && m.daysToFinish < 0 ? -m.daysToFinish : 0);
+}
+
+/**
+ * When each open milestone finishes as the work is going, by its id: the one
+ * figure projected completion, the summary line and the extension-of-time
+ * flag are all read from.
+ *
+ * A milestone with a rate finishes where its readings put it. One with no
+ * rate is taken at its planned date, or today once that has passed, moved by
+ * the most any open milestone planned to finish before it is slipping:
+ * work that follows waits on it, as an extension of time is carried. So a
+ * schedule with a milestone running late never gives a completion on time.
+ * Nothing where no milestone is slipping and none has a rate.
+ */
+export function projectedFinishes(open: readonly MilestoneWatch[], today: string): Map<string, string> | undefined {
+  if (!open.some((m) => m.projectedFinish || milestoneSlip(m) > 0)) return undefined;
+  const out = new Map<string, string>();
+  for (const m of open) {
+    if (m.projectedFinish) {
+      out.set(m.id, m.projectedFinish);
+      continue;
+    }
+    const planned = m.plannedFinish;
+    const carried = planned ? Math.max(0, ...open.filter((other) => other.id !== m.id && other.plannedFinish && other.plannedFinish < planned).map(milestoneSlip)) : 0;
+    // Its planned date moved by what it waits on, and never a day already gone.
+    const moved = planned ? dayOf(dayNumber(planned) + carried) : today;
+    out.set(m.id, moved > today ? moved : today);
+  }
+  return out;
+}
+
 export interface ScheduleWatch {
   milestones: MilestoneWatch[];
   /** The latest planned finish among the milestones, as extensions of time granted have moved it. */
@@ -406,7 +444,7 @@ export interface ScheduleWatch {
   extensionDays?: number;
   /** Days granted on contracts whose packages serve no milestone, which therefore move nothing here. */
   extensionUnplaced?: number;
-  /** Where the readings so far put the last milestone's finish, at the current rate. Only when some milestone has a rate. */
+  /** The latest finish over the open milestones as the work is going (`projectedFinishes`). Only when some milestone has a rate or is slipping. */
   projectedCompletion?: string;
   /** How many days after planned completion that is, when it is after. */
   projectedDaysLate?: number;
@@ -431,11 +469,12 @@ export function scheduleWatch(project: Pick<DdProject, 'milestones' | 'siteLog'>
     out.extensionDays = daysFrom(before, plannedCompletion);
   }
 
-  if (open.some((m) => m.projectedFinish)) {
-    // A milestone with no rate is taken at its planned date, or at today once that has passed.
-    const finishes = open.map((m) => m.projectedFinish ?? (m.plannedFinish && m.plannedFinish > today ? m.plannedFinish : today));
-    out.projectedCompletion = finishes.sort().at(-1)!;
-    if (out.projectedCompletion > plannedCompletion) out.projectedDaysLate = daysFrom(plannedCompletion, out.projectedCompletion);
+  const projected = projectedFinishes(open, today);
+  const latest = projected ? [...projected.values()].sort().at(-1)! : undefined;
+  // A finish of today is no projection: it is what an overdue milestone with no rate is floored at.
+  if (latest && (latest > today || open.some((m) => m.projectedFinish))) {
+    out.projectedCompletion = latest;
+    if (latest > plannedCompletion) out.projectedDaysLate = daysFrom(plannedCompletion, latest);
   }
   const overrun = plannedCompletion < today && open.length > 0;
   out.extensionLikely = Boolean(out.projectedDaysLate) || overrun;

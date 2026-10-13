@@ -174,7 +174,7 @@ describe('the receipt says whether the file actually moved', () => {
       'none of the new ones',
       'with no assessment on the file there is nothing for a document to attach to',
     );
-    assert.match(by('Papers the checks expect, in hand')!.value, /^\d+\/\d+$/);
+    assert.match(by('Papers the checks expect, in hand')!.value, /^\d+ of \d+$/);
   });
 
   it('says "unchanged" out loud when the pack did not move', () => {

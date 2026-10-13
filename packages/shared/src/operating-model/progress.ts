@@ -135,8 +135,13 @@ export function setMilestonePercent(project: DdProject, milestoneId: string, per
   const m = (project.milestones ?? []).find((x) => x.id === milestoneId);
   if (!m) throw new Error('No milestone by that id.');
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new Error('Progress is a percentage between 0 and 100.');
-  m.percent = Math.round(percent);
-  m.readings = thinReadings([...(m.readings ?? []).filter((r) => r.on !== on), { on, percent: m.percent }], at.slice(0, 10));
+  // A reading is placed at the day it describes. Where the milestone stands now is what the latest day says:
+  // an entry filed late for an earlier day (a phone that synced afterwards) is kept at its day and lowers nothing.
+  // A milestone with no readings yet, written on a later day than this one describes, is taken as read on the day it was written.
+  const written = m.updatedAt.slice(0, 10);
+  const held = m.readings?.length ? m.readings : m.percent > 0 && on < written ? [{ on: written, percent: m.percent }] : [];
+  m.readings = thinReadings([...held.filter((r) => r.on !== on), { on, percent: Math.round(percent) }], at.slice(0, 10));
+  m.percent = m.readings.at(-1)!.percent;
   m.updatedAt = at;
   m.updatedBy = actor;
   if (m.percent === 100 && !m.completedOn) m.completedOn = at.slice(0, 10);

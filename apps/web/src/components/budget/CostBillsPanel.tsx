@@ -482,7 +482,7 @@ function BillCard({
                 .map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-2 py-0.5">
                     <span>
-                      {money(p.amount, project.currency)} on {p.paidOn}
+                      {money(p.amount, project.currency)} on {daySaid(p.paidOn)}
                       {p.reference ? ` · ${p.reference}` : ''}
                     </span>
                     {mayDecide ? (

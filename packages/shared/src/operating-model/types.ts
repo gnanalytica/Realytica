@@ -588,7 +588,11 @@ export interface FieldSet {
   fields: CheckFieldDef[];
   rules: CheckInsightRule[];
   sections?: FieldSection[];
-  records?: { of: string; titleField: string; summaryFields: string[] };
+  /**
+   * `dated` names the date field that says which day a record describes (a drawdown's disbursal, a receipt's day), where
+   * the set has more than one date: a period holds the records that describe a day in it, whenever they were typed.
+   */
+  records?: { of: string; titleField: string; summaryFields: string[]; dated?: string };
   /** The situations this set's fields answer to. Declared here so a catalog is one file. */
   situations?: Situation[];
   /** The shared lists this set's fields choose from. */
@@ -2920,6 +2924,12 @@ export interface DdProject {
    * unanswered and the check says so.
    */
   karnataka?: KarnatakaAttributes;
+  /**
+   * A person said the project's approvals are held outside this record. While
+   * nothing is recorded of them here, nothing is said to be missing
+   * (`approvalsStanding`). Gone once they say otherwise.
+   */
+  approvalsElsewhere?: { by: string; at: string };
   /** Last property-screen snapshot. The engine writes registers; this is the headline. */
   lastScreen?: ProjectScreenSnapshot;
   /**
@@ -3137,6 +3147,8 @@ export interface PatchProjectInput {
    * of a property when it is two.
    */
   karnataka?: KarnatakaAttributes;
+  /** The approvals are held outside this record (true), or are to be recorded here after all (false). */
+  approvalsElsewhere?: boolean;
 }
 
 export interface CreateAssetInput {

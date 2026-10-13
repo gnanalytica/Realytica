@@ -240,7 +240,7 @@ export function WorkstreamEngagements({ project, workstream }: { project: DdProj
               <span className="font-medium text-ink">{e.title}</span>
               <span className="text-ink-secondary">{ENGAGEMENT_KINDS[e.kind].label}</span>
               {e.client ? <span className="text-ink-secondary">for {e.client}</span> : null}
-              {e.dueDate ? <span className={cn('font-mono text-micro', e.dueDate < new Date().toISOString().slice(0, 10) && e.stage !== 'issued' ? 'text-critical' : 'text-ink-muted')}>due {e.dueDate}</span> : null}
+              {e.dueDate ? <span className={cn('font-mono text-micro', e.dueDate < new Date().toISOString().slice(0, 10) && e.stage !== 'issued' ? 'text-critical' : 'text-ink-muted')}>due {daySaid(e.dueDate)}</span> : null}
               <Badge tone={e.stage === 'issued' ? 'good' : 'neutral'}>{e.stage.replace('_', ' ')}</Badge>
             </li>
           ))}

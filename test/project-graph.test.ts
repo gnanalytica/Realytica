@@ -1113,7 +1113,9 @@ describe('the vocabulary is closed', () => {
     assert.deepEqual([projectEdgePhrase('supported_by', 'forward', expected), projectEdgePhrase('supported_by', 'backward', expected)], ['still needs', 'is still needed by']);
     assert.deepEqual([projectEdgePhrase('supported_by', 'forward', filed), projectEdgePhrase('supported_by', 'backward', filed)], ['rests on', 'supports']);
 
-    const missing = graph.nodes.find((n) => n.kind === 'approval' && n.status === 'missing')!;
+    // Nothing is recorded of this file's approvals, so each one needed is awaited as not recorded, and one on a kept register as missing.
+    const missing = graph.nodes.find((n) => n.kind === 'approval' && n.status === 'not_recorded')!;
+    assert.equal(projectNodeAwaited({ kind: 'approval', status: 'missing' }), true);
     assert.deepEqual([projectEdgePhrase('holds', 'forward', missing), projectEdgePhrase('holds', 'backward', missing)], ['still needs', 'is still needed by']);
     assert.equal(projectEdgePhrase('has_record', 'forward', missing), 'still needs');
     assert.equal(projectEdgePhrase('has_record', 'forward', filed), 'has on file');

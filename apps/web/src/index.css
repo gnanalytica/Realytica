@@ -351,6 +351,45 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+
+  /*
+   * A table never runs off its card.
+   *
+   * A wide table scrolls sideways inside the box that holds it, and its first
+   * column stays put, so a row is still named while its figures are scrolled
+   * to. `.table-scroll` is the box (`WideTable`); a table straight inside any
+   * `overflow-x-auto` box is held the same way, so the tables drawn before
+   * this rule existed get it with no change of their own.
+   */
+  .table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  .table-scroll > table,
+  .overflow-x-auto > table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .table-scroll > table > * > tr > :first-child,
+  .overflow-x-auto > table > * > tr > :first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface-1);
+    box-shadow: 1px 0 0 var(--hairline, rgba(127, 127, 127, 0.18));
+  }
+  @media print {
+    .table-scroll,
+    .overflow-x-auto {
+      overflow: visible;
+    }
+    .table-scroll > table > * > tr > :first-child,
+    .overflow-x-auto > table > * > tr > :first-child {
+      position: static;
+      box-shadow: none;
+    }
+  }
 }
 
 /*

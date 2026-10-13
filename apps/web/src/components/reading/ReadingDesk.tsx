@@ -463,7 +463,7 @@ export function ReadingDesk({
         <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(52%,520px)] shrink-0 pr-1' : 'flex-1')}>
           {rowFacts.length ? null : (
           <p className="text-[12px] font-semibold text-ink">
-            {scanning ? 'Reading…' : current.taken ? { questionnaire: 'A questionnaire', notes: 'Notes of a meeting', voice: 'A voice note', photo: 'A site photograph' }[current.taken.as] : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
+            {scanning ? 'Reading…' : current.taken ? { questionnaire: 'A questionnaire', notes: 'Notes of a meeting', voice: 'A voice note', photo: 'A site photograph' }[current.taken.as] : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'No value was read from this paper'}
           </p>
           )}
           {scanning ? (

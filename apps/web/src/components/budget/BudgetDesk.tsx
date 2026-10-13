@@ -24,7 +24,8 @@ import {
 import { api } from '../../lib/api';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
-import { Badge, Button, Card, CardBody, CardHeader, Input, cn, useToast } from '../ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, ConfirmIssue, Input, cn, useToast } from '../ui/kit';
+import { personNamed } from '../../lib/format';
 import { CostReportExtras } from './CostReportExtras';
 import { CostBillsPanel } from './CostBillsPanel';
 import { CostPapers } from './CostPapers';
@@ -90,6 +91,9 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
     }
   }
 
+  // Issuing is asked once: what is frozen, and who is named as the issuer.
+  const [confirmIssue, setConfirmIssue] = useState(false);
+
   async function startReport() {
     const day = `${month}-01`;
     setBusy(true);
@@ -107,6 +111,20 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
 
   return (
     <div className="space-y-4">
+      {report ? (
+        <ConfirmIssue
+          open={confirmIssue}
+          what={`the Cost Report for ${report.label}`}
+          issuer={personNamed(project, me?.email) || 'you'}
+          lines={['The ledger, the variations and the basic prices are kept as they read now, and the forecast is compared with the report before it.']}
+          busy={busy}
+          onClose={() => setConfirmIssue(false)}
+          onConfirm={() => {
+            setConfirmIssue(false);
+            void run('Could not issue', () => workspaceApi.patchCostReport(project.id, report.id, { issue: true }));
+          }}
+        />
+      ) : null}
       {/* What Procurement awarded and offers as PO issued: written on the draft below when Finance accepts it. */}
       <TenderOffers project={project} onChanged={onChanged} />
       <Card>
@@ -191,7 +209,7 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
                   size="sm"
                   icon={<Lock size={13} />}
                   loading={busy}
-                  onClick={() => void run('Could not issue', () => workspaceApi.patchCostReport(project.id, report.id, { issue: true }))}
+                  onClick={() => setConfirmIssue(true)}
                 >
                   Issue
                 </Button>

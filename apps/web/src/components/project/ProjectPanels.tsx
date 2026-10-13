@@ -1,4 +1,4 @@
-import { person } from '../../lib/format';
+import { amount, dayMonth as dayMonthSaid, person } from '../../lib/format';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -17,12 +17,11 @@ import { Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
 /* Small formatting helpers                                              */
 /* ==================================================================== */
 
-const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
 
 export function dayMonth(iso: string | undefined): string {
   if (!iso) return '';
   const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
-  return Number.isNaN(d.getTime()) ? iso : DAY.format(d);
+  return Number.isNaN(d.getTime()) ? iso : dayMonthSaid(iso.length === 10 ? iso : d);
 }
 
 export function initials(name: string): string {
@@ -96,7 +95,7 @@ export function KeyFacts({ project, className }: { project: DdProject; className
   if (guidance) {
     rows.push([
       'Guidance value',
-      `₹${guidance.guidancePerUnit.toLocaleString('en-IN')} per ${guidance.unit === 'sqft' ? 'sq ft' : 'sq yd'}, as published${guidance.locality ? ` (${guidance.locality})` : ''}${
+      `${amount(guidance.guidancePerUnit)} per ${guidance.unit === 'sqft' ? 'sq ft' : 'sq yd'}, as published${guidance.locality ? ` (${guidance.locality})` : ''}${
         published && parcels.length > 1
           ? `, for Sy. ${parcelLabels(parcels).get(published.read.parcelRef) ?? published.read.surveyNo}${published.differing.length ? '; other parcels carry other values' : ''}`
           : ''

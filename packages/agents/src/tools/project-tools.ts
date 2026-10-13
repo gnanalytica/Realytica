@@ -1709,7 +1709,8 @@ export function createProjectTools(
       const read = compareProjectPlanning(project, { sitting });
       openTalk(bag, sittingFromCitedId(project, seated?.check.id ?? ''));
       bag.toolCalls.push({ name: 'compare_planning', summary: read.pin ? 'pin vs kept plan' : 'kept plan, no pin' });
-      const portal = DD_CONNECTORS.find((c) => c.key === 'bda_rmp');
+      // Bengaluru's counter is offered only where Bengaluru's plan is the one in force for the place.
+      const portal = read.inForce ? DD_CONNECTORS.find((c) => c.key === 'bda_rmp') : undefined;
       if (portal) {
         const title = `Obtain ${portal.label}`;
         const already = project.chatProposals.some((p) => p.status === 'proposed' && p.title === title) || bag.proposals.some((p) => p.title === title);

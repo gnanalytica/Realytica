@@ -1,3 +1,4 @@
+import { amount } from '../lib/format';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AlertTriangle, Compass, Landmark, Map as MapIcon, Route, ThumbsUp, Waves } from 'lucide-react';
@@ -312,13 +313,13 @@ export function RevenueMapBrief({ project, className }: { project: DdProject; cl
           <li>
             <span className="text-ink-muted">Guidance value{brief.guidance.locality ? ` (${brief.guidance.locality})` : ''}: </span>
             <span className="tabular-nums text-ink">
-              ₹{brief.guidance.perUnit.toLocaleString()} per {brief.guidance.unit === 'sqyd' ? 'sq yd' : 'sq ft'}
+              {amount(brief.guidance.perUnit)} per {brief.guidance.unit === 'sqyd' ? 'sq yd' : 'sq ft'}
             </span>
             {several ? <span className="text-ink-muted"> · Sy. {brief.guidance.surveyNo}</span> : null}
             {brief.guidance.differing.length ? (
               <span className="text-ink">
                 {' '}
-                · differs: {brief.guidance.differing.map((d) => `Sy. ${d.surveyNo} ₹${d.perUnit.toLocaleString()}`).join(', ')}
+                · differs: {brief.guidance.differing.map((d) => `Sy. ${d.surveyNo} ${amount(d.perUnit)}`).join(', ')}
               </span>
             ) : null}
             {several && brief.guidance.unpriced.length ? <span className="text-ink"> · none published for {surveyNumbersLabel(brief.guidance.unpriced)}</span> : null}

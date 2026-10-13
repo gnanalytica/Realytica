@@ -1,3 +1,4 @@
+import { dayTime } from '../../lib/format';
 import { useState } from 'react';
 import type { ComplianceVerdict, ValueCheck } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, Why, type Tone } from '../ui/kit';
@@ -36,7 +37,7 @@ export function ValueChecks({
         title="Compliance"
         subtitle={
           screenedAt
-            ? `${state ?? 'State'} · ${new Date(screenedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`
+            ? `${state ?? 'State'} · ${dayTime(screenedAt)}`
             : 'State + lender'
         }
         action={

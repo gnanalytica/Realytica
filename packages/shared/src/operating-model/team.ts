@@ -52,7 +52,7 @@ export function personSaid(project: Pick<DdProject, 'team'> | undefined, by: str
   if (member?.name) return member.name;
   if (beside) return beside[1]!;
   // With sign-in off every request is the machine's own operator, whose address is no person's.
-  if (/@localhost$/i.test(kept)) return 'the local operator';
+  if (/@localhost$/i.test(kept)) return 'you';
   return /^[^@\s]+@[^@\s]+$/.test(kept) ? kept.slice(0, kept.indexOf('@')) : kept;
 }
 

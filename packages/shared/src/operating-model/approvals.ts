@@ -43,13 +43,20 @@ export const APPROVAL_KINDS: readonly ApprovalKind[] = [
   { key: 'occupancy', label: 'Occupancy certificate', authority: 'Planning authority', documentTypes: ['Occupancy certificate'], neededBy: 'handover' },
 ];
 
-export type ApprovalStatus = 'in_force' | 'expiring' | 'expired' | 'missing' | 'not_yet_due' | 'if_applicable';
+/**
+ * `missing` is an approval needed and not on a register somebody keeps, or
+ * one recorded as not obtained. `not_recorded` is an approval needed on a
+ * project where nobody has recorded any approval at all: nothing is known of
+ * it, so nothing is said to be missing and no rule fires on it.
+ */
+export type ApprovalStatus = 'in_force' | 'expiring' | 'expired' | 'missing' | 'not_recorded' | 'not_yet_due' | 'if_applicable';
 
 export const APPROVAL_STATUS_LABEL: Record<ApprovalStatus, string> = {
   in_force: 'In force',
   expiring: 'Expiring',
   expired: 'Expired',
   missing: 'Missing',
+  not_recorded: 'Not recorded',
   not_yet_due: 'Not yet due',
   if_applicable: 'If applicable',
 };
@@ -140,11 +147,33 @@ function onDay(iso: string): string {
   return y && m && d ? `${d} ${MONTHS[m - 1]} ${y}` : iso;
 }
 
+/** An approval's paper that a person recorded as not obtained: a row of its kind marked missing. */
+function recordedMissing(project: Pick<DdProject, 'evidence'>, kind: ApprovalKind): boolean {
+  return (project.evidence ?? []).some((row) => row.status === 'missing' && Boolean(row.documentType) && kind.documentTypes.includes(row.documentType!));
+}
+
+/**
+ * Whether the project's approvals have been recorded at all.
+ *
+ * `recorded` once any approval is on file, or one is recorded as not
+ * obtained: from then on what is needed and absent is missing, and the rules
+ * that wait on an approval fire. `elsewhere` where nothing is recorded and a
+ * person has said the approvals are held outside this record. `not_recorded`
+ * otherwise: a project that starts under construction with an empty register
+ * is not short of six approvals, it has simply not been told of them.
+ */
+export function approvalsStanding(project: DdProject): 'recorded' | 'elsewhere' | 'not_recorded' {
+  const types = new Set(APPROVAL_KINDS.flatMap((kind) => kind.documentTypes));
+  const recorded = (project.evidence ?? []).some((row) => Boolean(row.documentType) && types.has(row.documentType!) && (row.status === 'missing' || onFile(row)));
+  return recorded ? 'recorded' : project.approvalsElsewhere ? 'elsewhere' : 'not_recorded';
+}
+
 /** The approvals register: each approval the project needs, and where it stands. */
 export function approvalsRegister(project: DdProject, now = new Date()): ApprovalLine[] {
   const today = now.toISOString().slice(0, 10);
   const stageIndex = SUB_STAGES.indexOf(project.currentStage);
   const rows = (project.evidence ?? []).filter(onFile);
+  const standing = approvalsStanding(project);
   return APPROVAL_KINDS.map((kind) => {
     const held = rows
       .filter((r) => r.documentType && kind.documentTypes.includes(r.documentType))
@@ -167,9 +196,15 @@ export function approvalsRegister(project: DdProject, now = new Date()): Approva
         status = 'in_force';
         say = earliest ? `Valid until ${onDay(earliest)}.` : held[0]!.issuedOn ? `Issued ${onDay(held[0]!.issuedOn)}; no expiry stated.` : held.some((h) => h.readingWaiting) ? 'On file; no date accepted yet.' : 'On file; no dates read yet.';
       }
+    } else if (recordedMissing(project, kind)) {
+      status = 'missing';
+      say = 'Recorded as not obtained.';
     } else if (kind.conditional) {
       status = 'if_applicable';
       say = 'Needed only for some sites. Nothing on file says it applies.';
+    } else if (due && standing !== 'recorded') {
+      status = 'not_recorded';
+      say = standing === 'elsewhere' ? 'Held outside this record.' : 'Approvals are not recorded yet.';
     } else if (due) {
       status = 'missing';
       say = `Needed from the ${SUB_STAGE_LABEL[kind.neededBy]} step and not on file.`;
@@ -183,8 +218,16 @@ export function approvalsRegister(project: DdProject, now = new Date()): Approva
   });
 }
 
-/** Whether construction may run: commencement on file, plan sanction in force. */
-export function constructionGate(project: DdProject, now = new Date()): { open: boolean; missing: string[] } {
+/**
+ * Whether construction may run: commencement on file, plan sanction in force.
+ *
+ * Where no approval has been recorded at all the gate says nothing against
+ * the work: `unrecorded`, and open. Work is "logged before it is allowed"
+ * only against an approval recorded as missing or lapsed, never against an
+ * empty register.
+ */
+export function constructionGate(project: DdProject, now = new Date()): { open: boolean; missing: string[]; unrecorded?: boolean } {
+  if (approvalsStanding(project) !== 'recorded') return { open: true, missing: [], unrecorded: true };
   const register = approvalsRegister(project, now);
   const need = ['plan_sanction', 'commencement'];
   const missing = register.filter((l) => need.includes(l.kind.key) && (l.status === 'missing' || l.status === 'expired' || l.status === 'not_yet_due')).map((l) => l.kind.label);

@@ -1324,7 +1324,7 @@ function fileStanding(project: DdProject): FileStanding {
  * The receipt's figures.
  *
  * Only rows that moved, plus the one that did not move when it should have.
- * "Tied to a check: 0" is the row that explains an unchanged pack, so it is
+ * "Tied to a check: 0" is the row that explains an unchanged count of papers in hand, so it is
  * kept even at zero when documents were filed — a silent zero there is how six
  * approved documents can feel like progress and be none.
  */
@@ -1344,7 +1344,7 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
   if (filed > 0 || packMoved !== 0) {
     rows.push({
       label: 'Papers the checks expect, in hand',
-      value: `${after.packReceived}/${after.packTotal}`,
+      value: `${after.packReceived} of ${after.packTotal}`,
       delta: packMoved > 0 ? `+${packMoved}` : 'unchanged',
     });
   }

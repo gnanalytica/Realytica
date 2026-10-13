@@ -15,6 +15,7 @@
  * identically — and only one of them is worth anything to a buyer.
  */
 
+import { daySaid } from '@realytica/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
@@ -145,7 +146,7 @@ export default function SiteRecord() {
                       <div>
                         <p className="text-[13px] font-medium text-ink">{visit.title}</p>
                         <p className="text-[12px] text-ink-secondary">
-                          {visit.visitedOn} · {visit.surveyor}
+                          {daySaid(visit.visitedOn)} · {visit.surveyor}
                           {visit.accompaniedBy ? ` with ${visit.accompaniedBy}` : ''}
                           {visit.weather ? ` · ${visit.weather}` : ''}
                         </p>
