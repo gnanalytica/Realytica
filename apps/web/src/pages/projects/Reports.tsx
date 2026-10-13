@@ -85,36 +85,28 @@ export default function Reports() {
           <div className="min-w-0">
             <h2 className="text-[15px] font-semibold text-ink">Other reports</h2>
             <p className="text-[13px] text-ink-secondary">Status, due diligence and function reports, put together by code from the record and the fields. The monthly Cost Report is on Finance › Budget.</p>
-            {/* Whether a model has any hand in a report is said here, plainly, either way. */}
-            {wording.data ? (
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-ink-muted">
-                <span>
-                  {wording.data.modelWording
-                    ? 'Model wording is on for this firm: a model may put a status report’s lines in plainer words. Each such line is marked, and the day, the person and the source stay the record’s own.'
-                    : 'No model writes any line of a report.'}
-                </span>
-                {wording.data.maySet ? (
-                  <button
-                    type="button"
-                    className="underline hover:text-ink"
-                    onClick={() => {
-                      const on = !wording.data!.modelWording;
-                      if (on && !confirm('Let a model reword the lines of status reports for this firm? Reports are otherwise written by code alone.')) return;
-                      void api
-                        .setReportSettings(on)
-                        .then(async () => {
-                          await wording.refresh();
-                          setProject(await api.getProject(project.id));
-                          toast(on ? 'Model wording is on' : 'Model wording is off', 'good');
-                        })
-                        .catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not change that', 'critical'));
-                    }}
-                  >
-                    {wording.data.modelWording ? 'Turn it off' : 'Let a model reword status reports'}
-                  </button>
-                ) : null}
-              </p>
-            ) : null}
+            {/* No model has a hand in a report. A firm whose reports kept a model's wording from before is told, and may take it off. */}
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-ink-muted">
+              <span>No model writes any line of a report.</span>
+              {wording.data?.modelWording && wording.data.maySet ? (
+                <button
+                  type="button"
+                  className="underline hover:text-ink"
+                  onClick={() => {
+                    void api
+                      .setReportSettings(false)
+                      .then(async () => {
+                        await wording.refresh();
+                        setProject(await api.getProject(project.id));
+                        toast('A model’s wording is off every report not yet issued', 'good');
+                      })
+                      .catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not change that', 'critical'));
+                  }}
+                >
+                  Take a model’s earlier wording off reports not yet issued
+                </button>
+              ) : null}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={() => navigate(cockpitPath(project.id, 'workstream', { workstream: 'finance.budget' }))}>

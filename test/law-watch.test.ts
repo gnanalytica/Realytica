@@ -6,7 +6,7 @@
  * the project, a viewer, and a contractor working from a grant. The pages
  * are served by a fetch that stands in for the network, so a test says what
  * a page reads on each day; the model is a local server that answers with a
- * summary, a quote, and actions, some of them for a project and a department
+ * summary nobody reads, fields, a quote, and actions, some of them for a project and a department
  * it was never given.
  *
  * What is held to: a first reading is no change; the same words are no
@@ -33,6 +33,7 @@ import {
   confirmLawChange,
   createProject,
   dismissLawChange,
+  lawChangeSaid,
   lawPageText,
   lawTextDiff,
   robotsDisallows,
@@ -87,6 +88,8 @@ const modelAsked: string[] = [];
 const page = (lines: string[]): string => `<html><head><title>Circulars</title><script>var hits = ${Math.random()};</script></head><body><h1>Circulars of the Planning Authority</h1>${lines.map((line) => `<p>${line}</p>`).join('')}<p>Last updated: ${Math.random()}</p></body></html>`;
 
 const FIRST = ['Circular 14 of 2026: setbacks for plots above 4,000 square metres, dated 3 August 2026.', 'Circular 13 of 2026: fee for plan sanction revised, dated 1 July 2026.', 'The Authority publishes its circulars on this page. Earlier circulars are kept in the archive for reference by applicants.'];
+/** A person's fields for a change, where a test is about something else. */
+const FIELDS = { change: 'new_requirement' as const, affects: [] };
 const NEW_LINE = 'Circular 15 of 2026: occupancy certificate applications must carry a structural stability certificate from 1 November 2026.';
 
 async function call(method: string, route: string, opts: { token?: string; body?: unknown } = {}): Promise<{ status: number; body: any }> {
@@ -145,20 +148,34 @@ before(async () => {
     streamMessage(
       res,
       {
+        // Sentences a model might still send. Nothing reads them and nothing keeps them.
         summary: 'A new circular asks for a structural stability certificate with occupancy certificate applications from 1 November 2026.',
+        instrument: 'circular',
+        reference: 'Circular 15 of 2026',
+        // A day no changed line writes: worked out, so dropped.
+        dated: '2026-10-14',
+        effective_from: '2026-11-01',
+        change: 'new_requirement',
+        // A figure no removed line writes.
+        was: { number: 30, unit: 'days', date: '' },
+        now: { number: null, unit: 'none', date: '' },
+        // The approval is on the list; the other two marks are on none.
+        affects: ['occupancy', 'f9999', 'the certificate'],
         quote: NEW_LINE,
         projects: [
           {
             projectId: id,
             why: 'The project is in Karnataka and will apply for an occupancy certificate.',
             actions: [
-              { department: 'legal', title: 'Confirm whether the occupancy certificate application needs the structural stability certificate' },
+              { department: 'legal', next: 'apply_for_approval', about: 'occupancy', title: 'Confirm whether the occupancy certificate application needs the structural stability certificate' },
               // A department the source is not for.
-              { department: 'procurement', title: 'Buy something' },
+              { department: 'procurement', next: 'read_change', about: '', title: 'Buy something' },
+              // A next step that is on no list.
+              { department: 'legal', next: 'write_to_the_authority', about: '' },
             ],
           },
           // A project that was never on the list.
-          { projectId: 'not-a-project', why: 'None', actions: [{ department: 'legal', title: 'Do something' }] },
+          { projectId: 'not-a-project', why: 'None', actions: [{ department: 'legal', next: 'read_change', about: '' }] },
         ],
       },
       String(sent.tools?.[0]?.name ?? ''),
@@ -290,7 +307,18 @@ describe('the daily look', () => {
     assert.equal(modelAsked.length, 1);
     assert.ok(modelAsked[0]!.includes(`+ ${NEW_LINE}`) && modelAsked[0]!.includes('Lake Road offices'));
     assert.equal(change.proposal.quote, NEW_LINE);
-    assert.deepEqual(change.proposal.projects, [{ projectId: project.id, why: 'The project is in Karnataka and will apply for an occupancy certificate.', actions: [{ department: 'legal', title: 'Confirm whether the occupancy certificate application needs the structural stability certificate' }] }]);
+    // The lists it picks from were sent, each under a mark.
+    assert.ok(modelAsked[0]!.includes('[occupancy] Occupancy certificate') && /\[f1\] /.test(modelAsked[0]!));
+    // Its fields, held to the page: the reference and the day the line writes stand; the day and the figure it does not write are gone.
+    const occupancy = { kind: 'approval', approval: 'occupancy' };
+    assert.deepEqual(change.proposal.fields, { instrument: 'circular', reference: 'Circular 15 of 2026', effectiveFrom: '2026-11-01', change: 'new_requirement', affects: [occupancy] });
+    assert.deepEqual(change.proposal.projects, [{ projectId: project.id, actions: [{ department: 'legal', next: 'apply_for_approval', about: occupancy }] }]);
+    // No sentence of the model's is kept anywhere: not its summary, its reason for the project, or its instruction.
+    const { loadLawWatch } = await import('../apps/api/src/law-watch');
+    const { store } = await import('../apps/api/src/store');
+    const stored = JSON.stringify(await loadLawWatch(store.data.tenants![0]!.id));
+    for (const written of ['A new circular asks for', 'will apply for an occupancy certificate', 'Confirm whether the occupancy', 'Buy something']) assert.ok(!stored.includes(written), written);
+    assert.equal(lawChangeSaid(change.proposal.fields), 'Circular Circular 15 of 2026: New requirement, in force from 1 November 2026.');
     assert.deepEqual(change.bearsOn, [{ id: project.id, name: 'Lake Road offices', departments: ['finance', 'legal'] }]);
     const kept = await call('GET', `/api/law-watch/changes/${change.id}/pages`, { token: viewer() });
     assert.ok(kept.body.before.includes(FIRST[2]) && !kept.body.before.includes(NEW_LINE));
@@ -343,7 +371,7 @@ describe('who may do what', () => {
     { name: 'change a source', method: 'PUT', route: `/api/law-watch/sources/${sourceId}`, body: sourceBody({ paused: true }) },
     { name: 'remove a source', method: 'DELETE', route: `/api/law-watch/sources/${sourceId}` },
     { name: 'look now', method: 'POST', route: `/api/law-watch/sources/${sourceId}/look` },
-    { name: 'confirm', method: 'POST', route: `/api/law-watch/changes/${changeId}/confirm`, body: { summary: 'A new circular.', projects: [{ projectId: project.id, actions: [{ department: 'legal', title: 'Read the circular' }] }] } },
+    { name: 'confirm', method: 'POST', route: `/api/law-watch/changes/${changeId}/confirm`, body: { fields: FIELDS, projects: [{ projectId: project.id, actions: [{ department: 'legal', next: 'read_change' }] }] } },
     { name: 'dismiss', method: 'POST', route: `/api/law-watch/changes/${changeId}/dismiss`, body: { why: 'Not ours' } },
   ];
 
@@ -379,7 +407,7 @@ describe('who may do what', () => {
     assert.deepEqual(seen.waiting[0].bearsOn, [{ id: project.id, name: 'Lake Road offices', departments: ['legal'] }]);
     assert.equal((await call('POST', `/api/law-watch/sources/${sourceId}/look`, { token: lead() })).status, 403);
     // One action theirs and one not: the whole confirmation is refused and neither is written.
-    const mixed = await call('POST', `/api/law-watch/changes/${seen.waiting[0].id}/confirm`, { token: lead(), body: { summary: 'A new circular.', projects: [{ projectId: project.id, actions: [{ department: 'legal', title: 'Read the circular' }, { department: 'finance', title: 'Price the certificate' }] }] } });
+    const mixed = await call('POST', `/api/law-watch/changes/${seen.waiting[0].id}/confirm`, { token: lead(), body: { fields: FIELDS, projects: [{ projectId: project.id, actions: [{ department: 'legal', next: 'read_change' }, { department: 'finance', next: 'read_change' }] }] } });
     assert.equal(mixed.status, 403, JSON.stringify(mixed.body));
     assert.match(mixed.body.error, /Finance needs a firm admin or that department’s lead/);
     assert.deepEqual(await actionsOn(), []);
@@ -388,22 +416,26 @@ describe('who may do what', () => {
 });
 
 describe('a person’s decision', () => {
-  it('refuses a confirmation that names a project that is not the firm’s, a department the source is not for, or no summary', async () => {
+  it('refuses a confirmation that names a project that is not the firm’s, a department the source is not for, or no kind of change', async () => {
     const changeId = (await call('GET', '/api/law-watch', { token: owner() })).body.waiting[0].id;
     const at = `/api/law-watch/changes/${changeId}/confirm`;
-    assert.equal((await call('POST', at, { token: owner(), body: { summary: 'x', projects: [{ projectId: 'nobody’s', actions: [{ department: 'legal', title: 'Read it' }] }] } })).status, 404);
-    assert.equal((await call('POST', at, { token: owner(), body: { summary: 'x', projects: [{ projectId: project.id, actions: [{ department: 'procurement', title: 'Read it' }] }] } })).status, 400);
-    assert.equal((await call('POST', at, { token: owner(), body: { summary: '  ', projects: [] } })).status, 400);
-    assert.equal((await call('POST', at, { token: owner(), body: { summary: 'x', projects: [{ projectId: project.id, actions: [{ department: 'legal', title: 'y'.repeat(900) }] }] } })).status, 400);
-    assert.equal((await call('POST', '/api/law-watch/changes/no-such-change/confirm', { token: owner(), body: { summary: 'x', projects: [] } })).status, 404);
+    assert.equal((await call('POST', at, { token: owner(), body: { fields: FIELDS, projects: [{ projectId: 'nobody’s', actions: [{ department: 'legal', next: 'read_change' }] }] } })).status, 404);
+    assert.equal((await call('POST', at, { token: owner(), body: { fields: FIELDS, projects: [{ projectId: project.id, actions: [{ department: 'procurement', next: 'read_change' }] }] } })).status, 400);
+    assert.equal((await call('POST', at, { token: owner(), body: { fields: { affects: [] }, projects: [] } })).status, 400);
+    // A summary, an instruction, a next step off no list, a field that does not exist: none is a thing to send.
+    assert.equal((await call('POST', at, { token: owner(), body: { ['summary']: 'A new circular.', projects: [] } })).status, 400);
+    assert.equal((await call('POST', at, { token: owner(), body: { fields: FIELDS, projects: [{ projectId: project.id, actions: [{ department: 'legal', ['title']: 'Read the circular' }] }] } })).status, 400);
+    assert.equal((await call('POST', at, { token: owner(), body: { fields: FIELDS, projects: [{ projectId: project.id, actions: [{ department: 'legal', next: 'write_to_them' }] }] } })).status, 400);
+    assert.equal((await call('POST', at, { token: owner(), body: { fields: { ...FIELDS, affects: [{ kind: 'field', address: { fn: 'legal.title', set: 'no.such.set', field: 'nothing' } }] }, projects: [] } })).status, 400);
+    assert.equal((await call('POST', '/api/law-watch/changes/no-such-change/confirm', { token: owner(), body: { fields: FIELDS, projects: [] } })).status, 404);
     assert.deepEqual(await actionsOn(), []);
   });
 
-  it('on confirm, puts the actions on the project with the link, the day seen and who confirmed, in the words the person left', async () => {
+  it('on confirm, puts the actions on the project with the link, the day seen and who confirmed, with words made from the fields the person left', async () => {
     const waiting = (await call('GET', '/api/law-watch', { token: lead() })).body.waiting[0];
     const confirmed = await call('POST', `/api/law-watch/changes/${waiting.id}/confirm`, {
       token: lead(),
-      body: { summary: 'Occupancy certificate applications need a structural stability certificate from 1 November 2026.', projects: [{ projectId: project.id, actions: [{ department: 'legal', title: 'Get the structural stability certificate before applying for the occupancy certificate' }] }] },
+      body: { fields: waiting.proposal.fields, projects: [{ projectId: project.id, actions: waiting.proposal.projects[0].actions }] },
     });
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
     assert.equal(confirmed.body.waiting.length, 0);
@@ -411,10 +443,13 @@ describe('a person’s decision', () => {
     assert.deepEqual([decided.state, decided.decidedBy, decided.applied.length, decided.applied[0].projectName, decided.applied[0].actionIds.length], ['confirmed', 'lena@builders.example', 1, 'Lake Road offices', 1]);
     const actions = await actionsOn();
     assert.equal(actions.length, 1);
-    assert.equal(actions[0]!.title, 'Get the structural stability certificate before applying for the occupancy certificate');
+    // The action's words are the template's: the next step and what it is about.
+    assert.equal(actions[0]!.title, 'Apply for the approval: Occupancy certificate');
     assert.equal(actions[0]!.owner, 'Legal lead');
     const says = actions[0]!.description ?? '';
-    assert.ok(says.includes('Occupancy certificate applications need a structural stability certificate'), says);
+    assert.ok(says.startsWith('Circular Circular 15 of 2026: New requirement, in force from 1 November 2026.'), says);
+    assert.deepEqual(decided.fields, { instrument: 'circular', reference: 'Circular 15 of 2026', effectiveFrom: '2026-11-01', change: 'new_requirement', affects: [{ kind: 'approval', approval: 'occupancy' }] });
+    assert.equal(decided.summary, undefined);
     assert.ok(says.includes(`Source: Planning Authority circulars, ${PAGE}. Change seen on 14 October 2026.`), says);
     assert.match(says, /Confirmed by lena@builders\.example on \d+ \w+ \d{4}\./);
     assert.ok(says.includes('Not legal advice.'));
@@ -426,7 +461,7 @@ describe('a person’s decision', () => {
 
   it('answers 409 to a second decision on the same change, and adds nothing', async () => {
     const decided = (await call('GET', '/api/law-watch', { token: owner() })).body.decided[0];
-    assert.equal((await call('POST', `/api/law-watch/changes/${decided.id}/confirm`, { token: owner(), body: { summary: 'Again', projects: [{ projectId: project.id, actions: [{ department: 'legal', title: 'Again' }] }] } })).status, 409);
+    assert.equal((await call('POST', `/api/law-watch/changes/${decided.id}/confirm`, { token: owner(), body: { fields: FIELDS, projects: [{ projectId: project.id, actions: [{ department: 'legal', next: 'read_change' }] }] } })).status, 409);
     assert.equal((await call('POST', `/api/law-watch/changes/${decided.id}/dismiss`, { token: owner(), body: {} })).status, 409);
     assert.equal((await actionsOn()).length, 1);
   });
@@ -470,7 +505,7 @@ describe('a change that bears on two projects', () => {
 
   it('is not decided by a lead whose firm role only reads: confirming and dismissing take somebody who may change a record', async () => {
     assert.equal((await watch(viewer)).mayReview, true, 'the team list names them a lead');
-    for (const [route, body] of [['confirm', { summary: 'Hearings move to the taluk.', projects: [{ projectId: other.id, actions: [{ department: 'legal', title: 'Book the taluk office' }] }] }], ['dismiss', { why: 'Not ours' }]] as const) {
+    for (const [route, body] of [['confirm', { fields: FIELDS, projects: [{ projectId: other.id, actions: [{ department: 'legal', next: 'read_change' }] }] }], ['dismiss', { why: 'Not ours' }]] as const) {
       const answer = await call('POST', `/api/law-watch/changes/${changeId}/${route}`, { token: viewer(), body });
       assert.equal(answer.status, 403, `${route}: ${JSON.stringify(answer.body)}`);
     }
@@ -484,7 +519,7 @@ describe('a change that bears on two projects', () => {
     const mine = (await watch(lead)).waiting[0];
     assert.deepEqual([mine.mayDecide, mine.bearsOn.map((held: { name: string }) => held.name)], [true, ['Lake Road offices']]);
     // They may put nothing on the project they do not lead.
-    const reaching = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: lead(), body: { summary: 'Hearings move to the taluk.', projects: [{ projectId: other.id, actions: [{ department: 'legal', title: 'Book the taluk office' }] }] } });
+    const reaching = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: lead(), body: { fields: FIELDS, projects: [{ projectId: other.id, actions: [{ department: 'legal', next: 'read_change' }] }] } });
     assert.equal(reaching.status, 403, JSON.stringify(reaching.body));
 
     const dismissed = await call('POST', `/api/law-watch/changes/${changeId}/dismiss`, { token: lead(), body: { why: 'No layout on Lake Road' } });
@@ -501,22 +536,22 @@ describe('a change that bears on two projects', () => {
     const after = (await watch(lead)).waiting[0];
     assert.deepEqual([after.mayDecide, after.bearsOn], [false, []]);
     assert.equal((await call('POST', `/api/law-watch/changes/${changeId}/dismiss`, { token: lead(), body: {} })).status, 403);
-    assert.equal((await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: lead(), body: { summary: 'Again', projects: [] } })).status, 403);
+    assert.equal((await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: lead(), body: { fields: FIELDS, projects: [] } })).status, 403);
   });
 
   it('is closed by a firm admin, who cannot put an action on the project already decided', async () => {
-    const twice = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: owner(), body: { summary: 'Hearings move to the taluk.', projects: [{ projectId: project.id, actions: [{ department: 'legal', title: 'Book the taluk office' }] }] } });
+    const twice = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: owner(), body: { fields: FIELDS, projects: [{ projectId: project.id, actions: [{ department: 'legal', next: 'read_change' }] }] } });
     assert.equal(twice.status, 409, JSON.stringify(twice.body));
     assert.match(twice.body.error, /decided for Lake Road offices already/);
     assert.equal((await actionsOn()).length, 1, 'nothing more on the first project');
 
-    const closed = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: owner(), body: { summary: 'Hearings for layouts above ten acres move to the taluk from 1 December 2026.', projects: [{ projectId: other.id, actions: [{ department: 'legal', title: 'Book the taluk office for the hearing' }] }] } });
+    const closed = await call('POST', `/api/law-watch/changes/${changeId}/confirm`, { token: owner(), body: { fields: FIELDS, projects: [{ projectId: other.id, actions: [{ department: 'legal', next: 'read_change' }] }] } });
     assert.equal(closed.status, 200, JSON.stringify(closed.body));
     assert.equal(closed.body.waiting.length, 0);
     const decided = closed.body.decided[0];
     assert.deepEqual([decided.state, decided.decidedBy, decided.applied.map((held: { projectName: string }) => held.projectName)], ['confirmed', 'dev@builders.example', ['Canal Road homes']]);
     const { store } = await import('../apps/api/src/store');
-    assert.deepEqual(store.data.projects!.find((held) => held.id === other.id)!.actions.map((action) => action.title), ['Book the taluk office for the hearing']);
+    assert.deepEqual(store.data.projects!.find((held) => held.id === other.id)!.actions.map((action) => action.title), ['Read the change and decide what it asks']);
   });
 
   it('is closed without an admin once the lead of every project it bears on has decided, and no action is put on a project twice', () => {
@@ -529,7 +564,7 @@ describe('a change that bears on two projects', () => {
     const state: LawWatchState = { v: 1, sources: [source], changes: [change] };
     const asha = { email: 'asha@builders.example', role: 'staff' as const };
     const bala = { email: 'bala@builders.example', role: 'staff' as const };
-    const act = (projectId: string) => ({ summary: 'Hearings move to the taluk.', projects: [{ projectId, actions: [{ department: 'legal' as const, title: 'Book the taluk office' }] }] });
+    const act = (projectId: string) => ({ fields: FIELDS, projects: [{ projectId, actions: [{ department: 'legal' as const, next: 'read_change' as const }] }] });
 
     confirmLawChange(state, 'chg', act(a.id), asha, [a, b], day(1).toISOString());
     assert.deepEqual([change.state, a.actions.length, change.decidedFor!.map((held) => held.projectName)], ['waiting', 1, ['Mill Lane flats']]);
@@ -600,7 +635,7 @@ describe('a look with no model, and other kinds of page', () => {
     const meanwhile: typeof fetch = async (input, init) => {
       if (String(input) === 'https://gazette.example.test/rules') {
         const held = await loadLawWatch('firm-mid-look');
-        confirmLawChange(held, 'earlier', { summary: 'Rule 9 is new.', projects: [] }, admin, [], day(2).toISOString());
+        confirmLawChange(held, 'earlier', { fields: FIELDS, projects: [] }, admin, [], day(2).toISOString());
         dismissLawChange(held, 'another', admin, 'Not ours', day(2).toISOString());
         held.sources.find((one) => one.id === 'gazette')!.title = 'Gazette of the State';
         held.sources = held.sources.filter((one) => one.id !== 'orders');
@@ -616,7 +651,7 @@ describe('a look with no model, and other kinds of page', () => {
     assert.equal(kept.changes[0]!.diff.added[0], NEW_LINE, 'what the look found is kept beside them');
     assert.deepEqual(kept.sources.map((one) => [one.id, one.title, one.lastReadAt]), [['gazette', 'Gazette of the State', day(3).toISOString()]], 'the source as the person left it, with what the look read');
     // So a decision made meanwhile is made once: deciding it again is refused.
-    assert.throws(() => confirmLawChange(kept, 'earlier', { summary: 'Again', projects: [] }, admin, [], day(4).toISOString()), /confirmed already/);
+    assert.throws(() => confirmLawChange(kept, 'earlier', { fields: FIELDS, projects: [] }, admin, [], day(4).toISOString()), /confirmed already/);
   });
 
   it('reads a PDF through the PDF reader, follows a move to another https address, and refuses the rest', async () => {

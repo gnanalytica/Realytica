@@ -1915,6 +1915,14 @@ export interface ProjectChatTurn {
    */
   choices?: ChatChoice[];
   /**
+   * The answer as a card of fields, on a turn a model answered: the rows it
+   * picked, each looked up on the record by code. `text` is then made from
+   * this card and a template, and no word of it is a model's. A turn a
+   * model answered that has no card was kept before answers were cards: its
+   * `text` is the model's own, and is shown marked as that.
+   */
+  card?: import('./chat-answer').ChatAnswerCard;
+  /**
    * Figures in this answer that nothing on the file supports, verbatim.
    *
    * Set only on model-authored turns — deterministic text is assembled from

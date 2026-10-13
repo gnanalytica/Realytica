@@ -72,7 +72,6 @@ import { readOntoRegister, type RegisterUpload } from '../documents/register-rea
 import { rowsToRead } from '../documents/reread';
 import { meetingTurn } from '../meetings';
 import { answersFor, loadReviewLibrary } from '../routes/review-table';
-import { wordStatusReport } from '../status-report';
 import { storageAdapter } from '../storage';
 import { store } from '../store';
 
@@ -356,9 +355,6 @@ async function bySentence(run: StepRun, sentence: string): Promise<StepDone> {
   const { project, step, actor } = run;
   const result = applyProjectChat(project, sentence, { actor, mayDecide: run.mayDecide, chat: run.chat, place: run.place, modelReader: agentCapability().available });
   run.wrote([result.userTurn, result.assistantTurn]);
-  // A status report just written is put in plainer words where a model is set up, as it is when asked for alone.
-  const wrote = result.commands.includes('Wrote a status report') ? result.navigations.find((go) => go.target === 'reports')?.item : undefined;
-  if (wrote && agentCapability().available) await wordStatusReport(project, wrote);
   return { said: result.assistantTurn.text.split('\n')[0]!.replace(/\s*\[[^\]]+\]\s*$/, '').replace(/:$/, '.'), did: step.count, complete: true };
 }
 

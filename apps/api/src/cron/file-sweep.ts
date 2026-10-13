@@ -2,17 +2,20 @@
  * The daily review of every project's file, for the daily timer.
  *
  * `fileSweep(now)` goes through the projects in work that have moved since
- * they were last reviewed, hands a model a brief of each (`sweepBrief`),
- * keeps what the model proposes only where every line it cites is a line of
- * that brief, and stores what is new as suggestions for a lead or signer to
- * accept or dismiss. Nobody is told of a suggestion, and nothing is written
+ * they were last reviewed. For each it runs the four rules code works out
+ * by itself (`sweepRuleFindings`), then, where a model is set up, hands the
+ * model a brief (`sweepBrief`) and takes its nominations: a kind and the
+ * marks of the lines it read, kept only where every mark is a line of that
+ * brief and code can work out what is claimed. What is new is stored as
+ * suggestions for a lead or signer to accept or dismiss. No sentence of a
+ * model's is stored. Nobody is told of a suggestion, and nothing is written
  * on a project: what the review keeps is a file of its own beside the
  * project's (`file-sweep.json`), read and written whole.
  *
  * Safe to call twice: a project reviewed today is not reviewed again today,
  * and a matter already open, accepted or dismissed is not raised again. One
  * project failing leaves the rest of the run to finish. With no model set
- * up it does nothing and says so in its counts.
+ * up the rules still run, and the counts say no model was asked.
  *
  * What it may spend is bounded three ways, each a named constant: tokens a
  * project a day, tokens a day over every project, and how long one run may
@@ -23,7 +26,7 @@
  * and the next run takes the one reviewed longest ago first.
  */
 
-import { sweepBrief, sweepBriefText, sweepDue, sweepProposalsHeld, sweepRaise, sweepStateOf, sweepTokensOn, type DdProject, type FileSweepState } from '@realytica/shared';
+import { sweepBrief, sweepBriefText, sweepDue, sweepNominationsHeld, sweepRaise, sweepRuleFindings, sweepStateOf, sweepTokensOn, type DdProject, type FileSweepState } from '@realytica/shared';
 import { crossCheckFileByModel, fileSweepModelSetUp, fileSweepTokensAhead } from '@realytica/agents';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -91,8 +94,10 @@ export interface FileSweepRun extends Record<string, number> {
   projects: number;
   /** In work, moved since their last review, and not reviewed today. */
   due: number;
-  /** Reviewed by a model in this run. */
+  /** Reviewed in this run: by the rules, and by a model where one is set up and the day's tokens allow. */
   swept: number;
+  /** New suggestions the rules raised, among `raised`. */
+  byRule: number;
   /** New suggestions stored. */
   raised: number;
   /** Proposals thrown away: a line cited that is not in the brief, or no line at all. */
@@ -105,19 +110,17 @@ export interface FileSweepRun extends Record<string, number> {
   deferred: number;
   failed: number;
   tokens: number;
-  /** 1 when no model is set up, and nothing was done. */
+  /** 1 when no model is set up: the rules ran, and no model was asked. */
   noModel: number;
 }
 
 /** Review every project that is due, as of `now`. */
 export async function fileSweep(now: Date, source: FileSweepSource = fromStore): Promise<FileSweepRun> {
-  const out: FileSweepRun = { projects: 0, due: 0, swept: 0, raised: 0, dropped: 0, repeats: 0, overCeiling: 0, deferred: 0, failed: 0, tokens: 0, noModel: 0 };
+  const out: FileSweepRun = { projects: 0, due: 0, swept: 0, byRule: 0, raised: 0, dropped: 0, repeats: 0, overCeiling: 0, deferred: 0, failed: 0, tokens: 0, noModel: 0 };
   const ids = source.ids();
   out.projects = ids.length;
-  if (!source.modelSetUp()) {
-    out.noModel = 1;
-    return out;
-  }
+  const model = source.modelSetUp();
+  if (!model) out.noModel = 1;
   const at = now.toISOString();
   const today = at.slice(0, 10);
   const began = source.clock();
@@ -147,28 +150,35 @@ export async function fileSweep(now: Date, source: FileSweepSource = fromStore):
       continue;
     }
     try {
+      const through = project.updatedAt;
+      // The rules first: they cost nothing, need no model, and a model's nomination of the same matter is then a repeat.
+      const ruled = sweepRuleFindings(project, now);
       const brief = sweepBrief(project, { now, ...(state.sweptAt ? { since: state.sweptAt } : {}) });
       const text = sweepBriefText(brief);
       const ahead = source.ahead(text);
-      if (sweepTokensOn(state, today) + ahead > SWEEP_TOKENS_PER_PROJECT_PER_DAY || spent + ahead > SWEEP_TOKENS_PER_DAY) {
-        out.overCeiling += 1;
-        continue;
-      }
-      const through = project.updatedAt;
-      const said = await source.ask({ brief: text, caseId: project.id });
-      const used = said?.tokens ?? ahead;
+      const over = model && (sweepTokensOn(state, today) + ahead > SWEEP_TOKENS_PER_PROJECT_PER_DAY || spent + ahead > SWEEP_TOKENS_PER_DAY);
+      const said = model && !over ? await source.ask({ brief: text, caseId: project.id }) : null;
+      const used = model && !over ? (said?.tokens ?? ahead) : 0;
       spent += used;
       out.tokens += used;
       // Read again: a model takes a while, and a person may have accepted or dismissed something meanwhile.
       const kept = await source.read(project.id);
-      kept.tokens = sweepTokensOn(kept, today) + used;
-      kept.day = today;
-      if (!said) {
+      if (used) {
+        kept.tokens = sweepTokensOn(kept, today) + used;
+        kept.day = today;
+      }
+      const rules = sweepRaise(kept, ruled, at);
+      out.byRule += rules.raised.length;
+      out.raised += rules.raised.length;
+      out.repeats += rules.repeats + rules.dismissedBefore;
+      if (over || (model && !said)) {
+        // The rules' part is kept. The project stays due, so a model is asked on a later run.
         await source.write(project.id, kept);
-        out.failed += 1;
+        if (over) out.overCeiling += 1;
+        else out.failed += 1;
         continue;
       }
-      const held = sweepProposalsHeld(project, brief, said.proposals);
+      const held = sweepNominationsHeld(project, brief, said?.proposals ?? []);
       const raised = sweepRaise(kept, held.kept, at);
       kept.sweptAt = at;
       kept.sweptThrough = through;

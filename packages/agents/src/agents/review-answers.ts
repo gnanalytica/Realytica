@@ -86,11 +86,11 @@ export function reviewModelSetUp(): boolean {
   return !capabilityBlocksRoute(route, agentCapability()) && descriptor.configured;
 }
 
-function tool(): LlmSchemaTool {
+export function reviewAnswersTool(): LlmSchemaTool {
   return {
     kind: 'schema',
     name: REVIEW_ANSWERS_TOOL,
-    description: 'Record, for every numbered question, whether the pages answer it, the answer, its page and the words it rests on.',
+    description: 'Record, for every numbered question, whether the pages answer it, the page, the words on it that answer, copied exactly, and the value inside those words. You write no sentence of your own.',
     strict: true,
     parameters: {
       type: 'object',
@@ -102,13 +102,13 @@ function tool(): LlmSchemaTool {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['n', 'stated', 'answer', 'page', 'words'],
+            required: ['n', 'stated', 'value', 'page', 'words'],
             properties: {
               n: { type: 'integer', description: 'The question number, as given.' },
               stated: { type: 'boolean', description: 'True only if these pages answer the question.' },
-              answer: { type: ['string', 'null'], description: 'The answer in one or two plain sentences. Null when not stated.' },
+              value: { type: ['string', 'null'], description: 'The value that answers, copied exactly out of the words you quote: a figure, a date, a name, a few words. Never a sentence of your own, and nothing the words do not write. Null when not stated, or when the whole quoted passage is the answer.' },
               page: { type: ['integer', 'null'], description: 'The number of the page the answer is on. Null when not stated.' },
-              words: { type: ['string', 'null'], description: 'The words on that page the answer rests on, copied exactly. Null when not stated.' },
+              words: { type: ['string', 'null'], description: 'The words on that page that answer the question, copied exactly. Null when not stated.' },
             },
           },
         },
@@ -126,12 +126,24 @@ function tool(): LlmSchemaTool {
 const Said = z.object({
   n: z.coerce.number().int(),
   stated: z.boolean(),
-  answer: z.string().nullish(),
+  value: z.string().nullish(),
   page: z.coerce.number().int().nullish().catch(null),
   words: z.string().nullish(),
 });
 
 const Output = z.object({ answers: z.array(z.unknown()) });
+
+/**
+ * What an answer cell holds: the value where the quoted words write it, else
+ * the quoted words themselves. Either way it is the page's own words. A
+ * value the words do not write (a sentence a model composed, a figure put
+ * another way) is not kept.
+ */
+export function paperCellValue(value: string | null | undefined, quote: string): string {
+  const flat = (text: string): string => text.replace(/\s+/g, ' ').trim().toLowerCase();
+  const said = value?.replace(/\s+/g, ' ').trim().replace(/[.]$/, '') ?? '';
+  return said && flat(quote).includes(flat(said)) ? said : quote;
+}
 
 /** The pages that fit in one call, from the first: whole pages, and the first one cut to fit when it alone is too long. */
 export function pagesToSend(pages: readonly PaperPageText[], budget = REVIEW_PAGES_CHARS): PaperPageText[] {
@@ -219,7 +231,7 @@ export async function answerPaperQuestions(input: {
       model: route.model,
       maxTokens: 1_200 + input.questions.length * 400,
       system: [{ text: system.content, cacheBreakpoint: true }],
-      tools: [tool()],
+      tools: [reviewAnswersTool()],
       messages: [{ role: 'user', content: asked(input.title, input.kind, sent, input.pagesInFile, input.questions) }],
       timeoutMs: limit,
     });
@@ -238,11 +250,13 @@ export async function answerPaperQuestions(input: {
       const said = byNumber.get(i + 1);
       // No usable word on this question: it stays unasked, to be asked again.
       if (!said) return [];
-      const answer = said.answer?.replace(/\s+/g, ' ').trim();
-      if (!said.stated || !answer) return [{ id: question.id, stated: false }];
+      if (!said.stated) return [{ id: question.id, stated: false }];
       const quote = said.words?.replace(/\s+/g, ' ').trim().slice(0, QUOTE_CHARS);
+      // Said to be stated with no words of the page given: nothing to hold. It stays unasked, to be asked again.
+      if (!quote) return [];
+      const answer = paperCellValue(said.value, quote);
       const placed = placePaperAnswer({ answer, page: said.page, quote }, sent);
-      return [{ id: question.id, stated: true, answer: answer.slice(0, ANSWER_CHARS), ...(quote ? { quote } : {}), ...placed }];
+      return [{ id: question.id, stated: true, answer: answer.slice(0, ANSWER_CHARS), quote, ...placed }];
     });
     return { ok: true, model: route.model, answers, pagesSent: sent.map((page) => page.page), usage: result.usage };
   } catch (err) {

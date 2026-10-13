@@ -5,14 +5,21 @@
  * A firm keeps a short list of official pages. Each is looked at on its own
  * interval; the page's words are kept, and when they differ from the last
  * look the difference is a change. A change is shown to the firm with the
- * lines that came and went. Where a model is set up it proposes a summary
- * and, for each project the source bears on, action items by department.
+ * lines that came and went. Where a model is set up it fills fields for the
+ * change (`law-change.ts`): the instrument, its reference and date, when it
+ * takes effect, the kind of change, what a figure was and now is, and what
+ * it affects; and for each project the source bears on, actions that are a
+ * department, a next step off a fixed list and what the step is about. It
+ * writes no summary and no instruction. The lines are the source a person
+ * reads; the fields are beside them.
  *
  * Nothing a change says reaches a project on a model's word or on the
  * timer's. A firm admin or a department's lead confirms it by name, with the
- * summary and the actions as they leave them, and only then is an action put
- * on a project, carrying the source's link, the day the change was seen and
- * who confirmed it. A change may be dismissed instead, and then nothing is.
+ * fields and the actions as they leave them, and only then is an action put
+ * on a project, worded by a template, carrying the source's link, the day
+ * the change was seen and who confirmed it. A confirmed change of a rate
+ * offers a new dated row for the rule table, unverified until a person marks
+ * it verified. A change may be dismissed instead, and then nothing is.
  * A lead decides for the projects they lead and no other: the change waits on
  * for the rest until their leads have decided too, or a firm admin closes it.
  *
@@ -30,6 +37,10 @@ import type { WorkspaceRole } from './tenancy';
 import { can, reachesEveryProject } from './tenancy';
 import { departmentRole, projectDepartments } from './team';
 import { addAction } from './operations';
+import { fieldCatalog, type FieldCatalog } from './field-registry';
+import { RULE_ROWS } from './field-sets';
+import { LAW_NEXT, lawAboutFrom, lawAboutHeld, lawActionSaid, lawChangeSaid, lawFieldsFrom, lawFieldsHeld, lawFieldsSaySomething, lawLists, lawRuleRowOffered, type LawAbout, type LawChangeFields, type LawLists, type LawNext, type LawRuleRowOffer } from './law-change';
+import type { RuleRow } from './types';
 
 /** How often a source may be looked at: daily at the most, quarterly at the least. */
 export const LAW_LOOK_DAYS = { least: 1, most: 90 } as const;
@@ -38,8 +49,6 @@ export const LAW_TEXT_AT_MOST = 400_000;
 /** The lines of a difference that are kept on each side, and the length of each. */
 export const LAW_DIFF_LINES = 60;
 export const LAW_DIFF_LINE = 400;
-export const LAW_SUMMARY = 1200;
-export const LAW_ACTION_TITLE = 200;
 export const LAW_ACTIONS_A_PROJECT = 6;
 /** Changes kept on the list. The oldest decided ones go first. */
 export const LAW_CHANGES_KEPT = 200;
@@ -97,25 +106,33 @@ export interface LawDiff {
   removedCount: number;
 }
 
+/** One action for a project: a department, a next step off the fixed list, and what the step is about. */
 export interface LawProposedAction {
   department: DepartmentKey;
-  title: string;
+  /** Absent only on an action kept before actions were fields. */
+  next?: LawNext;
+  about?: LawAbout;
+  /** Written by a model, before actions were fields. Read back and shown marked as such; nothing new carries one. */
+  title?: string;
 }
 
 export interface LawProposedProject {
   projectId: string;
-  /** Why it may bear on this project, in a line. */
+  /** Written by a model, before proposals were fields. Nothing new carries one. */
   why?: string;
   actions: LawProposedAction[];
 }
 
 /** What a model proposed for a change. Never the record: a person confirms or dismisses. */
 export interface LawProposal {
-  summary: string;
-  /** The changed passage the summary rests on, as the page writes it. Empty where the model quoted nothing the page writes. */
+  /** The change as fields. Absent on a proposal kept before proposals were fields. */
+  fields?: LawChangeFields;
+  /** The changed passage, as the page writes it. Empty where the model quoted nothing the page writes. */
   quote: string;
   projects: LawProposedProject[];
   at: string;
+  /** Written by a model, before proposals were fields. Read back and shown marked as such; nothing new carries one. */
+  summary?: string;
 }
 
 export interface LawApplied {
@@ -150,7 +167,9 @@ export interface LawChange {
   decidedBy?: string;
   decidedByName?: string;
   decidedAt?: string;
-  /** The summary as the person confirmed it. */
+  /** The fields as the person confirmed them. */
+  fields?: LawChangeFields;
+  /** The summary a person confirmed before changes were fields: a model's, as they left it. Shown marked as such. */
   summary?: string;
   /** Why it was dismissed, where the person said. */
   why?: string;
@@ -164,6 +183,8 @@ export interface LawWatchState {
   v: 1;
   sources: LawSource[];
   changes: LawChange[];
+  /** Rule rows confirmed changes have offered. Each is unverified until a person marks it verified by name. */
+  offeredRows?: LawRuleRowOffer[];
 }
 
 /* ==================================================================== */
@@ -230,6 +251,7 @@ export function lawWatchHeld(kept: unknown): LawWatchState | undefined {
     v: 1,
     sources: held.sources.filter((source) => Boolean(source && typeof source.id === 'string' && typeof source.url === 'string')),
     changes: Array.isArray(held.changes) ? held.changes.filter((change) => Boolean(change && typeof change.id === 'string' && change.diff)) : [],
+    ...(Array.isArray(held.offeredRows) ? { offeredRows: held.offeredRows.filter((offer) => Boolean(offer && typeof offer.id === 'string' && offer.row && typeof offer.row.key === 'string')) } : {}),
   };
 }
 
@@ -518,35 +540,38 @@ const squeezed = (text: string): string => text.replace(/\s+/g, ' ').trim().toLo
 
 /**
  * What a model said about a change, kept only as far as the change bears it
- * out: a quote is kept only where a line that came or went writes it, a
- * project only where it is one the source bears on, and an action only for a
- * department of the source that the project uses. Undefined where nothing
- * usable was said.
+ * out: its fields held to the page's words and the lists (`lawFieldsHeld`),
+ * a quote only where a line that came or went writes it, a project only
+ * where it is one the source bears on, and an action only for a department
+ * of the source that the project uses, with a next step off the fixed list.
+ * No sentence the model sends is read: there is no member here to keep one.
+ * Undefined where nothing usable was said.
  */
-export function lawProposalHeld(said: unknown, diff: LawDiff, source: Pick<LawSource, 'departments'>, projects: readonly DdProject[], now: string): LawProposal | undefined {
-  const given = said as { summary?: unknown; quote?: unknown; projects?: unknown } | null;
+export function lawProposalHeld(said: unknown, diff: LawDiff, source: Pick<LawSource, 'departments' | 'jurisdiction'>, projects: readonly DdProject[], now: string, lists: LawLists = lawLists(source, now.slice(0, 10))): LawProposal | undefined {
+  const given = said as { quote?: unknown; projects?: unknown } | null;
   if (!given || typeof given !== 'object') return undefined;
-  const summary = typeof given.summary === 'string' ? clean(given.summary, LAW_SUMMARY) : '';
-  if (!summary) return undefined;
+  const fields = lawFieldsHeld(given, diff, lists);
   const lines = [...diff.added, ...diff.removed].map(squeezed);
   const asked = typeof given.quote === 'string' ? clean(given.quote, LAW_DIFF_LINE) : '';
   const quote = asked && lines.some((line) => line.includes(squeezed(asked.replace(/…$/, '')))) ? asked : '';
   const out: LawProposedProject[] = [];
   for (const row of Array.isArray(given.projects) ? given.projects : []) {
-    const one = row as { projectId?: unknown; why?: unknown; actions?: unknown } | null;
+    const one = row as { projectId?: unknown; actions?: unknown } | null;
     const project = projects.find((held) => held.id === one?.projectId);
     if (!one || !project || out.some((held) => held.projectId === project.id)) continue;
     const open = lawDepartmentsOn(source, project);
     const actions: LawProposedAction[] = [];
     for (const item of Array.isArray(one.actions) ? one.actions : []) {
-      const action = item as { department?: unknown; title?: unknown } | null;
-      const title = typeof action?.title === 'string' ? clean(action.title, LAW_ACTION_TITLE) : '';
+      const action = item as { department?: unknown; next?: unknown; about?: unknown } | null;
+      const next = LAW_NEXT.find((known) => known === action?.next);
       const department = open.find((key) => key === action?.department);
-      if (title && department && actions.length < LAW_ACTIONS_A_PROJECT) actions.push({ department, title });
+      const about = lawAboutHeld(action?.about, lists);
+      if (next && department && actions.length < LAW_ACTIONS_A_PROJECT && !actions.some((held) => held.department === department && held.next === next && JSON.stringify(held.about) === JSON.stringify(about))) actions.push({ department, next, ...(about ? { about } : {}) });
     }
-    if (actions.length) out.push({ projectId: project.id, ...(typeof one.why === 'string' && clean(one.why, 240) ? { why: clean(one.why, 240) } : {}), actions });
+    if (actions.length) out.push({ projectId: project.id, actions });
   }
-  return { summary, quote, projects: out, at: now };
+  if (!lawFieldsSaySomething(fields) && !quote && !out.length) return undefined;
+  return { fields, quote, projects: out, at: now };
 }
 
 /* ==================================================================== */
@@ -589,7 +614,7 @@ export function lawProjectsToDecide(person: LawReviewer, change: Pick<LawChange,
  * bears on: nothing of it waits on anybody. It reads as confirmed where any
  * of them confirmed it, under the name of the last to decide.
  */
-function closeWhereNoneWaits(change: LawChange, source: LawSource | undefined, projects: readonly DdProject[], person: LawReviewer, now: string, said: { summary?: string; why?: string }): void {
+function closeWhereNoneWaits(change: LawChange, source: LawSource | undefined, projects: readonly DdProject[], person: LawReviewer, now: string, said: { fields?: LawChangeFields; why?: string }): void {
   const decided = change.decidedFor ?? [];
   if (!source || projects.some((project) => lawBearsOn(source, project) && !decided.some((held) => held.projectId === project.id))) return;
   const confirmed = decided.some((held) => held.decision === 'confirmed');
@@ -598,7 +623,8 @@ function closeWhereNoneWaits(change: LawChange, source: LawSource | undefined, p
 }
 
 export interface LawConfirmation {
-  summary: string;
+  /** The change's fields, as the person leaves them. */
+  fields: LawChangeFields;
   projects: Array<{ projectId: string; actions: LawProposedAction[] }>;
 }
 
@@ -610,9 +636,9 @@ export function lawDay(iso: string): string {
 }
 
 /** What an action put on a project says of where it came from. */
-export function lawActionSource(change: Pick<LawChange, 'sourceTitle' | 'url' | 'seenAt'>, summary: string, who: string, now: string): string {
+export function lawActionSource(change: Pick<LawChange, 'sourceTitle' | 'url' | 'seenAt'>, said: string, who: string, now: string): string {
   return [
-    summary,
+    said,
     `Source: ${change.sourceTitle}, ${change.url}. Change seen on ${lawDay(change.seenAt)}.`,
     `Confirmed by ${who} on ${lawDay(now)}.`,
     'From the firm’s watch of this page. Not legal advice.',
@@ -633,6 +659,13 @@ export function lawActionSource(change: Pick<LawChange, 'sourceTitle' | 'url' | 
  * A firm admin's confirmation closes the change. A lead's is for the projects
  * they lead: those are marked decided, and the change waits on for the rest,
  * until an admin closes it or no project it bears on is left undecided.
+ *
+ * The fields are the person's: checked for shape and for what they name,
+ * not held to the page. An action's words on a project are the template's
+ * (`lawActionSaid`), and what the action says of where it came from is the
+ * change's line made from its fields (`lawChangeSaid`). Where the fields
+ * move a rate and name the rule row it would supersede, a new dated row is
+ * offered, unverified.
  */
 export function confirmLawChange(
   state: LawWatchState,
@@ -641,12 +674,15 @@ export function confirmLawChange(
   person: LawReviewer,
   projects: readonly DdProject[],
   now: string,
-): { change: LawChange; touched: DdProject[]; made: ActionRecord[] } {
+  catalog: FieldCatalog = fieldCatalog(),
+  rows: readonly RuleRow[] = RULE_ROWS,
+): { change: LawChange; touched: DdProject[]; made: ActionRecord[]; offered?: LawRuleRowOffer } {
   const change = state.changes.find((held) => held.id === changeId);
   if (!change) throw new Error('No change by that id.');
   if (change.state !== 'waiting') throw new Error(`This change was ${change.state} already.`);
-  const summary = clean(given.summary, LAW_SUMMARY);
-  if (!summary) throw new Error('Say what changed, in a line or two, before confirming.');
+  const fields = lawFieldsFrom(given.fields, catalog, rows);
+  if (!fields.change) throw new Error('Say what kind of change it is before confirming.');
+  const summary = lawChangeSaid(fields);
   const source = state.sources.find((held) => held.id === change.sourceId);
   const closes = can(person.role, 'admin');
   const mine = closes ? [] : lawProjectsToDecide(person, change, source, projects);
@@ -656,7 +692,11 @@ export function confirmLawChange(
     const project = projects.find((held) => held.id === row.projectId);
     if (!project) throw new Error('No project by that id.');
     if (plan.some((held) => held.project.id === project.id)) throw new Error('A project is named twice.');
-    const actions = row.actions.map((action) => ({ department: action.department, title: clean(action.title, LAW_ACTION_TITLE) })).filter((action) => action.title);
+    const actions = row.actions.map((action): LawProposedAction => {
+      const next = LAW_NEXT.find((known) => known === action.next);
+      if (!next) throw new Error('An action needs a next step off the list.');
+      return { department: action.department, next, ...(action.about ? { about: lawAboutFrom(action.about, catalog, rows) } : {}) };
+    });
     if (actions.length > LAW_ACTIONS_A_PROJECT) throw new Error(`At most ${LAW_ACTIONS_A_PROJECT} actions a project.`);
     for (const action of actions) {
       if (!projectDepartments(project).includes(action.department) || (source && !source.departments.includes(action.department))) throw new Error(`${DEPARTMENT_SHORT[action.department] ?? 'That department'} is not one this source bears on for ${project.name}.`);
@@ -673,7 +713,7 @@ export function confirmLawChange(
   for (const { project, actions } of plan) {
     const ids: string[] = [];
     for (const action of actions) {
-      const record = addAction(project, { title: action.title, kind: 'clarification', owner: `${DEPARTMENT_SHORT[action.department]} lead`, priority: 'medium', description: lawActionSource(change, summary, who, now) }, person.email);
+      const record = addAction(project, { title: lawActionSaid(action, catalog, rows), kind: 'clarification', owner: `${DEPARTMENT_SHORT[action.department]} lead`, priority: 'medium', description: lawActionSource(change, summary, who, now) }, person.email);
       ids.push(record.id);
       made.push(record);
     }
@@ -681,14 +721,17 @@ export function confirmLawChange(
     applied.push({ projectId: project.id, projectName: project.name, actionIds: ids });
   }
   const signed = { by: person.email, ...(person.name?.trim() ? { byName: person.name.trim() } : {}), at: now };
+  // A rate that moved offers its row once, whoever confirms first.
+  const offered = (state.offeredRows ?? []).some((held) => held.changeId === change.id) ? undefined : lawRuleRowOffered(fields, change, person.email, now, rows);
+  if (offered) state.offeredRows = [...(state.offeredRows ?? []), offered];
   if (closes) {
     const before = (change.decidedFor ?? []).filter((held) => held.actionIds.length).map((held) => ({ projectId: held.projectId, projectName: held.projectName, actionIds: held.actionIds }));
-    Object.assign(change, { state: 'confirmed', decidedBy: person.email, ...(person.name?.trim() ? { decidedByName: person.name.trim() } : {}), decidedAt: now, summary, applied: [...before, ...applied] });
+    Object.assign(change, { state: 'confirmed', decidedBy: person.email, ...(person.name?.trim() ? { decidedByName: person.name.trim() } : {}), decidedAt: now, fields, applied: [...before, ...applied] });
   } else {
     change.decidedFor = [...(change.decidedFor ?? []), ...mine.map((project) => ({ projectId: project.id, projectName: project.name, decision: 'confirmed' as const, ...signed, actionIds: applied.find((held) => held.projectId === project.id)?.actionIds ?? [] }))];
-    closeWhereNoneWaits(change, source, projects, person, now, { summary });
+    closeWhereNoneWaits(change, source, projects, person, now, { fields });
   }
-  return { change, touched: plan.map((row) => row.project), made };
+  return { change, touched: plan.map((row) => row.project), made, ...(offered ? { offered } : {}) };
 }
 
 /**

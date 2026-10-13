@@ -132,6 +132,8 @@ import {
   setAsideWaiting,
   assignOwner,
   applyProjectAgentTurn,
+  PHOTO_NOTE_MOST,
+  setPhotoNote,
   chatPlaceFrom,
   CHOICE_SENTENCE,
   NOTHING_ACCEPTED,
@@ -154,10 +156,7 @@ import {
   clearProjectConversation,
   renameChatSession,
   extractReadableExcerpt,
-  findingEvidenceBriefing,
-  projectRegisterBriefing,
   projectToIdentity,
-  renderProjectGuide,
   screenProject,
   acceptValueOffers,
   ensureValueChecks,
@@ -214,10 +213,8 @@ import {
   recallForProject,
   renderMemoryForPrompt,
   basicChatModel,
-  resolveRoute,
   runProjectChat,
   runProjectOrchestratorAgent,
-  textOf,
 } from '@realytica/agents';
 import { readExifCapture } from '../exif';
 import { reviewCard } from '../proposal-review';
@@ -268,7 +265,6 @@ import { MEMORY_LINT_WAIT_MS, inTime, memoryAnswer, memoryContext, memoryUnder }
 import { readLint } from '../graph/mem/read';
 import { keepThought } from '../graph/mem/thought';
 import { CHAT_MESSAGE_AT_MOST, heldFile, meetingAsk, meetingTurn, meetingWords, readDroppedNotes } from '../meetings';
-import { statusWordingOn, wordStatusReport } from '../status-report';
 import { planTurnFor, runPlan, stopPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
 import { runPlanStep, type PlanSetting, type StepDone } from '../runs/plan-steps';
 import { planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
@@ -1107,51 +1103,6 @@ projectsRouter.patch('/:projectId/ai/drafts/:draftId', async (req, res) => {
   }
 });
 
-function skipLlmForChat(result: ProjectChatResult): boolean {
-  if (result.commands.length > 0 || result.proposals.length > 0) return true;
-  const names = new Set(result.assistantTurn.toolCalls?.map((t) => t.name) ?? []);
-  return (
-    names.has('wizard')
-    || names.has('next_step')
-    || names.has('briefing')
-    || names.has('ingest')
-    || names.has('approve')
-    || names.has('start_dd')
-    || names.has('advise')
-    || names.has('apply')
-    || names.has('places')
-    || names.has('web_search')
-    || names.has('connectors')
-    || names.has('locality')
-    || names.has('capabilities')
-    || names.has('commit_draft')
-    || names.has('screen')
-    || names.has('orchestrate')
-    || names.has('project_copilot')
-    || names.has('critic')
-    || names.has(MEMORY_LINT)
-    || names.has(MEMORY_ANSWER)
-    // What was kept of a meeting's notes, and the meetings on the file: said from the record, with the marks that open the notes.
-    || names.has(MEETING_NOTES)
-    || names.has(MEETINGS_LISTED)
-    // A status report is written by code and said short: a model that reworded the reply could add to it.
-    || names.has(STATUS_REPORT)
-    /*
-     * Answers already exact: read off the documents with their pages, a
-     * question asked back, a pane opened. Rewriting them paid a model to lose
-     * the page references the answer was built from.
-     */
-    || names.has('answer_from_file')
-    // An instruction that took nothing: what waits, where, and the choices to press.
-    || names.has(NOTHING_ACCEPTED)
-    || names.has(NOTHING_SET_ASIDE)
-    || names.has(NOTHING_TO_READ)
-    || names.has('clarify')
-    || names.has('navigate')
-    || names.has('open_sitting')
-  );
-}
-
 function beginNdjson(res: import('express').Response): {
   line: (payload: unknown) => void;
   clientGone: () => boolean;
@@ -1789,6 +1740,8 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
         place,
         history: canvas.conversation,
         memory: [unseen, memoryText, remembered ? memContextText(remembered) : ''].filter(Boolean).join('\n\n') || undefined,
+        // The lines by their marks: an answer picks marks, and code prints the lines.
+        remembered,
         sitting,
         graphRag: {
           kind: graphAdapter.kind,
@@ -2011,60 +1964,11 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
     result.highlightIds.push(...fromPaper.citedEvidenceIds);
   }
 
-  /*
-   * A status report just written is put in plainer words where a model is
-   * set up and the firm has turned model wording on. The model is sent the report's lines and nothing else, and its
-   * wording is kept only where it holds to the line it was made for: see
-   * `wordStatusReport`. The reply in the chat is code's own either way.
-   */
-  const wrote = result.commands.includes('Wrote a status report') ? result.navigations.find((go) => go.target === 'reports')?.item : undefined;
-  if (wrote && capability.available && canvas === project && statusWordingOn(project)) {
-    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label: 'A model is putting the report in plain words' } satisfies AgentStep });
-    await wordStatusReport(project, wrote);
-  }
   // A letter, a reply, a request for information or minutes the rules just made: its body is written and the reply says how it stands. See `routes/outgoing.ts`.
   if (canvas === project) await outgoingAskedWritten(project, result, line);
 
-  // A paper's own words are said as they are: no model puts them in others.
-  if (capability.available && !fromPaper && !skipLlmForChat(result)) {
-    try {
-      const { provider, route } = resolveRoute('analyst_copilot');
-      const guide = renderProjectGuide(canvas);
-      const restsOn = findingEvidenceBriefing(canvas);
-      const llm = await provider.complete({
-        agent: 'analyst_copilot',
-        // Rewording a briefing is the free model's work when there is one.
-        model: basicChatModel() ?? route.model,
-        maxTokens: 1800,
-        system: [
-          {
-            text:
-              'You are the project DD copilot. Answer only from the register briefing, what the findings rest on, and today\'s next step. Name one move. If they do not support an answer, say so. Do not invent findings, values, evidence, or sign-off. Do not list the evidence library. Do not file documents or start DDs — those are person-approved cards. Keep under 280 words. Cite titles, not truncated ids. When asked which document says something, name it and quote its words with the page exactly as given.',
-          },
-          ...(unseen ? [{ text: unseen }] : []),
-        ],
-        messages: [
-          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext, place)}` },
-          ...(restsOn ? [{ role: 'user' as const, content: `What the material findings rest on:\n${restsOn}` }] : []),
-          { role: 'user', content: `Today's next step:\n${guide.text}` },
-          { role: 'user', content: question },
-        ],
-      });
-      // This answer was given no lines from memory, so it rests on none: anything in it that reads as a tag is a model's word, and is taken out.
-      const text = linkRecordIds(canvas, memTagsPrinted(textOf(llm).trim(), undefined).text);
-      if (text) {
-        result.assistantTurn.text = text;
-        result.assistantTurn.toolCalls = [{ name: 'analyst_copilot', summary: 'Answered from project registers' }];
-        const last = canvas.conversation[canvas.conversation.length - 1];
-        if (last?.id === result.assistantTurn.id) {
-          last.text = text;
-          last.toolCalls = result.assistantTurn.toolCalls;
-        }
-      }
-    } catch {
-      /* deterministic briefing already stored — a model failure must not block chat */
-    }
-  }
+  // An answer the rules gave stands as they gave it: no model puts it in other words. (A model once reworded the
+  // briefing here, and what it wrote was stored as the turn. A turn kept from then reads as it was stored.)
 
   /*
    * The page may have gone by now, and the rules above have already changed
@@ -4504,6 +4408,35 @@ projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
     citedEvidenceIds: [...new Set(targets.map((t) => t.evidenceId))],
   });
   res.json({ read: targets.length, drafts, documents, results });
+});
+
+/**
+ * A person's own note on a photograph: one line, capped, and the only free
+ * words about it. What a model says of a photograph is picks off lists. An
+ * empty note takes the note away.
+ */
+projectsRouter.put('/:projectId/photographs/note', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const sent = (req.body ?? {}) as { evidenceId?: unknown; fileId?: unknown; text?: unknown };
+  const text = typeof sent.text === 'string' && sent.text.length <= PHOTO_NOTE_MOST * 2 ? sent.text : undefined;
+  const attachment = project.evidence.find((e) => e.id === sent.evidenceId)?.attachments.find((a) => a.id === sent.fileId);
+  if (text === undefined || !attachment?.observation) {
+    res.status(400).json({ error: 'Name a photograph that has been read, and send the note.' });
+    return;
+  }
+  try {
+    setPhotoNote(attachment.observation, text, actorOf(req), new Date().toISOString());
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+    return;
+  }
+  project.updatedAt = new Date().toISOString();
+  await store.save();
+  res.json(project);
 });
 
 projectsRouter.get('/:projectId/sheets', (req, res) => {

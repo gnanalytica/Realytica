@@ -32,9 +32,9 @@ const PAGES = [
 const LEFT_OUT = 'What stamp duty was paid?';
 
 /** What the stand-in says to each question it knows. Anything else, it says the pages do not state. */
-const SCRIPT: Record<string, { answer: string; page: number | string; words: string }> = {
+const SCRIPT: Record<string, { answer: string; value?: string; page: number | string; words: string }> = {
   // The page written as a word, as a model behind a gateway may write it.
-  'Is there a right of way?': { answer: 'Yes, twelve feet wide over Survey No. 73/3.', page: '2', words: 'a right of way twelve feet wide over Survey No. 73/3' },
+  'Is there a right of way?': { answer: 'Yes, twelve feet wide over Survey No. 73/3.', value: 'twelve feet wide', page: '2', words: 'a right of way twelve feet wide over Survey No. 73/3' },
   // The figure it gives is not the figure in the words it quotes.
   'What was the price?': { answer: 'Rs. 3,18,00,000.', page: 1, words: 'a total sale consideration of Rs. 3,18,50,000' },
 };
@@ -103,7 +103,8 @@ before(async () => {
     const answers = questions.flatMap((question, i) => {
       if (question === LEFT_OUT) return [];
       const said = SCRIPT[question];
-      return [said ? { n: i + 1, stated: true, answer: said.answer, page: said.page, words: said.words } : { n: i + 1, stated: false, answer: null, page: null, words: null }];
+      // The model sends a sentence of its own as well. Only a value its quoted words write is kept; the sentence is read by nothing.
+      return [said ? { n: i + 1, stated: true, answer: said.answer, value: said.value ?? said.answer, page: said.page, words: said.words } : { n: i + 1, stated: false, value: null, page: null, words: null }];
     });
     streamMessage(res, { answers }, tool);
   });
@@ -155,8 +156,10 @@ describe('a run', () => {
 
     const table = landed.body.reviewTable as ReviewTable;
     const kept = (id: string | undefined) => table.answers![id!]![deed.id]!;
-    assert.deepEqual([kept(way).by, kept(way).page, kept(way).proof, kept(way).answer], ['model', 2, 'page_text', 'Yes, twelve feet wide over Survey No. 73/3.']);
-    assert.deepEqual([kept(price).page, kept(price).proof], [1, 'unverified'], 'a figure its own words do not write is unverified, wherever the words are');
+    // The cell holds the value its quoted words write, and the quote. The model's own sentence is nowhere.
+    assert.deepEqual([kept(way).by, kept(way).page, kept(way).proof, kept(way).answer, kept(way).quote], ['model', 2, 'page_text', 'twelve feet wide', 'a right of way twelve feet wide over Survey No. 73/3']);
+    assert.ok(!JSON.stringify(table.answers).includes('Yes, twelve feet wide'));
+    assert.deepEqual([kept(price).page, kept(price).proof, kept(price).answer], [1, 'page_text', 'a total sale consideration of Rs. 3,18,50,000'], 'a figure its own words do not write is not kept: the cell holds the page’s words');
     assert.equal(kept(witness).none, 'not_stated');
     assert.deepEqual(table.run!.done, [deed.id]);
     assert.equal(JSON.stringify(deed.facts), held, 'nothing was written to the paper’s own row');

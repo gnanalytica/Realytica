@@ -36,14 +36,32 @@ const SYSTEM = `You read the notes of a meeting about a property project and rec
 Rules:
 1. Record only what the notes say. Never add an item the notes do not state, and never join two sentences into something neither says.
 2. Every item carries "quote": the exact words of the notes it comes from, copied character for character, one sentence or one line, no more. An item you cannot quote is not recorded.
-3. "text" is the item in one plain line of your own, under 160 characters.
+3. You write no line of your own. The item is its quote, with what you pick beside it: its kind, and for an action who it is on.
 4. "kind" is "decision" for something settled at the meeting, "action" for something somebody is to do, "open" for a question raised and not settled.
 5. For an action, "owner" is the person or party the notes say it is on, exactly as the notes name them, and only when the quoted words name them. Otherwise null. Never choose an owner the notes do not give.
 6. Do not give dates. A date is read from your quote, so quote the words that say by when.
 7. Talk that settles nothing and asks nothing is not an item. Notes with no decision, action or open point give an empty list.
 Call ${MEETING_NOTES_TOOL} once with everything.`;
 
-function tool(): LlmSchemaTool {
+/**
+ * A model's items as the reading keeps them: the line of each is its quote,
+ * the notes' own words, and never a line the model wrote (one sent under
+ * `text` is not read). An owner is kept only where the notes write that
+ * name. What a model picks is the kind and the owner; the day an action is
+ * due is read from the quote by code.
+ */
+export function meetingItemsFromPicks(items: readonly unknown[], notes: string): NonNullable<MeetingSaidByModel['items']> {
+  const written = notes.toLowerCase();
+  return items.flatMap((raw) => {
+    const item = (raw && typeof raw === 'object' ? raw : {}) as { kind?: unknown; owner?: unknown; quote?: unknown };
+    const quote = typeof item.quote === 'string' ? item.quote.trim() : '';
+    if (!quote) return [];
+    const owner = typeof item.owner === 'string' && item.owner.trim() && written.includes(item.owner.trim().toLowerCase()) ? item.owner.trim() : null;
+    return [{ kind: item.kind, text: quote, owner, quote }];
+  });
+}
+
+export function meetingNotesTool(): LlmSchemaTool {
   return {
     kind: 'schema',
     name: MEETING_NOTES_TOOL,
@@ -59,10 +77,9 @@ function tool(): LlmSchemaTool {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['kind', 'text', 'owner', 'quote'],
+            required: ['kind', 'owner', 'quote'],
             properties: {
               kind: { type: 'string', enum: ['decision', 'action', 'open'] },
-              text: { type: 'string', description: 'The item in one plain line.' },
               owner: { type: ['string', 'null'], description: 'For an action: who it is on, as the notes name them. Null when the notes do not say.' },
               quote: { type: 'string', description: 'The exact words of the notes this comes from.' },
             },
@@ -87,16 +104,16 @@ export async function readMeetingNotesByModel(input: { notes: string; caseId?: s
       agent: 'document_intelligence',
       ...(input.caseId ? { caseId: input.caseId } : {}),
       model: route.model,
-      maxTokens: 3000,
+      maxTokens: 2000,
       system: [{ text: SYSTEM, cacheBreakpoint: true }],
-      tools: [tool()],
+      tools: [meetingNotesTool()],
       toolChoice: { type: 'tool', name: MEETING_NOTES_TOOL },
       messages: [{ role: 'user', content: `The notes:\n\n${notes}` }],
       timeoutMs: input.timeoutMs ?? MEETING_NOTES_LIMIT_MS,
     });
     const call = toolUseOf(result, MEETING_NOTES_TOOL);
     const said = call?.input as { items?: unknown } | undefined;
-    return said && Array.isArray(said.items) ? { items: said.items as NonNullable<MeetingSaidByModel['items']> } : null;
+    return said && Array.isArray(said.items) ? { items: meetingItemsFromPicks(said.items, notes) } : null;
   } catch (err) {
     console.warn(`[meeting notes] a model did not read the notes: ${err instanceof Error ? err.name : 'error'}`);
     return null;

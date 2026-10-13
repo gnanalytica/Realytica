@@ -7,8 +7,9 @@
  * DELETE /sources/:sourceId         take one off the list
  * POST   /sources/:sourceId/look    look at one now
  * GET    /changes/:changeId/pages   the page as it read before the change and after
- * POST   /changes/:changeId/confirm confirm a change, with the summary and the actions as the person leaves them
+ * POST   /changes/:changeId/confirm confirm a change, with its fields and the actions as the person leaves them
  * POST   /changes/:changeId/dismiss dismiss it as not relevant
+ * POST   /rule-rows/:offerId/verify  mark a rule row a confirmed change offered as verified, by name (a firm admin)
  *
  * For the firm's own people. Somebody working from a grant is refused every
  * route: the list is the firm's, and a change names projects they may not
@@ -29,9 +30,13 @@ import { z } from 'zod';
 import {
   DEPARTMENT_KEYS,
   LAW_ACTIONS_A_PROJECT,
-  LAW_ACTION_TITLE,
+  LAW_AFFECTS_AT_MOST,
+  LAW_CHANGE_TYPES,
+  LAW_INSTRUMENTS,
   LAW_LOOK_DAYS,
-  LAW_SUMMARY,
+  LAW_NEXT,
+  LAW_REFERENCE,
+  LAW_UNITS,
   STAGES,
   addLawSource,
   can,
@@ -46,6 +51,7 @@ import {
   mayReviewLaw,
   reachesEveryProject,
   removeLawSource,
+  verifyLawRuleRow,
   type DdProject,
   type LawReviewer,
   type LawWatchState,
@@ -82,10 +88,29 @@ const sourceBody = z.object({
   paused: z.boolean().optional(),
 });
 
+const key = z.string().min(1).max(160);
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const figure = z.object({ n: z.number().finite().optional(), unit: z.enum(LAW_UNITS).optional(), date: day.optional() });
+const about = z.union([
+  z.object({ kind: z.literal('field'), address: z.object({ fn: key, set: key, field: key }) }),
+  z.object({ kind: z.literal('approval'), approval: key }),
+  z.object({ kind: z.literal('rule_row'), row: z.object({ key, jurisdiction: z.object({ state: key.optional(), city: key.optional(), authority: key.optional() }), when: z.record(z.string(), z.union([z.string().max(160), z.object({ min: z.number().optional(), max: z.number().optional() })])).optional(), from: day }) }),
+]);
+
+// Every member is a pick off a list, a day, a number or a reference a person copied. There is no summary to send.
 const confirmBody = z.object({
-  summary: z.string().trim().min(1).max(LAW_SUMMARY),
+  fields: z.object({
+    instrument: z.enum(LAW_INSTRUMENTS).optional(),
+    reference: z.string().trim().max(LAW_REFERENCE).optional(),
+    dated: day.optional(),
+    effectiveFrom: day.optional(),
+    change: z.enum(LAW_CHANGE_TYPES),
+    was: figure.optional(),
+    now: figure.optional(),
+    affects: z.array(about).max(LAW_AFFECTS_AT_MOST).default([]),
+  }),
   projects: z
-    .array(z.object({ projectId: z.string().min(1).max(120), actions: z.array(z.object({ department, title: z.string().trim().min(1).max(LAW_ACTION_TITLE) })).max(LAW_ACTIONS_A_PROJECT) }))
+    .array(z.object({ projectId: z.string().min(1).max(120), actions: z.array(z.object({ department, next: z.enum(LAW_NEXT), about: about.optional() })).max(LAW_ACTIONS_A_PROJECT) }))
     .max(50)
     .default([]),
 });
@@ -123,6 +148,8 @@ function shown(req: Request, state: LawWatchState) {
       return { ...change, bearsOn, mayDecide: can(me.role, 'admin') || lawProjectsToDecide(me, change, source, projects).length > 0 };
     }),
     decided: changes.decided,
+    // Rule rows confirmed changes offered: each unverified until a firm admin marks it verified by name.
+    offeredRows: state.offeredRows ?? [],
     model: lawWatchModelSetUp(),
     mayManage: can(me.role, 'admin'),
     mayReview: mayReviewLaw(me, projects),
@@ -131,7 +158,7 @@ function shown(req: Request, state: LawWatchState) {
 
 function refuse(res: Response, err: unknown): void {
   const message = err instanceof Error ? err.message : 'Request failed';
-  res.status(/^No (source|change|project) by that id/.test(message) ? 404 : /already\.$/.test(message) ? 409 : / needs a firm admin /.test(message) ? 403 : 400).json({ error: message });
+  res.status(/^No (source|change|project|offered rule row) by that id/.test(message) ? 404 : /already\.$/.test(message) ? 409 : / needs a firm admin /.test(message) ? 403 : 400).json({ error: message });
 }
 
 lawWatchRouter.get('/', async (req, res) => {
@@ -222,7 +249,7 @@ lawWatchRouter.get('/changes/:changeId/pages', async (req, res) => {
 lawWatchRouter.post('/changes/:changeId/confirm', needs('write'), async (req, res) => {
   const parsed = confirmBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Send the summary, and for each project the actions that apply.' });
+    res.status(400).json({ error: 'Send the kind of change and its fields, and for each project the actions that apply.' });
     return;
   }
   const me = principalOf(req);
@@ -260,6 +287,25 @@ lawWatchRouter.post('/changes/:changeId/dismiss', needs('write'), async (req, re
   const state = await loadLawWatch(me.tenantId);
   try {
     dismissLawChange(state, req.params.changeId ?? '', reviewer(req), parsed.data.why, new Date().toISOString(), firmProjects(me.tenantId));
+  } catch (err) {
+    refuse(res, err);
+    return;
+  }
+  await saveLawWatch(me.tenantId, state);
+  res.json(shown(req, state));
+});
+
+lawWatchRouter.post('/rule-rows/:offerId/verify', needs('admin'), async (req, res) => {
+  const offerId = id.safeParse(req.params.offerId);
+  if (!offerId.success) {
+    res.status(404).json({ error: 'No offered rule row by that id.' });
+    return;
+  }
+  const me = principalOf(req);
+  const state = await loadLawWatch(me.tenantId);
+  try {
+    // Verified by name: the person has checked the row against the instrument.
+    verifyLawRuleRow(state.offeredRows ?? [], offerId.data, me.name?.trim() ? `${me.name.trim()} (${me.email})` : me.email, new Date().toISOString());
   } catch (err) {
     refuse(res, err);
     return;

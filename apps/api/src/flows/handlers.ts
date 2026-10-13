@@ -250,6 +250,44 @@ async function runMcp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pay
   }
 }
 
+/** What an agent node may say: one of three answers. A filter after it reads this. */
+export const FLOW_VERDICTS = ['yes', 'no', 'cannot_tell'] as const;
+
+export const FLOW_VERDICT_TOOL = 'record_verdict';
+
+/**
+ * The only thing an agent node answers with: a verdict off the list, and
+ * the keys of what it was given that it rests on. There is no member for
+ * words, so a flow carries none a model wrote.
+ */
+export function flowVerdictTool() {
+  return {
+    kind: 'schema' as const,
+    name: FLOW_VERDICT_TOOL,
+    description: 'Record the answer to the instruction as one verdict, and the keys of the given data it rests on.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['verdict', 'keys'],
+      properties: {
+        verdict: { type: 'string', enum: [...FLOW_VERDICTS] },
+        keys: { type: 'array', items: { type: 'string' }, description: 'Top-level keys of the data given that the verdict rests on.' },
+      },
+    },
+  };
+}
+
+/** What of a model's answer a flow keeps: a verdict on the list, and only keys the payload has. Anything else it sent is dropped. */
+export function flowVerdictHeld(said: unknown, payload: Payload): { verdict: (typeof FLOW_VERDICTS)[number]; keys: string[] } {
+  const given = (said && typeof said === 'object' ? said : {}) as { verdict?: unknown; keys?: unknown };
+  const has = new Set(Object.keys(payload ?? {}));
+  return {
+    verdict: FLOW_VERDICTS.find((known) => known === given.verdict) ?? 'cannot_tell',
+    keys: Array.isArray(given.keys) ? [...new Set(given.keys.filter((key): key is string => typeof key === 'string' && has.has(key)))] : [],
+  };
+}
+
 async function runAgent(input: NodeHandlerInput, ctx: HandlerContext): Promise<Payload> {
   if (input.node.config.kind !== 'agent') return {};
   const c = input.node.config;
@@ -257,7 +295,7 @@ async function runAgent(input: NodeHandlerInput, ctx: HandlerContext): Promise<P
   const model = c.model || route.model;
 
   if (input.dryRun) {
-    return { agent: c.agent, model, text: '', dryRun: true };
+    return { agent: c.agent, model, verdict: 'cannot_tell', keys: [], dryRun: true };
   }
 
   const capability = agentCapability();
@@ -269,14 +307,14 @@ async function runAgent(input: NodeHandlerInput, ctx: HandlerContext): Promise<P
      * the run carries on with that on the payload for a filter to read.
      */
     input.note(`No model is configured, so ${c.agent} did not run.`);
-    return { agent: c.agent, model, text: '', unavailable: true, reason: capability.reason };
+    return { agent: c.agent, model, verdict: 'cannot_tell', keys: [], unavailable: true, reason: capability.reason };
   }
 
-  const { providerFor, textOf } = await import('@realytica/agents');
+  const { providerFor, toolUseOf } = await import('@realytica/agents');
   const provider = providerFor('anthropic');
   const instruction = [
     `You are the ${c.agent.replace(/_/g, ' ')} agent, running as one node of an operator-drawn flow.`,
-    'Answer only from what you are given. Say what you do not know rather than filling it in.',
+    `Answer only from what you are given, with one verdict: yes, no, or cannot_tell where the data does not say. You write no words: call ${FLOW_VERDICT_TOOL} once.`,
     c.extraInstruction?.trim() || '',
   ]
     .filter(Boolean)
@@ -285,13 +323,15 @@ async function runAgent(input: NodeHandlerInput, ctx: HandlerContext): Promise<P
   const result = await provider.complete({
     agent: c.agent,
     model,
-    maxTokens: Math.min(c.maxTokens ?? 1500, 8000),
+    maxTokens: Math.min(c.maxTokens ?? 300, 600),
     system: [{ text: instruction }],
+    tools: [flowVerdictTool()],
+    toolChoice: { type: 'tool', name: FLOW_VERDICT_TOOL },
     messages: [{ role: 'user', content: JSON.stringify(input.payload).slice(0, 24_000) }],
   });
 
-  const text = textOf(result).trim();
-  return { agent: c.agent, model, text, tokens: result.usage?.outputTokens ?? 0 };
+  // Only the verdict and the keys are read. Whatever else the model wrote goes nowhere.
+  return { agent: c.agent, model, ...flowVerdictHeld(toolUseOf(result, FLOW_VERDICT_TOOL)?.input, input.payload), tokens: result.usage?.outputTokens ?? 0 };
 }
 
 /**

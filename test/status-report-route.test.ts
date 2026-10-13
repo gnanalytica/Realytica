@@ -131,22 +131,12 @@ after(() => {
 
 const setting = (body?: unknown) => realFetch(`${base}/api/report-settings`, body === undefined ? undefined : { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-describe('a status report on a firm that has not turned model wording on', () => {
-  it('is written by code alone: no model is asked, and nothing says one was', async () => {
-    assert.deepEqual(await (await setting()).json(), { modelWording: false, maySet: true }, 'off until somebody turns it on');
-    const answer = await say('Write the status report for September 2026 for the owner');
-    const report = stored().reports.at(-1)!;
-    assert.equal(report.title, 'Status report for the owner — Northfield corner plot, September 2026');
-    assert.equal(asked, 0);
-    assert.ok(!answer.steps.some((label) => /plain words/.test(label)));
-    assert.ok(report.body.blocks.every((block) => block.wording === undefined));
-    stored().reports.length = 0;
-  });
-
-  it('is turned on by the firm, and only with a plain yes or no', async () => {
+describe('a firm’s setting for reports', () => {
+  it('says no model words a report, and cannot be turned on', async () => {
+    assert.deepEqual(await (await setting()).json(), { modelWording: false, maySet: true });
     assert.equal((await setting({ modelWording: 'yes' })).status, 400);
-    assert.deepEqual(await (await setting({ modelWording: true })).json(), { modelWording: true, maySet: true });
-    assert.deepEqual(await (await setting()).json(), { modelWording: true, maySet: true });
+    assert.equal((await setting({ modelWording: true })).status, 400, 'no model rewords a report, whoever asks');
+    assert.deepEqual(await (await setting()).json(), { modelWording: false, maySet: true });
   });
 });
 
@@ -167,19 +157,18 @@ describe('a status report asked for in the chat', () => {
         'Every line in it names the record or paper behind it. Read it, edit it and issue it under your name.',
       ].join('\n'),
     );
-    assert.ok(answer.steps.includes('A model is putting the report in plain words'), 'and where a model words it, the step says a model does');
+    assert.ok(!answer.steps.some((label) => /plain words/.test(label)), 'no step says a model words it, because none does');
   });
 
-  it('has a model reword its lines once, from the lines alone, and keeps only the wording that holds', () => {
-    assert.equal(asked, 1, 'asked once, and not to word the reply');
-    assert.match(sent, /^The report is for the owner\.$/m);
-    assert.ok(!sent.includes(LEAD) && !sent.includes(VALUER), 'the lines are sent without who did what');
+  it('asks no model to reword its lines: every line reads as code made it from the record', () => {
+    assert.equal(asked, 0, 'no model was asked, for the reply or for the lines');
+    assert.equal(sent, '');
 
     const changed = report.body.blocks[0]!;
-    assert.deepEqual(changed.wording, [{ said: 'Filed and read: “Khata certificate” · accepted: Extent per khata 11,850 sq ft.', as: 'The “Khata certificate” was filed and read, and its extent of 11,850 sq ft was accepted.' }]);
+    assert.equal(changed.wording, undefined);
     const table = resolveReportBlock(stored(), changed).table!;
     assert.deepEqual(table.rows.map((row) => [row.cells[1], row.worded === true]), [
-      ['The “Khata certificate” was filed and read, and its extent of 11,850 sq ft was accepted.', true],
+      ['Filed and read: “Khata certificate” · accepted: Extent per khata 11,850 sq ft.', false],
       ['Overdue: “Send the survey sketch”, due 15 Sep 2026.', false],
     ]);
     assert.deepEqual(table.rows[0]!.cells.slice(2), ['14 Sep 2026', `${LEAD}, ${VALUER}`, 'on file', '“Khata certificate”, Khata certificate and extract'], 'the day, the people and what is behind the line are the file’s own');
@@ -196,16 +185,18 @@ describe('a status report asked for in the chat', () => {
   });
 });
 
-describe('turning model wording off', () => {
-  it('takes the wording off a report not yet issued, and no model is asked again', async () => {
-    const changed = stored().reports[0]!.body.blocks[0]!;
-    assert.equal(changed.wording?.length, 1);
+describe('a wording a model left on a report before', () => {
+  it('is taken off a report not yet issued when the firm turns it off, and no model is asked', async () => {
+    const { store } = await import('../apps/api/src/store');
+    store.data.tenants![0]!.reportWording = true;
+    stored().reports[0]!.body.blocks[0]!.wording = [{ said: 'Filed and read: “Khata certificate” · accepted: Extent per khata 11,850 sq ft.', as: 'The khata was filed.' }];
+    await store.save();
+    assert.deepEqual(await (await setting()).json(), { modelWording: true, maySet: true }, 'a firm that had it on is told so');
     assert.deepEqual(await (await setting({ modelWording: false })).json(), { modelWording: false, maySet: true });
     assert.equal(stored().reports[0]!.body.blocks[0]!.wording, undefined);
-    const before = asked;
     const answer = await say('Write the status report for September 2026 for the lender');
     assert.match(answer.assistantTurn.text, /status report for the lender/);
-    assert.equal(asked, before);
+    assert.equal(asked, 0);
     assert.ok(!answer.steps.some((label) => /plain words/.test(label)));
   });
 });

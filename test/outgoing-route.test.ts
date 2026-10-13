@@ -116,6 +116,11 @@ before(async () => {
     streamMessage(
       res,
       {
+        // The choice: a template of the firm's, the source the reply refers to, and the sources it states. One number is on no list.
+        template: 'reply_from_record',
+        refers_to: dates,
+        facts: [days, 99],
+        // Sentences a model might still send. The tool has no place for them, and nothing reads them.
         paragraphs: [
           {
             sentences: [
@@ -180,13 +185,17 @@ describe('a reply asked for in the chat', () => {
     assert.match(sent[0]!.text, /page 1: “.*14 March 2027 to 30 April 2027/);
     assert.doesNotMatch(sent[0]!.text, /91,00,000|Amount claimed/);
 
-    // A number is kept where the sentence holds to its source, and comes off where it does not. A mark the model typed is not one.
-    const dates = made.sources.find((source) => source.passage && source.says.includes('14 March 2027'))!.n;
+    // The body is the template's sentences and, between them, the chosen sources in the record's own words, each with its number.
+    // None of the sentences the model sent is in it, and the source that is on no list stated nothing.
+    const referred = made.sources.find((source) => source.passage && source.says.includes('14 March 2027'))!;
+    const dates = referred.n;
     const days = made.sources.find((source) => source.says === 'Extension claimed: 47 days')!.n;
     assert.equal(
       made.body,
-      [`You write that completion will move from 14 March 2027 to 30 April 2027. [${dates}]`, `You claim an extension of 47 days. [${days}]`, 'You claim an extension of 74 days.', 'The slab was inspected on 2 February 2027.', '', 'Please send the revised programme.'].join('\n'),
+      // The paper's passage stands inside its own quote marks, as the paper wrote it.
+      ['We refer to the following.', `“${referred.says}” [${dates}]`, '', 'On this, our record shows the following.', `Extension claimed: 47 days. [${days}]`, '', 'Please let us know if anything further is needed.'].join('\n'),
     );
+    for (const written of ['You write that completion', '74 days', 'inspected on 2 February', 'revised programme']) assert.ok(!JSON.stringify(made).includes(written), written);
 
     // Nothing on the record moved: the paper's values are as they were and no card was raised.
     const kept = store.data.projects!.find((one) => one.id === project.id)!;
@@ -198,7 +207,8 @@ describe('a reply asked for in the chat', () => {
     const header = Object.entries(draftFile).find(([name]) => /^word\/header\d*\.xml$/.test(name));
     assert.ok(header && wordsOf(header[1]).includes(OUTGOING_NOT_APPROVED), 'the header of a draft says it is not approved');
     const page = wordsOf(draftFile['word/document.xml']!);
-    assert.match(page, /You write that completion will move from 14 March 2027 to 30 April 2027\. \[1\] You claim an extension of 47 days\. \[2\]/);
+    assert.match(page, /We refer to the following\. .*14 March 2027 to 30 April 2027.* \[1\]/);
+    assert.match(page, /On this, our record shows the following\. Extension claimed: 47 days\. \[2\]/);
     assert.match(page, /Sources\s+1\. Contractor’s letter on the delay, page 1: “.*14 March 2027.*”\s+2\. Contractor’s letter on the delay, page 2: Extension claimed: 47 days/);
     assert.doesNotMatch(page, /Approved for sending/);
 

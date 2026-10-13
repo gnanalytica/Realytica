@@ -287,7 +287,7 @@ export const CUT_OFF_REASON =
  * to loop over here; a single `create`/`.stream()` call is simpler and is
  * exactly what the SDK docs recommend for a one-shot structured-output ask.
  */
-function buildExtractionTool(): LlmSchemaTool {
+export function buildExtractionTool(): LlmSchemaTool {
   return {
     kind: 'schema',
     name: EXTRACTION_TOOL_NAME,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DEPARTMENT_SHORT, SEVERITY_LABEL, SWEEP_KIND_LABEL, SWEEP_LIMITS, type DdProject, type SweepSource, type SweepSuggestion } from '@realytica/shared';
+import { DEPARTMENT_SHORT, SEVERITY_LABEL, SWEEP_KIND_LABEL, SWEEP_LIMITS, sweepSaid, type DdProject, type SweepSource, type SweepSuggestion } from '@realytica/shared';
 import { dailyReviewApi, type DailyReviewShown } from '../../lib/daily-review-api';
 import { date } from '../../lib/format';
 import { severityTone } from '../../pages/projects/shared';
@@ -8,11 +8,14 @@ import { AiMark, Badge, Button, Card, CardBody, Input, Why, useToast } from '../
 /**
  * What the daily review suggested, for a person to accept or dismiss.
  *
- * Once a day a model reads the project's record against itself and proposes
- * what looks wrong. Nothing it proposes is on the project: each is listed
- * here, in the blue of what no person has accepted, with the record's own
- * lines it rests on. A lead or signer of its department accepts it, and it
- * becomes a finding or a risk, or dismisses it with a reason.
+ * Once a day the project's record is read against itself: four kinds of
+ * thing by rule, and two where a model names the lines and code works out
+ * the rest. Nothing suggested is on the project: each is listed here, in the
+ * blue of what no person has accepted, as one line made from its fields,
+ * with what to do next off a fixed list and the record's own lines it rests
+ * on. No sentence here is a model's, but for a suggestion kept before that
+ * was so, which is marked. A lead or signer of its department accepts it,
+ * and it becomes a finding or a risk, or dismisses it with a reason.
  *
  * `useDailyReview` is null until the answer is in, and stays null for
  * somebody working from a grant, who is answered as if nothing were here.
@@ -74,21 +77,24 @@ function Row({
   const [dismissing, setDismissing] = useState(false);
   const [reason, setReason] = useState('');
   const desk = DEPARTMENT_SHORT[suggestion.department];
+  const said = sweepSaid(suggestion);
   return (
     <div className="space-y-2 px-4 py-3">
       <div className="flex items-start gap-2">
         <AiMark size="xs" className="mt-0.5" />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium text-ink">{suggestion.statement}</p>
+          <p className="text-[13px] font-medium text-ink">{said.line}</p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-ink-muted">
             <span>{SWEEP_KIND_LABEL[suggestion.kind]}</span>
             <span>{desk}</span>
+            {said.next && !said.byModelBefore ? <span className="text-ink-secondary">Next: {said.next}</span> : null}
             <span>Would be a {suggestion.as}</span>
             <span className="font-mono">{date(suggestion.raisedAt)}</span>
+            {said.byModelBefore ? <span>Written by a model, before this change</span> : suggestion.by === 'rule' ? <span>Found by rule</span> : null}
           </div>
           <Why label={`Why, and ${suggestion.sources.length} ${suggestion.sources.length === 1 ? 'source' : 'sources'}`}>
-            <p>{suggestion.why}</p>
-            {suggestion.action ? <p>Suggested: {suggestion.action}</p> : null}
+            {said.why ? <p>{said.why}</p> : null}
+            {said.byModelBefore && said.next ? <p>Suggested: {said.next}</p> : null}
             <ul className="list-disc space-y-0.5 pl-4">
               {suggestion.sources.map((source) => (
                 <Source key={source.ref} source={source} onOpen={onOpenPaper} />
@@ -189,11 +195,8 @@ export function DailyReviewList({ project, onAccepted, onOpenPaper }: { project:
           </CardBody>
         </Card>
       ) : null}
-      {!shown.model ? (
-        <p className="text-[12px] text-ink-muted">No model is set up, so the daily review is not running.</p>
-      ) : !count ? (
-        <p className="text-[12px] text-ink-muted">{shown.sweptAt ? `Nothing suggested. Last reviewed ${date(shown.sweptAt)}.` : 'Not reviewed yet. It runs once a day.'}</p>
-      ) : null}
+      {!count ? <p className="text-[12px] text-ink-muted">{shown.sweptAt ? `Nothing suggested. Last reviewed ${date(shown.sweptAt)}.` : 'Not reviewed yet. It runs once a day.'}</p> : null}
+      {!shown.model ? <p className="text-[12px] text-ink-muted">No model is set up, so the review runs its four rules only: cost and schedule are not read against each other.</p> : null}
     </section>
   );
 }

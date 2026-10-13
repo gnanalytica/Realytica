@@ -255,16 +255,17 @@ describe('the instruction to the model', () => {
     for (const name of ['REALYTICA_BASE_URL', 'REALYTICA_API_KEY', 'REALYTICA_MODEL_JUDGMENT']) delete process.env[name];
   });
 
-  it('asks for the answer in the question’s language, with what the record holds left exactly as it is', () => {
-    assert.match(rule, /Answer in the language the question is written in/);
-    for (const kept of ['figures', 'digits', 'names', 'document and registration numbers', 'square brackets']) assert.ok(rule.includes(kept), kept);
-    assert.match(rule, /never translated, transliterated or rounded/);
+  it('tells the model to read the question in its own language and to write no answer in any', () => {
+    assert.match(rule, /Read the question in its own language/);
+    assert.match(rule, /You write no answer in any language/);
+    assert.match(rule, /printed from the record as the record holds it/);
   });
 
   it('is sent to the model with the question as it was asked', async () => {
     const question = 'यह परियोजना कहाँ है?';
     const answer = await runProjectChat({ project: createProject({ name: 'Whitefield plot', type: 'commercial', location: 'Whitefield', city: 'Bengaluru' }, 'RYT-S1'), question });
-    assert.equal(answer.text, 'यह परियोजना Whitefield में है।');
+    // The model's Hindi sentence is not the reply. It picked nothing, so the template says so, in Hindi.
+    assert.equal(answer.text, 'इसका उत्तर न रिकॉर्ड में है, न काग़ज़ों में।');
     const body = JSON.parse(sent.at(-1)!) as { system: unknown; messages: unknown };
     assert.ok(JSON.stringify(body.system).includes(JSON.stringify(rule).slice(1, -1)), 'the rule is part of the standing instruction');
     assert.ok(JSON.stringify(body.messages).includes(question), 'the question is not translated on its way');
