@@ -18,6 +18,8 @@ import { TurnChanges } from './chat/TurnChanges';
 import { chatDay, chatRows, followsThread, liveChatId, liveTurns, planDrawnUnder, planStepAsks } from './chat/chat-list';
 import { TurnVisual } from './chat/TurnVisual';
 import { relativeTime } from '../lib/format';
+import { WORKSTREAMS } from '@realytica/shared';
+import { workspaceApi } from '../lib/workspace-api';
 
 /**
  * When the turn happened, and nothing else.
@@ -478,6 +480,12 @@ function SuggestionChip({ text, disabled, onClick }: { text: string; disabled?: 
  * Evidence Before Assertion, so "the evidence doesn't support an answer" is a
  * correct, valuable response, not a dead end.
  */
+/** The department whose list a spreadsheet dropped in the chat is loaded on: that of the function open, else Finance, where a list's general package belongs. */
+function deskHere() {
+  const fn = /\/w\/([a-z_.]+)/.exec(window.location.pathname)?.[1];
+  return WORKSTREAMS.find((ws) => ws.key === fn)?.department ?? 'finance';
+}
+
 export function CopilotPanel({
   conversation,
   evidence,
@@ -656,6 +664,9 @@ export function CopilotPanel({
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  // Spreadsheets waiting to go that are lists, each with the one sentence that offers its loader; and what a load said.
+  const [listOffers, setListOffers] = useState<Array<{ file: File; said: string }>>([]);
+  const [listSaid, setListSaid] = useState<string | null>(null);
   const filesRef = useRef(files);
   filesRef.current = files;
   /** What was left out of the files last added, and why. */
@@ -798,6 +809,34 @@ export function CopilotPanel({
     filesRef.current = took.files;
     setFiles(took.files);
     setLeftOut(leftOutSaid(took));
+    // A spreadsheet that is a list of information required, or a tender form, is offered to its own loader: the chat reads
+    // papers, and a list is lines.
+    if (!planProject) return;
+    for (const file of took.files.filter((held) => added.includes(held) && /\.(?:xlsx|csv|tsv)$/i.test(held.name))) {
+      void workspaceApi
+        .previewChecklist(planProject, { file, department: deskHere() })
+        .then((read) => {
+          if (read.kind === 'plain') return;
+          const said = read.kind === 'tender_form' ? 'This looks like a tender form: read it into Tender terms, each answer for a person to accept?' : `This looks like a list of information required (${read.lines ?? 0} lines): load it into Papers owed, each package on its own department’s list?`;
+          setListOffers((was) => [...was.filter((offer) => offer.file !== file), { file, said }]);
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  /** Load a spreadsheet the chat was handed as the list it is, and take it out of what the message carries. */
+  async function loadListOffer(file: File): Promise<void> {
+    if (!planProject) return;
+    try {
+      const res = await workspaceApi.importChecklist(planProject, { file, department: deskHere() });
+      filesRef.current = filesRef.current.filter((held) => held !== file);
+      setFiles(filesRef.current);
+      setListOffers((was) => was.filter((offer) => offer.file !== file));
+      setListSaid(`Loaded ${file.name}: ${res.said ?? `${res.added} added`}. It is on Papers owed, under Documents.`);
+      plans?.onChanged?.();
+    } catch (e) {
+      setListSaid(e instanceof Error ? e.message : 'That list could not be loaded.');
+    }
   }
 
   // While the paperclip is shut, nothing is taken: a reply is on its way, or there is no copilot here.
@@ -1305,6 +1344,21 @@ export function CopilotPanel({
               </span>
             ))}
           </div>
+        ) : null}
+        {listOffers
+          .filter((offer) => files.includes(offer.file))
+          .map((offer) => (
+            <div key={`${offer.file.name}-${offer.file.size}`} className="flex flex-wrap items-center gap-2 rounded-xl bg-sunken px-2.5 py-1.5 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+              <span className="min-w-0 flex-1">{offer.said}</span>
+              <Button size="sm" variant="secondary" onClick={() => void loadListOffer(offer.file)}>
+                Load it
+              </Button>
+            </div>
+          ))}
+        {listSaid ? (
+          <p className="px-1 text-mini text-ink-secondary" role="status">
+            {listSaid}
+          </p>
         ) : null}
         {leftOut ? (
           <p className="px-1 text-mini text-[var(--status-warning-text)]" role="status">

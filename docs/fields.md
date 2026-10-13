@@ -244,7 +244,7 @@ A field hidden by its condition that still holds a value is kept, under "Filled 
 
 **Not applicable.** A person marks a field or a section not applicable with one of five reasons: not in this project, not at this stage, done by another party, exempt, no such paper. The reason is a key, never a sentence.
 
-**Usual values.** `defaults: [{ when?, value, from, cite }]` fills a field as `assumed`: it is said to be assumed, feeds what is worked out, needs nobody, and gives way the moment a value is typed or accepted. A value somebody offered does not switch it off: the offer shows on the field to be accepted, and the usual value goes on standing in behind it. A value worked out from one carries the labels of the fields that stood in (`assumes`), and a report prints it as "worked out, on an assumed value". `cite` is required unless `from` is `'firm'`.
+**Usual values.** `defaults: [{ when?, value, from, cite }]` fills a field as `assumed`: it is said to be assumed, feeds what is worked out, needs nobody, and gives way the moment a value is typed or accepted. A value somebody offered does not switch it off: the offer shows on the field to be accepted, and the usual value goes on standing in behind it. A value worked out from one carries the labels of the fields that stood in (`assumes`), and a report prints it as "worked out, on an assumed value". `cite` is required unless `from` is `'firm'`. A value assumed because a paper will not come stands in the same way, ahead of a usual value, with its line of Papers owed as the citation: see Lists.
 
 ## Due and owed
 
@@ -259,6 +259,52 @@ Two attributes say when a field is the reader's to fill, and both keep the count
 - **`owedBy`** is a role (`owner`, `advocate`, `authority`, `consultant`, `contractor`, `lender`, `buyer`) or `{ ref }`, the key of a `ref` field of the same set that links to a party: whoever that link names owes it. A field somebody else owes is never under Missing and never counted against the reader. It is listed under that party on the function's page ("Waiting on others") and as a line of the department's **Papers owed** list, on its Documents part. There is no page of its own.
 
 Only a must-field that a person fills can be owed.
+
+## Lists: papers owed, and a form of answers
+
+Two lists a consultant keeps are taken in as they are, through the one **Load a list** on a department's Documents part (`POST /checklist/import`; with `preview` it says what it would do and changes nothing). Neither is a field set: a list is lines, and a form is answers to fields that already exist.
+
+**A tracked list** is a spreadsheet of information required, sent again each time it moves: a title and a legend, a row that names the columns, section rows between the items, and for each item a number, an older number, a package, the round it was asked in, a few words on what came back, and a status. `parseTrackedSheets` (`list-import.ts`) reads it from an `.xlsx`, a CSV or pasted rows. It finds the header wherever it is and knows the columns by their words, whoever's name is in them:
+
+| Column, by its words | Kept on the line as |
+|---|---|
+| `Ref No`, `Sl. No`, `Item No` | `ref`, as written: "2.1.4" |
+| `Orig. Sl.No`, `Old Ref` | `oldRef` |
+| `Package`, `Discipline`, `Trade` | `package`; a blank cell takes the package of the line above in the same section |
+| `Description of Information Required`, `Description`, `Item`, `Particulars` | `title` |
+| `Availability (at request)` | `availability`, as written |
+| `Request Ref`, `Asked in`, `Round` | `round`: a line with one has been asked for |
+| `Client Response / Remarks` | `remark`, read from the list |
+| `Current Status` | how the line stands: see below |
+| `Responsibility`, `Action by` | `owedBy` |
+| `Target Date`, `Due`, `Required by` | `targetDate`, as a day |
+| `Next Action / … Comments` | `note` |
+
+A row with only its number and its name is a section: it is kept as a heading over the lines under it (`headings`, outermost first, each with its number) and is never a paper, and neither is the title, the legend or the header. A sheet that counts the list ("Summary") is not read. A load ends by saying how many rows the sheet held, how many lines and sections were made of them, and each row that became neither with its reason (`counted`), so a count that does not add up is seen. A workbook's merged cells, blank rows and signature block are read through, and a file that cannot be read is refused in a sentence, never in an error's own words.
+
+- **What makes a line itself.** Its number where the list has one, else its name within the sections it sits under: two phases that ask for a paper in the same words are two lines.
+- **A load is one step.** Every line a load adds carries the load's id. The card says "Loaded 99 lines from …" with **Undo**, which takes that load back whole (`removeChecklistLoad`, `POST /checklist/remove`), and a tracked list is removed whole, with one confirmation, by somebody who may edit on every desk its lines are on.
+- **Lines ticked are set together** (`assignChecklistItems`, `POST /checklist/assign`): in hand, partial, to be assumed, asked for on a day, who owes them and the day they are wanted by.
+- **A document is offered for a line only on words that mean something.** "Client", "drawing", "details", "report", "list", "works" and "information" carry no weight: a match needs two other words in common, or the one the line has.
+- **Owed is counted one way.** A paper is owed once somebody has been asked for it; the card, Overview and every notice say the same number (`askedFor`, `papersOwedSaid`, `notAskedSaid`). Lines nobody was asked for, and lines that name nobody or no day, are what the list needs of somebody: a function's opening says so in one line with the counts (`papersNeedSaid`).
+- **Who owes it is a party.** The owed-by box picks from the project's parties, and a name that is not one yet is offered to be added to them. A consultant a tender form names who is no party is offered as a new party with its role; once accepted, the form's row links to it.
+- **A spreadsheet dropped in the chat** that is a tracked list or a tender form is offered to its loader in one press, in place of being read as a paper.
+
+- **Six standings.** Four are worked out as before: not asked, asked for, answered and in hand. Two more are set by a person who may edit the list, or by the list's own status column: **partial** (some of it is in hand and the rest is still owed, with a short line on what is still wanted) and **to be assumed** (it will not come, and a named party proceeds on an assumption). The status column reads `Received` as in hand, `Partial` as partial, `… to assume` as to be assumed with whoever is named, and `Pending` as asked for where a round is named and not asked where none is.
+- **Sent again, it updates.** `loadTrackedList` matches a line to the one an earlier copy of the same list made: by its number and name, then by its name where the number moved, then by its number where it was reworded. It reports what became received, became partial, became to be assumed, went back to pending, was added, and is no longer on the list (kept, and said). A line is never added twice. What a person settled here is not undone by the list.
+- **Each package has a desk.** `PACKAGE_DESKS` sends a package to a function by the words in its name: general to Budget, civil and structural to the Structural design basis, architectural and finishes to the Finishes schedule, external development to Landscape and external works, MEP to the Electrical load. The firm answers differently as it loads the list (`desks`, a package's name to a function's key), and a package nothing names stays on the desk the list was loaded on. Whoever loads it has to be able to edit in every department it reaches.
+- **The count is worked out.** `checklistSummary` gives, for each package and in total, how many lines are received, partial, to be assumed and pending, and the percent received; with `round`, of the lines asked for in one round. The card draws it above the list of a tracked list, and a report carries it as the bound block `information_status`.
+- **Who owes it and by when.** A line still owed that names nobody, or no day, says so in one quiet mark on a list that keeps such things ("nobody named, no date"), each is a filter, and one act sets the party and the day for every line ticked (`assignChecklistItems`). A line past its day is overdue. Nothing new is counted: Overview and the work list read the same papers-owed list as before.
+- **A paper that will not come.** A line to be assumed may name the fields the paper would have filled, each with the value assumed (`assumeChecklistItem`, `list-assumptions.ts`). Such a field reads that value as **assumed**, with the line as its reason: it feeds what is worked out, is said to be assumed wherever it shows, and gives way the moment a value is typed or accepted. Nothing is written onto the field, so taking the line back takes the assumption with it. Only a field a person fills with one value can be assumed, and whoever sets it has to be able to type in that field's department.
+
+**A tender form** is a form of answers: lines above a table for the project, the client, the package and the day a reply is wanted by, then rows under `Information / Document Required`, `Details to be Provided`, `Client Response`, `Document Attached` and `Remarks`. A sheet with the second and third of those columns is one. Its rows are the fields of **Tender terms** (`procurement.boq.tender_terms`), a record for each tender, and `TENDER_FORM_ROWS` (`tender-form.ts`) is the one table that says which: fifty-one rows in ten sections, each with the fields it answers and how a response is read as each.
+
+- A row is known by its wording, a letter or a word off (`tenderFormRowFor`), helped by its section and its number.
+- A filled response is **offered** as each field's value, with the file, the sheet and the row as its source, and counts for nothing until a lead or signer accepts it on the field. Words that cannot be read as the field's type are offered nowhere: the row is listed for a person to type.
+- `Not Applicable` is offered as not applicable, and a lead or signer of Procurement takes it or sets it aside.
+- A paper named under `Document Attached` is offered as the field's paper where a document of that name is on the project.
+- A row left unanswered, or naming a paper that is not on file, is a line of Papers owed: owed by the client, asked for, and wanted by the day the form asks for its reply.
+- `tenderFormExport` writes the same form back out, in the same columns, from the values that stand on the sheet. A form written here and read back offers nothing new.
 
 ## Depth sheets
 
@@ -283,7 +329,7 @@ When one row needs a dozen more fields, they do not join the row. They are a **d
 - At most twenty fields in at most four sections, and no list inside that pairs or opens another. Function, row, sheet is the whole depth.
 - A record at its twenty-field limit makes room by moving the fields of one hard case to a depth sheet under the keys they always had: what projects saved stays where it was.
 
-The catalog declares thirteen: an owner's guardianship and succession (with the heirs as rows under the owner who died), an instrument signed by an attorney and a partition, the partition suit, a final order and its appeal, what a plan revision changes, a variation's time claim, the cost of a delay, a guarantee's invocation, a design change that alters what buyers were promised or needs a modified sanction, and a cancellation after the registered agreement.
+The catalog declares twenty-two: an owner's guardianship and succession (with the heirs as rows under the owner who died), an instrument signed by an attorney and a partition, the partition suit, a final order and its appeal, what a plan revision changes, a variation's time claim, the cost of a delay, a guarantee's invocation, a design change that alters what buyers were promised or needs a modified sanction, a cancellation after the registered agreement, and the nine sheets of a tender's terms. Six of those every tender has (issue and reply, consultants, water and electricity, retention and security, approved makes and guarantee formats, the appendices); three open only once the tender says yes (earnest money, the mobilisation advance, materials the client supplies), so a tender with none of them is a short sheet.
 
 ## Needs you
 
@@ -639,6 +685,9 @@ A stored value may be one that waits. Code that acts on a field reads it through
 | `firm-fields.ts` | A firm's overlay, the catalog for a project's firm, and the rule table a firm reads once it has verified rows of its own |
 | `field-figures.ts` | The one door to figures other modules work out: schedule, site log, tenders, cost register, cost report, comparables, valuation, appraisal cash flow |
 | `field-sets/builders.ts` | Shapes written once: one figure stated by several people, and a file's links to other departments (`withLinks`) |
+| `checklist.ts`, `papers-owed.ts` | A list's lines and what loading one again does; the one list of papers owed, its standings and its count |
+| `list-import.ts`, `list-assumptions.ts` | A tracked list read as it is sent, and the desk each package goes to; a line to be assumed and the fields it stands in for |
+| `tender-form.ts` | The tender form's rows as fields: reading a client's form into Tender terms, and writing the form back out |
 | `report-fields.ts` | A report's field sections: resolving, templates, freezing, and what a grant's copy keeps |
 | `sweep-rules.ts`, `law-change.ts`, `chat-answer.ts` | The daily review's rules, a law change as fields with its lists and offered rule rows, and the chat's card |
 | `field-history.ts` | What a field held before: the one writer, the bound, a field as at a day and how far it moved |

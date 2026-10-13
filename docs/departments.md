@@ -90,10 +90,12 @@ The monthly Cost Report is not a field set. It is read as periods all the same (
 
 | Function | Sheets and records | Fields: core, situational, expert | Situations | Reports |
 |---|---|---|---|---|
-| BOQ & tenders (`procurement.boq`) | Procurement plan; Package plans (records); Bid evaluations (records); Earnest money (records); Addenda (records) | 46, 3, 5 | None | Procurement plan report |
+| BOQ & tenders (`procurement.boq`) | Procurement plan; Package plans (records); Bid evaluations (records); Earnest money (records); Addenda (records); Tender terms (records) | 62, 71, 7 | Earnest money applies; Mobilisation advance applies; Client supplies materials; Price escalation applies | Procurement plan report |
 | Purchase orders & commitments (`procurement.orders`) | Contracts and claims; adds to Contracts; Contract terms and position (records); Variations (records); Time claims (records) | 69, 24, 4 | A contract is being terminated | Contracts and claims report |
 | Vendors (`procurement.vendors`) | Securities and cover; adds to Parties; Securities (records); Insurance policies (records); Evaluations after a contract (records) | 49, 13, 8 | A security is held | None declared |
 | Deliveries & materials (`procurement.deliveries`) | Deliveries; Material received (records); Orders on long lead (records) | 23, 2, 1 | An order is on long lead | None declared |
+
+**Tender terms** (`procurement.boq.tender_terms`) is a record for each package being tendered: what the client has to answer before the tender document is written. The record holds eighteen fields every tender has (the type of contract and price basis, the periods, liquidated damages, payment terms, and three yes-or-no answers), and sixty-eight more on nine sheets of that record. Six of the sheets every tender has; earnest money, the mobilisation advance and materials the client supplies open only where the tender says yes, which is also what puts their situations in play. Consultants are links to the party record. It keeps five rules: the guarantee against the advance, the advance recovered no sooner than the work can pay for it, retention within its cap, liquidated damages within theirs, and a performance guarantee that outlasts the defects liability period. A client's form is read into it and written back out of it ([fields.md](fields.md#lists-papers-owed-and-a-form-of-answers)). These are the terms a tender offers; a signed contract's own terms stay on Contract terms and position.
 
 ## Commercial & Operations
 

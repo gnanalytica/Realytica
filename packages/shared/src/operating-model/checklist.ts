@@ -42,6 +42,10 @@ export interface ChecklistItem {
   dismissed?: string[];
   /** The list it is a line of, where it came from a tracked list: what a later copy of that list is matched against. */
   list?: string;
+  /** The load that put it on the project: what "Undo" takes back, whole. */
+  load?: string;
+  /** The day a person says it was asked for, where no request went from here and the list names no round. */
+  askedOn?: string;
   /** Its number as the list writes it: "2.1.4". */
   ref?: string;
   /** An older number the list keeps beside it: "B.1.10". */
@@ -194,9 +198,15 @@ function foldFile(name: string | undefined): string {
 }
 
 /** What makes two lines the same line: the paper, at the same stage, in the same package. */
-function lineKey(line: Pick<ChecklistDraft, 'title' | 'stage' | 'package' | 'list' | 'ref'>): string {
-  // A line of a tracked list is told apart by its number as well: two sections may ask for a paper of the same name.
-  return `${fold(line.title)}|${fold(line.stage)}|${fold(line.package)}${line.list && line.ref ? `|${fold(line.list)}|${line.ref.toLowerCase()}` : ''}`;
+function lineKey(line: Pick<ChecklistDraft, 'title' | 'stage' | 'package' | 'list' | 'ref' | 'headings'>): string {
+  // A line of a tracked list is told apart by its number, and where it has none by the sections it sits under: two phases
+  // may each ask for a paper of the same name, and they are two papers.
+  return `${fold(line.title)}|${fold(line.stage)}|${fold(line.package)}${line.list ? `|${fold(line.list)}|${line.ref ? line.ref.toLowerCase() : sectionPath(line)}` : ''}`;
+}
+
+/** The sections a line sits under, as they are compared. */
+function sectionPath(line: Pick<ChecklistDraft, 'headings'>): string {
+  return (line.headings ?? []).map((heading) => fold(heading.title)).join('>');
 }
 
 function itemsOf(project: DdProject): ChecklistItem[] {
@@ -529,8 +539,15 @@ export const LIST_ASSUMER = 'The consultant';
  * Put lines on the project. A line already there (the same paper, stage and
  * package) is left as it is, so the same list loaded twice is one list.
  */
-export function addChecklistItems(project: DdProject, department: DepartmentKey, drafts: readonly ChecklistDraft[], actor: string): { added: ChecklistItem[]; skipped: number } {
+export function addChecklistItems(
+  project: DdProject,
+  department: DepartmentKey,
+  drafts: readonly ChecklistDraft[],
+  actor: string,
+  opts: { load?: string } = {},
+): { added: ChecklistItem[]; skipped: number; skippedTitles: string[] } {
   const items = itemsOf(project);
+  const skippedTitles: string[] = [];
   const held = new Set(items.filter((i) => i.department === department).map(lineKey));
   const at = nowIso();
   const added: ChecklistItem[] = [];
@@ -542,6 +559,7 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
     const key = lineKey(line);
     if (held.has(key)) {
       skipped += 1;
+      skippedTitles.push(title);
       continue;
     }
     held.add(key);
@@ -549,6 +567,7 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
       id: newId('chk'),
       department,
       ...line,
+      ...(opts.load ? { load: opts.load } : {}),
       owedBy: clean(draft.owedBy, CHECKLIST_LIMITS.label),
       note: clean(draft.note, CHECKLIST_LIMITS.note),
       ...standsAs(draft, at, actor),
@@ -561,7 +580,7 @@ export function addChecklistItems(project: DdProject, department: DepartmentKey,
   if (items.length + added.length > CHECKLIST_LIMITS.items) throw new Error(`The list holds ${CHECKLIST_LIMITS.items} lines at most.`);
   items.push(...added);
   if (added.length) audit(project, actor, 'checklist_added', added[0]!.id, added.length === 1 ? added[0]!.title : `${added.length} lines`);
-  return { added, skipped };
+  return { added, skipped, skippedTitles };
 }
 
 export function addChecklistItem(project: DdProject, department: DepartmentKey, draft: ChecklistDraft, actor: string): ChecklistItem {
@@ -696,21 +715,91 @@ export function markChecklistAssumed(project: DdProject, itemId: string, input: 
  * Name who owes several lines, and the day they are wanted by, in one act.
  * Only what is given is set: a party alone leaves each line's day as it was.
  */
-export function assignChecklistItems(project: DdProject, itemIds: readonly string[], input: { owedBy?: string | null; targetDate?: string | null }, actor: string): ChecklistItem[] {
+export interface ChecklistSetInput {
+  owedBy?: string | null;
+  targetDate?: string | null;
+  /** How every line picked is made to stand: in hand, partly in hand, to be assumed, or asked for on a day. */
+  standing?: 'in_hand' | 'partial' | 'assumed' | 'asked';
+  /** With `partial`: what is still wanted. */
+  wanted?: string | null;
+  /** With `assumed`: who is to assume. */
+  assumer?: string;
+  /** With `asked`: the day they were asked for. Today where none is given. */
+  askedOn?: string | null;
+}
+
+/**
+ * Set several lines together, in one act: who owes them, the day they are
+ * wanted by, and how they stand. Only what is given is set: a party alone
+ * leaves each line's day as it was. A line marked to be assumed here keeps
+ * the fields it already stood in for.
+ */
+export function assignChecklistItems(project: DdProject, itemIds: readonly string[], input: ChecklistSetInput, actor: string): ChecklistItem[] {
   const owedBy = input.owedBy === undefined ? undefined : (clean(input.owedBy, CHECKLIST_LIMITS.label) ?? null);
   const targetDate = input.targetDate === undefined ? undefined : input.targetDate === null || !input.targetDate.trim() ? null : listDay(input.targetDate);
   if (input.targetDate?.trim() && !targetDate) throw new Error('Give the day they are wanted by as a date.');
-  if (owedBy === undefined && targetDate === undefined) throw new Error('Name who owes them, or the day they are wanted by.');
+  if (owedBy === undefined && targetDate === undefined && !input.standing) throw new Error('Name who owes them, the day they are wanted by, or how they stand.');
+  const assumer = clean(input.assumer, CHECKLIST_LIMITS.label);
+  if (input.standing === 'assumed' && !assumer) throw new Error('Name who is to assume.');
+  const askedOn = input.askedOn?.trim() ? listDay(input.askedOn) : undefined;
+  if (input.askedOn?.trim() && !askedOn) throw new Error('Give the day they were asked for as a date.');
+  const wanted = clean(input.wanted, CHECKLIST_LIMITS.remark);
   const items = [...new Set(itemIds)].map((id) => findItem(project, id));
   if (!items.length) throw new Error('Pick the lines.');
   const at = nowIso();
   for (const item of items) {
     if (owedBy !== undefined) item.owedBy = owedBy ?? undefined;
     if (targetDate !== undefined) item.targetDate = targetDate ?? undefined;
+    if (input.standing === 'in_hand') {
+      if (!item.received) item.received = { at, by: actor };
+      delete item.partial;
+      delete item.assumed;
+    } else if (input.standing === 'partial') {
+      item.partial = { at, by: actor, ...(wanted ? { wanted } : {}) };
+      delete item.received;
+      delete item.assumed;
+    } else if (input.standing === 'assumed') {
+      item.assumed = { at, by: actor, assumer: assumer!, ...(item.assumed?.fields?.length ? { fields: item.assumed.fields } : {}) };
+      delete item.received;
+      delete item.partial;
+    } else if (input.standing === 'asked') {
+      item.askedOn = askedOn ?? at.slice(0, 10);
+    }
     item.updatedAt = at;
   }
-  audit(project, actor, 'checklist_assigned', items[0]!.id, [`${items.length} ${items.length === 1 ? 'line' : 'lines'}`, owedBy ?? '', targetDate ?? ''].filter(Boolean).join(' · '));
+  audit(project, actor, 'checklist_assigned', items[0]!.id, [`${items.length} ${items.length === 1 ? 'line' : 'lines'}`, input.standing ?? '', owedBy ?? '', targetDate ?? ''].filter(Boolean).join(' · '));
   return items;
+}
+
+/**
+ * Take a whole load back, or a whole list off: every line one load put on
+ * the project (`load`), or every line of one tracked list (`list`). What a
+ * later copy of a list changed on lines an earlier load made is not undone
+ * by taking the later load back: those lines are the earlier load's.
+ */
+export function removeChecklistLoad(project: DdProject, which: { load?: string; list?: string }, actor: string): ChecklistItem[] {
+  const list = clean(which.list, CHECKLIST_LIMITS.label);
+  if (!which.load && !list) throw new Error('Say which load, or which list.');
+  const gone = (project.checklist ?? []).filter((item) => (which.load ? item.load === which.load : fold(item.list) === fold(list)));
+  if (!gone.length) throw new Error('No line of that is on the list.');
+  const ids = new Set(gone.map((item) => item.id));
+  project.checklist = (project.checklist ?? []).filter((item) => !ids.has(item.id));
+  audit(project, actor, 'checklist_load_removed', gone[0]!.id, undefined, `${gone.length} ${gone.length === 1 ? 'line' : 'lines'}${list ? ` of ${list}` : ''}`);
+  return gone;
+}
+
+/** The lists and loads a project's lines came from, each with how many lines it holds and the desks they are on. */
+export function checklistLoads(project: Pick<DdProject, 'checklist'>): Array<{ list?: string; load?: string; lines: number; departments: DepartmentKey[] }> {
+  const out = new Map<string, { list?: string; load?: string; lines: number; departments: DepartmentKey[] }>();
+  for (const item of project.checklist ?? []) {
+    if (!item.list && !item.load) continue;
+    const key = item.list ? `list:${fold(item.list)}` : `load:${item.load}`;
+    const held = out.get(key) ?? { ...(item.list ? { list: item.list } : { load: item.load }), lines: 0, departments: [] };
+    out.set(key, held);
+    held.lines += 1;
+    if (!held.departments.includes(item.department)) held.departments.push(item.department);
+  }
+  return [...out.values()];
 }
 
 /* ==================================================================== */
@@ -761,7 +850,7 @@ export function loadTrackedList(
   department: DepartmentKey,
   drafts: ReadonlyArray<ChecklistDraft & { department?: DepartmentKey }>,
   actor: string,
-  opts: { dryRun?: boolean; openOnly?: boolean } = {},
+  opts: { dryRun?: boolean; openOnly?: boolean; load?: string } = {},
 ): ListLoadReport {
   const list = clean(drafts.find((d) => d.list)?.list, CHECKLIST_LIMITS.label) ?? 'List';
   const report: ListLoadReport = { list, added: [], becameReceived: [], becamePartial: [], becameAssumed: [], reopened: [], gone: [], updated: 0, unchanged: 0 };
@@ -780,10 +869,16 @@ export function loadTrackedList(
   };
   const open = () => held.filter((i) => !matched.has(i.id));
   drafts.forEach((draft, n) => pair(n, open().find((i) => i.ref && refOf(i) === refOf(draft) && fold(i.title) === fold(draft.title))));
+  // A list with no numbers: a line is its name within the sections it sits under, so the same name under two phases is two lines.
+  drafts.forEach((draft, n) => {
+    if (!pairs.has(n) && !refOf(draft)) pair(n, open().find((i) => !i.ref && fold(i.title) === fold(draft.title) && sectionPath(i) === sectionPath(draft)));
+  });
   drafts.forEach((draft, n) => {
     if (pairs.has(n)) return;
     const same = open().filter((i) => fold(i.title) === fold(draft.title));
-    if (same.length === 1) pair(n, same[0]);
+    const under = same.filter((i) => sectionPath(i) === sectionPath(draft));
+    if (under.length === 1) pair(n, under[0]);
+    else if (same.length === 1) pair(n, same[0]);
   });
   drafts.forEach((draft, n) => {
     if (!pairs.has(n) && refOf(draft)) pair(n, open().find((i) => refOf(i) === refOf(draft)));
@@ -857,6 +952,7 @@ export function loadTrackedList(
       stage: clean(draft.stage, CHECKLIST_LIMITS.label),
       package: clean(draft.package, CHECKLIST_LIMITS.label),
       ...listed(draft),
+      ...(opts.load ? { load: opts.load } : {}),
       owedBy: clean(draft.owedBy, CHECKLIST_LIMITS.label),
       note: clean(draft.note, CHECKLIST_LIMITS.note),
       ...standsAs(draft, at, actor),
@@ -1017,12 +1113,39 @@ function matchDocuments(open: readonly ChecklistItem[], documents: readonly Evid
       const candidates = [match.evidenceId, match.ambiguousWith?.evidenceId].filter((id): id is string => Boolean(id));
       for (const id of candidates) {
         if (byId.get(id)?.dismissed?.includes(row.id)) continue;
+        // A word any paper carries is no likeness: "client" in a line and in a file's name offers nothing.
+        if (!sharesEnough(byId.get(id)!.title, names)) continue;
         const best = offered.get(id);
         if (!best || match.score > best.score) offered.set(id, { row, score: match.score });
       }
     }
   }
   return { sure, offered };
+}
+
+/** Words that say nothing of which paper a paper is. */
+const GENERIC = new Set(['client', 'drawing', 'detail', 'report', 'list', 'work', 'information', 'document', 'copy', 'final', 'project', 'file', 'revision', 'rev', 'the', 'and', 'for', 'with', 'from', 'all', 'pdf', 'required', 'latest', 'data', 'sheet', 'schedule', 'plan', 'statement']);
+
+const meaningful = (text: string): Set<string> =>
+  new Set(
+    fold(text)
+      .split(' ')
+      .map((word) => (word.length > 4 ? word.replace(/s$/, '') : word))
+      .filter((word) => word.length >= 3 && !/^\d+$/.test(word) && !GENERIC.has(word)),
+  );
+
+/**
+ * Whether a document may be offered for a line: its names share two words
+ * that mean something with the line's, or the one such word the line has.
+ */
+function sharesEnough(title: string, names: readonly string[]): boolean {
+  const wanted = meaningful(title);
+  if (!wanted.size) return false;
+  const need = Math.min(2, wanted.size);
+  return names.some((name) => {
+    const held = meaningful(foldFile(name));
+    return [...wanted].filter((word) => held.has(word)).length >= need;
+  });
 }
 
 function fileOf(row: EvidenceRecord | undefined): Pick<ChecklistLine, 'evidenceId' | 'fileName'> {
@@ -1083,8 +1206,8 @@ export function checklistSheet(project: DdProject, opts: { department?: Departme
     const dueAt = request?.dueAt ?? item.targetDate;
     const due = dueAt ? { dueAt, overdue: dueAt.slice(0, 10) < today } : {};
     if (request) return { item, status: 'requested', suggestion, askedOf: request.recipient, dueAt: request.dueAt, overdue: undefined, ...due, requestId: request.id, ...mark };
-    // A line a list says was asked for in a round has been asked for, though no request went from here.
-    if (item.round) return { item, status: 'requested', suggestion, ...due, ...mark };
+    // A line a list says was asked for in a round, or a person says was asked for on a day, has been asked for, though no request went from here.
+    if (item.round || item.askedOn) return { item, status: 'requested', suggestion, ...due, ...mark };
     return { item, status: 'pending', suggestion, ...(due.overdue ? due : item.targetDate ? { dueAt: item.targetDate } : {}), ...mark };
   });
 

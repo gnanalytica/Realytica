@@ -540,3 +540,43 @@ describe('the form written back out', () => {
     assert.deepEqual(p.tenderForms![0]!.notApplicable, []);
   });
 });
+
+describe('what a rehearsal on a real form found', () => {
+  it('a sheet with merged blanks in its title block and its signature block is read, not crashed on', async () => {
+    const ExcelJS = createRequire(path.resolve('apps/api/package.json'))('exceljs') as typeof import('../apps/api/node_modules/exceljs');
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet('Client inputs');
+    FORM.forEach((row) => sheet.addRow(row));
+    // Twenty merged ranges, as such a sheet has: the title, blank blocks beside the lines above the table, every
+    // section row, and the blank boxes of the signature block.
+    const ranges = ['A1:F1', 'B2:C2', 'E2:F2', 'B3:C3', 'E3:F3', 'B4:C4', 'E4:F4', 'A5:F5', 'B7:F7', 'B12:F12', 'B17:F17', 'B23:F23', 'B25:F25', 'B28:F28', 'B32:F32', 'B38:F38', 'A43:F43', 'B44:C44', 'E44:F44', 'B45:C45'];
+    for (const range of ranges) sheet.mergeCells(range);
+    const sheets = await workbookSheets(Buffer.from(await book.xlsx.writeBuffer()), { keepEmpty: true });
+    const form = parseTenderFormSheets(sheets);
+    assert.ok(form);
+    assert.deepEqual([form.rows.length, form.header.client, form.header.responseBy, form.footer.date], [28, 'Lake Road Developers', '20/10/2026', '18/10/2026']);
+    const { p } = project();
+    assert.equal(loadTenderForm(p, form, { file: 'Client inputs.xlsx', actor: 'buyer', today: '2026-10-13' }).offered, 44);
+  });
+
+  it('a consultant the form names who is no party yet is offered as a new party with its role, and is linked once it is one', async () => {
+    const { p } = project();
+    const rows = FORM.map((row) => [...row]);
+    rows.find((row) => row[0] === '1.3')![3] = 'Ridgeline Structural Engineers, 8 Canal Street, Kadamba; S. Pillai';
+    const report = loadTenderForm(p, await read(rows), { file: 'Client inputs.xlsx', actor: 'buyer@builders.example', today: '2026-10-13' });
+    assert.deepEqual([report.parties, report.unread.map((row) => row.no)], [['Ridgeline Structural Engineers'], ['1.6']]);
+    assert.match(tenderFormSaid(report), /1 party to add/);
+    const offered = p.fieldSheets!['shared.parties']!.records!.at(-1)!;
+    const party = readSheet(p, 'shared.parties', offered.id)!;
+    assert.equal(party.pending, true);
+    assert.deepEqual(['name', 'roles'].map((key) => party.fields.find((field) => field.def.key === key)!.held!.value), ['Ridgeline Structural Engineers', ['engineer']]);
+    // Read again before anybody accepts, it is not offered twice.
+    loadTenderForm(p, await read(rows), { file: 'Client inputs.xlsx', actor: 'buyer@builders.example', today: '2026-10-13' });
+    assert.equal(p.fieldSheets!['shared.parties']!.records!.filter((record) => readSheet(p, 'shared.parties', record.id)!.title === 'Ridgeline Structural Engineers' || readSheet(p, 'shared.parties', record.id)!.pending).length, 1);
+    // Accepted as a party, the same row links to it on the next read.
+    decideField(p, { fn: 'shared', set: 'shared.parties', field: RECORD_AS_OFFERED, record: offered.id }, 'accept', 'lead@builders.example');
+    const again = loadTenderForm(p, await read(rows), { file: 'Client inputs.xlsx', actor: 'buyer@builders.example', today: '2026-10-13' });
+    assert.deepEqual(again.parties, []);
+    assert.deepEqual([view(p, again.record!, 'structural_consultant').held?.value, view(p, again.record!, 'structural_consultant').held?.state], [offered.id, 'proposed']);
+  });
+});

@@ -38,6 +38,10 @@ import type { CheckFieldDef, CheckFieldValue, DdProject, FieldAddress } from './
 
 export { TENDER_TERMS };
 
+const PARTIES = 'shared.parties';
+/** The role a consultant named on the form is given on the party record. */
+const PARTY_ROLE: Record<string, string> = { client: 'owner', architect: 'architect', structural_consultant: 'engineer', mep_consultant: 'engineer', pmc: 'consultant' };
+
 const FN = 'procurement.boq';
 
 /* ==================================================================== */
@@ -578,6 +582,8 @@ export interface TenderFormReport {
   /** Rows whose wording is none of the form's. */
   unmatched: Array<{ no: string; item: string }>;
   refused: Array<{ no: string; item: string; error: string }>;
+  /** Consultants the form names that are not parties on the project yet: each offered as a new party, to be accepted on Parties. Read the form again once they are, and its rows link to them. */
+  parties: string[];
   owed: ListLoadReport;
 }
 
@@ -603,7 +609,7 @@ function documentNamed(project: DdProject, name: string): string | undefined {
 export function loadTenderForm(
   project: DdProject,
   read: TenderFormRead,
-  input: { file: string; record?: string; actor: string; dryRun?: boolean; today?: string },
+  input: { file: string; record?: string; actor: string; dryRun?: boolean; today?: string; load?: string },
   catalog: FieldCatalog = fieldCatalogFor(project),
 ): TenderFormReport {
   if (input.dryRun) return loadTenderForm(JSON.parse(JSON.stringify(project)) as DdProject, read, { ...input, dryRun: false }, catalog);
@@ -616,7 +622,7 @@ export function loadTenderForm(
   let record = [input.record, earlier?.record].find((id) => id && records.some((held) => held.id === id));
   const cite = (row: number, quote: string) => ({ kind: 'external' as const, source: `${file} · ${read.sheet} · row ${row}`, asOf: today, quote: quote.slice(0, 200) });
   const address = (field: string): FieldAddress => ({ fn: FN, set: TENDER_TERMS, field, ...(record ? { record } : {}) });
-  const report: TenderFormReport = { list, rows: read.rows.length, offered: 0, held: 0, notApplicable: 0, unanswered: 0, unread: [], unmatched: [], refused: [], owed: { list, added: [], becameReceived: [], becamePartial: [], becameAssumed: [], reopened: [], gone: [], updated: 0, unchanged: 0 } };
+  const report: TenderFormReport = { list, rows: read.rows.length, offered: 0, held: 0, notApplicable: 0, unanswered: 0, unread: [], unmatched: [], refused: [], parties: [], owed: { list, added: [], becameReceived: [], becamePartial: [], becameAssumed: [], reopened: [], gone: [], updated: 0, unchanged: 0 } };
 
   const proposals: Array<FieldProposal & { no: string; item: string }> = [];
   const offers: TenderFormOffer[] = [];
@@ -624,6 +630,7 @@ export function loadTenderForm(
   const materials = new Map<string, MaterialRow>();
   let materialsRow: { row: number; quote: string; no: string; item: string } | undefined;
   const taken = new Set<string>();
+  const newParties: Array<{ name: string; role: string; row: number; quote: string }> = [];
   const offer = (no: string, item: string, field: string, value: unknown, row: number, quote: string) => proposals.push({ address: address(field), value, origin: cite(row, quote), no, item });
 
   // The lines above the table are answers too: the package, the days, and the client where it is a party on the project.
@@ -684,6 +691,15 @@ export function loadTenderForm(
         continue;
       }
       const value = valueFor(project, catalog, response, field);
+      // A consultant the project has no party for: the firm is offered as a new party, with the role the row gives it.
+      if (value === undefined && field.read.as === 'party' && PARTY_ROLE[field.key]) {
+        const name = flat(response.split(/[,;\n]/)[0] ?? '').slice(0, 120);
+        if (name.length >= 3) {
+          newParties.push({ name, role: PARTY_ROLE[field.key]!, row: written.row, quote: response });
+          read_ += 1;
+        }
+        continue;
+      }
       if (value === undefined) continue;
       offer(form.no, form.item, field.key, value, written.row, response);
       read_ += 1;
@@ -719,6 +735,14 @@ export function loadTenderForm(
     offer(materialsRow.no, materialsRow.item, 'materials', rows, materialsRow.row, materialsRow.quote);
   }
 
+  // Every party there is, and every one already offered and waiting: a name is offered once.
+  const known = new Set(fieldRecords(project, PARTIES).map((held) => words(String(readSheet(project, PARTIES, held.id, undefined, catalog)?.fields.find((view) => view.def.key === 'name')?.held?.value ?? ''))));
+  for (const party of newParties) {
+    report.parties.push(party.name);
+    if (known.has(words(party.name))) continue;
+    known.add(words(party.name));
+    proposeFieldValues(project, [{ address: { fn: 'shared', set: PARTIES, field: 'name' }, value: party.name, origin: cite(party.row, party.quote) }, { address: { fn: 'shared', set: PARTIES, field: 'roles' }, value: [party.role], origin: cite(party.row, party.quote) }], 'parser', catalog);
+  }
   const outcomes = proposeFieldValues(project, proposals, 'parser', catalog);
   outcomes.forEach((outcome, n) => {
     record ??= outcome.address.record;
@@ -728,7 +752,7 @@ export function loadTenderForm(
   });
   // A form with nothing to offer still fills a record of its own, so what is not applicable has somewhere to be decided.
   if (!record && offers.length) record = addFieldRecord(project, TENDER_TERMS, {}, input.actor, {}, catalog).record?.id;
-  report.owed = loadTrackedList(project, 'procurement', drafts.map((draft) => ({ ...draft, department: 'procurement' as const })), input.actor, { openOnly: true });
+  report.owed = loadTrackedList(project, 'procurement', drafts.map((draft) => ({ ...draft, department: 'procurement' as const })), input.actor, { openOnly: true, ...(input.load ? { load: input.load } : {}) });
   if (record) {
     report.record = record;
     // What is already not applicable on the sheet is not offered again.
@@ -756,7 +780,7 @@ export function loadTenderForm(
 export function tenderFormSaid(report: TenderFormReport): string {
   const part = (n: number, said: string) => (n ? `${n} ${said}` : '');
   return (
-    [part(report.offered, report.offered === 1 ? 'value to accept' : 'values to accept'), part(report.held, 'already held'), part(report.notApplicable, 'not applicable'), part(report.unanswered, 'still owed'), part(report.unread.length, 'to type by hand'), part(report.unmatched.length, 'not on the form')]
+    [part(report.offered, report.offered === 1 ? 'value to accept' : 'values to accept'), part(report.held, 'already held'), part(report.parties.length, report.parties.length === 1 ? 'party to add' : 'parties to add'), part(report.notApplicable, 'not applicable'), part(report.unanswered, 'still owed'), part(report.unread.length, 'to type by hand'), part(report.unmatched.length, 'not on the form')]
       .filter(Boolean)
       .join(' · ') || 'Nothing to take from it'
   );
@@ -835,7 +859,7 @@ function written(project: DdProject, catalog: FieldCatalog, def: CheckFieldDef, 
  * agreed, and a blank where nothing was.
  */
 export function tenderFormExport(project: DdProject, recordId: string, catalog: FieldCatalog = fieldCatalogFor(project)): TenderFormOut {
-  const reading = readSheet(project, TENDER_TERMS, recordId, undefined, catalog);
+  const reading = fieldRecords(project, TENDER_TERMS).some((record) => record.id === recordId) ? readSheet(project, TENDER_TERMS, recordId, undefined, catalog) : undefined;
   if (!reading) throw new Error('That tender is not on this project.');
   const view = (key: string) => reading.fields.find((held) => held.def.key === key);
   const said = (key: string): string => {

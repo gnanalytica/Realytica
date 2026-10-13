@@ -156,6 +156,19 @@ export async function readQuestionnaireFile(file: { originalname: string; buffer
 }
 
 /**
+ * A cell's words as it is shown. One cell of a merged block reads its
+ * master's, and asking for them throws where the master is empty (a merged
+ * blank in a title block or a signature block): such a cell holds nothing.
+ */
+function cellWords(cell: { text?: unknown }): string {
+  try {
+    return String(cell.text ?? '');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Every sheet of a workbook as rows of cells, under the sheet's name. Each
  * cell as it is shown (`cell.text`). The same limit holds whatever the
  * workbook is opened for.
@@ -174,7 +187,7 @@ export async function workbookSheets(buffer: Buffer, opts: { keepEmpty?: boolean
     sheet.eachRow({ includeEmpty: false }, (row) => {
       const cells: string[] = [];
       row.eachCell({ includeEmpty: true }, (cell, column) => {
-        cells[column - 1] = String(cell.text ?? '');
+        cells[column - 1] = cellWords(cell);
       });
       while (opts.keepEmpty && rows.length < row.number - 1) rows.push([]);
       rows.push(Array.from(cells, (cell) => cell ?? ''));

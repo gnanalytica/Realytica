@@ -8,6 +8,7 @@ import {
   TENDER_TERMS,
   WORKSTREAMS,
   assumableFields,
+  checklistLoads,
   checklistSummary,
   departmentDefinition,
   departmentRole,
@@ -36,7 +37,7 @@ import {
   type TenderFormReport,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { workspaceApi, type ListPreview, type ListSend } from '../../lib/workspace-api';
+import { workspaceApi, type ListCounted, type ListLoaded, type ListPreview, type ListSend } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, Modal, Select, Textarea, cn, useToast, type Tone } from '../ui/kit';
 import { RequestActions } from '../project/RequestsPanel';
@@ -87,7 +88,29 @@ function Moved({ label, lines }: { label: string; lines: string[] }) {
   );
 }
 
-function LoadDialog({ project, department, open, onClose, onDone }: { project: DdProject; department: DepartmentKey; open: boolean; onClose: () => void; onDone: (next: DdProject) => void }) {
+/** What a sheet held against what was made of it, in one line: so a count that does not add up is seen. */
+function countedSaid(counted: ListCounted): string {
+  return [`The sheet held ${counted.rows} ${counted.rows === 1 ? 'row' : 'rows'}`, `${counted.lines} ${counted.lines === 1 ? 'line' : 'lines'}`, counted.sections ? `${counted.sections} ${counted.sections === 1 ? 'section' : 'sections'}` : '', counted.skipped.length ? `${counted.skipped.length} skipped` : 'none skipped']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function Skipped({ counted }: { counted: ListCounted }) {
+  if (!counted.skipped.length) return null;
+  return (
+    <ul className="space-y-0.5 text-[12px] text-ink-secondary">
+      {counted.skipped.slice(0, 6).map((row, n) => (
+        <li key={n}>
+          {row.row ? `Row ${row.row}: ` : ''}
+          {row.text} ({row.reason})
+        </li>
+      ))}
+      {counted.skipped.length > 6 ? <li>and {counted.skipped.length - 6} more</li> : null}
+    </ul>
+  );
+}
+
+function LoadDialog({ project, department, open, onClose, onDone }: { project: DdProject; department: DepartmentKey; open: boolean; onClose: () => void; onDone: (next: DdProject, loaded: ListLoaded) => void }) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -111,7 +134,7 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
 
   async function load() {
     const res = await workspaceApi.importChecklist(project.id, sent());
-    onDone(res.project);
+    onDone(res.project, res);
     toast(res.said ?? `${res.added} added${res.skipped ? ` · ${res.skipped} already there` : ''}`, 'good');
     reset();
     onClose();
@@ -164,7 +187,9 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
             <p className="text-micro text-ink-muted">
               {preview!.lines} lines · {listLoadSaid(tracked)}
             </p>
+            {preview!.counted ? <p className="text-micro text-ink-muted">{countedSaid(preview!.counted)}</p> : null}
           </div>
+          {preview!.counted ? <Skipped counted={preview!.counted} /> : null}
           <ul className="space-y-1">
             <Moved label="New" lines={tracked.added} />
             <Moved label="Now received" lines={tracked.becameReceived} />
@@ -283,7 +308,7 @@ function LoadDialog({ project, department, open, onClose, onDone }: { project: D
 /* ==================================================================== */
 
 /** A line's own fields, for a new line or one already on the list. `more` adds the day it is wanted by and what came back. */
-function LineForm({ start, busy, submit, more, onSubmit, children }: { start: ChecklistDraft; busy: boolean; submit: string; more?: boolean; onSubmit: (draft: ChecklistDraft) => void; children?: React.ReactNode }) {
+function LineForm({ start, busy, submit, more, parties, onSubmit, children }: { start: ChecklistDraft; busy: boolean; submit: string; more?: boolean; parties?: string; onSubmit: (draft: ChecklistDraft) => void; children?: React.ReactNode }) {
   const [draft, setDraft] = useState<ChecklistDraft>(start);
   const set = (key: keyof ChecklistDraft) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft((was) => ({ ...was, [key]: e.target.value }));
   return (
@@ -303,7 +328,7 @@ function LineForm({ start, busy, submit, more, onSubmit, children }: { start: Ch
         </label>
         <label className="text-micro text-ink-secondary">
           Owed by
-          <Input value={draft.owedBy ?? ''} onChange={set('owedBy')} className="mt-1" />
+          <Input value={draft.owedBy ?? ''} onChange={set('owedBy')} list={parties} className="mt-1" />
         </label>
         {more ? (
           <label className="text-micro text-ink-secondary">
@@ -602,6 +627,16 @@ export function PapersOwedCard({
   // Show only the lines standing one way, or the ones with nobody named or no day; and only those asked for in one round.
   const [only, setOnly] = useState<Only>('all');
   const [round, setRound] = useState<string | null>(null);
+  // The last load made here, to be taken back whole; a list about to be removed whole; and how the lines ticked are to stand.
+  const [lastLoad, setLastLoad] = useState<ListLoaded | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [standing, setStanding] = useState<'' | 'in_hand' | 'partial' | 'assumed' | 'asked'>('');
+  const [assumer, setAssumer] = useState('');
+  // The project's parties, to pick who owes a paper from; and a name just used that is not one of them yet.
+  const parties = useMemo(() => refChoices(project, 'party').map((party) => party.label.split(',')[0]!.trim()), [project]);
+  const [newParty, setNewParty] = useState<string | null>(null);
+  const partyList = `parties-${department}`;
+  const lists = useMemo(() => checklistLoads(project).filter((held) => held.list && held.departments.includes(department)), [project, department]);
   // The consultant's count, over the whole list: its packages run across departments.
   const summary = useMemo(() => (view.tracked ? checklistSummary(project, round ? { round } : {}) : undefined), [project, view.tracked, round]);
   const shown = (line: PaperLine): boolean =>
@@ -674,17 +709,34 @@ export function PapersOwedCard({
     }
   }
 
-  /** Name who owes the ticked lines, and the day they are wanted by, in one act. */
+  /** Set the ticked lines together, in one act: who owes them, the day they are wanted by, and how they stand. */
   async function assign() {
-    if (!recipient.trim() && !dueAt) {
-      toast('Name who owes them, or the day they are wanted by.', 'warning');
+    if (!recipient.trim() && !dueAt && !standing) {
+      toast('Name who owes them, the day they are wanted by, or how they stand.', 'warning');
       return;
     }
+    if (standing === 'assumed' && !assumer.trim()) {
+      toast('Name who is to assume.', 'warning');
+      return;
+    }
+    const owedBy = recipient.trim();
     const ok = await change(
-      () => workspaceApi.assignChecklist(project.id, { itemIds: toAssign.map((line) => line.checklist!.item.id), ...(recipient.trim() ? { owedBy: recipient.trim() } : {}), ...(dueAt ? { targetDate: dueAt } : {}) }),
+      () =>
+        workspaceApi.assignChecklist(project.id, {
+          itemIds: toAssign.map((line) => line.checklist!.item.id),
+          ...(owedBy ? { owedBy } : {}),
+          // With "asked", the day given is the day they were asked for; otherwise it is the day they are wanted by.
+          ...(dueAt ? (standing === 'asked' ? { askedOn: dueAt } : { targetDate: dueAt }) : {}),
+          ...(standing ? { standing } : {}),
+          ...(standing === 'assumed' ? { assumer: assumer.trim() } : {}),
+        }),
       `Set for ${toAssign.length} line${toAssign.length === 1 ? '' : 's'}.`,
     );
-    if (ok) setPicked(new Set());
+    if (!ok) return;
+    setPicked(new Set());
+    setStanding('');
+    // A name that is no party of the project yet is offered to be added, so the next line picks it.
+    if (owedBy && !parties.some((party) => fold(party) === fold(owedBy))) setNewParty(owedBy);
   }
 
   async function copy() {
@@ -821,6 +873,7 @@ export function PapersOwedCard({
               busy={busy}
               submit="Save"
               more
+              parties={partyList}
               onSubmit={(draft) =>
                 void change(() =>
                   workspaceApi.patchChecklistItem(project.id, item.id, {
@@ -960,6 +1013,96 @@ export function PapersOwedCard({
             </Button>
           </LineForm>
         ) : null}
+        <datalist id={partyList}>
+          {parties.map((party) => (
+            <option key={party} value={party} />
+          ))}
+        </datalist>
+        {lastLoad ? (
+          <div className="space-y-1 rounded-xl bg-sunken/60 p-2.5 ring-1 ring-inset ring-[var(--ring)]" role="status">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="min-w-0 flex-1 text-[13px] text-ink">
+                Loaded {lastLoad.added} {lastLoad.added === 1 ? 'line' : 'lines'} from {lastLoad.file ?? 'the list'}
+                {lastLoad.said ? <span className="text-ink-secondary"> · {lastLoad.said}</span> : null}
+              </p>
+              {lastLoad.load ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void change(() => workspaceApi.removeChecklistLoad(project.id, { load: lastLoad.load! }), 'Taken back.').then((ok) => {
+                      if (ok) setLastLoad(null);
+                    })
+                  }
+                >
+                  Undo
+                </Button>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => setLastLoad(null)}>
+                Dismiss
+              </Button>
+            </div>
+            {lastLoad.counted ? <p className="text-micro text-ink-muted">{countedSaid(lastLoad.counted)}</p> : null}
+            {lastLoad.counted ? <Skipped counted={lastLoad.counted} /> : null}
+          </div>
+        ) : null}
+        {newParty && desk ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-sunken/60 p-2.5 text-[13px] text-ink ring-1 ring-inset ring-[var(--ring)]">
+            <p className="min-w-0 flex-1">{newParty} is not one of the project’s parties yet.</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={() =>
+                void change(() => api.addFieldRecord(project.id, 'shared.parties', { name: newParty }), 'Added to the parties.').then((ok) => {
+                  if (ok) setNewParty(null);
+                })
+              }
+            >
+              Add to the parties
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setNewParty(null)}>
+              Not now
+            </Button>
+          </div>
+        ) : null}
+        {desk && lists.length ? (
+          <ul className="space-y-1">
+            {lists.map((held) => (
+              <li key={held.list} className="flex flex-wrap items-center gap-2 text-[12px] text-ink-secondary">
+                <span className="min-w-0 flex-1 truncate">
+                  {held.list} · {held.lines} {held.lines === 1 ? 'line' : 'lines'}
+                </span>
+                {removing === held.list ? (
+                  <>
+                    <span>Take all {held.lines} off, on every department’s list?</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void change(() => workspaceApi.removeChecklistLoad(project.id, { list: held.list! }), 'The list is taken off.').then(() => {
+                          setRemoving(null);
+                          setLastLoad(null);
+                        })
+                      }
+                    >
+                      Remove it
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setRemoving(null)}>
+                      Keep it
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => setRemoving(held.list!)}>
+                    Remove this list
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {summary ? (
           <div className="space-y-2">
             <SummaryTable summary={summary} department={department} />
@@ -982,10 +1125,28 @@ export function PapersOwedCard({
           <div className="flex flex-wrap items-end gap-2 rounded-xl bg-sunken/60 p-2.5 ring-1 ring-inset ring-[var(--ring)]">
             <label className="min-w-[11rem] flex-1 text-micro text-ink-secondary">
               {toAssign.length ? 'Who owes them' : unnamed ? `Who is asked, for the ${unnamed} nobody is named for` : 'One request goes to each party, naming everything it owes'}
-              <Input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Name, or their firm" className="mt-1" />
+              <Input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Name, or their firm" list={partyList} className="mt-1" />
             </label>
+            {toAssign.length ? (
+              <label className="text-micro text-ink-secondary">
+                Mark as
+                <Select value={standing} onChange={(e) => setStanding(e.target.value as typeof standing)} className="mt-1">
+                  <option value="">As they stand</option>
+                  <option value="in_hand">In hand</option>
+                  <option value="partial">Partial</option>
+                  <option value="assumed">To be assumed</option>
+                  <option value="asked">Asked for</option>
+                </Select>
+              </label>
+            ) : null}
+            {standing === 'assumed' ? (
+              <label className="text-micro text-ink-secondary">
+                Who assumes
+                <Input value={assumer} onChange={(e) => setAssumer(e.target.value)} list={partyList} className="mt-1" />
+              </label>
+            ) : null}
             <label className="text-micro text-ink-secondary">
-              By
+              {standing === 'asked' ? 'Asked on' : 'By'}
               <Input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="mt-1" />
             </label>
             <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
@@ -1071,7 +1232,18 @@ export function PapersOwedCard({
           </div>
         ) : null}
       </CardBody>
-      {desk ? <LoadDialog project={project} department={desk} open={loading} onClose={() => setLoading(false)} onDone={onChanged} /> : null}
+      {desk ? (
+        <LoadDialog
+          project={project}
+          department={desk}
+          open={loading}
+          onClose={() => setLoading(false)}
+          onDone={(next, loaded) => {
+            onChanged(next);
+            setLastLoad(loaded);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }

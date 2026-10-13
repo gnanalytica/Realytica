@@ -87,6 +87,11 @@ export interface TrackedList {
   drafts: ChecklistDraft[];
   /** The packages its lines name, in the order they first appear. */
   packages: string[];
+  /** The rows written under the header, the lines made of them and the sections among them: so a count that does not add up is seen. */
+  rows: number;
+  sections: number;
+  /** Rows that became neither a line nor a section, each with the row of the sheet it is on and why. */
+  skipped: Array<{ row: number; text: string; reason: string }>;
 }
 
 /**
@@ -94,27 +99,32 @@ export interface TrackedList {
  *
  * Rows above the header are the title and the legend: the first that holds
  * words names the list, and none is a line. Below it a row with only its
- * number and its name written, and lines numbered under it, is a section:
- * it is kept as a heading over those lines, with its number. A row merged
- * across the sheet (every cell the same words) is a heading too. Anything
- * else with a name is a line, however many of its cells are blank: taking a
- * paper for a heading would drop it from the list unseen.
+ * number and its name written is a section: it is kept as a heading over the
+ * lines under it, with its number, and is never a paper. A row merged across
+ * the sheet (every cell the same words) is a heading too. Anything else with
+ * a name is a line. What became neither is said, with its row (`skipped`),
+ * and the rows, lines and sections are counted so the sum can be checked.
  *
  * A line with no package written takes the package of the line above it in
  * the same section, as a merged cell means, and else its outermost section's
  * name.
  */
 export function parseTrackedRows(table: readonly (readonly string[])[], sheetName?: string): TrackedList | undefined {
-  const rows = table.map((r) => r.map((c) => String(c ?? '').replace(/\s+/g, ' ').trim())).filter((r) => r.some(Boolean));
+  // Each row with the row of the sheet it is on, where the sheet was read with its blank rows kept.
+  const numbered_ = table.map((r, n) => ({ cells: r.map((c) => String(c ?? '').replace(/\s+/g, ' ').trim()), at: n + 1 })).filter((r) => r.cells.some(Boolean));
+  const rows = numbered_.map((r) => r.cells);
   const headAt = rows.slice(0, 20).findIndex((r) => trackedColumns(r));
   if (headAt < 0) return undefined;
+  const skipped: TrackedList['skipped'] = [];
+  let sections = 0;
   const columns = trackedColumns(rows[headAt]!)!;
   const titled = rows.slice(0, headAt).find((r) => r.some((c) => /\p{L}{3}/u.test(c)));
   const list = ((titled?.find((c) => /\p{L}{3}/u.test(c)) ?? sheetName ?? 'List').replace(/\s+/g, ' ').trim() || 'List').slice(0, CHECKLIST_LIMITS.label);
   const at = (row: readonly string[], key: Column): string => (columns[key] === undefined ? '' : (row[columns[key]!] ?? ''));
   const named = new Set([columns.ref, columns.oldRef, columns.title].filter((n): n is number => n !== undefined));
 
-  const body = rows.slice(headAt + 1).map((row) => {
+  const body = rows.slice(headAt + 1).map((row, n) => {
+    const sheetRow = numbered_[headAt + 1 + n]!.at;
     const ref = isNumber(at(row, 'ref')) ? numberOf(at(row, 'ref')) : '';
     // What is written beside the number. One text and no more is a banner where it is merged across the sheet (the same
     // words in several cells) or sits outside the paper's own column.
@@ -122,11 +132,8 @@ export function parseTrackedRows(table: readonly (readonly string[])[], sheetNam
     const distinct = [...new Set(beside)];
     const banner = distinct.length === 1 && (beside.length > 1 || !at(row, 'title')) ? distinct[0]! : undefined;
     const others = row.filter((cell, n) => cell && !named.has(n) && cell !== at(row, 'title')).length;
-    return { row, ref, title: at(row, 'title'), banner, others };
+    return { row, ref, title: at(row, 'title'), banner, others, sheetRow };
   });
-  const refs = body.map((b) => b.ref).filter(Boolean);
-  const nests = (ref: string): boolean => refs.some((other) => other !== ref && other.toLowerCase().startsWith(`${ref.toLowerCase()}.`));
-  const numbered = refs.length > 0;
 
   const drafts: ChecklistDraft[] = [];
   const packages: string[] = [];
@@ -137,6 +144,7 @@ export function parseTrackedRows(table: readonly (readonly string[])[], sheetNam
     stack = stack.filter((h) => (h.ref ? depthOf(h.ref) : 1) < depth);
     stack.push({ ...(ref ? { ref } : {}), title: title.slice(0, CHECKLIST_LIMITS.label) });
     if (depth === 1) lastPackage = undefined;
+    sections += 1;
   };
 
   for (const line of body) {
@@ -148,8 +156,12 @@ export function parseTrackedRows(table: readonly (readonly string[])[], sheetNam
       else head('', line.banner);
       continue;
     }
-    if (!line.title) continue;
-    if (!line.others && (line.ref ? nests(line.ref) : numbered)) {
+    if (!line.title) {
+      skipped.push({ row: line.sheetRow, text: line.row.filter(Boolean).join(' · ').slice(0, 120), reason: 'no description' });
+      continue;
+    }
+    // A number and a name and nothing else is a section, never a paper: an item of a tracked list says at least how it stands.
+    if (!line.others) {
       head(line.ref, line.title);
       continue;
     }
@@ -175,7 +187,7 @@ export function parseTrackedRows(table: readonly (readonly string[])[], sheetNam
       ...(status ? { status: status.status, ...(status.assumer ? { assumer: status.assumer } : {}) } : {}),
     });
   }
-  return drafts.length ? { list, drafts, packages } : undefined;
+  return drafts.length ? { list, drafts, packages, rows: body.length, sections, skipped } : undefined;
 }
 
 /** A sheet that counts the list up. It is not read: the count is worked out from the lines. */
@@ -188,7 +200,7 @@ export function parseTrackedSheets(sheets: ReadonlyArray<{ name: string; rows: r
   const list = read[0]!.list;
   const drafts = read.flatMap((part) => part.drafts).map((draft, order) => ({ ...draft, list, order }));
   const packages = [...new Set(read.flatMap((part) => part.packages))];
-  return { list, drafts, packages };
+  return { list, drafts, packages, rows: read.reduce((n, part) => n + part.rows, 0), sections: read.reduce((n, part) => n + part.sections, 0), skipped: read.flatMap((part) => part.skipped) };
 }
 
 /** Pasted rows, or a CSV or TSV file's, as a tracked list: tabs where there are any, else commas. */

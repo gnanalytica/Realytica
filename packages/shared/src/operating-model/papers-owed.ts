@@ -110,6 +110,8 @@ export interface PapersOwed {
   assumed: PaperLine[];
   total: number;
   owed: number;
+  /** What somebody has been asked for and has not sent: what is owed. A line on a list that nobody was asked for is the list, not a debt. */
+  askedFor: number;
   notAsked: number;
   asked: number;
   answered: number;
@@ -218,7 +220,7 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
           ...(open && !line.dueAt ? { undated: true as const } : {}),
           ...(where ? { where } : {}),
           ...(party ? { party } : {}),
-          ...(request?.sentAt ? { askedOn: request.sentAt } : {}),
+          ...(request?.sentAt ? { askedOn: request.sentAt } : line.item.askedOn && standing !== 'in_hand' && standing !== 'assumed' ? { askedOn: line.item.askedOn } : {}),
           ...(line.dueAt ? { dueAt: line.dueAt } : {}),
           ...(line.overdue && !reply ? { overdue: true } : {}),
           ...(request ? { request } : {}),
@@ -295,6 +297,7 @@ export function papersOwed(project: DdProject, opts: { department?: DepartmentKe
     assumed: counted.filter((line) => line.standing === 'assumed'),
     total: counted.length,
     owed,
+    askedFor: owed - owing.reduce((n, party) => n + party.notAsked, 0),
     notAsked: owing.reduce((n, party) => n + party.notAsked, 0),
     asked: owing.reduce((n, party) => n + party.asked, 0),
     answered: owing.reduce((n, party) => n + party.answered, 0),
@@ -312,8 +315,10 @@ export function papersOwedSaid(view: Pick<PapersOwed, 'total' | 'owed' | 'notAsk
   if (!view.total) return 'Nothing asked for yet';
   const assumed = view.assumed?.length ?? 0;
   if (!view.owed) return assumed ? `${view.total - assumed} in hand · ${assumed} to be assumed` : `All ${view.total} in hand`;
+  // A paper is owed once somebody has been asked for it: counted here as Overview counts it, by the one rule.
+  const askedFor = view.owed - view.notAsked;
   return [
-    `${view.owed} owed`,
+    askedFor ? `${askedFor} owed` : 'Nothing owed',
     view.answered ? `${view.answered} to confirm` : '',
     view.partial ? `${view.partial} partial` : '',
     view.asked ? `${view.asked} asked for` : '',
@@ -323,6 +328,27 @@ export function papersOwedSaid(view: Pick<PapersOwed, 'total' | 'owed' | 'notAsk
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+/** What is on a list and asked of nobody, in the one sentence every screen says it in. */
+export function notAskedSaid(notAsked: number): string {
+  return `Nothing owed. ${notAsked} ${notAsked === 1 ? 'paper' : 'papers'} on the list, not asked for yet.`;
+}
+
+/**
+ * What a department's list needs of somebody, in one line: the lines nobody
+ * has been asked for, and of the lines still owed how many name nobody and
+ * how many name no day. Nothing where the list needs nothing.
+ */
+export function papersNeedSaid(view: Pick<PapersOwed, 'notAsked' | 'nobodyNamed' | 'noDate' | 'answered' | 'overdue'>): string | undefined {
+  const parts = [
+    view.answered ? `${view.answered} ${view.answered === 1 ? 'reply' : 'replies'} to confirm` : '',
+    view.overdue ? `${view.overdue} overdue` : '',
+    view.notAsked ? `${view.notAsked} not asked for yet` : '',
+    view.nobodyNamed ? `${view.nobodyNamed} with nobody named` : '',
+    view.noDate ? `${view.noDate} with no date` : '',
+  ].filter(Boolean);
+  return parts.length ? `${PAPERS_OWED}: ${parts.join(', ')}.` : undefined;
 }
 
 /** How one line stands, in a line under its name. */

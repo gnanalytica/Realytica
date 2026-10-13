@@ -24,6 +24,11 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import {
   addFieldRecord,
+  assumeChecklistItem,
+  loadTenderForm,
+  loadTrackedList,
+  parseTenderFormRows,
+  readSheet,
   createChatProposal,
   addEvidence,
   addressKey,
@@ -304,6 +309,31 @@ before(async () => {
   deed.documentType = 'Sale deed';
   project.chatProposals.push(createChatProposal('add_action', 'Zq7 follow the deed', 'Raised from the paper.', 'Adds an action.', { title: 'Zq7 follow the deed' }, OWNER, { citedEvidenceIds: [deed.id], cites: [{ evidenceId: deed.id, page: 2, quote: 'Zq7 the words of the deed itself' }] }));
   marked.push({ fn: 'legal.title', set: 'a card’s cited words', forms: ['Zq7 the words of the deed itself'], buyer: true });
+  // A consultant's tracked list: who is chased, in which round, what came back and who assumes. The firm's own, as every
+  // list is, and so is the value a line makes a field assume: a copy with the field on it reads the field empty.
+  const tender = add('procurement.boq.tender_terms', { contract_months: 19 });
+  loadTrackedList(
+    project,
+    'procurement',
+    [{ title: 'Zq7 Listed Paper', list: 'Zq7 Tracked List', ref: '9.9.1', package: 'Zq7 Package', round: 'Zq7 Round Two', remark: 'Zq7 remark from the client', owedBy: 'Zq7 Owing Party', status: 'assumed', assumer: 'Zq7 Assumer Named' }],
+    OWNER,
+  );
+  assumeChecklistItem(project, project.checklist!.find((line) => line.ref === '9.9.1')!.id, { assumer: 'Zq7 Assumer Named', fields: [{ address: { fn: 'procurement.boq', set: 'procurement.boq.tender_terms', field: 'min_bill_value', record: tender }, value: 913_572_468 }] }, OWNER);
+  assert.equal(readSheet(project, 'procurement.boq.tender_terms', tender)!.fields.find((view) => view.def.key === 'min_bill_value')!.state, 'assumed');
+  for (const form of ['Zq7 Listed Paper', 'Zq7 Round Two', 'Zq7 remark from the client', 'Zq7 Owing Party', 'Zq7 Assumer Named', '913572468']) marked.push({ fn: 'procurement.boq', set: 'a line of a tracked list', forms: [form], buyer: true });
+  // A client's tender form: the answers it offers wait on the Tender terms record, which goes where Procurement's sheets
+  // go; who the client is and what it marked not applicable are kept with the form, for the firm alone.
+  const formRead = parseTenderFormRows([
+    ['Client:', 'Zq7 Client Named', 'Response required by:', '20/10/2090'],
+    ['S.No', 'Information / Document Required', 'Details to be Provided', 'Client Response', 'Document Attached', 'Remarks'],
+    ['7.6', 'Payment terms', 'Billing frequency, minimum bill value, certification and payment period in days', 'Monthly; certified in 7 days and paid within 8765 days'],
+    ['4.1', 'Materials supplied by the client', 'Cement, steel, others or none', 'Not Applicable'],
+    ['7.4', 'Defects liability period', 'Months', ''],
+  ])!;
+  const formLoaded = loadTenderForm(project, formRead, { file: 'Zq7 Form File.xlsx', record: tender, actor: OWNER, today: '2090-01-02' });
+  assert.deepEqual([formLoaded.offered, formLoaded.notApplicable, formLoaded.unanswered], [4, 1, 1]);
+  marked.push({ fn: 'procurement.boq', set: 'procurement.boq.tender_terms', forms: ['8765', 'Zq7 Form File.xlsx'] });
+  marked.push({ fn: 'procurement.boq', set: 'a tender form', forms: ['Zq7 Client Named'], buyer: true });
 
   // A marked value on one check of every scope the project has.
   const catalog = fieldCatalog();

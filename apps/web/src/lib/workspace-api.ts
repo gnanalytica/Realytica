@@ -15,6 +15,7 @@ import type {
   CertifiedReport,
   ChecklistDraft,
   ChecklistPatch,
+  ChecklistSetInput,
   FieldAddress,
   ListLoadReport,
   PackageDesk,
@@ -83,8 +84,17 @@ export interface PairedDevice {
 export type ListSend = ({ file: File } | { text: string }) & { department: DepartmentKey; desks?: Record<string, string>; record?: string };
 
 /** What a list is, and what loading it would do. */
+/** What a sheet held against what was made of it: its rows, the lines and the sections among them, and what became neither. */
+export interface ListCounted {
+  rows: number;
+  lines: number;
+  sections: number;
+  skipped: Array<{ row: number; text: string; reason: string }>;
+}
+
 export interface ListPreview {
   kind: 'plain' | 'tracked' | 'tender_form';
+  counted?: ListCounted;
   lines?: number;
   list?: string;
   desks?: PackageDesk[];
@@ -98,6 +108,10 @@ export interface ListLoaded {
   added: number;
   skipped: number;
   said?: string;
+  /** The file it was read from, and the id of the load where it added lines: what Undo takes back. */
+  file?: string;
+  load?: string;
+  counted?: ListCounted;
 }
 
 function listBody(input: ListSend, preview: boolean): RequestInit {
@@ -472,9 +486,11 @@ export const workspaceApi = {
   /** What loading that list would do, with nothing changed: the kind of list it is, where its packages would go, and what would move. */
   previewChecklist: (projectId: string, input: ListSend) => request<ListPreview>(`/projects/${projectId}/checklist/import`, listBody(input, true)),
 
-  /** Who owes several lines of a list, and the day they are wanted by, set in one act. */
-  assignChecklist: (projectId: string, body: { itemIds: string[]; owedBy?: string | null; targetDate?: string | null }) =>
-    request<{ project: DdProject; changed: number }>(`/projects/${projectId}/checklist/assign`, json(body)),
+  /** Several lines of a list set together in one act: who owes them, the day they are wanted by, and how they stand. */
+  assignChecklist: (projectId: string, body: { itemIds: string[] } & ChecklistSetInput) => request<{ project: DdProject; changed: number }>(`/projects/${projectId}/checklist/assign`, json(body)),
+
+  /** Take a whole load back, or a whole list off. */
+  removeChecklistLoad: (projectId: string, which: { load: string } | { list: string }) => request<{ project: DdProject; removed: number }>(`/projects/${projectId}/checklist/remove`, json(which)),
 
   /** Take a row a client marked not applicable on a tender form, or set it aside. */
   decideTenderFormOffer: (projectId: string, formId: string, offerId: string, decision: 'take' | 'set_aside') =>

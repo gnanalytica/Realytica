@@ -23,6 +23,10 @@ import {
   addFieldRecord,
   assignChecklistItems,
   assumeChecklistItem,
+  checklistLoads,
+  notAskedSaid,
+  papersNeedSaid,
+  removeChecklistLoad,
   checklistOwed,
   checklistSheet,
   checklistSummary,
@@ -272,7 +276,7 @@ describe('the lines it puts on the project', () => {
     // Sixteen lines: three in hand, two that will not come, eleven still owed.
     assert.deepEqual([view.total, view.inHand.length, view.assumed.length, view.owed, view.partial, view.asked, view.notAsked], [16, 3, 2, 11, 2, 7, 2]);
     assert.deepEqual(view.rounds, ['E mail 01', 'E mail 02']);
-    assert.equal(papersOwedSaid(view), '11 owed · 2 partial · 7 asked for · 2 not asked · 2 to be assumed · 1 overdue');
+    assert.equal(papersOwedSaid(view), '9 owed · 2 partial · 7 asked for · 2 not asked · 2 to be assumed · 1 overdue');
     assert.equal(PAPER_STANDING_LABEL.assumed, 'To be assumed');
     // What will not come is owed by nobody: it is not chased, and not counted as owed anywhere.
     assert.equal(checklistOwed(p, { now: NOW }).owed, 11);
@@ -507,6 +511,136 @@ describe('who owes it, and by when', () => {
   });
 });
 
+
+describe('what a rehearsal on real lists found', () => {
+  it('the title, the legend, the header and the sections are never papers, no line is titled with its number, and the load says what the sheet held', async () => {
+    const read = await tracked(FIRST);
+    // Twenty-four rows under the header: sixteen lines and eight sections, nothing skipped.
+    assert.deepEqual([read.rows, read.drafts.length, read.sections, read.skipped], [24, 16, 8, []]);
+    assert.equal(read.rows, read.drafts.length + read.sections + read.skipped.length);
+    for (const draft of read.drafts) {
+      assert.ok(!/^[A-Z]?\d+(\.\d+)*$/.test(draft.title), `${draft.ref} is titled with a number`);
+      assert.ok(!/INFORMATION REQUIRED TO UPDATE|Status legend|Description of Information Required/.test(draft.title), draft.title);
+    }
+    // A row with a number and a heading and nothing else is a section, even with nothing numbered under it.
+    const lone = parseTrackedRows([HEAD, ['7', '', '', 'HANDOVER'], ['8', '', '', 'FIT-OUT'], ['8.1', 'H.1', 'General', 'Fit-out guidelines', '', 'E mail 01', '', 'Pending']])!;
+    assert.deepEqual([lone.drafts.map((draft) => draft.title), lone.sections], [['Fit-out guidelines'], 2]);
+    // A row with words and no description is said, with the row of the sheet it is on.
+    const odd = parseTrackedRows([HEAD, ['1.1', 'A.1', 'General', 'Master plan', '', 'E mail 01', '', 'Pending'], [], ['1.2', 'A.2', 'General', '', 'Not available', 'E mail 01', '', 'Pending']])!;
+    assert.deepEqual(odd.skipped, [{ row: 4, text: '1.2 · A.2 · General · Not available · E mail 01 · Pending', reason: 'no description' }]);
+  });
+
+  it('two phases that ask for a paper in the same words are two lines, by their number or by their section, and stay two when the list is sent again', () => {
+    const phased = (refs: boolean) =>
+      parseTrackedRows([
+        HEAD,
+        [refs ? '2' : '', '', '', 'PHASE 1 – TOWERS A AND B'],
+        [refs ? '2.1' : '', '', 'Civil and structural', 'Structural Drawings for Towers', 'Not available', 'E mail 01', '', 'Received'],
+        [refs ? '3' : '', '', '', 'PHASE 2 – TOWERS C AND D'],
+        [refs ? '3.1' : '', '', 'Civil and structural', 'Structural Drawings for Towers', 'Not available', 'E mail 02', '', 'Pending'],
+      ])!;
+    for (const refs of [true, false]) {
+      const p = project();
+      const read = phased(refs);
+      assert.deepEqual([read.drafts.length, read.sections], [2, 2]);
+      const first = loadTrackedList(p, 'design', read.drafts, 'qs');
+      assert.deepEqual([first.added.length, p.checklist!.length], [2, 2]);
+      assert.deepEqual(p.checklist!.map((item) => [item.headings![0]!.title, Boolean(item.received)]), [['PHASE 1 – TOWERS A AND B', true], ['PHASE 2 – TOWERS C AND D', false]]);
+      const again = loadTrackedList(p, 'design', read.drafts, 'qs');
+      assert.deepEqual([again.added, again.unchanged, p.checklist!.length], [[], 2, 2], refs ? 'with numbers' : 'without numbers');
+      // The second phase's is received on the next copy: that line moves, and the first is left alone.
+      const next = phased(refs);
+      next.drafts[1]!.status = 'received';
+      assert.deepEqual(loadTrackedList(p, 'design', next.drafts, 'qs').becameReceived.length, 1);
+      assert.deepEqual(p.checklist!.map((item) => Boolean(item.received)), [true, true]);
+    }
+  });
+
+  it('a load is one step that is taken back whole, and a list is removed whole', async () => {
+    const p = project();
+    addChecklistItems(p, 'finance', [{ title: 'A line typed by hand' }], 'pm');
+    const read = await tracked(FIRST);
+    loadTrackedList(p, 'finance', placeDrafts(read.drafts, packageDesks(read.packages)), 'qs', { load: 'load_first' });
+    const later = await tracked(second());
+    loadTrackedList(p, 'finance', placeDrafts(later.drafts, packageDesks(later.packages)), 'qs', { load: 'load_second' });
+    assert.deepEqual(checklistLoads(p), [{ list: 'INFORMATION REQUIRED TO UPDATE THE BUDGET', lines: 17, departments: ['finance', 'design'] }]);
+    // Taking the second load back takes the one line it added, and no line of the first.
+    assert.deepEqual(removeChecklistLoad(p, { load: 'load_second' }, 'pm').map((item) => item.ref), ['2.1.3']);
+    assert.equal(p.checklist!.length, 17);
+    assert.throws(() => removeChecklistLoad(p, { load: 'load_second' }, 'pm'), /No line of that/);
+    // The list taken off whole: every line of it on every desk, and nothing else.
+    assert.equal(removeChecklistLoad(p, { list: 'information required to update the budget' }, 'pm').length, 16);
+    assert.deepEqual(p.checklist!.map((item) => item.title), ['A line typed by hand']);
+    // A plain list's load is taken back the same way.
+    const plain = addChecklistItems(p, 'finance', [{ title: 'Soil report' }, { title: 'A line typed by hand' }], 'pm', { load: 'load_plain' });
+    assert.deepEqual([plain.added.length, plain.skippedTitles], [1, ['A line typed by hand']]);
+    assert.equal(removeChecklistLoad(p, { load: 'load_plain' }, 'pm').length, 1);
+  });
+
+  it('lines ticked are set together: in hand, partial, to be assumed, asked for on a day, owed by and wanted by', async () => {
+    const p = await loaded();
+    const ids = (refs: string[]) => refs.map((ref) => lineOf(p, ref).id);
+    assignChecklistItems(p, ids(['1.3', '2.1.3', '4.1']), { standing: 'in_hand' }, 'pm@builders.example');
+    assert.deepEqual(['1.3', '2.1.3', '4.1'].map((ref) => paper(p, ref).standing), ['in_hand', 'in_hand', 'in_hand']);
+    assignChecklistItems(p, ids(['3.2', '3.3']), { standing: 'partial', wanted: 'Ironmongery schedule' }, 'pm');
+    assert.deepEqual(['3.2', '3.3'].map((ref) => [paper(p, ref).standing, paper(p, ref).wanted]), Array(2).fill(['partial', 'Ironmongery schedule']));
+    assignChecklistItems(p, ids(['5.4.15']), { standing: 'assumed', assumer: 'Northbank Cost Consultants' }, 'pm');
+    assert.deepEqual([paper(p, '5.4.15').standing, paper(p, '5.4.15').assumer], ['assumed', 'Northbank Cost Consultants']);
+    assert.throws(() => assignChecklistItems(p, ids(['1.4']), { standing: 'assumed' }, 'pm'), /Name who is to assume/);
+    // Asked for on a day, with who owes them and the day they are wanted by, in the same act.
+    assignChecklistItems(p, ids(['1.4', '4.2']), { standing: 'asked', askedOn: '10/10/2026', owedBy: 'Lake Road Developers', targetDate: '2026-10-31' }, 'pm');
+    for (const ref of ['1.4', '4.2']) {
+      const line = paper(p, ref);
+      assert.deepEqual([line.standing, line.askedOn, line.party, line.dueAt], ['asked', '2026-10-10', 'Lake Road Developers', '2026-10-31']);
+      assert.equal(paperLineSaid(line, day, { tracked: true }), 'Asked 2026-10-10 · due 2026-10-31');
+    }
+    assert.throws(() => assignChecklistItems(p, ids(['1.4']), { standing: 'asked', askedOn: 'last week' }, 'pm'), /as a date/);
+  });
+
+  it('a document is offered for a line only on words that mean something: "client" in both is no likeness', () => {
+    const p = project();
+    addChecklistItems(p, 'finance', [{ title: 'Client brief and design intent' }, { title: 'List of drawings' }, { title: 'Soil investigation report' }], 'pm');
+    const file = (title: string, name: string) => {
+      const row = addEvidence(p, { title, kind: 'document', status: 'received' }, 'pm');
+      row.attachments.push({ id: `att_${row.id}`, fileName: name, mimeType: 'application/pdf', sizeBytes: 10, storageKey: `${row.id}.pdf`, uploadedAt: '2026-10-01T00:00:00.000Z' });
+    };
+    file('Client meeting notes', 'Client meeting notes 12 Oct.pdf');
+    file('Drawing register details', 'List of client works.pdf');
+    const none = checklistSheet(p, { now: NOW });
+    assert.equal(none.toConfirm, 0, JSON.stringify(none.stages.flatMap((s) => s.packages.flatMap((k) => k.lines)).map((l) => l.suggestion?.title)));
+    file('Borehole logs', 'soil-investigation-borehole-logs.pdf');
+    const some = checklistSheet(p, { now: NOW }).stages.flatMap((s) => s.packages.flatMap((k) => k.lines));
+    assert.deepEqual(some.map((line) => line.suggestion?.title), [undefined, undefined, 'Borehole logs']);
+  });
+
+  it('the list is counted one way on every screen: what is owed is what somebody was asked for', async () => {
+    const p = project();
+    addChecklistItems(p, 'procurement', Array.from({ length: 6 }, (_, n) => ({ title: `Paper ${n + 1}` })), 'pm');
+    const view = papersOwed(p, { now: NOW });
+    const overview = projectBrief(p, new Date(NOW)).find((line) => line.key === 'owed')!;
+    // Six lines nobody was asked for: neither screen calls them owed.
+    assert.deepEqual([view.askedFor, view.notAsked], [0, 6]);
+    assert.equal(papersOwedSaid(view), 'Nothing owed · 6 not asked');
+    assert.deepEqual([overview.parts, overview.quiet], [[], notAskedSaid(6)]);
+    assert.equal(notAskedSaid(6), 'Nothing owed. 6 papers on the list, not asked for yet.');
+    // Two asked for: both screens say two owed.
+    assignChecklistItems(p, p.checklist!.slice(0, 2).map((item) => item.id), { standing: 'asked', askedOn: '2026-10-10' }, 'pm');
+    const asked = papersOwed(p, { now: NOW });
+    assert.equal(papersOwedSaid(asked), '2 owed · 2 asked for · 4 not asked');
+    assert.equal(projectBrief(p, new Date(NOW)).find((line) => line.key === 'owed')!.parts[0]!.text, `${asked.askedFor} owed`);
+  });
+
+  it('lines nobody was asked for, with nobody named or no day, are said in one line with a count as what needs somebody', async () => {
+    const p = project();
+    assert.equal(papersNeedSaid(papersOwed(p, { department: 'procurement', now: NOW })), undefined);
+    addChecklistItems(p, 'procurement', Array.from({ length: 60 }, (_, n) => ({ title: `Tender paper ${n + 1}` })), 'pm');
+    assert.equal(papersNeedSaid(papersOwed(p, { department: 'procurement', now: NOW })), 'Papers owed: 60 not asked for yet, 60 with nobody named, 60 with no date.');
+    assignChecklistItems(p, p.checklist!.map((item) => item.id), { owedBy: 'Lake Road Developers', targetDate: '2026-12-01', standing: 'asked' }, 'pm');
+    assert.equal(papersNeedSaid(papersOwed(p, { department: 'procurement', now: NOW })), undefined);
+    assert.equal(papersNeedSaid(papersOwed(p, { department: 'procurement', now: '2026-12-02T06:00:00.000Z' })), 'Papers owed: 60 overdue.');
+  });
+});
+
 describe('a project that had a checklist before any of this', () => {
   /** A list as it was stored: a title and whatever it said, and nothing a tracked list adds. */
   function old(): DdProject {
@@ -532,7 +666,7 @@ describe('a project that had a checklist before any of this', () => {
     const view = papersOwed(p, { now: NOW });
     assert.deepEqual([view.total, view.owed, view.notAsked, view.asked, view.answered, view.overdue, view.inHand.length], [3, 2, 2, 0, 0, 0, 1]);
     assert.deepEqual([view.partial, view.assumed.length, view.tracked, view.rounds], [0, 0, false, []]);
-    assert.equal(papersOwedSaid(view), '2 owed · 2 not asked');
+    assert.equal(papersOwedSaid(view), 'Nothing owed · 2 not asked');
     const lines = view.parties.flatMap((party) => party.lines);
     assert.deepEqual(
       lines.map((line) => [line.title, line.standing, line.where, paperLineSaid(line, day, { tracked: view.tracked })]),
