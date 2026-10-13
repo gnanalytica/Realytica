@@ -487,7 +487,7 @@ describe('the frame is the one the menu shows', () => {
     const project = bareProject();
     const graph = buildProjectGraph(project);
     const own = WORKSTREAMS.filter((w) => w.department !== 'design');
-    assert.equal(own.length, 24);
+    assert.equal(own.length, WORKSTREAMS.length - 4, 'every workstream but Design’s four');
     for (const w of own) {
       const node = graph.nodes.find((n) => n.id === `${project.id}::ws::${w.key}`);
       assert.ok(node, `${w.key} lost its node`);
@@ -496,7 +496,7 @@ describe('the frame is the one the menu shows', () => {
       assert.equal(node.label, FUNCTION_SHORT[w.key], `${w.key} is not named by its one word`);
       if (w.label !== node.label) assert.ok((node.detail ?? '').startsWith(`${w.label} · `), `${w.label} is no longer findable`);
     }
-    assert.equal(graph.nodes.filter((n) => n.kind === 'workstream').length, 25, '24 of their own, and Design');
+    assert.equal(graph.nodes.filter((n) => n.kind === 'workstream').length, own.length + 1, 'each of their own, and Design');
   });
 
   it('joins what pointed at a design workstream to Design once, and drops a link between two of them', () => {
@@ -574,7 +574,7 @@ describe('the names people still use find something', () => {
     // The kind keeps the record's word; a search answers to the reader's too.
     for (const word of ['function', 'functions', 'Functions', 'workstream']) {
       const hits = findProjectNodes(buildProjectGraph(bareProject()), word);
-      assert.equal(hits.length, 25, `"${word}"`);
+      assert.equal(hits.length, WORKSTREAMS.filter((w) => w.department !== 'design').length + 1, `"${word}"`);
       assert.ok(hits.every((n) => n.kind === 'workstream'));
     }
   });
@@ -589,7 +589,7 @@ describe('the names people still use find something', () => {
       ['department', 'department', 5],
       ['departments', 'department', 5],
       ['Departments', 'department', 5],
-      ['workstreams', 'workstream', 25],
+      ['workstreams', 'workstream', WORKSTREAMS.filter((w) => w.department !== 'design').length + 1],
     ] as const) {
       assert.equal(findProjectNodes(graph, word).filter((n) => n.kind === kind).length, count, `"${word}"`);
     }
@@ -604,7 +604,7 @@ describe('the names people still use find something', () => {
 
     // Whatever the frame draws is named, and by the word the frame gives it.
     const drawn = projectFrameLabels(project);
-    assert.equal(drawn.length, 4 + 5 + 25);
+    assert.equal(drawn.length, 4 + 5 + WORKSTREAMS.filter((w) => w.department !== 'design').length + 1);
     for (const { id, label } of drawn) {
       assert.ok(projectFrameNames(id).some((name) => label === name || label.endsWith(` › ${name}`)), `${id} is drawn as "${label}" and named ${JSON.stringify(projectFrameNames(id))}`);
     }

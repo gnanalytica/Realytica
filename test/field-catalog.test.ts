@@ -105,8 +105,8 @@ describe('the catalog', () => {
       assert.ok(exported && index.includes(`...${exported},`), `${file} exports one array of field sets, spread into FIELD_SETS`);
     }
     // And the sets of a file that is registered are simply there: a function, its sheets, its page.
-    const added = buildFieldCatalog([...FIELD_SETS, set('finance.funding.plan', [num('equity')])]);
-    assert.deepEqual(fieldSetsOf(FN, added).map((s) => s.id), ['finance.funding.plan']);
+    const added = buildFieldCatalog([...FIELD_SETS, set('finance.funding.one_more', [num('equity')])]);
+    assert.deepEqual(fieldSetsOf(FN, added).map((s) => s.id), [...fieldSetsOf(FN).map((s) => s.id), 'finance.funding.one_more']);
   });
 
   it('gives a function that is not built a page as soon as it has a sheet', () => {

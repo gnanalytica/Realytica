@@ -60,7 +60,7 @@ interface Fn {
 /** The departments in the order of the menu, with the functions each must hold. */
 const EXPECTED: Record<string, string[]> = {
   legal: ['Title', 'Approvals', 'RERA', 'Contracts', 'Handover', 'Litigation'],
-  finance: ['Valuation', 'Feasibility', 'Budget', 'Funding', 'Tax'],
+  finance: ['Valuation', 'Feasibility', 'Budget', 'Funding', 'Tax', 'Lenders', 'Ledgers'],
   engineering: ['Design', 'Progress', 'Technical', 'Site', 'Safety'],
   commercial: ['Market', 'Sales', 'Collections', 'Handover', 'Operations'],
   procurement: ['Tenders', 'Orders', 'Vendors', 'Deliveries'],
@@ -85,11 +85,11 @@ const blocksOf = (fn: Fn) => fn.sections.flatMap((sec) => sec.blocks.map((block)
 const linesOf = (fn: Fn) => blocksOf(fn).flatMap(({ block }) => (block.type === 'slots' ? (block.groups ?? []).flatMap((g) => g.lines) : []));
 
 describe('the example project', () => {
-  it('holds the five departments and their twenty-five functions, in the order of the menu', () => {
+  it('holds the five departments and their functions, in the order of the menu', () => {
     for (const [dept, names] of Object.entries(EXPECTED)) {
       assert.deepEqual(SPEC[dept]!.map((f) => f.name), names, dept);
     }
-    assert.equal(everyFunction.length, 25);
+    assert.equal(everyFunction.length, Object.values(EXPECTED).flat().length);
   });
 
   it('places every function at stages that exist, and says how it stands', () => {

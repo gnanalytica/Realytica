@@ -75,6 +75,10 @@ export const DOCUMENT_WORKSTREAM: Readonly<Record<string, string>> = {
   'Valuation report': 'finance.valuation',
   'Progress certificate': 'construction.progress',
   'TDS certificate': 'finance.tax',
+  'Loan sanction letter': 'finance.lenders',
+  'Independent engineer report': 'finance.lenders',
+  'Bank statement': 'finance.funding',
+  'RERA withdrawal certificate': 'finance.funding',
 };
 
 /** The workstream a document belongs to, or undefined while nothing says. */

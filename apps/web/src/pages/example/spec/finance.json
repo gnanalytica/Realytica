@@ -3397,6 +3397,475 @@
      "url": "https://bbmptax.karnataka.gov.in/"
     }
    ]
+  },
+  {
+   "name": "Lenders",
+   "stages": [
+    "pre",
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "1 facility, 1 covenant short"
+   },
+   "sections": [
+    {
+     "id": "facility",
+     "name": "Facility",
+     "icon": "docs",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Sanction terms",
+       "items": [
+        {
+         "l": "Amount sanctioned",
+         "v": "₹ 40 Cr",
+         "state": "set"
+        },
+        {
+         "l": "Minimum promoter contribution",
+         "v": "30%",
+         "state": "set"
+        },
+        {
+         "l": "Rate now",
+         "v": "9.75%",
+         "state": "calc"
+        },
+        {
+         "l": "Last date to draw",
+         "v": "30 Jun 2027",
+         "state": "set"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "covenants",
+     "name": "Conditions and covenants",
+     "icon": "scale",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Covenants",
+       "cols": [
+        "Covenant",
+        "Test",
+        "Threshold",
+        "Actual",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Promoter contribution",
+         "At least",
+         "30%",
+         "25%",
+         "Open"
+        ],
+        [
+         "Cost overrun",
+         "At most",
+         "10%",
+         "4%",
+         "Paid"
+        ]
+       ],
+       "status": 4,
+       "money": [],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add covenant"
+      }
+     ]
+    },
+    {
+     "id": "drawdowns",
+     "name": "Drawdowns",
+     "icon": "links",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Drawdowns to milestones",
+       "cols": [
+        "Tranche",
+        "Milestone",
+        "Planned",
+        "Disbursed",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Tranche 1",
+         "Plinth",
+         "₹ 12 Cr",
+         "₹ 12 Cr",
+         "Paid"
+        ],
+        [
+         "Tranche 2",
+         "Fifth slab",
+         "₹ 10 Cr",
+         "₹ 0 Cr",
+         "Open"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        2,
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add drawdown"
+      },
+      {
+       "type": "table",
+       "title": "Cost incurred, as each states it",
+       "cols": [
+        "Stated by",
+        "Cost incurred",
+        "Stated on"
+       ],
+       "rows": [
+        [
+         "Quantity surveyor",
+         "₹ 30 Cr",
+         "30 Sep 2026"
+        ],
+        [
+         "Lender's engineer",
+         "₹ 27 Cr",
+         "5 Oct 2026"
+        ],
+        [
+         "Chartered accountant",
+         "₹ 32.5 Cr",
+         "12 Oct 2026"
+        ]
+       ],
+       "status": null,
+       "money": [
+        1
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "typed",
+       "from": "",
+       "add": "Add statement"
+      }
+     ]
+    },
+    {
+     "id": "position",
+     "name": "Loan position",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "fields",
+       "title": "Position",
+       "items": [
+        {
+         "l": "Drawn to date",
+         "v": "₹ 12 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Principal outstanding",
+         "v": "₹ 12 Cr",
+         "state": "calc"
+        },
+        {
+         "l": "Days past due",
+         "v": "0",
+         "state": "calc"
+        }
+       ]
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Promoter contribution is 5 points under the lender's minimum",
+     "rests": [
+      "Minimum promoter contribution"
+     ]
+    },
+    {
+     "t": "The three figures for cost incurred are 17% apart",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "Drawn beyond what the lowest cost stated makes eligible",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Tranche 2 has no certificate from the lender's engineer yet",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Drawdown eligible against the cost each party states",
+     "Covenant headroom, covenant by covenant"
+    ],
+    "certified": [
+     "Completion stage before each disbursement: lender's independent engineer"
+    ],
+    "reports": [
+     "Covenant compliance statement",
+     "Drawdown register with the milestone each tranche answers to"
+    ],
+    "sent": [
+     "Papers the lender is owed, each on its date",
+     "Cost incurred, as stated, to Budget"
+    ]
+   },
+   "mustHave": [
+    "Record each facility from its sanction letter, with the page each term is on.",
+    "Pair every drawdown to the milestone it answers to.",
+    "Keep the lender's engineer's figures beside the surveyor's and the accountant's."
+   ],
+   "standards": [
+    {
+     "name": "RBI (Project Finance) Directions 2025",
+     "why": "Disbursement against certified stages, limits on deferring completion and on cost overrun",
+     "url": "https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12873&Mode=0"
+    }
+   ]
+  },
+  {
+   "name": "Ledgers",
+   "stages": [
+    "build",
+    "done"
+   ],
+   "standing": {
+    "state": "indicative",
+    "basis": "October reconciled, 1 difference open"
+   },
+   "sections": [
+    {
+     "id": "payables",
+     "name": "Payables",
+     "icon": "money",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Contractor accounts",
+       "cols": [
+        "Contract",
+        "Certified",
+        "Paid",
+        "Payable",
+        "Per books",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Civil works",
+         "₹ 600 L",
+         "₹ 500 L",
+         "₹ 100 L",
+         "₹ 120 L",
+         "Open"
+        ],
+        [
+         "Electrical works",
+         "₹ 50 L",
+         "₹ 50 L",
+         "₹ 0 L",
+         "₹ 0 L",
+         "Paid"
+        ]
+       ],
+       "status": 5,
+       "money": [
+        1,
+        2,
+        3,
+        4
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "link",
+       "from": "Budget",
+       "add": ""
+      }
+     ]
+    },
+    {
+     "id": "customers",
+     "name": "Customer ledgers",
+     "icon": "people",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Received, register against books",
+       "cols": [
+        "Flat",
+        "Per register",
+        "Per books",
+        "In the bank",
+        "Status"
+       ],
+       "rows": [
+        [
+         "Flat 204",
+         "₹ 48 L",
+         "₹ 48 L",
+         "₹ 48 L",
+         "Paid"
+        ],
+        [
+         "Flat 508",
+         "₹ 56 L",
+         "₹ 54 L",
+         "₹ 56 L",
+         "Open"
+        ]
+       ],
+       "status": 4,
+       "money": [
+        1,
+        2,
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Import a ledger"
+      }
+     ]
+    },
+    {
+     "id": "reconciliation",
+     "name": "Reconciliation with the books",
+     "icon": "checks",
+     "blocks": [
+      {
+       "type": "table",
+       "title": "Control totals, October",
+       "cols": [
+        "Control total",
+        "Per books",
+        "Per project",
+        "Difference",
+        "Reason"
+       ],
+       "rows": [
+        [
+         "Creditors",
+         "₹ 120 L",
+         "₹ 100 L",
+         "₹ 20 L",
+         "Not yet entered in the books"
+        ],
+        [
+         "Bank balances",
+         "₹ 422 L",
+         "₹ 420 L",
+         "₹ 2 L",
+         "Timing"
+        ],
+        [
+         "Loan outstanding",
+         "₹ 1,200 L",
+         "₹ 1,200 L",
+         "₹ 0 L",
+         ""
+        ]
+       ],
+       "status": null,
+       "money": [
+        1,
+        2,
+        3
+       ],
+       "bar": null,
+       "total": false,
+       "low": false,
+       "source": "import",
+       "from": "",
+       "add": "Import the trial balance"
+      },
+      {
+       "type": "outputs"
+      }
+     ]
+    }
+   ],
+   "insights": [
+    {
+     "t": "Creditors differ by ₹ 20 L: a certificate is not yet in the books",
+     "rests": []
+    },
+    {
+     "t": "Every receipt in the register is in the collection account",
+     "rests": []
+    }
+   ],
+   "flags": [
+    {
+     "t": "A difference with the books has no reason against it",
+     "by": "rule",
+     "level": "high"
+    },
+    {
+     "t": "Flat 508: the books are ₹ 2 L under the register",
+     "by": "person",
+     "level": "medium"
+    }
+   ],
+   "outputs": {
+    "indicative": [
+     "Certified and unpaid, contract by contract",
+     "Received from customers: register, books and bank side by side"
+    ],
+    "certified": [],
+    "reports": [
+     "Monthly reconciliation statement",
+     "Contractor statement",
+     "Customer statement of account"
+    ],
+    "sent": [
+     "Open differences to the accountant",
+     "Payables falling due to Funding"
+    ]
+   },
+   "mustHave": [
+    "Keep the accounting package as the source of record: nothing is posted from here.",
+    "Hold the paper behind every balance: the certificate, the agreement, the bank statement.",
+    "Give every difference with the books a reason before the month is signed off."
+   ],
+   "standards": [
+    {
+     "name": "Companies Act 2013, s.128: books of account",
+     "why": "The books of account are kept by the company; the project record reconciles to them",
+     "url": "https://ca2013.com/books-of-account-etc-to-be-kept-by-company/"
+    }
+   ]
   }
  ]
 }

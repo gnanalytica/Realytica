@@ -36,6 +36,8 @@ const EXAMPLE_FUNCTION: Record<string, readonly [department: string, fn: string]
   'finance.budget': ['finance', 'Budget'],
   'finance.funding': ['finance', 'Funding'],
   'finance.tax': ['finance', 'Tax'],
+  'finance.lenders': ['finance', 'Lenders'],
+  'finance.ledgers': ['finance', 'Ledgers'],
   'legal.title': ['legal', 'Title'],
   'legal.approvals': ['legal', 'Approvals'],
   'legal.rera': ['legal', 'RERA'],
