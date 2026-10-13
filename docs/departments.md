@@ -2,7 +2,7 @@
 
 What each function keeps as typed fields, as the catalog declares it. This page is a listing; [fields.md](fields.md) says how a field set is declared, and [product.md](product.md#what-is-built-and-what-is-not) says what is built.
 
-**In all:** 49 functions, 47 of them with field sheets. 286 field sets: 116 sheets, 148 sets of records (the nine shared records among them) and 22 that add a department's own facts to a shared record. 3,415 fields: 2,231 core, 939 situational, 245 expert. 73 situations. 529 rules and 179 standings. 189 rows of the rule table under 108 keys, **0 of them verified**, and 10 limits with no figure yet. 19 reports declared by the departments, and 9 more made from the fields on checks. 78 figures read from other modules (eight that the catalog now works out by formula are gone). The checks keep a further 186 fields on 48 check definitions, in the same catalog.
+**In all:** 49 functions, 48 of them with field sheets. 288 field sets: 117 sheets, 149 sets of records (the nine shared records among them) and 22 that add a department's own facts to a shared record. 3,436 fields: 2,240 core, 947 situational, 249 expert. 73 situations. 532 rules and 181 standings. 189 rows of the rule table under 108 keys, **0 of them verified**, and 10 limits with no figure yet. 19 reports declared by the departments, and 9 more made from the fields on checks. 87 figures read from other modules (eight that the catalog now works out by formula are gone). The checks keep a further 186 fields on 48 check definitions, in the same catalog.
 
 How to read the tables:
 
@@ -26,6 +26,10 @@ A set kept by period is opened from the last, compared with it, due on a day and
 | For each drawdown | Lender's engineer's reports (`finance.lenders.engineer_reports`); Cost incurred, as stated (`finance.lenders.cost_incurred_stated`, one for each person who states it) | |
 
 The monthly Cost Report is not a field set. It is read as periods all the same (`finance.budget.cost_report`), so what is due and a chart over periods see it.
+
+The Site record's photo stations are kept by period too, a station at a time: each says how often it is to be shot (by the week, the month or the quarter), and the stations not photographed this period are the round's one line of kind `due`, as any set's is. The periods are the same calendar's (`period-keys.ts`).
+
+**What a new period opens with.** A field whose value normally holds from one period to the next is carried, and says "Carried from September" until somebody writes it: the source of the figures, an opening balance and how a gap is covered (Cash position); the signer and the membership number (RERA certificates); the auditor and the totals to date (Annual statement); the lender's classification of the account and a notice with its reply day and its matter (Loan position); what a statement is called (Quarterly statements of tax deducted); the engineer (Lender's engineer's reports); the kind and who certifies (the architect's and the engineer's certificates); the demand (Property tax by year); the workers planned (Month at a glance); packages to contracts (Contracts and claims); the lending rate, the demands against milestones and the notices (Collections); who a sale is credited to (Marketing spend); where leads are kept, the counts to date and the consents (Enquiries); and the three totals to date (Receivables). Everything else a person fills is read afresh each period and opens blank with last period's value beside it: a month's collections and payments, a week's forecast, what is outstanding per the statement and per the books, a day a paper was signed or filed, a month's GST and tax deducted.
 
 ## Finance & Investment
 

@@ -33,6 +33,10 @@ Every entry goes to an outbox on the phone first, with an id the phone generates
 
 A station is a place the site shoots again and again from the same spot, kept in the web app under Site. The site view lists the ones with no shot this period (`stations`: label, place, standing, the period, and whether there is an earlier shot). The day's log shows them above the photos, each with its last shot drawn faintly as a guide for framing, and a camera button. A photo taken from a station's row carries that station's id in the entry (`photos[].stationId`), and the server files it there. A photo taken any other way is matched by the server: to the one station within 30 m of where it was taken, else it waits in the web app as "place not set" for a person. The list is as old as the cached site view; a station shot from another phone since then is still listed until the view is refreshed.
 
+A station's period is the calendar's own week, month or quarter, the same one the web app keeps its periods by. A milestone whose stations are marked as needed is not marked complete from the web without their photographs; a day's log that reports it at 100 is filed as reported, and the web app then says "complete, photographs wanting" until the photographs are taken or a lead picks why not.
+
+The station list, the guide shot and the station carried on a photograph are typechecked and have not yet been run on a device.
+
 ## Notifications
 
 With notifications allowed, the phone registers its Expo push token. The API pushes alerts to the phones of a department's lead and signer: a serious issue from site, work logged before it is allowed, a late milestone, an approval lapsing, a certified report to revisit, and an action past its date, which also goes to the person it is on. Push needs a development or store build; Expo Go cannot receive them.
