@@ -138,7 +138,7 @@ describe('the Finance, Tax, Lenders and Ledgers catalog', () => {
       }),
     );
     // Shown, then asked for. Funding and Lenders show nothing until an account, a source or a facility is recorded.
-    assert.deepEqual(asked, { 'finance.funding': [0, 0], 'finance.tax': [12, 3], 'finance.lenders': [0, 0], 'finance.ledgers': [11, 2] });
+    assert.deepEqual(asked, { 'finance.funding': [0, 0], 'finance.tax': [12, 2], 'finance.lenders': [0, 0], 'finance.ledgers': [11, 2] });
   });
 });
 

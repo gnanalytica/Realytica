@@ -850,6 +850,8 @@ export interface FieldException {
   /** For a situation: the key it is kept under. */
   situation?: string;
   oneAtATime?: boolean;
+  /** For a record a paper offered and nobody has accepted a value of: where each of its values waits. The line is the record, and its address ends in `RECORD_AS_OFFERED`. */
+  whole?: FieldAddress[];
 }
 
 export interface SituationView {
@@ -992,7 +994,7 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
   const day = at.toISOString().slice(0, 10);
   const snoozed: FieldException[] = [];
   const exceptions: FieldException[] = [];
-  for (const exception of all) {
+  for (const exception of offeredRecordsAsOneLine(all, readings)) {
     const until = exception.need === 'due_soon' ? project.fieldSnoozes?.[exception.key]?.until : undefined;
     if (until && until > day) snoozed.push({ ...exception, snoozedUntil: until });
     else exceptions.push(exception);
@@ -1021,6 +1023,72 @@ export function readFunctionFields(project: DdProject, fn: string, at: Date = ne
     recorded: readings.reduce((sum, read) => sum + read.filled, 0),
     expected: readings.reduce((sum, read) => sum + read.total, 0),
   };
+}
+
+/**
+ * In place of a field's key in an address: every value a paper offered on one
+ * record that nobody has accepted a value of. Deciding at this address takes
+ * the record as it was offered, or leaves it.
+ */
+export const RECORD_AS_OFFERED = 'record as offered';
+
+/**
+ * A record a paper offered, and nobody has accepted a value of, as one line.
+ *
+ * A sale deed read into a new purchase was six lines to accept, one a field,
+ * for what is one thing: this purchase, as the deed states it. The line names
+ * the kind of record, says each value with its label, and carries where each
+ * one waits (`whole`). Accepting it accepts the values that need no naming
+ * (`decideField` at `RECORD_AS_OFFERED`); one a person has to name, a model's
+ * exact figure with only a second reading behind it, stays for them to name.
+ * Once a value of the record stands it is a record like any other, and what
+ * still waits on it is listed field by field.
+ */
+function offeredRecordsAsOneLine(all: FieldException[], readings: readonly SheetReading[]): FieldException[] {
+  const offered = (read: SheetReading) => read.fields.every((view) => fieldIsDerived(view.def) || view.state === 'empty' || (view.state === 'proposed' && !view.waiting.length));
+  const out: FieldException[] = [];
+  const done = new Set<string>();
+  for (const exception of all) {
+    const at = exception.address;
+    const read = exception.kind === 'proposed' && at?.record ? readings.find((reading) => reading.set.id === at.set && reading.recordId === at.record) : undefined;
+    if (!at || !read?.set.records || !offered(read)) {
+      out.push(exception);
+      continue;
+    }
+    const key = `${at.set}::${at.record}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    const lines = all.filter((line) => line.kind === 'proposed' && line.address?.set === at.set && line.address.record === at.record);
+    out.push({
+      kind: 'proposed',
+      need: 'accept',
+      key: `${key}::offered`,
+      sheet: read.set.title,
+      record: at.record,
+      address: { fn: at.fn, set: at.set, record: at.record, field: RECORD_AS_OFFERED },
+      label: `New ${read.set.records.of}`,
+      text: lines.map((line) => `${line.label} ${line.text}`).join(' · '),
+      ...(lines[0]!.source ? { source: lines[0]!.source } : {}),
+      oneAtATime: lines.some((line) => line.oneAtATime),
+      whole: lines.map((line) => line.address!),
+    });
+  }
+  return out;
+}
+
+/** Takes a record as a paper offered it, or leaves it: every value that waits on it and needs no naming is accepted, or every one set aside. */
+function decideRecordAsOffered(project: DdProject, address: FieldAddress, decision: FieldValueDecision, actor: string, options: FieldWriteOptions, catalog: FieldCatalog): undefined {
+  const set = catalog.sets.get(address.set);
+  if (!set?.records || !address.record || !fieldRecords(project, set.id).some((record) => record.id === address.record)) throw new FieldRefused('That record is not on this project.');
+  if (decision !== 'accept' && decision !== 'set_aside') throw new FieldRefused('A record a paper offered is accepted or set aside.');
+  assertMayDecide(set.fn, `Deciding a ${set.records.of} a paper offered`, options);
+  const waiting = (readSheet(project, set.id, address.record, undefined, catalog)?.fields ?? []).filter((view) => view.state === 'proposed' && !fieldIsDerived(view.def));
+  if (!waiting.length) throw new FieldRefused('Nothing waits on this record.');
+  for (const view of waiting) {
+    if (decision === 'accept' && view.oneAtATime) continue;
+    decideField(project, view.address, decision, actor, {}, options, catalog);
+  }
+  return undefined;
 }
 
 /** How a check's own fields show on its screen, and the situations they wait on. */
@@ -1428,6 +1496,7 @@ export function decideField(
   options: FieldWriteOptions = {},
   catalog: FieldCatalog = fieldCatalogFor(project),
 ): CheckFieldValue | undefined {
+  if (address.field === RECORD_AS_OFFERED) return decideRecordAsOffered(project, address, decision, actor, options, catalog);
   const set = catalog.sets.get(address.set);
   const def = set?.fields.find((field) => field.key === address.field);
   if (!set || !def) throw new FieldRefused(`No field at ${address.set}/${address.field}.`);
@@ -1685,32 +1754,60 @@ export function proposeSituations(project: DdProject, proposer = 'parser', catal
  *
  * Only values that stand on the paper are handed on (`settled`): a model's
  * reading nobody has accepted there, and one two readers differ on, wait on
- * the paper first. On the sheet every one of them waits again, for a lead or
- * signer of the function. The situations the paper suggests are proposed with
- * it. Reading the same paper twice offers nothing twice.
+ * the paper first. With `waiting`, a value that waits on the paper is handed
+ * on too, for a paper as it is read: it then waits once, on the field that
+ * owns it, where a lead or signer of the function accepts it with its page
+ * and words in front of them. Never one two readers differ on, which is a
+ * choice made on the paper, nor one a person set aside there. On the sheet
+ * every value waits, whichever way it came. The situations the paper suggests
+ * are proposed with it. Reading the same paper twice offers nothing twice.
+ *
+ * A set that repeats takes the paper's values on one record: the record this
+ * paper was read into before; else the one known by what the paper calls it
+ * (its survey number, its document, certificate or contract number: the
+ * set's title field where the paper states it, else the first name or link
+ * it states); else a new one. So an RTC for one survey number is offered to
+ * that parcel's land record, and a second copy of a certificate to the
+ * record the first made. A link is offered only where the paper names one
+ * thing the project already has.
  */
-export function offerPaperToSheets(project: DdProject, evidenceId: string | undefined, facts: readonly DocumentFact[], catalog: FieldCatalog = fieldCatalogFor(project)): FieldProposalOutcome[] {
+export function offerPaperToSheets(
+  project: DdProject,
+  evidenceId: string | undefined,
+  facts: readonly DocumentFact[],
+  catalog: FieldCatalog = fieldCatalogFor(project),
+  options: { waiting?: boolean } = {},
+): FieldProposalOutcome[] {
   const paper = evidenceId ? project.evidence.find((e) => e.id === evidenceId) : undefined;
   const kind = paper?.documentType?.toLowerCase();
   if (!paper || !kind || paper.unconfirmedReply) return [];
+  const handedOn = (fact: DocumentFact) => (options.waiting ? fact.review !== 'rejected' && !fact.otherReading : settled(fact));
+  const fromPaper = (origin: FieldOrigin | undefined) => origin?.kind === 'paper' && origin.evidenceId === paper.id;
   const proposals: FieldProposal[] = [];
   for (const sets of catalog.sheets.values()) {
     for (const set of sets) {
-      for (const def of set.fields) {
-        if (!def.fromTypes?.some((type) => type.toLowerCase() === kind) || fieldIsDerived(def) || def.kind === 'longtext') continue;
-        const fact = facts.find((f) => f.key === (def.factKey ?? def.key) && settled(f));
-        if (!fact) continue;
+      const stated = set.fields.flatMap((def) => {
+        if (!def.fromTypes?.some((type) => type.toLowerCase() === kind) || fieldIsDerived(def) || def.kind === 'longtext') return [];
+        const fact = facts.find((f) => f.key === (def.factKey ?? def.key) && handedOn(f));
+        const value = fact ? paperValueFor(project, catalog, def, fact) : undefined;
+        return fact && value !== undefined ? [{ def, fact, value }] : [];
+      });
+      if (!stated.length) continue;
+      const records = set.records ? fieldRecords(project, set.id) : [];
+      const known = set.records ? (stated.find((s) => s.def.key === set.records!.titleField) ?? stated.find((s) => s.def.kind === 'text' || s.def.kind === 'ref')) : undefined;
+      const record =
+        records.find((held) => Object.values(held.values).some((value) => fromPaper(value.origin) || value.other?.some((other) => fromPaper(other.origin))))
+        ?? (known ? records.find((held) => namesTheSame(held.values[known.def.key], known.value)) : undefined);
+      for (const { def, fact, value } of stated) {
         // A set that repeats: this paper's value is already on one of its records, waiting or decided.
-        const already = set.records && fieldRecords(project, set.id).some((record) => {
-          const held = record.values[def.key];
-          const from = (origin: FieldOrigin | undefined) => origin?.kind === 'paper' && origin.evidenceId === paper.id;
-          return held && (from(held.origin) || held.other?.some((o) => from(o.origin)) || held.declined?.some((d) => String(d.value) === String(fact.value)));
+        const already = records.some((held) => {
+          const on = held.values[def.key];
+          return on && (fromPaper(on.origin) || on.other?.some((o) => fromPaper(o.origin)) || on.declined?.some((d) => String(d.value) === String(fact.value)));
         });
         if (already) continue;
         proposals.push({
-          address: { fn: set.fn, set: set.id, field: def.key },
-          // An area is filed in square metres, whatever the field is entered in.
-          value: def.dimension === 'area' && typeof fact.value === 'number' ? `${fact.value} sqm` : fact.value,
+          address: { fn: set.fn, set: set.id, field: def.key, ...(record ? { record: record.id } : {}) },
+          value,
           origin: { kind: 'paper', evidenceId: paper.id, page: fact.page, quote: fact.quote, reader: fact.source === 'model' ? 'model' : 'parser', ...(proofOf(fact) ? { proof: proofOf(fact) } : {}) },
         });
       }
@@ -1719,6 +1816,44 @@ export function offerPaperToSheets(project: DdProject, evidenceId: string | unde
   const outcomes = proposals.length ? proposeFieldValues(project, proposals, 'parser', catalog) : [];
   proposeSituations(project, 'parser', catalog);
   return outcomes;
+}
+
+/** Letters and digits, and the runs of digits kept apart: 73/4 is not 734. */
+function spelt(value: unknown): string {
+  const text = String(value ?? '').normalize('NFKC').toLowerCase();
+  return `${text.replace(/[^\p{L}\p{M}\p{N}]+/gu, '')}|${(text.match(/\d+/g) ?? []).join('-')}`;
+}
+
+/** Whether a record is known by what a paper calls it: the value its field holds, standing or waiting, is that name. */
+function namesTheSame(held: CheckFieldValue | undefined, stated: unknown): boolean {
+  if (!held) return false;
+  return [held.value, ...(held.other ?? []).map((other) => other.value)].some((value) => !isBlank({ value } as CheckFieldValue) && spelt(value) === spelt(stated));
+}
+
+/**
+ * A paper's value as its field takes it. An area is filed in square metres,
+ * whatever the field is entered in, and a length with the unit the paper
+ * wrote. A link takes the one thing on the project the paper's words name (a
+ * parcel by its survey number, a contract by its number, a party by name);
+ * where they name none, or more than one, nothing is offered for it.
+ */
+function paperValueFor(project: DdProject, catalog: FieldCatalog, def: CheckFieldDef, fact: DocumentFact): unknown {
+  if (def.kind === 'ref') {
+    const said = spelt(fact.value);
+    const setId = refSet(def.target);
+    // What each thing is called: its title, the name before a comma in it, and for a record any name or number it holds.
+    const names = (choice: { id: string; label: string }) => {
+      const record = setId ? fieldRecords(project, setId).find((held) => held.id === choice.id) : undefined;
+      const texts = record ? (catalog.sets.get(setId!)?.fields ?? []).filter((field) => field.kind === 'text').map((field) => standingField(record.values[field.key])?.value) : [];
+      return [choice.label, choice.label.split(',')[0], ...texts].filter((name) => name !== undefined && name !== null && String(name).trim() !== '');
+    };
+    const named = refChoices(project, def.target, catalog).filter((choice) => names(choice).some((name) => spelt(name) === said));
+    return named.length === 1 ? named[0]!.id : undefined;
+  }
+  if (typeof fact.value !== 'number') return fact.value;
+  if (def.dimension === 'area') return `${fact.value} sqm`;
+  if (def.dimension === 'length' && fact.unit && /^(?:m|ft)$/i.test(fact.unit)) return `${fact.value} ${fact.unit.toLowerCase()}`;
+  return fact.value;
 }
 
 /** Marks a section of a sheet not applicable, with the reason, or asks it again with none. */

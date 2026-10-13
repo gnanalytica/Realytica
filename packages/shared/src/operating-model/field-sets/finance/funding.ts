@@ -132,7 +132,7 @@ export const FUNDING_SETS: FieldSet[] = [
     fields: [
       choice('kind', 'Source', 'funding_source'),
       link('party', 'From', 'party', { required: false }),
-      money('planned', 'Planned', { from: 'Sanction letter, or the plan', fromTypes: [PAPER.sanction], factKey: 'sanctioned_amount' }),
+      money('planned', 'Planned', { from: 'Sanction letter, or the plan' }),
       money('brought_in', 'Brought in to date', { required: false, proof: 'expected', from: 'Accountant’s certificate of contribution, or the bank statement' }),
       percent('cost_a_year', 'Cost a year', { required: false, tier: 'expert' }),
       paper('proof', 'Paper'),

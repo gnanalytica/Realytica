@@ -83,7 +83,7 @@ export const SHARED_RECORDS: FieldSet[] = [
     v: 1,
     records: { of: 'unit', titleField: 'number', summaryFields: ['tower', 'type', 'carpet_area'] },
     fields: [
-      { key: 'number', label: 'Unit number', kind: 'text' },
+      { key: 'number', label: 'Unit number', kind: 'text', fromTypes: ['Allotment letter', 'Agreement for sale'], factKey: 'unit_number' },
       { key: 'tower', label: 'Tower', kind: 'text', required: false },
       { key: 'floor', label: 'Floor', kind: 'number', required: false },
       { key: 'type', label: 'Type', kind: 'text', required: false },
@@ -183,7 +183,7 @@ export const SHARED_RECORDS: FieldSet[] = [
     records: { of: 'contract', titleField: 'title', summaryFields: ['counterparty', 'signed_on'] },
     fields: [
       { key: 'title', label: 'Contract', kind: 'text' },
-      { key: 'counterparty', label: 'With', kind: 'ref', target: 'party' },
+      { key: 'counterparty', label: 'With', kind: 'ref', target: 'party', fromTypes: ['Work order'], factKey: 'contractor' },
       { key: 'package', label: 'Package', kind: 'ref', target: 'package', required: false },
       { key: 'signed_on', label: 'Signed on', kind: 'date', required: false },
       { key: 'paper', label: 'Paper', kind: 'evidence', accepts: 'document', viewer: 'pdf', required: false },

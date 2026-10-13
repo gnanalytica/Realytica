@@ -573,15 +573,15 @@ export const LENDER_SETS: FieldSet[] = [
       { key: 'paid', label: 'Disbursed' },
     ],
     fields: [
-      text('tranche', 'Tranche', { section: 'plan', hint: 'As the schedule numbers it.', ...FROM_SANCTION }),
+      text('tranche', 'Tranche', { section: 'plan', hint: 'As the schedule numbers it.', from: FROM_SANCTION.from, fromTypes: [...FROM_SANCTION.fromTypes, 'Disbursement advice'] }),
       link('facility', 'Facility', { set: SET.facilities }, { section: 'plan', required: false }),
       day('planned_on', 'Planned for', { section: 'plan', ...FROM_SANCTION }),
       money('planned_amount', 'Planned amount', { section: 'plan', ...FROM_SANCTION }),
       day('requested_on', 'Requested on', { section: 'request', required: false }),
       money('requested_amount', 'Amount requested', { section: 'request', required: false }),
       paper('engineer_certificate', 'Lender’s engineer’s certificate', { section: 'request' }),
-      day('disbursed_on', 'Disbursed on', { section: 'paid', required: false, from: 'Loan statement' }),
-      money('disbursed_amount', 'Amount disbursed', { section: 'paid', required: false, from: 'Loan statement' }),
+      day('disbursed_on', 'Disbursed on', { section: 'paid', required: false, from: 'Loan statement', fromTypes: ['Disbursement advice'] }),
+      money('disbursed_amount', 'Amount disbursed', { section: 'paid', required: false, from: 'Loan statement', fromTypes: ['Disbursement advice'] }),
       link('credited_to', 'Credited to', 'account', { section: 'paid', required: false }),
       paper('end_use_certificate', 'Accountant’s end-use certificate', { section: 'paid' }),
       standing(

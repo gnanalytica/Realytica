@@ -447,8 +447,6 @@ export const ARCHITECT_FIELD_SETS: FieldSet[] = [
         section: 'height',
         hint: 'Typed by a person from the section, measured the way the regulations applied define height.',
         from: 'Section drawing',
-        fromTypes: ['Fire NOC'],
-        factKey: 'building_height',
       },
       { key: 'high_rise_from', label: 'High-rise from', kind: 'computed', unit: 'm', section: 'height', formula: { op: 'rate', table: 'high_rise_height_m' } },
       {

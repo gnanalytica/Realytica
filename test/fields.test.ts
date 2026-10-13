@@ -510,20 +510,28 @@ describe('a paper put on file', () => {
 
   it('offers its standing values to every set that reads its kind, and a paper read twice offers nothing twice', () => {
     const p = project();
-    const facts = [fact('extent_title', 6273), fact('purchaser', 'A. Rao'), fact('consideration', 42_000_000)];
+    const facts = [fact('extent_title', 6273), fact('purchaser', 'A. Rao'), fact('consideration', 42_000_000), fact('order_number', 'ALN/SR/118/2018-19')];
     const row = deed(p, 'Sale deed', facts);
     // Every set that reads a sale deed is offered it. This asks after the worked example's two; a department's own are its test's to ask after.
     const here = (o: { address: { set: string } }) => o.address.set === HOLDING || o.address.set === OWNERS;
     const outcomes = offerPaperToSheets(p, row.id, facts).filter(here);
-    assert.deepEqual(outcomes.map((o) => `${o.address.set}/${o.address.field}:${o.outcome}`), [`${HOLDING}/extent:waiting`, `${OWNERS}/name:waiting`]);
-    const held = p.fieldSheets![HOLDING]!.values.extent!;
+    // One deed conveys one parcel: its extent is the purchase's, and is never offered as the extent of the whole holding.
+    assert.deepEqual(outcomes.map((o) => `${o.address.set}/${o.address.field}:${o.outcome}`), [`${OWNERS}/name:waiting`]);
+    assert.equal(p.fieldSheets?.[HOLDING]?.values.extent, undefined);
+    const [owner] = fieldRecords(p, OWNERS);
+    const held = owner!.values.name!;
     assert.equal(fieldState(held), 'proposed');
-    assert.deepEqual(held.origin, { kind: 'paper', evidenceId: row.id, page: 4, quote: 'the extent_title is 6273', reader: 'parser' });
+    assert.deepEqual(held.origin, { kind: 'paper', evidenceId: row.id, page: 4, quote: 'the purchaser is A. Rao', reader: 'parser' });
     // A new owner, who is nobody until the name is accepted.
     assert.equal(fieldRecords(p, OWNERS).length, 1);
     assert.equal(readSheet(p, HOLDING)!.fields.find((f) => f.def.key === 'owners_count')!.held?.value, 0);
-    assert.deepEqual(offerPaperToSheets(p, row.id, facts).filter(here).map((o) => o.outcome), ['held']);
+    assert.deepEqual(offerPaperToSheets(p, row.id, facts).filter(here), [], 'a paper read twice offers nothing twice');
     assert.equal(fieldRecords(p, OWNERS).length, 1);
+    // A sheet that is held once takes its paper's value on the sheet itself: the holding, its conversion order's number.
+    const order = [fact('order_number', 'ALN/SR/118/2018-19')];
+    const conversion = deed(p, 'DC conversion order', order);
+    assert.deepEqual(offerPaperToSheets(p, conversion.id, order).filter(here).map((o) => `${o.address.set}/${o.address.field}:${o.outcome}`), [`${HOLDING}/conversion_order_no:waiting`]);
+    assert.deepEqual(offerPaperToSheets(p, conversion.id, order).filter(here).map((o) => o.outcome), ['held']);
   });
 
   it('hands on nothing a model read that nobody has accepted on the paper, and nothing from a paper of another kind', () => {

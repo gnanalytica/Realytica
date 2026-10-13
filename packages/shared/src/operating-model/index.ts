@@ -68,6 +68,7 @@ export * from './field-figures';
 export * from './field-registry';
 export * from './field-figures';
 export * from './field-sheets';
+export * from './paper-fields';
 export * from './firm-fields';
 export * from './check-waiting';
 export * from './check-conditions';

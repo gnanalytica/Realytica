@@ -57,6 +57,7 @@ import {
   setAsideOffPaper,
   readingSaid,
   standingAmongRead,
+  waitingReadings,
   standingFacts,
   waitingAsRead,
   offerPaperToSheets,
@@ -134,6 +135,15 @@ function nameThePaper(project: DdProject, evidence: EvidenceRecord, documentType
 }
 
 /**
+ * A paper that has just been given its kind is offered to the fields that
+ * read that kind: until then it was a paper of no kind, and reached none.
+ * What it states waits there, each value on the one field that owns it.
+ */
+function offerAsNowNamed(project: DdProject, evidence: EvidenceRecord): void {
+  offerPaperToSheets(project, evidence.id, [...standingFacts(evidence), ...waitingReadings(evidence)], undefined, { waiting: true });
+}
+
+/**
  * A person says the paper is what a model took it for: the offer becomes the
  * row's type, and the row now answers whatever was waiting for that paper.
  * False when the row has no offer to confirm. Where that moves a paper a
@@ -151,6 +161,7 @@ export function confirmProposedType(project: DdProject, evidenceId: string, acto
   recordAuditEvent(project, { actor, action: 'type_confirmed', entityType: 'evidence', entityId: evidence.id, newValue: evidence.documentType });
   setAsideWhatItDoesNotCarry(project, evidence, actor, options.mayDecide);
   absorbAnsweredGaps(project, evidence);
+  offerAsNowNamed(project, evidence);
   return true;
 }
 
@@ -199,6 +210,7 @@ export function correctProposedType(project: DdProject, evidenceId: string, docu
   recordAuditEvent(project, { actor, action: 'type_corrected', entityType: 'evidence', entityId: evidence.id, newValue: evidence.documentType });
   setAsideWhatItDoesNotCarry(project, evidence, actor, options.mayDecide);
   absorbAnsweredGaps(project, evidence);
+  offerAsNowNamed(project, evidence);
   return true;
 }
 
@@ -367,8 +379,9 @@ export async function readOntoRegister(
        * reading of its paper.
        */
       cards.push(...factFillProposals(project, standingAmongRead(evidence, doc), source, actor, cards));
-      // The same standing values go to every sheet that reads this kind of paper, each to wait there for a person.
-      offerPaperToSheets(project, evidence.id, standingAmongRead(evidence, doc));
+      // What the paper states goes to the one field that owns each value, to wait there for a lead or signer of its function:
+      // what stands on the row, and what waits on it (a model's reading), never what a person set aside there.
+      offerPaperToSheets(project, evidence.id, [...standingAmongRead(evidence, doc), ...waitingReadings(evidence)], undefined, { waiting: true });
       cards.push(...flagFindingProposals(project, doc.flags, source, actor, cards));
     }
     cards.push(...placeProposalsFromIngest(project, [file], actor).filter((p) => !cards.some((c) => c.title === p.title)));

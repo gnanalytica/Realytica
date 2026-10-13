@@ -110,7 +110,7 @@ export const TAX_SETS: FieldSet[] = [
     ],
     fields: [
       link('taxpayer', 'Registered person', 'party', { section: 'position' }),
-      day('commenced_on', 'Project commenced on', { section: 'position', from: 'Commencement certificate', fromTypes: [PAPER.commencement], factKey: 'issued_on' }),
+      day('commenced_on', 'Project commenced on', { section: 'position', from: 'Commencement certificate', sameAs: { fn: 'legal.approvals', set: 'legal.approvals.occupancy', field: 'commencement_on' } }),
       worked('scheme_generation', 'Scheme in force when it began, by its number in the rule table', rate('gst_scheme_generation', 'commenced_on'), { section: 'position', precision: 0 }),
       percent('commercial_share', 'Commercial carpet area, share of all carpet', { section: 'position', required: false, from: 'Area statement' }),
       share('commercial_limit', 'Largest commercial share of a residential project', limitFor('commercial_share', rate('gst_residential_commercial_share_max')), { section: 'position' }),
@@ -148,7 +148,7 @@ export const TAX_SETS: FieldSet[] = [
     v: 1,
     extends: 'shared.units',
     fields: [
-      money('price_for_tax', 'Consideration, for GST', { required: false, from: 'Agreement for sale', fromTypes: [PAPER.agreement], factKey: 'consideration' }),
+      money('price_for_tax', 'Consideration, for GST', { required: false, from: 'Agreement for sale', fromTypes: [PAPER.unitAgreement], factKey: 'consideration' }),
       worked(
         'gst_rate',
         'GST rate on the consideration',
@@ -395,7 +395,7 @@ export const TAX_SETS: FieldSet[] = [
     fields: [
       link('unit', 'Unit', 'unit'),
       link('buyer', 'Buyer', 'party', { required: false }),
-      money('consideration', 'Consideration of the unit', { from: 'Agreement for sale', fromTypes: [PAPER.agreement] }),
+      money('consideration', 'Consideration of the unit', { from: 'Agreement for sale' }),
       day('as_at', 'As at'),
       money('received', 'Received to date, before tax', { from: 'Receipts' }),
       rupees('expected', 'Tax expected', when({ left: f('consideration'), is: 'gte', right: rate('tds_property_threshold', 'as_at') }, pctOf(f('received'), rate('tds_property_purchase', 'as_at')), n(0))),
@@ -489,8 +489,8 @@ export const TAX_SETS: FieldSet[] = [
       link('parcel', 'Parcel', 'parcel', { section: 'instrument', required: false }),
       choice('locality', 'Locality', 'tax_locality_kind', { section: 'instrument', control: 'segmented' }),
       choice('borne_by', 'Borne by', 'duty_borne_by', { section: 'instrument', required: false, control: 'segmented' }),
-      money('consideration', 'Consideration', { section: 'value', from: 'The instrument', fromTypes: [PAPER.saleDeed, PAPER.agreement] }),
-      area('extent', 'Extent or area conveyed', { section: 'value', enterIn: ['acre', 'gunta', 'cent', 'sqm', 'sqft', 'hectare'], from: 'The instrument', fromTypes: [PAPER.saleDeed], factKey: 'extent_title' }),
+      money('consideration', 'Consideration', { section: 'value', from: 'The instrument' }),
+      area('extent', 'Extent or area conveyed', { section: 'value', enterIn: ['acre', 'gunta', 'cent', 'sqm', 'sqft', 'hectare'], from: 'The instrument' }),
       money('guidance_rate', 'Guidance rate a square metre, on that day', { section: 'value', required: false, from: 'Kaveri guidance value' }),
       rupees('stamp_value', 'Stamp duty value', times(f('extent'), f('guidance_rate')), { section: 'value' }),
       rupees('dutiable_value', 'Value duty is charged on', most(f('consideration'), f('stamp_value')), { section: 'value' }),

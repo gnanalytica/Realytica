@@ -846,7 +846,7 @@ const FEASIBILITY: FieldSet[] = [
         ],
         otherwise: { label: 'In order', tone: 'good' },
       },
-      percent('owner_share_assumed_pct', 'Landowner’s share assumed', { section: 'joint', tier: 'situational', max: 100, from: 'Joint development agreement', fromTypes: ['Joint development agreement'], factKey: 'owner_share_pct' }),
+      percent('owner_share_assumed_pct', 'Landowner’s share assumed', { section: 'joint', tier: 'situational', max: 100, from: 'Joint development agreement' }),
       { key: 'owner_share_of', label: 'Share is of', kind: 'enum', control: 'segmented', options: ['Area', 'Revenue'], section: 'joint', tier: 'situational', from: 'Joint development agreement' },
       worked('owner_share_revenue', 'Landowner’s share of the value', pctOf(own('gdv'), own('owner_share_assumed_pct')), { ...INR, section: 'joint', tier: 'situational' }),
       worked('assumption_age_days', 'Age of the assumptions', sub(today, dateAt(revenueCheck('assumption_dated'))), { unit: 'days', section: 'limits', tier: 'expert' }),

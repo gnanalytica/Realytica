@@ -43,6 +43,12 @@ function words(text: string): string[] {
  * "mother deed", "title chain", so the phrase decides and the shared word
  * does not.
  *
+ * Only a row that names this kind of paper and nothing else is its row. A
+ * joint development agreement was filed under "Maintenance contracts" because
+ * both are contracts, and the page then cited "Maintenance contracts" as the
+ * source of the agreement's terms. A paper no open row names is filed as a
+ * row of its own, under its own name.
+ *
  * A row the screen raised names the document kind it is waiting for
  * (`gap:<kind>`); that is the strongest match of all, and it wins outright.
  */
@@ -52,18 +58,12 @@ export function matchReadToRow(project: DdProject, read: NonNullable<ChatIngestF
   let best: EvidenceRecord | undefined;
   let bestScore = 0;
   for (const row of gaps) {
-    const title = ` ${row.title.toLowerCase()} `;
     let score = 0;
     if (documentKind && row.screenCode === `gap:${documentKind}`) score += 100;
-    for (const hint of read.rowHints) {
-      const h = hint.toLowerCase().trim();
-      if (!h) continue;
-      if (title.includes(` ${h} `) || title.includes(` ${h}`) || title.includes(h)) score += 10 + h.length;
-    }
-    // A word-level overlap only counts once the phrase has said something.
-    if (score > 0) {
+    // The row names this kind of paper and no other (`documentAnswers`): a near miss is no match, and the paper is then a row of its own.
+    if (documentAnswers(read.label, row.title)) {
       const rowWords = new Set(words(row.title));
-      score += words(read.label).filter((w) => rowWords.has(w)).length;
+      score += 10 + words(read.label).filter((w) => rowWords.has(w)).length;
     }
     if (score > bestScore) {
       best = row;
@@ -71,6 +71,50 @@ export function matchReadToRow(project: DdProject, read: NonNullable<ChatIngestF
     }
   }
   return bestScore >= 10 ? best : undefined;
+}
+
+/* ==================================================================== */
+/* Papers dropped and not on a row yet                                   */
+/* ==================================================================== */
+
+/**
+ * How long after a drop its papers are taken to be still under way: a little
+ * past the longest a request runs. A paper not on its row by then was left
+ * behind by a request that ended, and nobody is reading it.
+ */
+export const READING_UNDER_WAY_MS = 15 * 60_000;
+
+export interface PaperInHand {
+  fileName: string;
+  storageKey: string;
+  /** When its reading began. */
+  since: string;
+}
+
+/**
+ * The papers dropped in the chat that are on no row yet: the ones still being
+ * read, and the ones a request left behind unread.
+ *
+ * A drop is read a few papers at a time and goes on after the tab that
+ * dropped it closes. A page opened meanwhile showed three papers of ten and
+ * nothing to say the other seven were coming. Each paper is noted on the
+ * record as its reading begins and the note goes as it lands, so what is
+ * still noted is what is still to come: `reading` while a request could
+ * still be at work on it, `unread` after.
+ */
+export function papersInHand(project: Pick<DdProject, 'chatProposals' | 'evidence'>, at: Date = new Date()): { reading: PaperInHand[]; unread: PaperInHand[] } {
+  const filed = new Set(project.evidence.flatMap((e) => e.attachments.map((a) => a.storageKey)));
+  const reading: PaperInHand[] = [];
+  const unread: PaperInHand[] = [];
+  for (const card of project.chatProposals ?? []) {
+    const { readingSince, storageKey, fileName } = card.payload as { readingSince?: unknown; storageKey?: unknown; fileName?: unknown };
+    if (card.kind !== 'file_evidence' || card.status !== 'proposed' || typeof readingSince !== 'string' || typeof storageKey !== 'string' || filed.has(storageKey)) continue;
+    const began = Date.parse(readingSince);
+    if (Number.isNaN(began)) continue;
+    const paper = { fileName: typeof fileName === 'string' ? fileName : 'document', storageKey, since: readingSince };
+    (at.getTime() - began < READING_UNDER_WAY_MS ? reading : unread).push(paper);
+  }
+  return { reading, unread };
 }
 
 /* ==================================================================== */
