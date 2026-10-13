@@ -861,6 +861,9 @@ export const api = {
     request<DecisionRecord>(`/projects/${projectId}/decisions/${decisionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   generateReport: (projectId: string, body: GenerateReportInput) =>
     request<GeneratedReport>(`/projects/${projectId}/reports`, { method: 'POST', body: JSON.stringify(body) }),
+  /** Whether the firm lets a model reword a status report's lines, and whether the person asking may change that. */
+  reportSettings: () => request<{ modelWording: boolean; maySet: boolean }>('/report-settings'),
+  setReportSettings: (modelWording: boolean) => request<{ modelWording: boolean; maySet: boolean }>('/report-settings', { method: 'PUT', body: JSON.stringify({ modelWording }) }),
   /* --- The report day and kept owner packs ------------------------- */
   reportDay: (projectId: string) => request<ReportDayShown>(`/projects/${projectId}/report-day`),
   setReportDay: (projectId: string, body: { clear: true } | { day: number; reports: TimedReport[]; every: ReportEvery; quarters?: QuarterYear; tell: string[] }) =>

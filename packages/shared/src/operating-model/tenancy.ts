@@ -22,6 +22,12 @@ export interface Tenant {
   autoJoinDomain?: string;
   /** The departments a new project uses unless it says otherwise. */
   departments?: import('./departments').DepartmentKey[];
+  /**
+   * Whether a model may put the lines of a status report in plainer words.
+   * Off unless the firm turns it on: a report is written by code from the
+   * record, and absent means exactly that.
+   */
+  reportWording?: boolean;
   createdAt: string;
 }
 

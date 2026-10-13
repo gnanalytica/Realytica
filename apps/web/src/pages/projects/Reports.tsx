@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { Navigate, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
-import { REPORT_KIND_LABEL, cockpitPath, preparedReportSaid, statusReportPeriodSaid, type ReportKind } from '@realytica/shared';
+import { DEPARTMENT_SHORT, REPORT_KIND_LABEL, cockpitPath, functionReportTemplates, preparedReportSaid, statusReportPeriodSaid, workstreamDefinition, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { useAsync } from '../../lib/useAsync';
 import { useMe } from '../../lib/useMe';
 import { Button, Card, CardBody, EmptyState, Field, Modal, Select, toneText, useToast } from '../../components/ui/kit';
 import { OwnerPacks } from './OwnerPacks';
@@ -24,6 +25,17 @@ export default function Reports() {
   const [kind, setKind] = useState<ReportKind>('executive_dd');
   const [assessmentId, setAssessmentId] = useState('');
   const [busy, setBusy] = useState(false);
+  // A function's report is laid out by a template declared beside its fields.
+  const templates = useMemo(
+    () =>
+      functionReportTemplates().map((template) => {
+        const workstream = workstreamDefinition(template.fn);
+        return { id: template.id, label: `${workstream ? `${DEPARTMENT_SHORT[workstream.department]} › ` : ''}${template.title}` };
+      }),
+    [],
+  );
+  const [template, setTemplate] = useState(templates[0]?.id ?? '');
+  const wording = useAsync(() => api.reportSettings(), []);
   const me = useMe();
   const [params, setParams] = useSearchParams();
   // A report is named on the address by the list here (`report`) or by a link in a chat answer (`item`), which may name a kept owner pack instead.
@@ -47,7 +59,8 @@ export default function Reports() {
     try {
       const report = await api.generateReport(project.id, {
         kind,
-        assessmentIds: assessmentId ? [assessmentId] : undefined,
+        ...(kind === 'function' ? { template } : {}),
+        assessmentIds: assessmentId && kind !== 'function' ? [assessmentId] : undefined,
         generatedBy: me?.name ?? me?.email ?? 'operator',
       });
       const next = await api.getProject(project.id);
@@ -71,7 +84,37 @@ export default function Reports() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-[15px] font-semibold text-ink">Other reports</h2>
-            <p className="text-[13px] text-ink-secondary">Status and due diligence reports, written from the record. The monthly Cost Report is on Finance › Budget.</p>
+            <p className="text-[13px] text-ink-secondary">Status, due diligence and function reports, put together by code from the record and the fields. The monthly Cost Report is on Finance › Budget.</p>
+            {/* Whether a model has any hand in a report is said here, plainly, either way. */}
+            {wording.data ? (
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-ink-muted">
+                <span>
+                  {wording.data.modelWording
+                    ? 'Model wording is on for this firm: a model may put a status report’s lines in plainer words. Each such line is marked, and the day, the person and the source stay the record’s own.'
+                    : 'No model writes any line of a report.'}
+                </span>
+                {wording.data.maySet ? (
+                  <button
+                    type="button"
+                    className="underline hover:text-ink"
+                    onClick={() => {
+                      const on = !wording.data!.modelWording;
+                      if (on && !confirm('Let a model reword the lines of status reports for this firm? Reports are otherwise written by code alone.')) return;
+                      void api
+                        .setReportSettings(on)
+                        .then(async () => {
+                          await wording.refresh();
+                          setProject(await api.getProject(project.id));
+                          toast(on ? 'Model wording is on' : 'Model wording is off', 'good');
+                        })
+                        .catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not change that', 'critical'));
+                    }}
+                  >
+                    {wording.data.modelWording ? 'Turn it off' : 'Let a model reword status reports'}
+                  </button>
+                ) : null}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={() => navigate(cockpitPath(project.id, 'workstream', { workstream: 'finance.budget' }))}>
@@ -100,7 +143,7 @@ export default function Reports() {
                     onClick={() => show(r.id)}
                     className={`w-full rounded-lg px-3 py-2 text-left text-[13px] ${view?.id === r.id ? 'bg-brand-soft text-brand' : 'hover:bg-sunken'}`}
                   >
-                    <span className="block font-medium">{REPORT_KIND_LABEL[r.kind]}</span>
+                    <span className="block font-medium">{r.kind === 'function' ? r.title.replace(/ — .*$/, '') : REPORT_KIND_LABEL[r.kind]}</span>
                     <span className="text-[11px] text-ink-muted">
                       {(r.kind === 'status' ? statusReportPeriodSaid(r) : undefined) ?? formatWhen(r.generatedAt)}
                       {preparedReportSaid(project, r) ? <span className={`block ${toneText('warning')}`}>{preparedReportSaid(project, r)}</span> : null}
@@ -158,16 +201,28 @@ export default function Reports() {
               ))}
             </Select>
           </Field>
-          <Field label="Only one due diligence" hint="Leave empty for the whole project.">
-            <Select value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
-              <option value="">The whole project</option>
-              {project.assessments.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {kind === 'function' ? (
+            <Field label="Which report" hint="Laid out from the function’s fields. You can move, add and remove sections afterwards.">
+              <Select value={template} onChange={(e) => setTemplate(e.target.value)}>
+                {templates.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : (
+            <Field label="Only one due diligence" hint="Leave empty for the whole project.">
+              <Select value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
+                <option value="">The whole project</option>
+                {project.assessments.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
         </div>
       </Modal>
     </div>

@@ -8,6 +8,7 @@ import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
+import { fieldSourceFault, freezeFieldBlock, functionReportTemplate, isFieldSource, isFrozenFieldBlock, projectHoldsFields, reportNoteCap, statusFieldsBlock, templateBlocks, thawFieldBlock, type TemplateBlock } from './report-fields';
 import { statusTitle, statusWeekSoFar } from './status-report';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
 import { CAPTURE_OFF_SITE_M, captureDistanceM, describeCapture, isGeotagged, type CaptureFacts, type CaptureFactsInput, type CapturePurpose } from './capture';
@@ -1831,18 +1832,28 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   const assessmentIds = input.assessmentIds ?? [];
   // A status report covers a period, the week so far when none is named, and is called by it.
   const period = input.kind === 'status' ? (input.period ?? statusWeekSoFar(new Date(at))) : undefined;
-  const blocks: ReportBlock[] = reportTemplate(input.kind, period).map((row) => ({
+  // A function's report is laid out by the template declared beside its fields.
+  const template = input.kind === 'function' ? functionReportTemplate(input.template) : undefined;
+  if (input.kind === 'function' && !template) throw new Error('Name the function report to write: there is no template by that name.');
+  const rows: TemplateBlock[] = template ? templateBlocks(template) : reportTemplate(input.kind, period);
+  // A status report on a project that keeps fields also says which were recorded in its period.
+  if (period && projectHoldsFields(project)) rows.push(statusFieldsBlock(period));
+  const blocks: ReportBlock[] = rows.map((row) => ({
     id: id('rbk'),
     heading: row.heading,
     origin: row.source ? 'derived' : 'authored',
-    ...(row.source ? { source: assessmentIds.length ? { ...row.source, assessmentIds } : row.source } : {}),
+    // A block that reads fields is of the fields it names, whichever assessment was asked for.
+    ...(row.source ? { source: assessmentIds.length && !isFieldSource(row.source.kind) ? { ...row.source, assessmentIds } : row.source } : {}),
     ...(row.source ? {} : { text: row.text ?? '' }),
+    ...(row.cap ? { cap: row.cap } : {}),
+    ...(row.hint ? { hint: row.hint } : {}),
   }));
   const body: ReportBody = { summary: reportSummaryLine(project), blocks };
   const report: GeneratedReport = {
     id: id('rpt'),
     kind: input.kind,
-    title: period ? statusTitle(project, period, input.audience) : `${REPORT_KIND_LABEL[input.kind]} — ${project.name}`,
+    title: period ? statusTitle(project, period, input.audience) : `${template?.title ?? REPORT_KIND_LABEL[input.kind]} — ${project.name}`,
+    ...(template ? { templateId: template.id } : {}),
     status: 'generated',
     assessmentIds,
     scopeInstanceIds: [],
@@ -1887,6 +1898,19 @@ function blockIn(report: GeneratedReport, blockId: string): ReportBlock {
   return block;
 }
 
+/** A source a block may read: one of the closed set, and for fields, ones that are declared. */
+function readableSource(source: ReportBoundSource): void {
+  if (!isReportBoundSource(source.kind)) throw new Error(`"${source.kind}" is not something a report block can read.`);
+  const fault = fieldSourceFault(source);
+  if (fault) throw new Error(fault);
+}
+
+/** A person's note is short: past its cap it is refused, not cut. */
+function withinCap(block: Pick<ReportBlock, 'cap'>, text: string): void {
+  const cap = reportNoteCap(block);
+  if (text.length > cap) throw new Error(`A note in a report holds ${cap.toLocaleString('en-IN')} characters at most, and this is ${text.length.toLocaleString('en-IN')}. Say it shorter, or put the detail in the fields.`);
+}
+
 function stamp(report: GeneratedReport, block: ReportBlock, actor: string, at: string): void {
   block.editedAt = at;
   block.editedBy = actor;
@@ -1929,9 +1953,8 @@ export function insertReportBlock(
 ): ReportBlock {
   const at = nowIso();
   const report = editableReport(project, reportId);
-  if (input.source && !isReportBoundSource(input.source.kind)) {
-    throw new Error(`"${input.source.kind}" is not something a report block can read.`);
-  }
+  if (input.source) readableSource(input.source);
+  else withinCap({}, input.text ?? '');
   const block: ReportBlock = {
     id: id('rbk'),
     heading: input.heading,
@@ -1975,6 +1998,12 @@ export function editReportBlock(
           + 'Detach it first if you need to say this differently — the report will then show that the paragraph stopped updating.',
       );
     }
+    // What the fields said on a day is not retyped: typed over, it would read as a field's value and be nobody's.
+    if (isFrozenFieldBlock(block)) {
+      throw new Error(`“${block.heading ?? 'This section'}” holds what the fields said on ${block.detachedAt!.slice(0, 10)}. It is not typed into: write a note beside it, or put it back on the fields.`);
+    }
+    // A block detached from the registers holds what they said, however long; a note a person writes is capped.
+    if (!block.detachedAt) withinCap(block, input.text);
     block.text = input.text;
   }
   stamp(report, block, actor, at);
@@ -1995,7 +2024,7 @@ export function retuneReportBlock(
   const report = editableReport(project, reportId);
   const block = blockIn(report, blockId);
   if (block.origin !== 'derived') throw new Error('That block holds somebody’s words, not a register reading — there is nothing to retune.');
-  if (!isReportBoundSource(source.kind)) throw new Error(`"${source.kind}" is not something a report block can read.`);
+  readableSource(source);
   block.source = source;
   stamp(report, block, actor, at);
   touch(project, at);
@@ -2021,6 +2050,11 @@ export function detachReportBlock(project: DdProject, reportId: string, blockId:
   block.detachedAt = at;
   block.origin = 'authored';
   block.text = resolved.lines.join('\n');
+  // A block that read fields keeps its table, its chart and where each value came from, as they stood.
+  if (isFieldSource(block.source?.kind)) {
+    block.detachedSource = block.source;
+    freezeFieldBlock(block, resolved);
+  }
   delete block.source;
   stamp(report, block, actor, at);
   touch(project, at);
@@ -2040,7 +2074,9 @@ export function reattachReportBlock(project: DdProject, reportId: string, blockI
   const block = blockIn(report, blockId);
   if (!block.detachedFrom) throw new Error('That block was written from scratch, so there is no reading to go back to.');
   block.origin = 'derived';
-  block.source = { kind: block.detachedFrom };
+  block.source = block.detachedSource ?? { kind: block.detachedFrom };
+  if (isFieldSource(block.detachedFrom)) thawFieldBlock(block);
+  delete block.detachedSource;
   delete block.text;
   delete block.detachedAt;
   delete block.detachedFrom;
@@ -2093,6 +2129,10 @@ export function issueReport(
   for (const block of report.body.blocks) {
     if (block.origin !== 'derived' || !block.source) continue;
     const resolved = resolveReportBlock(project, block);
+    if (isFieldSource(block.source.kind)) {
+      freezeFieldBlock(block, resolved);
+      continue;
+    }
     block.frozen = resolved.lines;
     block.frozenRecordIds = resolved.recordIds;
     if (resolved.table) block.frozenTable = resolved.table;

@@ -44,6 +44,7 @@ import { integrationsRouter } from './routes/integrations';
 import { setupRouter } from './routes/setup';
 import { firmFieldsRouter } from './routes/firm-fields';
 import { withFirmFields } from './firm-fields';
+import { reportSettingsRouter } from './routes/report-settings';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -215,6 +216,7 @@ if (automationsEnabled()) {
   app.use('/api/flows', flowsRouter);
 }
 app.use('/api/members', membersRouter);
+app.use('/api/report-settings', reportSettingsRouter);
 app.use('/api/devices', devicesRouter);
 
 // 404 for any unmatched /api/* route.

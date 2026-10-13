@@ -32,6 +32,7 @@ import { scopesOfWorkstreams } from './departments';
 import { fieldCatalog, sharedSetsOf } from './field-registry';
 import { SHARED_FN } from './field-sets/shared-records';
 import { grantAllows, grantCanWrite, type GrantArea, type ProjectGrant } from './project-access';
+import { fieldReportsOfCopy } from './report-fields';
 import { reportsOfCopy } from './status-report';
 import type {
   CheckFieldValue,
@@ -187,7 +188,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const valuationRuns = area('valuation') ? project.valuationRuns : [];
   if (!area('valuation')) withheld.push('valuation');
 
-  const reports = area('reports') ? reportsOfCopy(project.reports) : [];
+  const reports = area('reports') ? fieldReportsOfCopy(reportsOfCopy(project.reports), fieldFunctionsInReach(grant)) : [];
   if (project.reports.length > 0 && !area('reports')) withheld.push('reports');
 
   const siteVisits = area('site_record') ? project.siteVisits : [];

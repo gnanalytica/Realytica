@@ -33,6 +33,7 @@ export * from './project-access';
 export * from './project-view';
 export * from './my-work';
 export * from './report-blocks';
+export * from './report-fields';
 export * from './report-command';
 export * from './check-fields';
 export * from './check-schemas';

@@ -334,8 +334,13 @@ export const generateReportBodySchema = z.object({
   /** For a status report: the period it covers and who it is written for. */
   period: z.object({ from: instantSchema, to: instantSchema }).optional(),
   audience: z.string().trim().min(1).max(60).optional(),
+  /** For a function's report: the template it is laid out from. */
+  template: z.string().trim().min(1).max(160).optional(),
   actor: actorSchema,
 });
+
+/** A field, as a report block names one. Whether there is such a field is the operation's to say. */
+const reportFieldAddressSchema = z.object({ fn: z.string().max(80), set: z.string().min(1).max(120), field: z.string().min(1).max(80), record: z.string().max(80).optional() });
 
 /**
  * What a bound block may ask the registers for.
@@ -361,6 +366,9 @@ export const reportBoundSourceSchema = z.object({
     'status_changed',
     'status_waiting',
     'status_next',
+    'fields',
+    'field_table',
+    'field_chart',
   ]),
   assessmentIds: z.array(z.string()).optional(),
   materialOnly: z.boolean().optional(),
@@ -370,6 +378,15 @@ export const reportBoundSourceSchema = z.object({
   from: instantSchema.optional(),
   to: instantSchema.optional(),
   plain: z.boolean().optional(),
+  // A block that reads fields: which, and how they are laid out or drawn.
+  addresses: z.array(reportFieldAddressSchema).max(60).optional(),
+  layout: z.enum(['list', 'table']).optional(),
+  address: reportFieldAddressSchema.optional(),
+  records: z.string().min(1).max(120).optional(),
+  columns: z.array(z.string().min(1).max(80)).max(20).optional(),
+  x: z.string().min(1).max(80).optional(),
+  y: z.string().min(1).max(80).optional(),
+  mark: z.enum(['bar', 'line']).optional(),
 });
 
 export const insertReportBlockBodySchema = z.object({
