@@ -19,6 +19,7 @@ import {
   createAssessment,
   createProject,
   daySaid,
+  dayTyped,
   fieldCatalogFor,
   formatFieldValue,
   percentSaid,
@@ -274,6 +275,13 @@ describe('one way to write each kind of figure', () => {
     assert.equal(countSaid(3, 'order'), '3 orders');
     assert.equal(formatFieldValue(def({ kind: 'table', columns: [] }), held([{}])), '1 row');
     assert.equal(formatFieldValue(def({ kind: 'evidence' }), held(['e1', 'e2'])), '2 papers');
+  });
+
+  it('reads a day however it is typed here, and refuses one the calendar has not got', () => {
+    for (const typed of ['13 Oct 2026', '13 October 2026', '13-10-2026', '13/10/2026', '13.10.2026', '2026-10-13', ' 13  oct 2026 ', '13 Oct, 2026']) assert.equal(dayTyped(typed), '2026-10-13', typed);
+    assert.equal(dayTyped('1 Mar 2027'), '2027-03-01');
+    for (const typed of ['31 Feb 2026', '13 Foo 2026', 'tomorrow', '10/13/2026', '']) assert.equal(dayTyped(typed), null, typed);
+    assert.equal(daySaid(dayTyped('05-06-2026')!), '5 Jun 2026', 'the day comes first, as it is written here');
   });
 
   it('makes a rule’s count and its noun agree', () => {

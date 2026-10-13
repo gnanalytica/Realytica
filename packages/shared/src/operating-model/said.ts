@@ -31,6 +31,34 @@ export function daySaid(day: string | Date | null | undefined): string {
   return `${local.getUTCDate()} ${MONTHS[local.getUTCMonth()]} ${local.getUTCFullYear()}`;
 }
 
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/**
+ * A day as a person types one, as the store keeps it (`2026-10-13`), or null
+ * where it is not a day the calendar has. Reads "13 Oct 2026", "13 October
+ * 2026", "13-10-2026", "13/10/2026" and "13.10.2026" (the day first, as it is
+ * written here), and a day already in the store's form.
+ */
+export function dayTyped(typed: string): string | null {
+  const text = typed.trim().replace(/\s+/g, ' ').replace(/,/g, '');
+  let y: number;
+  let m: number;
+  let d: number;
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  const numeric = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(text);
+  const named = /^(\d{1,2}) ?([A-Za-z]{3,9})\.? ?(\d{4})$/.exec(text);
+  if (iso) [y, m, d] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+  else if (numeric) [d, m, y] = [Number(numeric[1]), Number(numeric[2]), Number(numeric[3])];
+  else if (named) {
+    const month = MONTH_NAMES.findIndex((name) => name.startsWith(named[2]!.toLowerCase()) && named[2]!.length >= 3);
+    if (month < 0) return null;
+    [d, m, y] = [Number(named[1]), month + 1, Number(named[3])];
+  } else return null;
+  const at = new Date(Date.UTC(y, m - 1, d));
+  if (at.getUTCFullYear() !== y || at.getUTCMonth() !== m - 1 || at.getUTCDate() !== d) return null;
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 /** Whether a text is a day or a moment as the store keeps one. */
 export function looksLikeDay(text: unknown): text is string {
   return typeof text === 'string' && /^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(text.trim());

@@ -195,7 +195,11 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
       for (let fold = at.closest('details'); fold; fold = fold.parentElement?.closest('details') ?? null) fold.open = true;
       const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       at.scrollIntoView({ block: field ? 'center' : 'start', behavior: calm ? 'auto' : 'smooth' });
-      if (field) field.animate([{ boxShadow: '0 0 0 3px var(--brand)' }, { boxShadow: '0 0 0 3px transparent' }], { duration: 1800, easing: 'ease-out' });
+      if (field) {
+        field.animate([{ boxShadow: '0 0 0 3px var(--brand)' }, { boxShadow: '0 0 0 3px transparent' }], { duration: 1800, easing: 'ease-out' });
+        // The line asked for this field: its box takes the caret, so the next thing typed goes into it.
+        field.querySelector<HTMLElement>('input:not([type="hidden"]):not([tabindex="-1"]), select, textarea, button')?.focus({ preventScroll: true });
+      }
     };
     timer = window.setTimeout(look, 40);
     return () => window.clearTimeout(timer);
@@ -719,8 +723,8 @@ function Sections({ sections, props }: { sections: SheetReading['sections']; pro
           const shown = byKey(section.fields.filter((view) => view.shown === 'shown'));
           const folded = byKey(section.fields.filter((view) => view.shown === 'folded'));
           return (
-            <section key={section.key || 'main'} className="space-y-2">
-              {section.label ? <h4 className="text-[12px] font-semibold text-ink">{section.label}</h4> : null}
+            <section key={section.key || 'main'} className={cn('space-y-3', section.label && 'rounded-xl border border-hairline p-3')}>
+              {section.label ? <h4 className="border-b border-hairline pb-2 text-[13px] font-semibold text-ink">{section.label}</h4> : null}
               {shown.defs.length ? <CheckFields {...props} heading={null} defs={shown.defs} values={shown.values} views={shown.views} insights={[]} /> : null}
               {folded.defs.length ? (
                 <details>
@@ -792,10 +796,10 @@ function SheetBody({
           const shown = byKey(section.fields.filter((view) => view.shown === 'shown'));
           const folded = byKey(section.fields.filter((view) => view.shown === 'folded'));
           return (
-            <section key={section.key || 'main'} className="space-y-2">
+            <section key={section.key || 'main'} className={cn('space-y-3', section.label && 'rounded-xl border border-hairline p-3')}>
               {section.label ? (
-                <div className="flex items-baseline gap-2">
-                  <h4 className="text-[12px] font-semibold text-ink">{section.label}</h4>
+                <div className="flex items-baseline gap-2 border-b border-hairline pb-2">
+                  <h4 className="text-[13px] font-semibold text-ink">{section.label}</h4>
                   {section.na ? (
                     <span className="text-[12px] text-ink-muted">Not applicable: {NA_REASON_LABEL[section.na.reason as keyof typeof NA_REASON_LABEL] ?? section.na.reason}</span>
                   ) : null}

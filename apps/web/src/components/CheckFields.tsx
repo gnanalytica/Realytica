@@ -16,17 +16,23 @@
  *   two values with the tolerance named, so a reader can disagree by checking
  *   the inputs. It never claims a result — what the numbers mean and whether
  *   the check passes are different questions with different authors.
- * - **Where each value comes from is on the label.** "Extent per title ·
- *   Title extract" tells somebody which document to open, which is most of
- *   the work of filling one of these in.
+ * - **It reads as a form.** A field a person fills is a labelled box with a
+ *   clear border on the surface colour: the label above it, its unit inside
+ *   it, help under it, and an empty box showing the form expected, never the
+ *   words "not recorded". What is worked out, read from another function or a
+ *   standing is not a box at all: a flat row with its value and a small tag.
+ *   Where a value came from is a small link under its box once it stands.
  */
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, X } from 'lucide-react';
+import { Calendar, Check, X } from 'lucide-react';
 import {
   EVIDENCE_STATUS_LABEL,
+  FUNCTION_SHORT,
   countSaid,
   daySaid,
+  dayTyped,
+  workstreamDefinition,
   NA_REASONS,
   NA_REASON_LABEL,
   fieldChart,
@@ -179,7 +185,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
         heading
       )}
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-x-4 gap-y-3 sm:grid-cols-2">
         {defs.map((def) => {
           const blank = isBlank(values[def.key]);
           const view = views?.[def.key];
@@ -188,55 +194,77 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
           const held = values[def.key]?.value;
           if (def.kind === 'enum' && typeof held === 'string' && held && !options.some((o) => o.key === held)) options.push({ key: held, label: held });
           const waits = view?.state === 'proposed';
+          const derived = def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
+          const rests = view && hasMore(def, view, Boolean(onDecide) && !disabled);
+          // Where a field that is not entered here gets its value: worked out, or read from the function that keeps it.
+          const readFrom = def.sameAs ? (view?.heldAt?.fn ?? def.sameAs.fn) : undefined;
+          const tag = readFrom ? `from ${FUNCTION_SHORT[readFrom] ?? workstreamDefinition(readFrom)?.label ?? 'another sheet'}` : 'worked out';
           // A field with buttons of its own beside its control is a group, not one labelled control.
           const Wrapper = view ? 'div' : 'label';
           return (
-            <Wrapper key={def.key} data-field={def.key} className={cn('block', (def.kind === 'table' || def.kind === 'longtext' || def.kind === 'evidence') && 'sm:col-span-2')}>
-              <span className="flex items-baseline gap-1.5 text-[12px] text-ink-secondary">
-                {view && hasMore(def, view, Boolean(onDecide) && !disabled) ? (
-                  <button type="button" aria-expanded={sourceOf === def.key} title="Where this came from" onClick={() => setSourceOf(sourceOf === def.key ? null : def.key)} className="text-left hover:text-ink hover:underline">
-                    {def.label}
-                  </button>
-                ) : (
-                  def.label
-                )}
-                {def.unit ? <span className="text-ink-muted">({def.unit})</span> : null}
-                {def.proof === 'required' ? (
-                  <span
-                    className="rounded bg-sunken px-1 text-[12px] font-medium text-ink-muted"
-                    title="This value has to cite something on the evidence register. File the document first, then record it against that row."
-                  >
-                    proof
+            <Wrapper key={def.key} data-field={def.key} className={cn('block min-w-0', (def.kind === 'table' || def.kind === 'longtext' || def.kind === 'evidence' || (def.kind === 'enum' && def.control === 'tiles')) && 'sm:col-span-2')}>
+              <span className="flex items-baseline gap-1.5 text-[12px] font-medium text-ink">
+                <span className="min-w-0">{def.label}</span>
+                {view?.expected ? (
+                  <span className="font-normal text-ink-muted" title="Needed now" aria-label="needed now">
+                    •
                   </span>
                 ) : null}
-                {def.from ? <span className="ml-auto truncate text-[11px] text-ink-muted">from {def.from}</span> : null}
+                {def.unit && !derived && !unitInBox(def) && !fieldDimension(def) ? <span className="font-normal text-ink-muted">({def.unit})</span> : null}
+                {def.proof === 'required' ? (
+                  <span
+                    className="rounded bg-sunken px-1 text-[11px] font-medium text-ink-muted"
+                    title="This value has to cite a paper on file. File the paper first, then record the value against it."
+                  >
+                    needs a paper
+                  </span>
+                ) : null}
+                {rests && !derived ? (
+                  <button
+                    type="button"
+                    aria-expanded={sourceOf === def.key}
+                    aria-label={`Who entered ${def.label}, and what else can be done with it`}
+                    onClick={() => setSourceOf(sourceOf === def.key ? null : def.key)}
+                    className="ml-auto shrink-0 text-[11px] font-normal text-ink-muted hover:text-ink hover:underline"
+                  >
+                    {sourceOf === def.key ? 'Less' : 'More'}
+                  </button>
+                ) : null}
               </span>
               {view?.state === 'not_applicable' ? (
-                <p className={cn(inputCls, 'border-dashed bg-sunken text-ink-muted')}>
+                <p className={cn(inputCls, 'bg-sunken text-ink-muted')}>
                   Not applicable: {NA_REASON_LABEL[view.held?.naReason as keyof typeof NA_REASON_LABEL] ?? view.held?.naReason}
                   {view.held?.naNote ? `. ${view.held.naNote}` : ''}
                 </p>
-              ) : def.kind === 'status' ? (
-                // A standing the rules worked out: its label in its tone, and nothing to press.
-                <div className="mt-1 flex min-h-8 items-center">
-                  {blank ? <span className="text-[12px] text-ink-muted">No standing yet</span> : <Badge tone={toneOf(fieldTone(def, values[def.key], listOf))}>{String(values[def.key]!.value)}</Badge>}
+              ) : derived ? (
+                // Worked out, read from another function, or a standing: nobody types into it, so it is not drawn as a box.
+                // A flat row with its value, a small tag saying which it is, and one press to what it rests on.
+                <div className="mt-1 flex min-h-9 flex-wrap items-center gap-x-2 gap-y-0.5 coarse:min-h-11">
+                  {def.kind === 'status' ? (
+                    blank ? (
+                      <span className="text-[13px] text-ink-muted">No standing yet</span>
+                    ) : (
+                      <Badge tone={toneOf(fieldTone(def, values[def.key], listOf))}>{String(values[def.key]!.value)}</Badge>
+                    )
+                  ) : (
+                    <output className={cn('text-[13px] tabular-nums', blank ? 'text-ink-muted' : 'font-medium text-ink')}>{blank ? 'Not worked out yet' : formatFieldValue(def, values[def.key], listOf)}</output>
+                  )}
+                  <span className="rounded bg-sunken px-1.5 py-0.5 text-[11px] text-ink-muted">{tag}</span>
+                  {rests ? (
+                    <button type="button" aria-expanded={sourceOf === def.key} onClick={() => setSourceOf(sourceOf === def.key ? null : def.key)} className="text-[11px] font-medium text-brand hover:underline coarse:min-h-11">
+                      What it rests on
+                    </button>
+                  ) : null}
                 </div>
-              ) : def.kind === 'computed' || def.sameAs ? (
-                // Worked out, so there is nothing to type into. Shown as a
-                // read-out rather than a disabled input, because a greyed box
-                // reads as "you may not", and this is "nobody may".
-                <output className={cn(inputCls, 'block border-dashed bg-sunken text-ink-secondary')}>
-                  {formatFieldValue(def, values[def.key], listOf)}
-                </output>
               ) : def.kind === 'ref' ? (
                 <select
                   value={typeof held === 'string' ? held : ''}
                   disabled={disabled}
                   aria-label={def.label}
                   onChange={(e) => onCommit({ [def.key]: e.target.value || null })}
-                  className={cn(inputCls, blank && 'border-dashed', waits && 'border-ai')}
+                  className={cn(inputCls, waits && WAITS)}
                 >
-                  <option value="">—</option>
+                  <option value="">Choose…</option>
                   {(choices?.(def.target) ?? []).map((choice) => (
                     <option key={choice.id} value={choice.id}>
                       {choice.label}
@@ -255,7 +283,6 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                   value={draft[def.key] ?? ''}
                   disabled={disabled}
                   rows={3}
-                  placeholder={blank ? 'not recorded' : ''}
                   onFocus={() => (focused.current = def.key)}
                   onBlur={() => {
                     focused.current = null;
@@ -263,7 +290,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                   }}
                   onChange={(e) => setDraft((p) => ({ ...p, [def.key]: e.target.value }))}
                   maxLength={def.maxLength ? longtextCap(def) : undefined}
-                  className={cn(inputCls, 'resize-y', blank && 'border-dashed')}
+                  className={cn(inputCls, 'resize-y')}
                 />
               ) : def.kind === 'multi_enum' ? (
                 <MultiSelect
@@ -320,9 +347,9 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                     commit(def.key);
                   }}
                   onChange={(e) => setDraft((p) => ({ ...p, [def.key]: e.target.value }))}
-                  className={cn(inputCls, blank && 'border-dashed')}
+                  className={cn(inputCls, waits && WAITS)}
                 >
-                  <option value="">—</option>
+                  <option value="">Choose…</option>
                   {options.map((option) => (
                     <option key={option.key} value={option.key}>
                       {option.label}
@@ -339,33 +366,40 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                     commit(def.key);
                   }}
                   onChange={(e) => setDraft((p) => ({ ...p, [def.key]: e.target.value }))}
-                  className={cn(inputCls, blank && 'border-dashed')}
+                  className={cn(inputCls, waits && WAITS)}
                 >
-                  <option value="">—</option>
+                  <option value="">Choose…</option>
                   <option value="true">yes</option>
                   <option value="false">no</option>
                 </select>
+              ) : def.kind === 'date' ? (
+                <DateBox value={typeof held === 'string' ? held : ''} disabled={disabled} label={def.label} className={waits ? WAITS : undefined} onCommit={(iso) => onCommit({ [def.key]: iso || null })} />
               ) : (
-                <input
-                  value={draft[def.key] ?? ''}
-                  disabled={disabled}
-                  type={def.kind === 'date' ? 'date' : 'text'}
-                  // A measure takes its unit with it ("1 acre 22 guntas", "4.2 Cr"), so its keyboard is the full one.
-                  inputMode={!fieldDimension(def) && (def.kind === 'number' || def.kind === 'percent') ? 'decimal' : undefined}
-                  list={def.suggest && choices ? `suggest-${def.key}` : undefined}
-                  // Blank is blank. No zero, no placeholder that reads as a value.
-                  placeholder={blank ? 'not recorded' : ''}
-                  onFocus={() => (focused.current = def.key)}
-                  onBlur={() => {
-                    focused.current = null;
-                    commit(def.key);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') e.currentTarget.blur();
-                  }}
-                  onChange={(e) => setDraft((p) => ({ ...p, [def.key]: e.target.value }))}
-                  className={cn(inputCls, blank && 'border-dashed placeholder:text-ink-muted', waits && 'border-ai')}
-                />
+                <span className="relative mt-1 block">
+                  {fieldDimension(def) === 'money' ? <span aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] text-ink-muted">₹</span> : null}
+                  <input
+                    value={draft[def.key] ?? ''}
+                    disabled={disabled}
+                    type="text"
+                    aria-label={def.label}
+                    // A measure takes its unit with it ("1 acre 22 guntas", "4.2 Cr"), so its keyboard is the full one.
+                    inputMode={!fieldDimension(def) && (def.kind === 'number' || def.kind === 'percent') ? 'decimal' : undefined}
+                    list={def.suggest && choices ? `suggest-${def.key}` : undefined}
+                    // Blank is an empty box. The placeholder shows the form expected, never a value and never "not recorded".
+                    placeholder={placeholderFor(def)}
+                    onFocus={() => (focused.current = def.key)}
+                    onBlur={() => {
+                      focused.current = null;
+                      commit(def.key);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                    }}
+                    onChange={(e) => setDraft((p) => ({ ...p, [def.key]: e.target.value }))}
+                    className={cn(inputCls, 'mt-0', fieldDimension(def) === 'money' && 'pl-6', unitInBox(def) && 'pr-14', waits && WAITS)}
+                  />
+                  {unitInBox(def) ? <span aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 max-w-12 -translate-y-1/2 truncate text-[12px] text-ink-muted">{def.kind === 'percent' ? '%' : def.unit}</span> : null}
+                </span>
               )}
               {def.suggest && choices && def.kind === 'text' ? (
                 <datalist id={`suggest-${def.key}`}>
@@ -382,7 +416,9 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                 </span>
               ) : null}
               {view ? <FieldMarks def={def} view={view} open={sourceOf === def.key} disabled={disabled} onDecide={onDecide} onOpenPaper={onOpenPaper} /> : null}
-              {def.hint && blank ? <span className="mt-0.5 block text-[11px] text-ink-muted">{def.hint}</span> : null}
+              {blank && !derived && view?.state !== 'not_applicable' && (def.hint || def.from) ? (
+                <span className="mt-1 block text-[11px] leading-snug text-ink-muted">{[def.hint, def.from ? `Read from: ${def.from}.` : ''].filter(Boolean).join(' ')}</span>
+              ) : null}
               {/* Where the value was read, in the document's own words. */}
               {!view && !blank && values[def.key]?.sourceEvidenceId ? (
                 <span className="mt-0.5 block text-[11px] leading-snug text-ink-muted">
@@ -450,11 +486,14 @@ function MultiSelect({
             aria-pressed={on}
             onClick={() => onChange(on ? selected.filter((s) => s !== option) : [...selected, option])}
             className={cn(
-              'rounded-full border px-2.5 py-1 text-[12px] transition-colors disabled:opacity-50',
-              on ? 'border-brand bg-brand-soft text-brand' : 'border-hairline text-ink-secondary hover:border-axis',
+              'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-left text-[13px] transition-colors disabled:opacity-50 coarse:min-h-11',
+              on ? 'border-brand bg-brand-soft font-medium text-brand-strong' : 'border-axis bg-surface text-ink hover:border-[var(--text-muted)]',
             )}
           >
-            {label}
+            <span aria-hidden className={cn('grid size-3.5 shrink-0 place-items-center rounded border', on ? 'border-brand bg-brand text-white' : 'border-axis')}>
+              {on ? <Check size={10} strokeWidth={3} /> : null}
+            </span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
           </button>
         );
       })}
@@ -472,7 +511,7 @@ function MultiSelect({
  */
 function Switch({ value, disabled, onChange }: { value: boolean | null; disabled?: boolean; onChange: (next: boolean | null) => void }) {
   return (
-    <div className="mt-1 inline-flex overflow-hidden rounded-lg border border-hairline">
+    <div className="mt-1 inline-flex overflow-hidden rounded-lg border border-axis bg-surface">
       {[
         { label: 'yes', v: true as const },
         { label: 'no', v: false as const },
@@ -485,7 +524,7 @@ function Switch({ value, disabled, onChange }: { value: boolean | null; disabled
           aria-pressed={value === option.v}
           onClick={() => onChange(option.v)}
           className={cn(
-            'border-r border-hairline px-2.5 py-1 text-[12px] last:border-r-0 disabled:opacity-50',
+            'min-h-9 border-r border-axis px-3 py-1.5 text-[13px] last:border-r-0 disabled:opacity-50 coarse:min-h-11',
             value === option.v ? 'bg-brand text-white' : 'text-ink-secondary hover:bg-sunken',
           )}
         >
@@ -508,8 +547,8 @@ function Segmented({ options, value, disabled, onChange }: { options: OptionDef[
           aria-pressed={value === option}
           onClick={() => onChange(value === option ? '' : option)}
           className={cn(
-            'min-w-0 max-w-full break-words rounded-lg border px-2.5 py-1 text-left text-[12px] disabled:opacity-50',
-            value === option ? 'border-brand bg-brand text-white' : 'border-hairline text-ink-secondary hover:bg-sunken',
+            'min-h-9 min-w-0 max-w-full break-words rounded-lg border px-3 py-1.5 text-left text-[13px] disabled:opacity-50 coarse:min-h-11',
+            value === option ? 'border-brand bg-brand text-white' : 'border-axis bg-surface text-ink hover:border-[var(--text-muted)]',
           )}
         >
           {label}
@@ -721,12 +760,12 @@ function TableField({
 
   return (
     <div className="mt-1 space-y-1.5">
-      <div className="overflow-x-auto rounded-lg border border-hairline">
+      <div className="overflow-x-auto rounded-lg border border-axis bg-surface">
         <table className="w-full border-collapse text-[12px]">
           <thead>
             <tr className="border-b border-hairline bg-sunken">
               {columns.map((column) => (
-                <th key={column.key} className="whitespace-nowrap px-2 py-1.5 text-left font-medium text-ink-muted">
+                <th key={column.key} className="whitespace-nowrap px-2 py-1.5 text-left text-[12px] font-medium text-ink">
                   {column.label}
                   {column.unit ? <span className="ml-1 font-normal">({column.unit})</span> : null}
                 </th>
@@ -745,7 +784,7 @@ function TableField({
               rows.map((row, index) => (
                 <tr key={index} className="border-b border-hairline last:border-b-0">
                   {columns.map((column) => (
-                    <td key={column.key} className="px-1 py-0.5">
+                    <td key={column.key} className="px-1 py-1">
                       {column.kind === 'boolean' ? (
                         <input
                           type="checkbox"
@@ -759,22 +798,25 @@ function TableField({
                           aria-label={column.label}
                           value={row[column.key] === null || row[column.key] === undefined ? '' : String(row[column.key])}
                           onChange={(e) => setCell(index, column.key, e.target.value)}
-                          className="w-full min-w-[7rem] bg-transparent px-1 py-1 text-ink outline-none"
+                          className={cn(cellCls, 'min-w-[7rem]')}
                         >
-                          <option value="">—</option>
+                          <option value="">Choose…</option>
                           {(column.kind === 'ref' ? (choices?.(column.target) ?? []).map((c) => ({ key: c.id, label: c.label })) : fieldOptions(column, listOf).filter((o) => !o.retired)).map((option) => (
                             <option key={option.key} value={option.key}>
                               {option.label}
                             </option>
                           ))}
                         </select>
+                      ) : column.kind === 'date' ? (
+                        <DateBox compact value={typeof row[column.key] === 'string' ? (row[column.key] as string) : ''} disabled={disabled} label={`${column.label}, row ${index + 1}`} onCommit={(iso) => setCell(index, column.key, iso)} />
                       ) : (
                         <input
                           disabled={disabled}
-                          type={column.kind === 'date' ? 'date' : 'text'}
+                          type="text"
+                          aria-label={`${column.label}, row ${index + 1}`}
                           defaultValue={row[column.key] === null || row[column.key] === undefined ? '' : String(row[column.key])}
                           onBlur={(e) => setCell(index, column.key, e.target.value)}
-                          className="w-full min-w-[6rem] bg-transparent px-1 py-1 tabular-nums text-ink outline-none"
+                          className={cellCls}
                         />
                       )}
                     </td>
@@ -800,7 +842,7 @@ function TableField({
         type="button"
         disabled={disabled}
         onClick={() => onChange([...rows, Object.fromEntries(columns.map((c) => [c.key, null]))])}
-        className="rounded px-1 text-[12px] text-brand hover:underline disabled:opacity-40"
+        className="rounded-lg border border-axis bg-surface px-2.5 py-1 text-[12px] font-medium text-ink hover:border-[var(--text-muted)] disabled:opacity-40 coarse:min-h-11"
       >
         + Add a row
       </button>
@@ -808,8 +850,106 @@ function TableField({
   );
 }
 
+/**
+ * The box a person types or chooses in: a clear border on the surface colour,
+ * a ring where the caret is, and the placeholder in the muted colour so an
+ * empty box never reads as a value. `coarse:text-base` stops a phone zooming
+ * the page when a box takes focus.
+ */
 const inputCls =
-  'mt-1 w-full rounded-lg border border-hairline bg-surface px-2.5 py-1.5 text-[13px] tabular-nums text-ink outline-none focus:border-brand disabled:opacity-60';
+  'mt-1 block w-full min-h-9 rounded-lg border border-axis bg-surface px-2.5 py-1.5 text-[13px] tabular-nums text-ink outline-none transition-[box-shadow,border-color] ' +
+  'placeholder:font-normal placeholder:text-ink-muted hover:border-[var(--text-muted)] focus:border-brand focus:shadow-[0_0_0_3px_rgb(var(--brand-rgb)/0.18)] ' +
+  'disabled:bg-sunken disabled:text-ink-secondary disabled:hover:border-axis coarse:min-h-11 coarse:text-base';
+
+/** A box that holds a value waiting to be accepted: the blue of what nobody has accepted, with Accept attached under it. */
+const WAITS = 'rounded-b-none border-ai hover:border-ai';
+
+/** Whether a field's unit is drawn inside its box, at the right: a plain figure with a unit, or a percentage. A measure is typed with its unit. */
+function unitInBox(def: CheckFieldDef): boolean {
+  if (fieldDimension(def)) return false;
+  return def.kind === 'percent' || ((def.kind === 'number' || def.kind === 'duration') && Boolean(def.unit));
+}
+
+/** What an empty box shows: the form the value is expected in. Never a value, and never "not recorded". */
+function placeholderFor(def: CheckFieldDef): string {
+  const dimension = fieldDimension(def);
+  if (dimension === 'money') return 'e.g. 4.2 Cr or 45 lakh';
+  if (dimension === 'area') return def.enterIn?.includes('acre') || !def.enterIn ? 'e.g. 1 acre 20 guntas or 6,070 sqm' : `e.g. 2,450 ${def.enterIn[0]}`;
+  if (dimension === 'length') return 'e.g. 12 m or 40 ft';
+  if (dimension) return `a figure and its unit${def.enterIn?.[0] ? `, e.g. 10 ${def.enterIn[0]}` : ''}`;
+  if (def.kind === 'percent') return 'e.g. 12.5';
+  if (def.kind === 'number' || def.kind === 'duration') return 'e.g. 24';
+  return '';
+}
+
+/**
+ * A day, typed or picked, written one way: "13 Oct 2026". The box takes a day
+ * however it is typed here (13-10-2026, 13 October 2026) and writes it back in
+ * that one form; the calendar button opens the browser's own picker. A date
+ * input of the browser's would show the day in whatever order the machine is
+ * set to, which is how one page came to show five date formats.
+ */
+function DateBox({ value, disabled, label, className, compact, onCommit }: { value: string; disabled?: boolean; label: string; className?: string; compact?: boolean; onCommit: (iso: string) => void }) {
+  const [text, setText] = useState(value ? daySaid(value) : '');
+  const [bad, setBad] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    setText(value ? daySaid(value) : '');
+    setBad(false);
+  }, [value]);
+  const commit = () => {
+    const typed = text.trim();
+    if (!typed) {
+      setBad(false);
+      if (value) onCommit('');
+      return;
+    }
+    const iso = dayTyped(typed);
+    setBad(!iso);
+    if (!iso) return;
+    if (iso !== value) onCommit(iso);
+    else setText(daySaid(iso));
+  };
+  return (
+    <span className={cn('relative block', !compact && 'mt-1')}>
+      <input
+        type="text"
+        value={text}
+        disabled={disabled}
+        aria-label={label}
+        aria-invalid={bad || undefined}
+        placeholder="dd Mon yyyy"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        className={cn(compact ? cellCls : inputCls, 'mt-0 pr-9', bad && 'border-critical', className)}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={`Pick ${label} from a calendar`}
+        onClick={() => {
+          const el = picker.current;
+          if (!el) return;
+          if (typeof el.showPicker === 'function') el.showPicker();
+          else el.focus();
+        }}
+        className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-50"
+      >
+        <Calendar size={14} aria-hidden />
+      </button>
+      <input ref={picker} type="date" tabIndex={-1} aria-hidden value={value} onChange={(e) => e.target.value && onCommit(e.target.value)} className="pointer-events-none absolute bottom-0 right-2 size-px opacity-0" />
+      {bad ? <span className="mt-0.5 block text-[11px] text-critical">Write the day as 13 Oct 2026.</span> : null}
+    </span>
+  );
+}
+
+/** A cell of a grid: the same box as a field's, a little shorter so rows stay close. */
+const cellCls =
+  'block h-8 w-full min-w-[6rem] rounded-md border border-axis bg-surface px-1.5 text-[12px] tabular-nums text-ink outline-none placeholder:text-ink-muted hover:border-[var(--text-muted)] ' +
+  'focus:border-brand focus:shadow-[0_0_0_3px_rgb(var(--brand-rgb)/0.18)] disabled:bg-sunken coarse:h-11 coarse:text-base';
 
 /* ------------------------------------------------------------------ */
 /* The controls a sheet adds                                             */
@@ -830,7 +970,7 @@ function Tiles({ options, value, disabled, label, onChange }: { options: OptionD
           onClick={() => onChange(value === option.key ? '' : option.key)}
           className={cn(
             'flex min-h-11 min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[13px] leading-snug transition-colors disabled:opacity-50',
-            value === option.key ? 'border-brand bg-brand-soft text-ink' : 'border-hairline text-ink-secondary hover:border-axis',
+            value === option.key ? 'border-brand bg-brand-soft font-medium text-ink' : 'border-axis bg-surface text-ink hover:border-[var(--text-muted)]',
           )}
         >
           {option.tone ? <span aria-hidden className={cn('size-2 shrink-0 rounded-full', DOT[option.tone])} /> : null}
@@ -855,7 +995,7 @@ function Tick({ value, disabled, label, onChange }: { value: boolean | null; dis
           onClick={() => onChange(value === answer ? null : answer)}
           className={cn(
             'grid size-9 place-items-center rounded-lg border transition-colors disabled:opacity-50 coarse:size-11',
-            value === answer ? (answer ? 'border-good bg-good/10 text-[var(--status-good-text)]' : 'border-critical bg-critical/10 text-critical') : 'border-hairline text-ink-muted hover:border-axis',
+            value === answer ? (answer ? 'border-good bg-good/10 text-[var(--status-good-text)]' : 'border-critical bg-critical/10 text-critical') : 'border-axis bg-surface text-ink-muted hover:border-[var(--text-muted)]',
           )}
         >
           {answer ? <Check size={16} aria-hidden /> : <X size={16} aria-hidden />}
@@ -869,7 +1009,7 @@ function Tick({ value, disabled, label, onChange }: { value: boolean | null; dis
 function Scale({ min, max, value, disabled, label, onChange }: { min: number; max: number; value: number | null; disabled?: boolean; label: string; onChange: (next: number | null) => void }) {
   const steps = Array.from({ length: Math.min(11, max - min + 1) }, (_, i) => min + i);
   return (
-    <div role="group" aria-label={label} className="mt-1 inline-flex overflow-hidden rounded-lg border border-hairline">
+    <div role="group" aria-label={label} className="mt-1 inline-flex max-w-full flex-wrap overflow-hidden rounded-lg border border-axis bg-surface">
       {steps.map((step) => (
         <button
           key={step}
@@ -877,7 +1017,7 @@ function Scale({ min, max, value, disabled, label, onChange }: { min: number; ma
           disabled={disabled}
           aria-pressed={value === step}
           onClick={() => onChange(value === step ? null : step)}
-          className={cn('min-w-9 border-r border-hairline px-2 py-1.5 text-[13px] tabular-nums last:border-r-0 disabled:opacity-50 coarse:min-h-11', value !== null && step <= value ? 'bg-brand text-white' : 'text-ink-secondary hover:bg-sunken')}
+          className={cn('min-w-9 border-r border-axis px-2 py-1.5 text-[13px] tabular-nums last:border-r-0 disabled:opacity-50 coarse:min-h-11', value !== null && step <= value ? 'bg-brand text-white' : 'text-ink-secondary hover:bg-sunken')}
         >
           {step}
         </button>
@@ -1218,9 +1358,10 @@ function FieldMarks({
     );
   const act = 'rounded-md px-2 py-1 text-[12px] font-medium hover:underline coarse:min-h-11';
   return (
-    <div className="mt-1 space-y-1 text-[11px] leading-snug text-ink-muted">
+    <div className={cn('space-y-1 text-[11px] leading-snug text-ink-muted', view.state === 'proposed' ? '-mt-px' : 'mt-1')}>
       {view.state === 'proposed' ? (
-        <div className="rounded-lg border border-ai/40 bg-ai/5 px-2 py-1.5">
+        // Attached under the box that holds the value: what waits, where it was read, and the two things to do with it.
+        <div className="rounded-b-lg border border-ai bg-ai/5 px-2.5 py-1.5">
           <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink">
             <AiMark size="xs" />
             <span>Waiting to be accepted</span>
@@ -1230,7 +1371,7 @@ function FieldMarks({
           {view.source?.proof === 'unverified' ? <p className="mt-0.5 text-[var(--status-warning-text)]">These words were not found on that page. Look at the paper before accepting.</p> : null}
           {may ? (
             <p className="mt-0.5 flex gap-1">
-              <button type="button" className={cn(act, 'text-ink')} onClick={() => onDecide!(def, 'accept')}>
+              <button type="button" className={cn(act, 'bg-action text-action-ink hover:no-underline')} onClick={() => onDecide!(def, 'accept')}>
                 Accept
               </button>
               <button type="button" className={cn(act, 'text-ink-muted')} onClick={() => onDecide!(def, 'set_aside')}>
@@ -1278,6 +1419,8 @@ function FieldMarks({
           </div>
         ))
       )}
+      {/* Once a value stands, the paper or the public source it was read from is a small link under its box. */}
+      {(view.state === 'accepted' || view.state === 'typed') && !derived && (view.source?.kind === 'paper' || view.source?.kind === 'external') && sourceSaid(view.source) ? <p>from {open(view.source)}</p> : null}
       {view.state === 'assumed' ? <p>Assumed: {sourceSaid(view.source)}</p> : null}
       {view.cites?.some((cite) => !cite.verified) && view.held && view.held.value !== null && view.held.value !== '' ? (
         <p className="text-[var(--status-warning-text)]">
@@ -1299,7 +1442,7 @@ function FieldMarks({
       {/* Everything else about a value, shown when its label is pressed. */}
       {shown && hasMore(def, view, may) ? (
         <div className="space-y-1 rounded-lg bg-sunken px-2 py-1.5">
-          {view.state !== 'empty' && sourceSaid(view.source) ? <p>{open(view.source)}</p> : null}
+          {view.state !== 'empty' && sourceSaid(view.source) && (derived || (view.source?.kind !== 'paper' && view.source?.kind !== 'external')) ? <p>{open(view.source)}</p> : null}
           {view.source?.quote ? <p>“{view.source.quote}”</p> : null}
           {view.held?.acceptedBy ? (
             <p>
