@@ -314,7 +314,11 @@ The answer cites a line by its mark, and code prints the tag where the mark stoo
 A document is filed once, in the vault, and owned by the workstream it belongs to. Reading happens in two passes:
 
 1. **Locally**, always: the text layer, then OCR (English and Kannada, bundled) for scanned pages; the reader recognises the document type and lifts its facts with the words and page they came from (`document-parse.ts`).
-2. **By a model**, when one is configured, for what the local reader could not make out. A PDF too long or too heavy to send whole is sent as a window — its first pages and its last, as many as fit — and every cited page is mapped back to the original.
+2. **By a model**, when one is configured, for what the local reader could not make out. A PDF too long or too heavy to send whole is sent as a window — its first pages and its last, as many as fit — and every cited page is mapped back to the original. The model is told the kind of paper the local reader took the file for and, for that kind, the key of every field that waits for one of its values (`paper-fields.ts`). On a project it answers only in those keys: a value under a key of its own is not kept.
+
+**A paper is filed under its own name and kind.** It answers a waiting requirement only where the requirement's title names that kind of paper and nothing else (`documentAnswers`): a joint development agreement is not what "Maintenance contracts" waits for. Otherwise it is a row of its own, named for what it is, in the function that holds that kind (`DOCUMENT_WORKSTREAM`).
+
+**A drop goes on being read after its tab closes.** Each dropped paper is noted on the record as its reading begins (`readingSince` on its not-read-yet card) and the note goes as the paper lands on its row. `papersInHand(project)` gives any page the papers still being read and the ones a request left behind unread.
 
 Files larger than one serverless request (4.5 MB) go up in 4 MB parts (`POST /uploads`, `PUT /uploads/:id/parts/:n`, `POST /uploads/:id/complete`) and are assembled in storage.
 
