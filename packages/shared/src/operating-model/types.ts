@@ -415,6 +415,23 @@ export interface RuleRow {
   verifiedOn?: string;
 }
 
+/**
+ * A rule the table is to hold whose figure nobody has yet read in the
+ * instrument: what it is, what it is keyed by and where it is written, with
+ * no value. A formula may name it. It gives no answer until a row of the
+ * same key is added, so a standing over it says the limit is not on file
+ * and never passes for want of one.
+ */
+export interface RuleShape {
+  key: string;
+  label: string;
+  jurisdiction: RuleRow['jurisdiction'];
+  /** The conditions its rows will carry: zone, road width, plot band, occupancy, height band. */
+  keyedBy: string[];
+  unit?: string;
+  source: RuleRow['source'];
+}
+
 /** A rule row a value was worked out from. */
 export interface RuleCitation {
   key: string;

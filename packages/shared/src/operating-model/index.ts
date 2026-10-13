@@ -71,7 +71,7 @@ export * from './firm-fields';
 export * from './check-waiting';
 export * from './check-conditions';
 export * from './field-charts';
-export { FIELD_SETS, RULE_ROWS } from './field-sets';
+export { FIELD_SETS, RULE_ROWS, RULE_SHAPES } from './field-sets';
 export * from './field-sets/shared-records';
 export * from './field-sets/state-packs';
 export * from './field-sets/builders';

@@ -15,6 +15,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  DEPARTMENT_KEYS,
   PAPERS_OWED,
   PROJECT_COCKPIT_PANES,
   PAPER_STANDING_LABEL,
@@ -24,6 +25,7 @@ import {
   addMilestones,
   addRequest,
   applyProjectChat,
+  checklistFunction,
   checklistSheet,
   createProject,
   ensureWorkstreamChecks,
@@ -192,8 +194,10 @@ describe('where a paper owed is worked', () => {
     assert.equal(at(paperPlace(lineOf(p, 'Bank guarantee'))), FINANCE);
     // A line can be named, to open on arrival.
     assert.equal(at(paperPlace(lineOf(p, 'Cube test results'), 'l:chk_1')), `${ENGINEERING}&item=l%3Achk_1`);
+    // Design's functions hold sheets and their documents, so its papers are worked on the first of them.
+    assert.equal(at(paperPlace({ department: 'design' })), '/projects/prj_1/w/design.drawings?part=documents');
     // A department with no function laid out in parts shows no list: its own page for a line nobody was asked for.
-    assert.equal(at(paperPlace({ department: 'design' })), '/projects/prj_1/d/construction');
+    for (const department of DEPARTMENT_KEYS.filter((key) => !checklistFunction(key))) assert.equal(at(paperPlace({ department })), `/projects/prj_1/d/${department}`);
   });
 
   it('sends a request to the department of the lines it covers, and one that belongs to none to the firm’s Requests', () => {

@@ -8,11 +8,14 @@ import {
   currentCertified,
   departmentDefinition,
   departmentRole,
+  fieldsNeeding,
+  functionHasSheets,
   projectDepartments,
   projectLinks,
   quickAssessment,
   workstreamDefinition,
   type DepartmentKey,
+  type WorkstreamDefinition,
 } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, Skeleton, StatTile } from '../../../components/ui/kit';
 import { VERDICT_TONE } from '../../../components/departments/QuickAssessmentCard';
@@ -63,6 +66,18 @@ export default function DepartmentPage() {
         certified: currentCertified(project, ws.key),
       }));
   }, [project, dept]);
+  // A department not built beyond its sheets is those sheets: its functions that hold any, under the profession whose work each is.
+  const sheeted = useMemo(() => {
+    if (!dept || dept.status === 'live') return [];
+    const needing = new Map(fieldsNeeding(project).map((row) => [row.fn, row.counts.total]));
+    const groups = new Map<string, Array<{ ws: WorkstreamDefinition; needs: number }>>();
+    for (const ws of dept.workstreams) {
+      if (!functionHasSheets(ws.key)) continue;
+      const group = ws.group ?? '';
+      groups.set(group, [...(groups.get(group) ?? []), { ws, needs: needing.get(ws.key) ?? 0 }]);
+    }
+    return [...groups].map(([group, functions]) => ({ group, functions }));
+  }, [project, dept]);
   const staff = useMemo(
     () => (people.data?.staff ?? []).map((s) => ({ email: s.email, name: s.name, workspaceRole: s.role })),
     [people.data],
@@ -90,7 +105,33 @@ export default function DepartmentPage() {
         </div>
       </Reveal>
 
-      {dept.status === 'coming_soon' ? (
+      {sheeted.length ? (
+        <Card>
+          <CardHeader title="Functions" subtitle="Each keeps its own sheets" />
+          <CardBody className="space-y-4">
+            {sheeted.map(({ group, functions }) => (
+              <div key={group}>
+                {group ? <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{group}</p> : null}
+                <ul className="mt-1 grid grid-cols-1 gap-x-6 [@container(min-width:52rem)]:grid-cols-2">
+                  {functions.map(({ ws, needs }) => (
+                    <li key={ws.key} className="border-b border-hairline">
+                      <Link to={cockpitPath(project.id, 'workstream', { workstream: ws.key })} className="group flex min-w-0 items-center justify-between gap-3 py-2 coarse:min-h-11">
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-medium text-ink group-hover:underline">{ws.label}</span>
+                          <span className="block truncate text-[12px] text-ink-secondary">{ws.purpose}</span>
+                        </span>
+                        {needs ? <Badge tone="warning">{needs} need you</Badge> : <ArrowRight size={13} aria-hidden className="shrink-0 text-ink-muted transition-transform duration-quick ease-state group-hover:translate-x-0.5" />}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {dept.status === 'coming_soon' && !sheeted.length ? (
         <Card>
           <CardBody className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-ink-secondary">
             <span>{dept.label} is coming soon.</span>

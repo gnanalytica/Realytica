@@ -156,15 +156,17 @@ describe('the menu', () => {
     assert.deepEqual(menuDepartmentsOf(['procurement']), ['procurement']);
   });
 
-  it('calls a workstream a function, and Design’s four one function', () => {
+  it('calls a workstream a function, and all of Design’s one function', () => {
     for (const w of WORKSTREAMS) assert.equal(functionKey(w.key), w.department === 'design' ? 'design' : w.key);
     const engineering = menuFunctions('construction');
     assert.deepEqual(engineering.map((f) => f.key), ['design', 'construction.progress', 'construction.quality', 'construction.site', 'construction.safety'], 'Design leads');
     assert.deepEqual(engineering.map((f) => f.label), ['Design', 'Progress', 'Technical', 'Site', 'Safety']);
     const design = engineering[0]!;
-    assert.deepEqual(design.workstreams, ['design.drawings', 'design.compliance', 'design.rfis', 'design.coordination']);
+    assert.deepEqual(design.workstreams.slice(0, 4), ['design.drawings', 'design.compliance', 'design.rfis', 'design.coordination'], 'the four it began with lead');
+    assert.equal(design.workstreams.length, 22, 'and each thing an architect, a designer, a structural engineer and a services engineer keeps is one more');
+    assert.deepEqual([...new Set(design.workstreams.map((key) => WORKSTREAMS.find((w) => w.key === key)!.group))], ['Architect', 'Interiors and landscape', 'Structural engineer', 'Services engineer'], 'each under the profession whose work it is');
     assert.equal(design.department, 'design', 'its work stays under Design on the record');
-    assert.equal(design.built, false);
+    assert.equal(design.built, true, 'built, because its functions hold sheets');
     assert.equal(engineering[1]!.built, true);
     assert.deepEqual(menuFunctions('design'), engineering, 'asked of Design, the menu answers for Engineering');
   });

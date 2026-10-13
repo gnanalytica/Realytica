@@ -8,7 +8,8 @@
  * `RULE_ROWS`. Nothing else is edited (docs/fields.md).
  */
 
-import type { FieldSet, RuleRow } from '../types';
+import type { FieldSet, RuleRow, RuleShape } from '../types';
+import { DESIGN_FIELD_SETS, DESIGN_RULE_ROWS, DESIGN_RULE_SHAPES } from './architect-design-engineer-mep';
 import { EXAMPLE_LAND_HOLDING } from './example-land-holding';
 import { LAW_LIAISON_FIELD_SETS } from './law-liaison';
 import { FINANCE_RULE_ROWS, FINANCE_TAX_LENDERS_FIELD_SETS } from './finance-tax-lenders';
@@ -27,6 +28,7 @@ export const FIELD_SETS: readonly FieldSet[] = [
   ...LAW_LIAISON_FIELD_SETS,
   ...VALUATION_FEASIBILITY_BUDGET_FIELD_SETS,
   ...FINANCE_TAX_LENDERS_FIELD_SETS,
+  ...DESIGN_FIELD_SETS,
 ];
 
 export const RULE_ROWS: readonly RuleRow[] = [
@@ -35,4 +37,10 @@ export const RULE_ROWS: readonly RuleRow[] = [
   ...LAW_LIAISON_RULE_ROWS,
   ...VALUATION_FEASIBILITY_BUDGET_RULE_ROWS,
   ...FINANCE_RULE_ROWS,
+  ...DESIGN_RULE_ROWS,
+];
+
+/** Rules a formula may read whose figures are not loaded yet (see `RuleShape`). Registered as rule rows are. */
+export const RULE_SHAPES: readonly RuleShape[] = [
+  ...DESIGN_RULE_SHAPES,
 ];
