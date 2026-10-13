@@ -5,25 +5,29 @@
  * same rows — Budget vs PO vs Paid, and Budget vs Anticipated.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FilePlus2, Lock, Printer, Unlock } from 'lucide-react';
 import {
+  costReportBottomLine,
   costReportTotals,
   costReportsOf,
   departmentRole,
   moneySaid,
+  ruleSourceSaid,
   roleCanDecide,
   roleCanEdit,
   type CostReportPackageRow,
   type CostReportPeriod,
   type DdProject,
 } from '@realytica/shared';
+import { api } from '../../lib/api';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Card, CardBody, CardHeader, Input, cn, useToast } from '../ui/kit';
 import { CostReportExtras } from './CostReportExtras';
 import { CostBillsPanel } from './CostBillsPanel';
+import { CostPapers } from './CostPapers';
 import { SinceLastReport } from './SinceLastReport';
 import { TenderOffers } from '../procurement/TenderOffers';
 
@@ -58,6 +62,20 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
   const noteValue = noteDraft !== null && report ? noteDraft : (report?.note ?? '');
 
   const totals = report ? costReportTotals(report) : null;
+  // Whether a model reader is set up: what a cost report whose tables are pictures says of itself turns on it. Taken as set up until known.
+  const [modelSetUp, setModelSetUp] = useState(true);
+  useEffect(() => {
+    let live = true;
+    api.agentCapability().then(
+      (capability) => {
+        if (live) setModelSetUp(capability.available);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
   const draft = report?.status === 'draft';
   const currency = project.currency;
 
@@ -94,7 +112,7 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
       <Card>
         <CardHeader
           title="Cost Report"
-          subtitle="Budget against PO issued, amount paid and anticipated cost — by work package"
+          subtitle="Budget against PO issued, certified, amount paid and anticipated cost, by work package"
           action={
             <div className="flex flex-wrap items-center gap-2">
               {report ? (
@@ -202,6 +220,9 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
         </CardBody>
       </Card>
 
+      {/* What a cost report on the register offers to the ledger: each row waits here until a lead or signer accepts it. */}
+      <CostPapers project={project} report={report} mayDecide={mayDecide} mayEdit={mayEdit} modelSetUp={modelSetUp} onChanged={onChanged} />
+
       {report ? (
         <>
           <SinceLastReport project={project} report={report} mayEdit={mayEdit && draft} onChanged={onChanged} />
@@ -213,6 +234,7 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
             onChanged={onChanged}
             setBusy={setBusy}
           />
+          <BottomLine project={project} report={report} />
           <ExecTable
             title="Budget vs PO issued vs Amount paid"
             subtitle="Executive summary"
@@ -277,6 +299,61 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
 
 function packageLabel(row: CostReportPackageRow): string {
   return [row.code, row.name].filter(Boolean).join(' · ');
+}
+
+/** What a row is besides its name, in a quiet line under it: who it was awarded to, or that it is money set aside or a fee. */
+function rowSaid(row: CostReportPackageRow): string {
+  return [row.kind === 'contingency' ? 'Contingency' : row.kind === 'fee' ? 'Fee' : '', row.awardedTo ? `Awarded to ${row.awardedTo}` : '', row.from ? `from page ${row.from.page} of a report` : ''].filter(Boolean).join(' · ');
+}
+
+/**
+ * The lines a cost report ends in, worked out from the ledger and typed by
+ * nobody: the total, GST on it at the rule row's rate, the total with GST, and
+ * the cost for each square foot where the built-up area is on file.
+ */
+function BottomLine({ project, report }: { project: DdProject; report: CostReportPeriod }) {
+  if (!report.rows.length) return null;
+  const line = costReportBottomLine(project, report);
+  const currency = project.currency;
+  const rows: Array<[string, number, number]> = [
+    ['Total before GST', line.beforeGst.budget, line.beforeGst.anticipatedCost],
+    ...(line.gst ? ([[`GST at ${line.gst.ratePct}%`, line.gst.budget, line.gst.anticipatedCost]] as Array<[string, number, number]>) : []),
+    ...(line.afterGst ? ([['Total with GST', line.afterGst.budget, line.afterGst.anticipatedCost]] as Array<[string, number, number]>) : []),
+    ...(line.perArea ? ([[`Cost per sq ft, on ${line.perArea.areaSqft.toLocaleString('en-IN')} sq ft built-up, before GST`, line.perArea.budgetPerSqft, line.perArea.anticipatedPerSqft]] as Array<[string, number, number]>) : []),
+  ];
+  return (
+    <Card>
+      <CardHeader title="Bottom line" subtitle="Worked out from the ledger" />
+      <CardBody className="space-y-1.5 overflow-x-auto">
+        <table className="w-full min-w-[28rem] border-collapse text-left text-[13px]">
+          <thead>
+            <tr className="border-b border-hairline text-micro uppercase tracking-[0.04em] text-ink-muted">
+              <th className="py-1.5 pr-3 font-medium" />
+              <th className="py-1.5 pr-3 text-right font-medium">Budget</th>
+              <th className="py-1.5 text-right font-medium">Anticipated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, budget, anticipated]) => (
+              <tr key={label} className={cn('border-b border-hairline/70', label === 'Total with GST' ? 'font-semibold' : '')}>
+                <td className="py-1.5 pr-3 text-ink">{label}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums text-ink">{money(budget, currency)}</td>
+                <td className="py-1.5 text-right tabular-nums text-ink">{money(anticipated, currency)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {line.beforeGst.certified !== undefined ? <p className="text-[12px] text-ink-secondary">Certified to date: {money(line.beforeGst.certified, currency)}</p> : null}
+        {line.gst ? (
+          <p className="text-[12px] text-ink-muted">
+            GST rate: {ruleSourceSaid(line.gst.rule.source)}
+            {line.gst.rule.verified ? '' : '. Rule not checked'}
+          </p>
+        ) : null}
+        {!line.perArea ? <p className="text-[12px] text-ink-muted">No built-up area is on the project’s file, so no cost per sq ft is worked out.</p> : null}
+      </CardBody>
+    </Card>
+  );
 }
 
 function ExecTable({
@@ -451,12 +528,13 @@ function PackageLedger({
             </Button>
           </div>
         ) : null}
-        <table className="w-full min-w-[48rem] border-collapse text-left text-[13px]">
+        <table className="w-full min-w-[54rem] border-collapse text-left text-[13px]">
           <thead>
             <tr className="border-b border-hairline text-micro uppercase tracking-[0.04em] text-ink-muted">
               <th className="py-1.5 pr-2 font-medium">Package</th>
               <th className="py-1.5 pr-2 text-right font-medium">Budget</th>
               <th className="py-1.5 pr-2 text-right font-medium">PO issued</th>
+              <th className="py-1.5 pr-2 text-right font-medium">Certified</th>
               <th className="py-1.5 pr-2 text-right font-medium">Paid</th>
               <th className="py-1.5 pr-2 text-right font-medium">Anticipated</th>
               {mayEdit ? <th className="py-1.5 font-medium" /> : null}
@@ -465,7 +543,7 @@ function PackageLedger({
           <tbody>
             {report.rows.map((row) => (
               <LedgerRow
-                key={`${row.id}:${row.budget}:${row.poIssued}:${row.amountPaid}:${row.anticipatedCost}`}
+                key={`${row.id}:${row.budget}:${row.poIssued}:${row.certified ?? ''}:${row.amountPaid}:${row.anticipatedCost}`}
                 row={row}
                 currency={currency}
                 mayEdit={mayEdit}
@@ -519,25 +597,37 @@ function LedgerRow({
   const [po, setPo] = useState(String(row.poIssued));
   const [paid, setPaid] = useState(String(row.amountPaid));
   const [anticipated, setAnticipated] = useState(String(row.anticipatedCost));
+  // Certified to date is a figure a report may not state: empty is none, and is kept as none.
+  const [certified, setCertified] = useState(row.certified === undefined ? '' : String(row.certified));
 
+  const certifiedTyped = certified.trim() ? parseMoney(certified) : null;
   const dirty =
-    Number(budget) !== row.budget || Number(po) !== row.poIssued || Number(paid) !== row.amountPaid || Number(anticipated) !== row.anticipatedCost;
+    Number(budget) !== row.budget || Number(po) !== row.poIssued || Number(paid) !== row.amountPaid || Number(anticipated) !== row.anticipatedCost || (certifiedTyped ?? undefined) !== row.certified;
 
   function commit() {
     const b = parseMoney(budget);
     const p = parseMoney(po);
     const a = parseMoney(paid);
     const ant = parseMoney(anticipated);
-    if (b === undefined || p === undefined || a === undefined || ant === undefined) return;
-    onSave({ budget: b, poIssued: p, amountPaid: a, anticipatedCost: ant });
+    if (b === undefined || p === undefined || a === undefined || ant === undefined || certifiedTyped === undefined) return;
+    onSave({ budget: b, poIssued: p, amountPaid: a, anticipatedCost: ant, ...((certifiedTyped ?? undefined) !== row.certified ? { certified: certifiedTyped } : {}) });
   }
+
+  const said = rowSaid(row);
+  const name = (
+    <td className="py-1.5 pr-2 text-ink">
+      {packageLabel(row)}
+      {said ? <span className="block text-[12px] text-ink-muted">{said}</span> : null}
+    </td>
+  );
 
   if (!mayEdit) {
     return (
       <tr className="border-b border-hairline/70">
-        <td className="py-1.5 pr-2 text-ink">{packageLabel(row)}</td>
+        {name}
         <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.budget, currency)}</td>
         <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.poIssued, currency)}</td>
+        <td className="py-1.5 pr-2 text-right tabular-nums">{row.certified === undefined ? '' : money(row.certified, currency)}</td>
         <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.amountPaid, currency)}</td>
         <td className="py-1.5 pr-2 text-right tabular-nums">{money(row.anticipatedCost, currency)}</td>
       </tr>
@@ -546,11 +636,12 @@ function LedgerRow({
 
   return (
     <tr className="border-b border-hairline/70">
-      <td className="py-1.5 pr-2 text-ink">{packageLabel(row)}</td>
+      {name}
       {(
         [
           [budget, setBudget],
           [po, setPo],
+          [certified, setCertified],
           [paid, setPaid],
           [anticipated, setAnticipated],
         ] as const
@@ -569,7 +660,7 @@ function LedgerRow({
                 e.currentTarget.blur();
               }
             }}
-            className="ml-auto w-28 text-right tabular-nums"
+            className="ml-auto w-24 text-right tabular-nums"
           />
         </td>
       ))}

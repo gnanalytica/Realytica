@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { costReportTotals, costReportsOf, moneySaid, projectPhotos, type CostReportPackageRow, type CostReportPeriod, type DdProject } from '@realytica/shared';
+import { costReportBottomLine, costReportTotals, costReportsOf, moneySaid, projectPhotos, type CostReportPackageRow, type CostReportPeriod, type DdProject } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
@@ -136,6 +136,13 @@ export default function CostReportPrint() {
   }
 
   const totals = costReportTotals(report);
+  // The lines the report ends in, worked out from its packages: the total with GST at the rule row's rate, and the cost for each square foot.
+  const bottom = costReportBottomLine(project, report);
+  const bottomLines = [
+    ...(bottom.gst && bottom.afterGst ? [`With GST at ${bottom.gst.ratePct}%: budget ${money(bottom.afterGst.budget, project.currency)}, anticipated ${money(bottom.afterGst.anticipatedCost, project.currency)}${bottom.gst.rule.verified ? '' : ' (rate not checked)'}`] : []),
+    ...(bottom.beforeGst.certified !== undefined ? [`Certified to date: ${money(bottom.beforeGst.certified, project.currency)}`] : []),
+    ...(bottom.perArea ? [`Anticipated cost per sq ft, before GST: ${money(bottom.perArea.anticipatedPerSqft, project.currency)} on ${bottom.perArea.areaSqft.toLocaleString('en-IN')} sq ft built-up`] : []),
+  ];
 
   return (
     <div className="cost-report-print bg-white text-black">
@@ -179,6 +186,13 @@ export default function CostReportPrint() {
             </div>
           ))}
         </dl>
+        {report.rows.length ? (
+          <ul className="mt-6 w-full max-w-lg space-y-1 text-left text-[12px] text-black/75">
+            {bottomLines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : null}
       </section>
 
       <Sheet title="Since last report" page={1} of={7}>

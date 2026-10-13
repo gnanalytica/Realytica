@@ -29,6 +29,8 @@ import type {
   CostReportBasicPrice,
   CostReportPackageRow,
   CostReportPeriod,
+  CostImportPreview,
+  CostOfferCorrection,
   CostReportTotals,
   CostReportVariation,
   CostSummary,
@@ -220,6 +222,10 @@ export const workspaceApi = {
       amountPaid?: number | null;
       anticipatedCost?: number | null;
       note?: string | null;
+      certified?: number | null;
+      awardedTo?: string | null;
+      variations?: number | null;
+      kind?: 'contingency' | 'fee' | null;
     },
   ) =>
     request<{ project: DdProject; report: CostReportPeriod; row: CostReportPackageRow; totals: CostReportTotals }>(
@@ -293,20 +299,49 @@ export const workspaceApi = {
       { method: 'DELETE' },
     ),
 
-  importCostReport: (projectId: string, reportId: string, input: { file: File } | { text: string }) => {
+  /**
+   * A cost table, pasted or as a file. Without `confirm` nothing is written: what comes back is what it would do, the lines it read
+   * as headings and totals, and whether the rows add up to the table's own total. With it, the same table is imported.
+   */
+  previewCostImport: (projectId: string, reportId: string, input: { file: File } | { text: string }) => {
     if ('file' in input) {
       const body = new FormData();
       body.append('file', input.file);
-      return request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number }>(
-        `/projects/${projectId}/cost-reports/${reportId}/import`,
-        { method: 'POST', body },
-      );
+      return request<{ preview: CostImportPreview; check: string }>(`/projects/${projectId}/cost-reports/${reportId}/import`, { method: 'POST', body });
     }
-    return request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number }>(
-      `/projects/${projectId}/cost-reports/${reportId}/import`,
-      json({ text: input.text }),
-    );
+    return request<{ preview: CostImportPreview; check: string }>(`/projects/${projectId}/cost-reports/${reportId}/import`, json({ text: input.text }));
   },
+
+  importCostReport: (projectId: string, reportId: string, input: { file: File } | { text: string }) => {
+    type Imported = { project: DdProject; report: CostReportPeriod; totals: CostReportTotals; added: number; updated: number; check: string };
+    if ('file' in input) {
+      const body = new FormData();
+      body.append('file', input.file);
+      body.append('confirm', 'true');
+      return request<Imported>(`/projects/${projectId}/cost-reports/${reportId}/import`, { method: 'POST', body });
+    }
+    return request<Imported>(`/projects/${projectId}/cost-reports/${reportId}/import`, json({ text: input.text, confirm: true }));
+  },
+
+  /** Accept one row a cost report offered onto a draft Cost Report, with any cells corrected first. A lead or signer of Finance. */
+  acceptCostOffer: (projectId: string, reportId: string, evidenceId: string, offerId: string, corrected: CostOfferCorrection = {}) =>
+    request<{ project: DdProject; report: CostReportPeriod; row: CostReportPackageRow; totals: CostReportTotals }>(
+      `/projects/${projectId}/cost-reports/${reportId}/offers/${evidenceId}/${offerId}/accept`,
+      json(corrected),
+    ),
+
+  /** Accept every row still offered from one page of a cost report. Rows a person has to look at are left, and counted. */
+  acceptCostOffersOnPage: (projectId: string, reportId: string, evidenceId: string, page: number) =>
+    request<{ project: DdProject; report: CostReportPeriod; totals: CostReportTotals; accepted: number; left: number }>(
+      `/projects/${projectId}/cost-reports/${reportId}/offers/${evidenceId}/accept-page`,
+      json({ page }),
+    ),
+
+  setAsideCostOffer: (projectId: string, evidenceId: string, offerId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/cost-papers/${evidenceId}/offers/${offerId}/set-aside`, json({})),
+
+  /** Set a dropped file aside: kept as a paper to file, said on no banner, still answerable from Documents. */
+  setDroppedAside: (projectId: string, storageKey: string) => request<{ project: DdProject }>(`/projects/${projectId}/dropped/set-aside`, json({ storageKey })),
 
   addCostContract: (
     projectId: string,
