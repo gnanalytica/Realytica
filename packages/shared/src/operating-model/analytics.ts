@@ -185,6 +185,23 @@ export interface AcrossScheduleLine {
   extensionLikely: boolean;
   /** Milestones late, behind or slipping. */
   warned: AnalyticsFigure;
+  /** Progress planned against progress made, month by month, the latest last (`ACROSS_SCHEDULE_SERIES`). Absent where the schedule gives no months. */
+  curve?: Array<{ key: string; label: string; planned: number | null; actual: number | null }>;
+  /** The latest month that has a figure made, in a line: "September 2026: 42% made against 48% planned". */
+  curveSaid?: string;
+}
+
+/** Units sold on one project, period by period (`ACROSS_SOLD_SERIES`). */
+export interface AcrossSalesLine {
+  projectId: string;
+  projectName: string;
+  /** Each period the stock sheet issued, then the sheet as it reads now, the latest last. */
+  points: Array<{ key: string; label: string; value: number | null; open: boolean }>;
+  /** The latest count. */
+  sold: number | null;
+  /** The latest less the one before, and which period that was. */
+  movement?: number;
+  previousLabel?: string;
 }
 
 /** What one party owes, on every project. `party` is absent for the papers nobody is named for. */
@@ -215,6 +232,10 @@ export interface AcrossProjects {
   schedule: {
     lines: AcrossScheduleLine[];
     extensions: AnalyticsFigure;
+  };
+  /** Units sold by period, on the projects that keep the week's stock by period. */
+  sales: {
+    lines: AcrossSalesLine[];
   };
   papers: {
     owed: number;
@@ -253,6 +274,16 @@ export const ACROSS_SERIES = [
   { set: COST_REPORT_PERIODS, field: 'budget' },
 ] as const;
 
+/** Progress planned and progress made, month by month: the two figures of the programme a schedule line is drawn from. */
+export const ACROSS_SCHEDULE_SERIES = [
+  { set: 'construction.progress.programme', field: 'planned_percent' },
+  { set: 'construction.progress.programme', field: 'actual_percent' },
+] as const;
+/** Units sold, week by week, where the project keeps the week's stock. */
+export const ACROSS_SOLD_SERIES = { set: 'commercial.inventory.stock', field: 'units_sold' } as const;
+/** The most periods a line across projects carries. */
+export const ACROSS_SERIES_MOST = 12;
+
 function lastIssued(project: Pick<DdProject, 'costReports'>): CostReportPeriod | undefined {
   return costReportsOf(project)
     .filter((report) => report.status === 'issued')
@@ -276,6 +307,7 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
   const costLines: AcrossCostLine[] = [];
   const notIssued: AnalyticsRow[] = [];
   const scheduleLines: AcrossScheduleLine[] = [];
+  const salesLines: AcrossSalesLine[] = [];
   const extensions: AnalyticsRow[] = [];
   const parties = new Map<string, { party?: string; rows: AnalyticsRow[] }>();
   const alertKinds = new Map<string, { rows: AnalyticsRow[]; critical: number; worst: number }>();
@@ -351,8 +383,15 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
           source: 'the milestone on the progress board',
           ...PROGRESS_PLACE,
         }));
+      // Planned against made, month by month, as any figure kept by period is read.
+      // The months that have begun: the plan runs on past today, and what is not yet due to be made is no line here.
+      const [planned, made] = ACROSS_SCHEDULE_SERIES.map((address) => periodSeries(project, address, now).filter((point) => point.period.from <= today).slice(-ACROSS_SERIES_MOST));
+      const curve = (made ?? []).map((point) => ({ key: point.period.key, label: point.period.label, planned: planned?.find((held) => held.period.key === point.period.key)?.value ?? null, actual: point.value }));
+      const latest = [...curve].reverse().find((point) => point.actual !== null);
       scheduleLines.push({
         ...base(project),
+        ...(curve.length ? { curve } : {}),
+        ...(latest ? { curveSaid: `${latest.label}: ${latest.actual}% made${latest.planned !== null ? ` against ${latest.planned}% planned` : ''}` } : {}),
         milestones: watch.milestones.length,
         ...(watch.plannedCompletion ? { plannedCompletion: watch.plannedCompletion } : {}),
         ...(watch.projectedCompletion ? { projectedCompletion: watch.projectedCompletion } : {}),
@@ -372,6 +411,19 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
         extensions.push(row);
         decisions.push(row);
       }
+    }
+
+    /* ---- Units sold ---- */
+    const sold = periodSeries(project, ACROSS_SOLD_SERIES, now, undefined, ACROSS_SERIES_MOST);
+    // Only where the week's stock has been issued at least once: a count with no past is no series.
+    if (sold.some((point) => point.status === 'issued')) {
+      const [last, before] = [sold.at(-1)!, sold.at(-2)];
+      salesLines.push({
+        ...base(project),
+        points: sold.map((point) => ({ key: point.period.key, label: point.period.label, value: point.value, open: point.status === 'open' })),
+        sold: last.value,
+        ...(before && last.value !== null && before.value !== null ? { movement: last.value - before.value, previousLabel: before.period.label } : {}),
+      });
     }
 
     /* ---- Papers owed ---- */
@@ -469,6 +521,7 @@ export function acrossProjects(projects: readonly DdProject[], now: Date): Acros
       lines: scheduleLines.sort((a, b) => Number(b.extensionLikely) - Number(a.extensionLikely) || (b.projectedDaysLate ?? 0) - (a.projectedDaysLate ?? 0) || a.projectName.localeCompare(b.projectName)),
       extensions: figure(extensions),
     },
+    sales: { lines: salesLines.sort((a, b) => a.projectName.localeCompare(b.projectName)) },
     papers: {
       owed,
       parties: [...parties.values()]

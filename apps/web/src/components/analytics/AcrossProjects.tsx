@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
-import { Bell, CalendarClock, FileQuestion, Gavel, Wallet } from 'lucide-react';
+import { Bell, CalendarClock, FileQuestion, Gavel, Home, Wallet } from 'lucide-react';
 import { cockpitPath, meetingDay, moneySaid, readsAnalytics, type AcrossProjects as AcrossProjectsView, type AnalyticsFigure, type AnalyticsRow } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { useMe } from '../../lib/useMe';
+import { Sparkline } from '../CheckFields';
 import { Badge, Card, CardBody, CardHeader, ProgressBar, cn } from '../ui/kit';
 import { FigureButton } from './FigureList';
 
@@ -89,6 +90,40 @@ function CostCard({ cost }: { cost: AcrossProjectsView['cost'] }) {
   );
 }
 
+/** The months of a schedule line that have a figure made, in order. */
+const made = (line: AcrossProjectsView['schedule']['lines'][number]): number[] => (line.curve ?? []).flatMap((point) => (point.actual === null ? [] : [point.actual]));
+
+/** Units sold by period, on the projects that keep the week's stock by period. Nothing where none does. */
+function SalesCard({ sales }: { sales: AcrossProjectsView['sales'] }) {
+  if (!sales?.lines.length) return null;
+  return (
+    <Card>
+      <CardHeader title="Units sold" icon={<Home />} subtitle={plural(sales.lines.length, 'project with a week’s stock issued', 'projects with a week’s stock issued')} />
+      <CardBody>
+        <ul className="divide-y divide-hairline" data-across-sales>
+          {sales.lines.map((line) => {
+            const counts = line.points.flatMap((point) => (point.value === null ? [] : [point.value]));
+            return (
+              <li key={line.projectId} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
+                <Link to={cockpitPath(line.projectId, 'workstream', { workstream: 'commercial.inventory' })} className="min-w-0 truncate text-[13px] font-medium text-ink">
+                  {line.projectName}
+                </Link>
+                <span className="flex flex-wrap items-center gap-x-2 text-[12px] text-ink-secondary">
+                  <span>
+                    {line.sold === null ? 'No count' : `${line.sold} sold`}
+                    {line.movement !== undefined && line.previousLabel ? ` · ${line.movement >= 0 ? '+' : '−'}${Math.abs(line.movement)} since ${line.previousLabel}` : ''}
+                  </span>
+                  {counts.length >= 3 ? <Sparkline points={counts} label={`${line.projectName}: units sold over ${counts.length} periods`} /> : null}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </CardBody>
+    </Card>
+  );
+}
+
 function ScheduleCard({ schedule }: { schedule: AcrossProjectsView['schedule'] }) {
   const n = schedule.extensions.count;
   return (
@@ -117,6 +152,13 @@ function ScheduleCard({ schedule }: { schedule: AcrossProjectsView['schedule'] }
                   {line.projectedCompletion ? ` · projected ${meetingDay(line.projectedCompletion)}` : line.plannedCompletion ? ' · no projection yet' : ''}
                   {line.projectedDaysLate ? ` · ${plural(line.projectedDaysLate, 'day', 'days')} late` : ''}
                 </p>
+                {/* Planned against made, month by month: the latest month in a line, and the months made as a small line. */}
+                {line.curveSaid ? (
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-ink-secondary" data-across-curve>
+                    <span>{line.curveSaid}</span>
+                    {made(line).length >= 3 ? <Sparkline points={made(line)} label={`${line.projectName}: progress made over ${made(line).length} months`} /> : null}
+                  </p>
+                ) : null}
                 {line.warned.count ? (
                   <FigureButton className="mt-1.5" label={line.warned.count === 1 ? 'milestone late, behind or slipping' : 'milestones late, behind or slipping'} figure={line.warned} tone="warning" showProject={false} />
                 ) : null}
@@ -221,6 +263,7 @@ export function AcrossProjects() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <CostCard cost={data.cost} />
         <ScheduleCard schedule={data.schedule} />
+        <SalesCard sales={data.sales} />
         <DecisionsCard decisions={data.decisions} />
         <PapersCard papers={data.papers} />
         <AlertsCard alerts={data.alerts} />
