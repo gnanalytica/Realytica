@@ -162,10 +162,17 @@ function rows(page: number, lines: string[], from: number): { found: ReportObser
 
 const ROW_NUMBER_ALONE = /^(\d{1,3})[.)]?$/;
 
-function rowsFrom(page: number, lines: string[], from: number, alone: boolean): { found: ReportObservation[]; next: number } {
+/** A number a text layer has set with a space between its figures ("1 0" for 10), alone on its line or leading it. */
+const ROW_NUMBER_SPACED = /^(\d) (\d)(?: (\d))?[.)]?(?=$|\s+\S)/;
+
+function rowsFrom(page: number, given: string[], from: number, alone: boolean): { found: ReportObservation[]; next: number } {
   const starts: Array<{ at: number; number: number }> = [];
   let expected = from;
+  // A row's number set as "1 0" is the number 10 where 10 is the row that comes next: the line is read with its figures closed up.
+  const lines = given.map((line) => line);
   lines.forEach((line, at) => {
+    const spaced = ROW_NUMBER_SPACED.exec(line);
+    if (spaced && Number(spaced.slice(1).filter(Boolean).join('')) === expected && (alone || line.length > spaced[0].length)) lines[at] = line = `${expected}${line.slice(spaced[0].length)}`;
     const said = ROW_START.exec(line) ?? (alone ? ROW_NUMBER_ALONE.exec(line) : null);
     // A numbered heading over the table ("1. SUMMARY OF OBSERVATIONS") is no row: a row's words are a sentence, not capitals.
     const heading = /[A-Z]/.test(line) && !/[a-z]/.test(line);
@@ -189,12 +196,23 @@ function rowsFrom(page: number, lines: string[], from: number, alone: boolean): 
   return { found, next: expected };
 }
 
+/** A line that is only the page's number: "3 | Page", "3 | P a g e", "Page 3", "Page 3 of 12", "- 3 -". */
+const PAGE_NUMBER_LINE = /^(?:\d{1,3}\s*\|\s*P\s*a\s*g\s*e|P\s*a\s*g\s*e\s*\|?\s*\d{1,3}(?:\s+of\s+\d{1,3})?|[-–—]\s*\d{1,3}\s*[-–—])\.?$/i;
+
 /**
  * The observations a report states, in its order, read from each page's
  * words. Empty where the pages hold no list of observations the rules know.
  */
 export function reportObservations(pages: readonly string[]): ReportObservation[] {
-  const text = pages.map((page) => page.replace(/\r/g, '').replace(/[ \t\u00a0]+/g, ' ').split('\n').map((line) => line.trim()).filter(Boolean));
+  const text = pages.map((page) =>
+    page
+      .replace(/\r/g, '')
+      .replace(/[ \t\u00a0]+/g, ' ')
+      .split('\n')
+      .map((line) => line.trim())
+      // The page's own number, at its head or its foot, is no row of any table: "3 | Page" (often letter-spaced by the text layer), "Page 3 of 12".
+      .filter((line) => line && !PAGE_NUMBER_LINE.test(line)),
+  );
   const withLabels = text.flatMap((lines, index) => labelled(index + 1, lines));
   if (withLabels.length) return withLabels;
   const out: ReportObservation[] = [];

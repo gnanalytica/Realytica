@@ -190,7 +190,7 @@ describe('figures read from the modules that keep them', () => {
 
     // Six days on with no report, the standing turns.
     const later = readSheet(p, SITE_LOG, undefined, undefined, undefined, new Date('2026-10-16T00:00:00Z'))!;
-    assert.equal(later.fields.find((f) => f.def.key === 'reporting')!.held?.value, 'Site log behind');
+    assert.equal(later.fields.find((f) => f.def.key === 'reporting')!.held?.value, 'No site entry for over two days');
 
     // A figure cannot be offered a value: it is worked out.
     const [refused] = proposeFieldValues(p, [{ address: { fn: 'construction.progress', set: SITE_LOG, field: 'workers_latest' }, value: 999, origin: { kind: 'external', source: 'Somewhere', asOf: '2026-10-12' } }], 'model');

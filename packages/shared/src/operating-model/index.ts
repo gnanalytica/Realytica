@@ -132,6 +132,7 @@ export * from './tender-form';
 export * from './papers-owed';
 export * from './project-brief';
 export * from './project-parties';
+export * from './party-edits';
 export * from './setup';
 export * from './workspace-menu';
 export * from './plans';

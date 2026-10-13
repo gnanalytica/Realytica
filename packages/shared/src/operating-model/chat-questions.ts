@@ -43,6 +43,7 @@ import { scheduleWatch, type MilestoneWatch, type ScheduleLevel } from './milest
 import { PAPERS_OWED, PAPER_STANDING_LABEL, papersHeldAt, papersOwed, papersPlacePath, type PaperLine, type PaperStanding, type PapersPlace } from './papers-owed';
 import { stationsDue } from './photo-stations';
 import { projectBrief } from './project-brief';
+import { partiesByRole } from './project-parties';
 import { ownerPacksKept } from './report-day';
 import { daySaid } from './said';
 import { projectDepartments } from './team';
@@ -122,6 +123,26 @@ function partyNamed(party: string | undefined, asked: string[]): boolean {
   return asked.every((word) => own.has(word)) || [...own].every((word) => asked.includes(word));
 }
 
+/** The words a question names a role by, each with the heading People keeps that role under (`PARTY_GROUPS`). The narrow names first. */
+const ROLE_WORDS: ReadonlyArray<[RegExp, string]> = [
+  [/\bmep\b|\bm&e\b|\bservices? consultants?\b|\b(?:electrical|plumbing|hvac) consultants?\b/i, 'mep'],
+  [/\bstructural\b|\bstructures?\b (?:consultant|engineer)/i, 'structural'],
+  [/\bcost consultants?\b|\bquantity surveyors?\b|\bqs\b/i, 'cost'],
+  [/\bproject managers?\b|\bpmc\b|\bproject management\b/i, 'project_manager'],
+  [/\barchitects?\b/i, 'architect'],
+  [/\bcontractors?\b|\bbuilders?\b/i, 'contractor'],
+  [/\blenders?\b|\bbanks?\b|\bfinanciers?\b/i, 'lender'],
+  [/\bclients?\b|\bowners?\b|\bemployers?\b|\bdevelopers?\b|\bpromoters?\b/i, 'owner'],
+];
+
+/** The parties People names for the role a question names a party by, with the role's heading. Undefined where the words name no role. */
+function partiesOfRole(project: DdProject, asked: string): { label: string; names: string[] } | undefined {
+  const key = ROLE_WORDS.find(([says]) => says.test(asked))?.[1];
+  const group = key ? partiesByRole(project).groups.find((held) => held.key === key) : undefined;
+  // As it is said in a line: "the owner", "the MEP consultant", "the contractor".
+  return group ? { label: group.label.replace(/s$/, '').replace(/^[A-Z](?=[a-z])/, (first) => first.toLowerCase()), names: group.parties.map((party) => party.name) } : undefined;
+}
+
 /** How many parties a card names before it says how many more there are. */
 export const PARTIES_SAID = 8;
 
@@ -149,17 +170,27 @@ const papersPending: Builder = (project, asked, { now }) => {
     };
   }
   const words = asked.party ? partyWords(asked.party) : [];
-  const named = words.length ? view.parties.filter((party) => partyNamed(party.party, words)) : [];
+  // Asked of by name, or by what they are to the project: "the client", "the MEP consultant", "the contractor" mean whoever People names for that role.
+  const roled = asked.party ? partiesOfRole(project, asked.party) : undefined;
+  const byName = words.length ? view.parties.filter((party) => partyNamed(party.party, words)) : [];
+  const byRole = roled ? view.parties.filter((party) => roled.names.some((name) => fold(name) === fold(party.party ?? ''))) : [];
+  const named = byName.length ? byName : byRole;
+  // What a party is to the project, said beside its name where the question asked by role: "Lake Road Developers (the owner)".
+  const roleSaid = (party: string | undefined): string => (roled && !byName.length && party ? `${party} (the ${roled.label})` : (party ?? ''));
+  if (roled && roled.names.length && !named.length) {
+    // The role names somebody, and no paper on any list is owed by them.
+    return { card: card(`Nothing on the ${PAPERS_OWED.toLowerCase()} lists is owed by ${roled.names.join(' or ')}, the ${roled.label}.`, [], [{ label: PAPERS_OWED, open: open(view.parties.flatMap((party) => party.lines)) }], 'answered'), summary: `${PAPERS_OWED}: ${roled.names.join(', ')}` };
+  }
   if (words.length && named.length) {
     const rows: ChatAnswerRow[] = [];
     for (const party of named) {
-      rows.push(figure(`${party.party} · owed`, standingSaid(party.lines), open(party.lines)));
+      rows.push(figure(`${roleSaid(party.party)} · owed`, standingSaid(party.lines), open(party.lines)));
       for (const standing of STANDING_ORDER) {
         const lines = party.lines.filter((line) => line.standing === standing);
         if (!lines.length || named.length > 1) continue;
         const oldest = oldestAsk(lines);
         const overdue = lines.filter((line) => line.overdue).length;
-        rows.push(figure(`${party.party} · ${PAPER_STANDING_LABEL[standing]}`, [String(lines.length), overdue ? `${overdue} overdue` : '', oldest ? `oldest asked ${daySaid(oldest)}` : ''].filter(Boolean).join(' · '), open(lines)));
+        rows.push(figure(`${roleSaid(party.party)} · ${PAPER_STANDING_LABEL[standing]}`, [String(lines.length), overdue ? `${overdue} overdue` : '', oldest ? `oldest asked ${daySaid(oldest)}` : ''].filter(Boolean).join(' · '), open(lines)));
       }
     }
     return { card: card(`From the ${PAPERS_OWED.toLowerCase()} lists:`, rows), summary: `${PAPERS_OWED}: ${named.map((party) => party.party).join(', ')}` };
@@ -171,7 +202,7 @@ const papersPending: Builder = (project, asked, { now }) => {
   const more = view.parties.length - PARTIES_SAID;
   return {
     card: card(
-      words.length ? `Nobody on the ${PAPERS_OWED.toLowerCase()} lists goes by “${asked.party!.trim()}”. Who the lists name:` : `From the ${PAPERS_OWED.toLowerCase()} lists:`,
+      roled && !roled.names.length ? `Nobody is named as the ${roled.label} on People yet, so the lists cannot be read for them. Who the lists name:` : words.length ? `Nobody on the ${PAPERS_OWED.toLowerCase()} lists goes by “${asked.party!.trim()}”. Who the lists name:` : `From the ${PAPERS_OWED.toLowerCase()} lists:`,
       rows,
       more > 0 ? [{ label: `${plural(more, 'more party', 'more parties')} on ${PAPERS_OWED}`, open: open(view.parties.slice(PARTIES_SAID).flatMap((party) => party.lines)) }] : [],
       words.length ? 'partly' : 'answered',
@@ -442,11 +473,13 @@ export function chatQuestionAnswer(project: DdProject, asked: ChatQuestionAsked,
 const ASKS = /^(?:(?:please|so|and|ok|okay|hi|hello)[,\s]+)*(?:what|what's|whats|which|who|whom|how|why|when|where|is|are|was|were|do|does|did|has|have|had|can|could|will|would|should|any|anything|tell me|give me|show me|list)\b|\?\s*$/i;
 
 const NEEDS_ME =
-  /\b(?:waiting|waits|pending|outstanding) (?:on|for|with) me\b|\bneeds? (?:me\b|my (?:attention|decision|approval|sign))|\b(?:do|must|should) i (?:need to |have to )?(?:decide|accept|approve|sign|confirm)\b|\bfor me to (?:decide|accept|approve|sign)\b|\bon my (?:desk|plate)\b/i;
+  /\bwhat (?:do|should|must|can) i (?:need to |have to |still have to )?do(?: (?:today|now|this (?:week|morning)|first))?\s*\??$|\bwhat(?:'s|’s| is) (?:there )?(?:for me|on me)\b|\bwhat (?:needs|is) (?:to be )?(?:doing|done) (?:today|now|this week)\b|\bmy (?:tasks?|work|to-?dos?|list) (?:for )?(?:today|this week)\b|\b(?:waiting|waits|pending|outstanding) (?:on|for|with) me\b|\bneeds? (?:me\b|my (?:attention|decision|approval|sign))|\b(?:do|must|should) i (?:need to |have to )?(?:decide|accept|approve|sign|confirm)\b|\bfor me to (?:decide|accept|approve|sign)\b|\bon my (?:desk|plate)\b/i;
 
 const PENDING_FROM = /\b(?:pending|outstanding|awaited|awaiting|overdue|owed|due)\b[^?]*?\bfrom\b|\bwaiting (?:on|for)\b(?! me\b)[^?]*?\bfrom\b|\bnot (?:yet )?(?:received|got|been (?:sent|given))\b[^?]*?\bfrom\b/i;
 const OWES = /\b(?:what|which|how much|how many)\b.*?\b(?:does|do|did) (?:the |our )?(.+?) (?:still )?owe\b/i;
 const NOT_RECEIVED = /\b(?:have|has|did) (?:we|i) not (?:yet )?(?:received|got|been (?:sent|given))\b|\bnot (?:yet )?(?:been )?received\b|\bwho (?:still )?owes\b|\b(?:papers?|documents?|information|drawings?) (?:are |is )?(?:still )?(?:owed|pending|outstanding|awaited)\b|\bwhat (?:is|are) (?:still )?(?:owed|pending|outstanding|awaited)\b/i;
+/** "What has the MEP consultant not sent yet", "what hasn't the architect given us", "what is the client yet to send": the party is the one who has not sent. */
+const NOT_SENT = /\b(?:what|which|how much|how many)\b.*?\b(?:has|have|hasn't|hasn’t|haven't|haven’t|did|didn't|didn’t|is|are)(?:n't|n’t)? (?:the |our )?(.+?) (?:still )?(?:not |yet to |to )?(?:yet )?(?:send|sent|give|given|gave|provide|provided|submit|submitted|share|shared|return|returned|issue|issued|deliver|delivered)\b/i;
 const FROM_PARTY = /\bfrom (?:the |our )?(.+?)(?: (?:yet|so far|still|as of|this (?:week|month)|today|now)\b.*)?\??$/i;
 
 const COST_WORD = /\b(?:costs?|forecast|budget|anticipated|spend)\b/i;
@@ -473,9 +506,11 @@ const cleanParty = (raw: string | undefined): string | undefined => {
  */
 export function chatQuestionAsked(question: string): ChatQuestionAsked | undefined {
   const q = question.trim().replace(/\s+/g, ' ');
-  if (!q || q.length > 200 || !ASKS.test(q)) return undefined;
+  // "Pending from the client", "outstanding from the architect": a question in the words a person says it in, with no question word.
+  const terse = /^(?:what(?:'s|’s| is| are)? )?(?:still )?(?:pending|outstanding|awaited|owed|overdue) from\b/i.test(q);
+  if (!q || q.length > 200 || (!ASKS.test(q) && !terse)) return undefined;
   if (NEEDS_ME.test(q)) return { shape: 'needs_me' };
-  const owes = OWES.exec(q);
+  const owes = OWES.exec(q) ?? (/\bnot\b|n['’]t\b|\byet to\b/i.test(q) ? NOT_SENT.exec(q) : null);
   if (owes) return { shape: 'papers_pending', ...(cleanParty(owes[1]) ? { party: cleanParty(owes[1]) } : {}) };
   if (PENDING_FROM.test(q) || NOT_RECEIVED.test(q)) {
     const party = cleanParty(FROM_PARTY.exec(q)?.[1]);
@@ -556,7 +591,7 @@ export function reportPlaceAsked(project: DdProject, question: string, now: Date
   return {
     open: { pane: 'reports', extra: { item: `${PACK_MONTH}${month}` } },
     label: `Opened the owner pack for ${said}`,
-    text: `Reports is open with ${said} picked for the owner pack. No pack is kept for that month yet: open it there to read and issue it.`,
+    text: `The owner pack for ${said} is open. No pack is kept for that month yet: read it there, and issue it from that page.`,
   };
 }
 

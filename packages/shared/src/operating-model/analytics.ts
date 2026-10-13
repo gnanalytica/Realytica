@@ -36,10 +36,12 @@ import { requirementSheet } from './requirement-sheet';
 import { costReportDecisions, packageAwaitsNoAward } from './cost-report-compare';
 import { costReportPeriodOrder, costReportTotals, costReportsOf, type CostReportPeriod } from './cost-report';
 import { costRegister, moneySaid } from './cost';
+import { costPapersOf } from './cost-import';
+import { fieldsNeeding } from './field-sheets';
 import { COST_REPORT_PERIODS, periodSeries } from './sheet-periods';
 import { scheduleWatch, type ScheduleLevel } from './milestone-schedule';
 import { openAlerts, type AlertSeverity } from './alerts';
-import { DEPARTMENT_SHORT, functionDepartment, menuDepartment, menuDepartmentsOf, workstreamOfCheck, type DepartmentKey } from './departments';
+import { DEPARTMENT_SHORT, functionDepartment, menuDepartment, menuDepartmentsOf, workstreamDefinition, workstreamOfCheck, type DepartmentKey } from './departments';
 import { departmentRole, projectDepartments } from './team';
 import { allChecks } from './engagements';
 import { documentWorkstream } from './vault';
@@ -626,6 +628,24 @@ export function departmentAnalytics(project: DdProject, now: Date): DepartmentAn
       pane: entry.pane,
       ...(entry.extra ? { extra: entry.extra } : {}),
     });
+  }
+
+  // What a paper or a form offered onto a function's sheets, and the situations it proposed: the same count Overview's "Needs you" makes (`projectBrief`), under the department that keeps the function, so the two never disagree.
+  for (const row of fieldsNeeding(project, now)) {
+    const offered = row.counts.proposed + row.counts.situation;
+    if (!offered) continue;
+    const held = bucket(functionDepartment(row.fn));
+    held.waitingCount += offered;
+    held.waiting.push({ ...base(project), title: workstreamDefinition(row.fn)?.label ?? row.fn, detail: `${plural(offered, 'value', 'values')} offered on its sheets`, source: 'the function’s sheets', pane: 'workstream', extra: { workstream: row.fn, section: 'sheet' } });
+  }
+  // Rows a cost report offered to the Cost Report, on a paper still on the file.
+  const costRows = costPapersOf(project)
+    .filter((paper) => papers.has(paper.evidenceId))
+    .reduce((sum, paper) => sum + paper.offers.filter((offer) => offer.status === 'offered').length, 0);
+  if (costRows) {
+    const held = bucket('finance');
+    held.waitingCount += costRows;
+    held.waiting.push({ ...base(project), title: 'Cost Report', detail: `${plural(costRows, 'row', 'rows')} a cost report offered`, source: 'the cost report on file', pane: 'workstream', extra: { workstream: 'finance.budget' } });
   }
 
   /* ---- Actions ---- */

@@ -128,17 +128,17 @@ const PROGRESS_SETS: FieldSet[] = [
       computed('projected_days_late', 'Days late at the current rate', figure('schedule.projected_days_late'), { section: 'completion', unit: 'days', precision: 0, from: 'Schedule' }),
       {
         key: 'completion_standing',
-        label: 'Programme standing',
+        label: 'Completion',
         kind: 'status',
         section: 'completion',
         cases: [
           { when: { kind: 'before', fields: ['projected_completion', 'contractual_after_extensions'], say: 'At the current rate the work finishes on {a}, after the contractual completion of {b}.', severity: 'high' }, label: 'Projected past the contract date', tone: 'critical' },
-          { when: { kind: 'at_most', fields: ['projected_days_late'], against: 0, say: 'At the current rate the work finishes {a} after its planned completion.', severity: 'medium' }, label: 'Slipping', tone: 'warning' },
+          { when: { kind: 'at_most', fields: ['projected_days_late'], against: 0, say: 'At the current rate the work finishes {a} after its planned completion.', severity: 'medium' }, label: 'Finishing late at the current rate', tone: 'warning' },
           { when: { kind: 'at_most', fields: ['milestones_late'], against: 0, say: '{a} milestones are past their planned finish.', severity: 'medium' }, label: 'Milestones late', tone: 'warning' },
           // Said before "on programme": the dates it is held to are the ones the extensions granted have moved.
-          { when: { kind: 'at_most', fields: ['extension_days'], against: 0, say: 'Extensions of time granted move planned completion by {a}.', severity: 'low' }, label: 'On the extended programme', tone: 'info' },
+          { when: { kind: 'at_most', fields: ['extension_days'], against: 0, say: 'Extensions of time granted move planned completion by {a}.', severity: 'low' }, label: 'On schedule, after the extensions granted', tone: 'info' },
         ],
-        otherwise: { label: 'On programme', tone: 'good' },
+        otherwise: { label: 'On schedule', tone: 'good' },
       },
       // What the extensions of time Procurement has granted do to the dates above. Read from the time claims through the schedule, never typed here.
       computed('extension_days', 'Days the extensions granted move planned completion', figure('schedule.extension_days'), { section: 'completion', tier: 'situational', showWhen: EXTENDED, unit: 'days', precision: 0, from: 'Time claims' }),
@@ -235,7 +235,7 @@ const PROGRESS_SETS: FieldSet[] = [
         key: 'reporting',
         label: 'Reporting',
         kind: 'status',
-        cases: [{ when: { kind: 'at_most', fields: ['days_since_entry'], against: 2, say: 'Site last reported {a} ago.', severity: 'medium' }, label: 'Site log behind', tone: 'warning' }],
+        cases: [{ when: { kind: 'at_most', fields: ['days_since_entry'], against: 2, say: 'Site last reported {a} ago.', severity: 'medium' }, label: 'No site entry for over two days', tone: 'warning' }],
         otherwise: { label: 'Reported to date', tone: 'good' },
       },
     ],

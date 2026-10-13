@@ -155,8 +155,8 @@ export default function DepartmentPage() {
                 qa.figure
                   ? qa.figure.unit === 'INR'
                     ? money(qa.figure.value, project.currency, { compact: true })
-                    : `${Math.round(qa.figure.value)}%`
-                  : QUICK_VERDICT_LABEL[qa.verdict]
+                    : `${qa.figure.value}%`
+                  : (qa.verdictSaid ?? QUICK_VERDICT_LABEL[qa.verdict])
               }
               hint={
                 <>

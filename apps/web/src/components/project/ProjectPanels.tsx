@@ -10,6 +10,7 @@ import {
   waitingOn,
   type DdProject,
   type FindingRecord,
+  daysInWords,
 } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
 
@@ -193,7 +194,7 @@ export function RecentActivityCard({ project, className, limit = 5 }: { project:
               <li key={e.id} className="grid grid-cols-[3.5rem_1fr] gap-3 py-2 text-[13px]">
                 <span className="font-mono text-[11px] text-ink-muted">{dayMonth(e.at)}</span>
                 <span className="min-w-0 text-ink">
-                  {e.text}
+                  {daysInWords(e.text)}
                   {e.actor ? <span className="block text-[12px] text-ink-secondary">{person(e.actor)}</span> : null}
                 </span>
               </li>

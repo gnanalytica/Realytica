@@ -785,6 +785,8 @@ export const decideFieldBodySchema = z.object({
 
 export const acceptPaperFieldsBodySchema = z.object({ fn: z.string().min(1).max(80), evidenceId: z.string().min(1).max(120) });
 
+/** How a party is corrected: a new name, the party it is to be merged into, or that it is to be removed. One of the three. */
+export const partyCorrectionBodySchema = z.object({ name: z.string().trim().min(1).max(200).optional(), into: z.string().min(1).max(120).optional(), remove: z.literal(true).optional() });
 export const fieldRecordBodySchema = z.object({ set: z.string().min(1).max(120), values: z.record(z.string(), z.unknown()).default({}), remove: z.string().max(80).optional() });
 
 export const situationBodySchema = z.object({ fn: z.string().min(1).max(80), key: z.string().min(1).max(80), on: z.boolean() });

@@ -86,6 +86,8 @@ export interface QuickAssessment {
   headline: string;
   figure?: { value: number; unit: 'INR' | '%'; low?: number; high?: number };
   verdict: QuickVerdict;
+  /** The verdict in the function's own words, where "clear with conditions" would misread: a budget that is over is "Over budget", a schedule with milestones late is "Late". */
+  verdictSaid?: string;
   /** What decides it, best and worst first. */
   points: QuickPoint[];
   inputs: QuickInput[];
@@ -334,6 +336,8 @@ function progress(project: DdProject, at: string): QuickAssessment {
     headline: p.percent === null ? 'No milestones yet' : `${p.percent}% complete`,
     ...(p.percent !== null ? { figure: { value: p.percent, unit: '%' as const } } : {}),
     verdict,
+    // Said as the board says it, never "clear" beside a milestone that is late.
+    ...(verdict === 'conditions' || verdict === 'clear' ? { verdictSaid: watched.some((m) => m.level === 'late') || p.late.length ? 'Late' : watched.some((m) => m.level === 'behind') ? 'Behind' : watched.length ? 'Late at the current rate' : 'On schedule' } : {}),
     points,
     inputs: (project.milestones ?? []).map((m) => ({ label: m.name, value: `${m.percent}%`, tier: 1 as SourceTier, source: `Updated ${m.updatedAt.slice(0, 10)} by ${m.updatedBy}` })),
     assumptionShare: 0,
@@ -362,6 +366,8 @@ function budget(project: DdProject, at: string): QuickAssessment | undefined {
     headline: `Forecast ${said(totals.anticipatedCost)} against ${said(totals.budget)}`,
     figure: { value: totals.anticipatedCost, unit: 'INR' },
     verdict: totals.anticipatedVariance > 0 || over.length ? 'conditions' : 'clear',
+    // Said as the Cost Report says it, never "clear" beside a forecast over its budget.
+    verdictSaid: totals.anticipatedVariance > 0 ? 'Over budget' : over.length ? 'Packages over budget' : totals.anticipatedVariance < 0 ? 'Under budget' : 'On budget',
     points,
     inputs: report.rows.map((row) => ({ label: row.name, value: said(row.anticipatedCost), tier: 1 as SourceTier, source: `Cost Report ${report.label}` })),
     assumptionShare: 0,

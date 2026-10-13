@@ -14,12 +14,66 @@
 
 import { useMemo, useState } from 'react';
 import { Users } from 'lucide-react';
-import { departmentRole, projectDepartments, partiesByRole, roleCanEdit, type DdProject, type PartyGroup } from '@realytica/shared';
+import { departmentRole, projectDepartments, partiesByRole, roleCanEdit, type DdProject, type PartyGroup, type ProjectParty } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useMe } from '../../lib/useMe';
-import { Button, Card, CardBody, CardHeader, Input, useToast } from '../ui/kit';
+import { Button, Card, CardBody, CardHeader, Input, Select, useToast } from '../ui/kit';
 
-function Group({ group, mayAdd, busy, onAdd }: { group: PartyGroup; mayAdd: boolean; busy: boolean; onAdd: (name: string, role: string) => Promise<boolean> }) {
+type Correction = { name: string } | { into: string } | { remove: true };
+
+/** One party's name, and for somebody who may edit the project's people, the three ways it is corrected: renamed, merged into the party it duplicates, removed. */
+function Party({ party, others, mayEdit, busy, onCorrect }: { party: ProjectParty; others: ProjectParty[]; mayEdit: boolean; busy: boolean; onCorrect: (partyId: string, how: Correction, done: string) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(party.name);
+  const [into, setInto] = useState('');
+  const said = party.organisation && party.organisation !== party.name ? `${party.name}, ${party.organisation}` : party.name;
+  if (!mayEdit) return <span>{said}</span>;
+  const close = () => {
+    setOpen(false);
+    setName(party.name);
+    setInto('');
+  };
+  return (
+    <span data-party={party.id} className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span>{said}</span>
+      {open ? (
+        <span className="flex w-full flex-wrap items-center gap-2 rounded-lg bg-sunken p-2">
+          <Input value={name} aria-label={`New name for ${party.name}`} maxLength={200} onChange={(event) => setName(event.target.value)} className="h-8 w-56" />
+          <Button size="sm" variant="primary" loading={busy} disabled={!name.trim() || name.trim() === party.name} onClick={() => void onCorrect(party.id, { name: name.trim() }, 'Renamed.').then((ok) => ok && setOpen(false))}>
+            Rename
+          </Button>
+          {others.length ? (
+            <>
+              <Select value={into} aria-label={`Merge ${party.name} into`} onChange={(event) => setInto(event.target.value)} className="h-8 w-56">
+                <option value="">Same party as…</option>
+                {others.map((other) => (
+                  <option key={other.id} value={other.id}>
+                    {other.name}
+                  </option>
+                ))}
+              </Select>
+              <Button size="sm" variant="secondary" loading={busy} disabled={!into} onClick={() => void onCorrect(party.id, { into }, 'Merged: everything that named it now names the party kept.').then((ok) => ok && close())}>
+                Merge
+              </Button>
+            </>
+          ) : null}
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onCorrect(party.id, { remove: true }, 'Removed.')}>
+            Remove
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={close}>
+            Cancel
+          </Button>
+        </span>
+      ) : (
+        <button type="button" aria-label={`Correct ${party.name}`} onClick={() => setOpen(true)} className="text-[12px] text-ink-muted hover:text-brand hover:underline coarse:min-h-11">
+          Correct
+        </button>
+      )}
+    </span>
+  );
+}
+
+function Group({ group, all, mayAdd, busy, onAdd, onCorrect }: { group: PartyGroup; all: ProjectParty[]; mayAdd: boolean; busy: boolean; onAdd: (name: string, role: string) => Promise<boolean>; onCorrect: (partyId: string, how: Correction, done: string) => Promise<boolean> }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const submit = () => {
@@ -36,7 +90,11 @@ function Group({ group, mayAdd, busy, onAdd }: { group: PartyGroup; mayAdd: bool
       <span className="w-40 shrink-0 text-[12px] font-medium text-ink-secondary">{group.label}</span>
       <span className="min-w-0 flex-1 text-[13px] text-ink">
         {group.parties.length ? (
-          group.parties.map((party) => (party.organisation && party.organisation !== party.name ? `${party.name}, ${party.organisation}` : party.name)).join(' · ')
+          <span className="flex flex-wrap gap-x-4 gap-y-1">
+            {group.parties.map((party) => (
+              <Party key={party.id} party={party} others={all.filter((other) => other.id !== party.id)} mayEdit={mayAdd} busy={busy} onCorrect={onCorrect} />
+            ))}
+          </span>
         ) : (
           <span className="text-ink-muted">Nobody named</span>
         )}
@@ -94,6 +152,21 @@ export function PartiesCard({ project, onChanged }: { project: DdProject; onChan
       setBusy(false);
     }
   };
+  const correct = async (partyId: string, how: Correction, done: string): Promise<boolean> => {
+    setBusy(true);
+    try {
+      onChanged((await api.correctParty(project.id, partyId, how)).project);
+      toast(done, 'good');
+      return true;
+    } catch (error) {
+      // A refusal says why in a sentence: what refers to the party, or who may do it.
+      toast(error instanceof Error ? error.message : 'That could not be done', 'critical');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const all = [...new Map(view.groups.flatMap((group) => group.parties).map((party) => [party.id, party])).values()];
   return (
     <Card data-parties>
       <CardHeader
@@ -104,7 +177,7 @@ export function PartiesCard({ project, onChanged }: { project: DdProject; onChan
       <CardBody className="py-1">
         <ul className="divide-y divide-hairline">
           {view.groups.map((group) => (
-            <Group key={group.key} group={group} mayAdd={mayAdd} busy={busy} onAdd={add} />
+            <Group key={group.key} group={group} all={all} mayAdd={mayAdd} busy={busy} onAdd={add} onCorrect={correct} />
           ))}
         </ul>
         {view.offered ? (

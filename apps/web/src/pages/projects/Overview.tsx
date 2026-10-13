@@ -106,7 +106,7 @@ function DepartmentCard({ project, dept }: { project: DdProject; dept: Departmen
                     </span>
                   ) : null}
                 </span>
-                <Badge tone={VERDICT_TONE[qa.verdict]}>{QUICK_VERDICT_LABEL[qa.verdict]}</Badge>
+                <Badge tone={VERDICT_TONE[qa.verdict]}>{qa.verdictSaid ?? QUICK_VERDICT_LABEL[qa.verdict]}</Badge>
                 <ChevronRight size={14} className="mt-0.5 shrink-0 text-ink-muted opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover/row:translate-x-0.5 group-hover/row:opacity-100 coarse:hidden" aria-hidden />
               </button>
             </li>

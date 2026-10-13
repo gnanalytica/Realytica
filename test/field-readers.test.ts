@@ -76,6 +76,7 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
 
   // Asking whether anything points at a thing before it is taken away or renamed: a guard on a write, which acts on no value.
   { file: 'packages/shared/src/operating-model/cost-report.ts', has: 'JSON.stringify(project.fieldSheets ?? {})', why: 'whether any field, standing or waiting, links to a work package, before the package is taken off with the Cost Report row that made it: a link that only waits still must not be left pointing at nothing' },
+  { file: 'packages/shared/src/operating-model/party-edits.ts', why: 'correcting the parties: it finds every link to a party, standing or waiting, so a merge moves them all and a removal is refused while any is left; a name is read only where `fieldStands` says it stands, and nothing is worked out from any value' },
 
   // Copying a project for somebody whose grant does not reach all of it. Nothing is acted on: what is copied is read again by the field system.
   { file: 'packages/shared/src/operating-model/project-view.ts', why: 'cuts the stored sheets to what a grant reaches and strips the citations of papers it does not, standing or not' },

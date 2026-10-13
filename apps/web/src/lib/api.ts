@@ -1245,6 +1245,9 @@ export const api = {
     request<{ project: DdProject; recordId?: string }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, values }) }),
   removeFieldRecord: (projectId: string, set: string, record: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/records`, { method: 'POST', body: JSON.stringify({ set, remove: record }) }),
+  /** Correct a party: put its name right, merge it into another that is the same party, or take it off the list. */
+  correctParty: (projectId: string, partyId: string, body: { name: string } | { into: string } | { remove: true }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/parties/${partyId}`, { method: 'POST', body: JSON.stringify(body) }),
   setSituation: (projectId: string, fn: string, key: string, on: boolean) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/situation`, { method: 'PUT', body: JSON.stringify({ fn, key, on }) }),
   setSectionNotApplicable: (projectId: string, set: string, section: string, reason: string | null) =>

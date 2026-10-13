@@ -353,7 +353,7 @@ describe('a place, never a change', () => {
     const result = ask(p, 'Open the owner pack for September 2026');
     assert.deepEqual(result.navigations, [{ target: 'reports', item: `${PACK_MONTH}2026-09` }]);
     assert.equal(cockpitPath(p.id, 'reports', result.navigations[0]), `/projects/${p.id}/reports?report=${encodeURIComponent(`${PACK_MONTH}2026-09`)}`);
-    assert.equal(result.assistantTurn.text, 'Reports is open with September 2026 picked for the owner pack. No pack is kept for that month yet: open it there to read and issue it.');
+    assert.equal(result.assistantTurn.text, 'The owner pack for September 2026 is open. No pack is kept for that month yet: read it there, and issue it from that page.');
     assert.deepEqual(result.commands, ['Opened the owner pack for September 2026']);
     assert.deepEqual([result.proposals.length, p.chatProposals.length, p.owner], [0, 0, owner], 'the project’s owner is not offered a change');
     assert.equal(wantsDeterministicProjectChat(p, 'Open the owner pack for September 2026'), true);

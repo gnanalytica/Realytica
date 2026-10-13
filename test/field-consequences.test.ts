@@ -108,7 +108,7 @@ describe('an extension of time that is granted moves the programme', () => {
     assert.deepEqual(offered.map((o) => o.outcome), ['waiting'], 'the offer was taken as an offer');
     assert.equal(milestoneExtensions(p).days.size, 0, 'a figure nobody accepted moves nothing');
     assert.equal(scheduleWatch(p, NOW).plannedCompletion, '2027-05-31');
-    assert.equal(sheet(p, 'construction.progress.programme').value('completion_standing'), 'On programme');
+    assert.equal(sheet(p, 'construction.progress.programme').value('completion_standing'), 'On schedule');
   });
 
   it('moves the milestone its contract is measured against and the work that follows, on the schedule, on Progress and on Overview', () => {
@@ -131,7 +131,7 @@ describe('an extension of time that is granted moves the programme', () => {
     assert.equal(programme.value('planned_completion'), '2027-07-15');
     assert.equal(programme.value('extension_days'), 45);
     assert.equal(programme.value('completion_before_extensions'), '2027-05-31');
-    assert.equal(programme.value('completion_standing'), 'On the extended programme', 'no longer "On programme" against the old date');
+    assert.equal(programme.value('completion_standing'), 'On schedule, after the extensions granted', 'no longer "On schedule" against the old date');
     assert.ok(programme.shown().includes('extension_days'));
 
     assert.equal(sheet(p, 'shared.contracts', contract).value('revised_completion'), '2027-08-14', 'the contract’s own date moves by the same days');

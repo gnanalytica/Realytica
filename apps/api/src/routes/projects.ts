@@ -106,6 +106,9 @@ import {
   type ReportBoundSource,
   fieldSet,
   removeFieldRecord,
+  removeParty,
+  renameParty,
+  mergeParties,
   roleCanEdit,
   setFieldValues,
   setSectionNotApplicable,
@@ -316,6 +319,7 @@ import {
   decideFieldBodySchema,
   acceptPaperFieldsBodySchema,
   fieldRecordBodySchema,
+  partyCorrectionBodySchema,
   situationBodySchema,
   sectionNaBodySchema,
   snoozeNeedBodySchema,
@@ -3586,6 +3590,39 @@ projectsRouter.post('/:projectId/fields/records', async (req, res) => {
     }
     await persistPaneWrite(req, seat.project, `Added a record to ${set.title}.`);
     res.json({ project: seat.project, recordId: out.record?.id });
+  } catch (err) {
+    failField(res, err);
+  }
+});
+
+/**
+ * Correcting a party on the project's People page: its name put right
+ * (`name`), merged into another that is the same party (`into`), or taken
+ * off the list (`remove`), which is refused with what refers to it while
+ * anything does. A rename is for whoever edits the project's people; a merge
+ * and a removal take a record off, and are for a lead or signer.
+ */
+projectsRouter.post('/:projectId/parties/:partyId', async (req, res) => {
+  const parsed = partyCorrectionBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success || [parsed.data.name, parsed.data.into, parsed.data.remove].filter((given) => given !== undefined).length !== 1) {
+    res.status(400).json({ error: 'Send a new name, the party to merge it into, or that it is to be removed.' });
+    return;
+  }
+  const seat = await fieldSeat(req, res, SHARED_FN);
+  if (!seat) return;
+  try {
+    const partyId = req.params.partyId!;
+    if (parsed.data.name !== undefined) {
+      const out = renameParty(seat.project, partyId, parsed.data.name, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, `Renamed a party to ${out.name}.`);
+    } else if (parsed.data.into !== undefined) {
+      const out = mergeParties(seat.project, parsed.data.into, partyId, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, `Merged a duplicate party into ${out.name}.`);
+    } else {
+      removeParty(seat.project, partyId, actorOf(req), seat.options);
+      await persistPaneWrite(req, seat.project, 'Took a party off the list.');
+    }
+    res.json({ project: seat.project });
   } catch (err) {
     failField(res, err);
   }
