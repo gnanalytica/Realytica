@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentRun, AgentStep, AgentUsage, CaseDocument, ChatIngestFile, DdProject, DocumentFact, ExtractedField, TurnSpend } from '@realytica/shared';
-import { failureCause, projectToIdentity, STANDARD_FACT_KEYS, standardFact, standardKeyFits } from '@realytica/shared';
+import { failureCause, paperFact, projectToIdentity } from '@realytica/shared';
 import { CUT_OFF_REASON, runDocumentIntelligence, type UnconfirmedField } from '../agents/document-intelligence';
 import { quoteStates } from '../agents/page-check';
 import { priceTokens } from '../telemetry/pricing';
@@ -113,12 +113,15 @@ const MAX_UNVERIFIED = 20;
  * against the document, so it stays in the notes and out of the facts that
  * can fill a check.
  *
- * A field under one of the rules' own keys is taken only on a paper that
- * carries the key (`standardKeyFits`): a model put `ec_nil` on a record of
- * rights and an applicant under `owner`, and a key on the wrong paper answers
- * a check it has nothing to do with. It is then put in the rules' form for
- * the key (`STANDARD_FACT_KEYS`), so the two readings of one value can be set
- * side by side; one that cannot be put in that form is left out.
+ * A field is taken only under a key its kind of paper carries (`paperFact`):
+ * one of the rules' own keys for that paper, or the key of a registered field
+ * that reads that kind of paper. A model put `ec_nil` on a record of rights
+ * and an applicant under `owner`, and a key on the wrong paper answers a
+ * check it has nothing to do with. A key of the model's own invention is no
+ * field's, reaches nothing, and is left out: its label would be the model's
+ * words. The value is put in the form the key is kept in and under the
+ * catalog's name for it, so two readings of one value can be set side by
+ * side; one that cannot be put in that form is left out.
  *
  * Every value that has to be exact is held to the words quoted for it,
  * whatever placed it on its page (`quoteStates`): a date, an area, a width
@@ -137,17 +140,11 @@ export function factsFromFields(
 ): { facts: DocumentFact[]; unverified: DocumentFact[] } {
   const asFact = (f: ExtractedField, page: number): DocumentFact | null => {
     if (!f.quote || NOT_A_VALUE.test(f.value)) return null;
-    const known = f.key in STANDARD_FACT_KEYS;
-    if (known && !standardKeyFits(f.key, paper)) return null;
-    const standard = known ? standardFact(f.key, f.value, f.unit) : undefined;
-    if (standard === null) return null;
+    const kept = paperFact(paper, f.key, f.value, f.unit);
+    if (!kept) return null;
     return {
       key: f.key,
-      label: f.label,
-      value: f.value,
-      ...(f.unit ? { unit: f.unit } : {}),
-      display: f.unit ? `${f.value} ${f.unit}` : f.value,
-      ...standard,
+      ...kept,
       page,
       quote: f.quote,
       ...(f.originalValue ? { originalValue: f.originalValue, originalScript: f.originalScript } : {}),
@@ -161,7 +158,7 @@ export function factsFromFields(
     if (!f.sourcePage || facts.some((existing) => existing.key === f.key)) continue;
     const fact = asFact(f, f.sourcePage);
     if (!fact) continue;
-    if (!quoteStates({ key: f.key, value: f.value, unit: f.unit }, f.quote ?? '')) {
+    if (!quoteStates({ key: f.key, value: f.value, unit: f.unit }, f.quote ?? '', paper)) {
       unsupported.push({ field: f, page: f.sourcePage });
       continue;
     }
@@ -270,8 +267,12 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
       // Only the pages this server could not read well itself, where it said which; see `ReadingCoverage`.
       const only = file.reading?.modelPages;
       const ocrPages = file.reading?.ocrPages;
+      // What the rules took the paper for, where they could say: the reader answers in that paper's keys, and its word for the kind stands.
+      const paperRead = file.read && file.read.type !== 'other' ? file.read.type : undefined;
       const result = await runDocumentIntelligence({
         caseId: params.project.id,
+        ...(paperRead ? { paper: paperRead } : {}),
+        listedKeysOnly: true,
         document: stubDocument(params.project.id, file, now),
         fileBytes: bytes,
         identity,
@@ -296,7 +297,8 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
           ...(result.checksCut ? { modelChecksCut: true } : {}),
         };
       };
-      const loose = result.run.status === 'succeeded' ? factsFromFields([], result.unconfirmed ?? [], result.paper).unverified : [];
+      const paper = paperRead ?? result.paper;
+      const loose = result.run.status === 'succeeded' ? factsFromFields([], result.unconfirmed ?? [], paper).unverified : [];
       if (result.run.status === 'succeeded' && result.fields.length === 0) {
         // It answered, and gave nothing that could be kept. Said so on the reading, so the same question is not asked again.
         console.warn('[document reader] read, and no value kept');
@@ -327,7 +329,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         text: f.quote ? f.quote.slice(0, 140) : clipQuote(f.label, f.value),
         page: f.sourcePage,
       }));
-      const { facts: modelFacts, unverified } = factsFromFields(result.fields, result.unconfirmed ?? [], result.paper);
+      const { facts: modelFacts, unverified } = factsFromFields(result.fields, result.unconfirmed ?? [], paper);
       const pages = result.fields.reduce((max, f) => Math.max(max, f.sourcePage ?? 0), 0);
       out.push({
         ...file,
@@ -339,7 +341,8 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
          * only reading it had.
          */
         readFailure: undefined,
-        kindHint: result.kind !== 'other' && result.kind !== 'unclassified' ? result.kind : file.kindHint,
+        // The kind it named; failing that the paper it named, which is a kind the register has a name for (a bank guarantee, a bid).
+        kindHint: result.kind !== 'other' && result.kind !== 'unclassified' ? result.kind : result.paper && result.paper !== 'other' ? result.paper : file.kindHint,
         extractionNotes: result.notes ? clipNotes(result.notes, 400) || undefined : undefined,
         quotes,
         pages: pages || undefined,

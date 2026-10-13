@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentStep, ChatIngestFile, DocumentFact, IngestRead, ReadingCoverage } from '@realytica/shared';
-import { normalizeDigits, pagesNamed, parseDocumentText, STANDARD_FACT_KEYS, standardKeyFits, summariseReading } from '@realytica/shared';
+import { normalizeDigits, pagesNamed, paperKeyFits, parseDocumentText, STANDARD_FACT_KEYS, summariseReading } from '@realytica/shared';
 import { locateFacts, valueWords } from './locate';
 import { readDocumentText, WEAK_WORD_CONFIDENCE, type DocumentText, type PageLayout, type PageRead } from './read-text';
 
@@ -386,7 +386,8 @@ function carry(from: ChatIngestFile, to: ChatIngestFile): void {
  */
 function onPaper(model: ChatIngestFile, paper: string | undefined): ChatIngestFile {
   if (!paper) return model;
-  const fits = (fact: DocumentFact) => !(fact.key in STANDARD_FACT_KEYS) || standardKeyFits(fact.key, paper);
+  // Carried by the paper as a standard key of it, or as the key of a field that reads that kind of paper (a joint development agreement's own document number).
+  const fits = (fact: DocumentFact) => !(fact.key in STANDARD_FACT_KEYS) || paperKeyFits(fact.key, paper);
   if ([...(model.modelFacts ?? []), ...(model.modelUnverified ?? [])].every(fits)) return model;
   return { ...model, modelFacts: model.modelFacts?.filter(fits), modelUnverified: model.modelUnverified?.filter(fits) };
 }

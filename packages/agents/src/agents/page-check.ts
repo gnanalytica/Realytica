@@ -37,7 +37,7 @@
 
 import { z } from 'zod';
 import type { AgentUsage } from '@realytica/shared';
-import { datesIn, exactValue, measuresStated, normalizeDigits, parseIndianDate, STANDARD_FACT_KEYS, standardFact, standardKeyForm, standardValueForms } from '@realytica/shared';
+import { datesIn, exactValue, measuresStated, normalizeDigits, paperFact, paperKeys, parseIndianDate, STANDARD_FACT_KEYS, standardFact, standardKeyForm, standardValueForms } from '@realytica/shared';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { toolUseOf } from '../providers';
 import type { LlmContentPart, LlmProvider, LlmSchemaTool } from '../providers';
@@ -236,10 +236,25 @@ function stretchesFromNumbers(quote: string): string[] {
  *
  * A name, a place, a yes or a no has nothing exact to hold, and passes.
  */
-export function quoteStates(reading: Reading, quote: string): boolean {
+export function quoteStates(reading: Reading, quote: string, paper?: string): boolean {
   const form = standardKeyForm(reading.key);
   const value = String(reading.value ?? '');
   if (!exactValue(reading.key, value)) return true;
+  // A key some field reads off this kind of paper is held to its quote in the form that field holds: a number or a name as
+  // written, whole; a date as that day; a figure as that figure.
+  const waited = form ? undefined : paperKeys(paper).find((known) => known.key === reading.key);
+  if (waited) {
+    const wanted = paperFact(paper, reading.key, value, reading.unit)?.value;
+    if (wanted === undefined) return false;
+    if (waited.kind === 'enum' || typeof wanted === 'boolean') return true;
+    if (waited.kind === 'date') return datesIn(normalizeDigits(quote.normalize('NFKC'))).includes(String(wanted));
+    const spelt = (text: string) => normalizeDigits(text.normalize('NFKC')).toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
+    if (typeof wanted === 'string') return spelt(wanted).length > 0 && spelt(quote).includes(spelt(wanted));
+    return stretchesFromNumbers(quote).some((stretch) => {
+      const stated = paperFact(paper, reading.key, stretch, null)?.value;
+      return typeof stated === 'number' && Math.abs(stated - wanted) < 0.005;
+    });
+  }
   // A date, under the rules' key for one or under a key of the reader's own.
   const day = form === 'date' ? standardFact(reading.key, value)?.value : form ? undefined : (parseIndianDate(normalizeDigits(value).trim()) ?? undefined);
   if (form === 'date' || day !== undefined) return typeof day === 'string' && datesIn(normalizeDigits(quote.normalize('NFKC'))).includes(day);
@@ -311,9 +326,17 @@ function nameTokens(text: string | null | undefined): string[] {
  * are set aside, in the page's own script where both gave it, and never
  * roughly the same: one surname is not another for sharing a first name.
  */
-export function sameReading(key: string, a: Reading, b: Reading): boolean {
+export function sameReading(key: string, a: Reading, b: Reading, paper?: string): boolean {
   const known = STANDARD_FACT_KEYS[key];
-  if (!known) return false;
+  if (!known) {
+    // A key some field reads off this kind of paper: each reading in the form that field holds, and the two the same.
+    const [mine, theirs] = [paperFact(paper, key, a.value, a.unit), paperFact(paper, key, b.value, b.unit)];
+    if (!mine || !theirs) return false;
+    if (typeof mine.value === 'number' && typeof theirs.value === 'number') return Math.abs(mine.value - theirs.value) < 0.005;
+    if (typeof mine.value !== 'string' || typeof theirs.value !== 'string') return mine.value === theirs.value;
+    const words = (value: string) => nameTokens(value).join(' ');
+    return mine.value === theirs.value || (words(mine.value).length > 0 && words(mine.value) === words(theirs.value));
+  }
   const [x, y] = [standardFact(key, a.value, a.unit), standardFact(key, b.value, b.unit)];
   if (!x || !y) return false;
   switch (known.form) {
@@ -399,6 +422,8 @@ export interface PlaceReadingsInput {
    * from it. Absent means every page went.
    */
   pagesSent?: readonly number[];
+  /** The kind of paper, in the rules' name for it: a second reader is asked for a key some field reads off that kind too. */
+  paper?: string;
   /** The second reader. Absent, only the text is consulted. */
   readPage?: ReadPage;
   /** Pages one reading may have read by a second reader. */
@@ -433,7 +458,7 @@ export async function placeReadings(input: PlaceReadingsInput): Promise<PlaceRea
   const waiting = new Map<number, number[]>();
   input.readings.forEach((reading, i) => {
     const exact = exactValue(reading.key, reading.value);
-    if (exact && !quoteStates(reading, reading.quote)) {
+    if (exact && !quoteStates(reading, reading.quote, input.paper)) {
       placements[i] = { status: 'unsupported' };
       return;
     }
@@ -445,8 +470,8 @@ export async function placeReadings(input: PlaceReadingsInput): Promise<PlaceRea
       placements[i] = { status: 'placed', page: found, method: 'text' };
       return;
     }
-    // A second reader is asked by the key's own name and meaning, so only for one of the rules' keys.
-    if (!STANDARD_FACT_KEYS[reading.key]) return;
+    // A second reader is asked by the key's own name and meaning, so only for one of the rules' keys, or one a field reads off this kind of paper.
+    if (!STANDARD_FACT_KEYS[reading.key] && !paperKeys(input.paper).some((known) => known.key === reading.key)) return;
     // A one-page document has no other page for the value to be on.
     const hint = reading.hint ?? (pageCount === 1 ? 1 : undefined);
     if (hint === undefined || hint < 1 || (pageCount !== undefined && hint > pageCount) || !wasSent(hint)) return;
@@ -482,8 +507,8 @@ export async function placeReadings(input: PlaceReadingsInput): Promise<PlaceRea
       }
       const theirs: Reading = { key: first.key, value: second.value, unit: second.unit, originalValue: second.originalValue };
       // The second reader is held to its own words as the first is: a value it cannot show is not a reading.
-      if (exactValue(first.key, second.value) && !quoteStates(theirs, second.words ?? '')) continue;
-      placements[index] = sameReading(first.key, first, theirs) ? { status: 'placed', page, method: 'page' } : { status: 'refuted', page };
+      if (exactValue(first.key, second.value) && !quoteStates(theirs, second.words ?? '', input.paper)) continue;
+      placements[index] = sameReading(first.key, first, theirs, input.paper) ? { status: 'placed', page, method: 'page' } : { status: 'refuted', page };
     }
   });
 
@@ -602,6 +627,8 @@ export type CheckSource =
   | { kind: 'image'; base64: string; mediaType: string };
 
 export interface ModelPageReaderInput {
+  /** The kind of paper, in the rules' name for it, where it is known: its fields' keys are asked for by their own names. */
+  paper?: string;
   provider: LlmProvider;
   model: string;
   caseId?: string;
@@ -637,11 +664,14 @@ const SECOND_READING_TOKENS_A_VALUE = 400;
  * The items as the second reader is shown them: numbered, each the key's name
  * and what it means, from the fixed list. Nothing of what anybody read.
  */
-export function itemsPrompt(keys: readonly string[]): string {
+export function itemsPrompt(keys: readonly string[], paper?: string): string {
   return [
     'Read these from the page:',
     ...keys.map((key, i) => {
       const known = STANDARD_FACT_KEYS[key];
+      // A key a field reads off this kind of paper is asked for by that field's own name, and what it holds.
+      const waited = known ? undefined : paperKeys(paper).find((candidate) => candidate.key === key);
+      if (waited) return `${i + 1}. ${waited.label}: ${waited.options ? `one of: ${waited.options.map((option) => option.label).join(', ')}` : waited.kind === 'date' ? 'a date' : (waited.unit ?? 'as written')}`;
       return `${i + 1}. ${known?.label ?? key}: ${known?.says ?? ''}${known?.choices ? `; one of: ${known.choices.join(', ')}` : ''}`;
     }),
   ].join('\n');
@@ -697,7 +727,7 @@ export function modelPageReader(input: ModelPageReaderInput): ReadPage {
         maxTokens: SECOND_READING_BASE_TOKENS + keys.length * SECOND_READING_TOKENS_A_VALUE,
         system: [{ text: system.content, cacheBreakpoint: true }],
         tools: [secondReadingTool()],
-        messages: [{ role: 'user', content: [part, { type: 'text', text: itemsPrompt(keys) }] }],
+        messages: [{ role: 'user', content: [part, { type: 'text', text: itemsPrompt(keys, input.paper) }] }],
         timeoutMs: left,
       });
     } catch (e) {

@@ -488,10 +488,10 @@ const UNIT_SALE_SET: FieldSet = {
     },
 
     { key: 'sale_booked_on', label: 'Booked on', kind: 'date', section: 'booking', required: false, from: 'Application form' },
-    money('sale_agreed_value', 'Agreed value', { section: 'booking', required: false, proof: 'expected', from: 'Allotment letter', hint: 'Without GST, stamp duty and registration.' }),
+    money('sale_agreed_value', 'Agreed value', { section: 'booking', required: false, proof: 'expected', from: 'Allotment letter', fromTypes: ['Allotment letter'], factKey: 'agreed_value', hint: 'Without GST, stamp duty and registration.' }),
     workedShare('sale_discount_pct', 'Discount from the list price', share(minus(f('sale_list_price'), f('sale_agreed_value')), f('sale_list_price')), { section: 'booking' }),
     { key: 'sale_plan', label: 'Payment plan', kind: 'ref', target: { set: PLANS }, section: 'booking', required: false, from: 'Agreement for sale, payment schedule' },
-    { key: 'sale_covered_parking', label: 'Garages and covered parking allotted', kind: 'number', min: 0, precision: 0, section: 'booking', required: false, from: 'Allotment letter' },
+    { key: 'sale_covered_parking', label: 'Garages and covered parking allotted', kind: 'number', min: 0, precision: 0, section: 'booking', required: false, from: 'Allotment letter', fromTypes: ['Allotment letter'], factKey: 'covered_parking_allotted' },
     { key: 'sale_partner', label: 'Sold through', kind: 'ref', target: { set: PARTNERS }, section: 'partner', required: false },
     { key: 'sale_brokerage_pct', label: 'Brokerage rate on this sale', kind: 'percent', max: 100, precision: 2, section: 'partner', required: false, showWhen: { field: unit('sale_partner'), is: 'set' }, from: 'Empanelment letter' },
     workedMoney('sale_brokerage_expected', 'Brokerage this sale gives', times(f('sale_agreed_value'), over(f('sale_brokerage_pct'), n(100))), { section: 'partner', showWhen: { field: unit('sale_partner'), is: 'set' } }),
@@ -515,15 +515,15 @@ const UNIT_AGREEMENT_SET: FieldSet = {
   ],
   fields: [
     paper('sale_allotment_letter', 'Allotment letter', { section: 'allotment', from: 'Allotment letter' }),
-    { key: 'sale_allotted_on', label: 'Allotment letter dated', kind: 'date', section: 'allotment', required: false, from: 'Allotment letter' },
-    money('sale_received_before_agreement', 'Received before the registered agreement', { section: 'allotment', required: false, from: 'Allotment letter' }),
+    { key: 'sale_allotted_on', label: 'Allotment letter dated', kind: 'date', section: 'allotment', required: false, from: 'Allotment letter', fromTypes: ['Allotment letter'], factKey: 'allotment_date' },
+    money('sale_received_before_agreement', 'Received before the registered agreement', { section: 'allotment', required: false, from: 'Allotment letter', fromTypes: ['Allotment letter'], factKey: 'booking_amount_received' }),
     workedShare('sale_advance_pct', 'Advance, of the agreed value', share(f('sale_received_before_agreement'), f('sale_agreed_value')), { section: 'allotment' }),
     worked('sale_advance_over_cap', 'Advance against the cap', minus(f('sale_advance_pct'), rate('rera_advance_before_agreement_max')), { section: 'allotment', unit: '% points', precision: 1, hint: 'Above nought, more was taken before the registered agreement than the Act allows.' }),
     paper('sale_lender_consent', 'Lender’s consent to sell this unit', { section: 'allotment', tier: 'situational', showWhen: { situation: 'lender_funded' }, from: 'Lender’s letter' }),
 
     workedDay('sale_agreement_due', 'Agreement to be registered by', { op: 'add_months', date: { op: 'date', key: 'sale_allotted_on' }, months: rate('rera_agreement_within_months') }, { section: 'agreement' }),
     paper('sale_agreement', 'Registered agreement for sale', { section: 'agreement', viewer: 'deed', from: 'Agreement for sale' }),
-    { key: 'sale_agreement_registered_on', label: 'Agreement registered on', kind: 'date', section: 'agreement', required: false, from: 'Agreement for sale, registration endorsement' },
+    { key: 'sale_agreement_registered_on', label: 'Agreement registered on', kind: 'date', section: 'agreement', required: false, from: 'Agreement for sale, registration endorsement', fromTypes: ['Agreement for sale'], factKey: 'agreement_registered_on' },
     worked('sale_agreement_days_left', 'Days left to register the agreement', until('sale_agreement_registered_on', minus({ op: 'date', key: 'sale_agreement_due' }, { op: 'today' })), { section: 'agreement', unit: 'days', precision: 0 }),
     {
       key: 'sale_agreement_standing',
@@ -536,8 +536,8 @@ const UNIT_AGREEMENT_SET: FieldSet = {
       ],
       otherwise: { label: 'In time', tone: 'good' },
     },
-    { key: 'sale_carpet_in_agreement', label: 'Carpet area in the agreement', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], section: 'agreement', required: false, from: 'Agreement for sale, recitals' },
-    { key: 'sale_possession_promised', label: 'Possession promised by', kind: 'date', section: 'agreement', required: false, from: 'Agreement for sale' },
+    { key: 'sale_carpet_in_agreement', label: 'Carpet area in the agreement', kind: 'area', dimension: 'area', enterIn: ['sqm', 'sqft'], section: 'agreement', required: false, from: 'Agreement for sale, recitals', fromTypes: ['Agreement for sale'], factKey: 'carpet_area' },
+    { key: 'sale_possession_promised', label: 'Possession promised by', kind: 'date', section: 'agreement', required: false, from: 'Agreement for sale', fromTypes: ['Agreement for sale'], factKey: 'possession_promised_by' },
     { key: 'sale_agreement_notice_on', label: 'Notice to register served on', kind: 'date', section: 'agreement', tier: 'expert', required: false, from: 'Notice' },
     workedDay('sale_cancel_open_from', 'Cancellation open to the promoter from', { op: 'add_days', date: { op: 'date', key: 'sale_agreement_notice_on' }, days: rate('rera_agreement_notice_days') }, { section: 'agreement', tier: 'expert' }),
 
@@ -882,7 +882,7 @@ const DEMANDS_SET: FieldSet = {
   ],
   fields: [
     { key: 'demand_no', label: 'Demand number', kind: 'text', section: 'demand', from: 'Demand letter', fromTypes: ['Demand letter'], factKey: 'demand_number' },
-    { key: 'unit', label: 'Unit', kind: 'ref', target: 'unit', section: 'demand' },
+    { key: 'unit', label: 'Unit', kind: 'ref', target: 'unit', section: 'demand', fromTypes: ['Demand letter'], factKey: 'unit_number' },
     { key: 'raised_on', label: 'Raised on', kind: 'date', section: 'demand', from: 'Demand letter', fromTypes: ['Demand letter'], factKey: 'demand_date' },
     { key: 'due_on', label: 'Due on', kind: 'date', section: 'demand', from: 'Demand letter', fromTypes: ['Demand letter'], factKey: 'due_date' },
     money('principal', 'Demanded, before tax', { section: 'demand', proof: 'expected', from: 'Demand letter', fromTypes: ['Demand letter'], factKey: 'principal' }),

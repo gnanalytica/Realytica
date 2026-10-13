@@ -78,6 +78,7 @@ export const PAPER = {
   lenderEngineer: 'Independent engineer report',
   saleDeed: 'Sale deed',
   agreement: 'Agreement to sell',
+  unitAgreement: 'Agreement for sale',
   jda: 'Joint development agreement',
   khata: 'Khata certificate and extract',
   taxReceipt: 'Property tax receipt',

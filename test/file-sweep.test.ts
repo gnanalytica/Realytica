@@ -254,8 +254,8 @@ describe('what the rules find, with no model', () => {
     khata!.facts = [value('extent_title', 5000, '5,000 sq m', 1)];
     const [matter] = sweepRuleFindings(p, day('2026-10-12')).filter((held) => held.kind === 'papers_disagree');
     assert.deepEqual([matter!.difference, matter!.unit], [19.1, '%']);
-    // The field that names its papers is the one the matter is about.
-    assert.deepEqual(matter!.subjects, [{ fn: 'legal.title', set: 'legal.title.holding', field: 'extent' }]);
+    // The matter is about the extent per title, on the parcel check: one deed's extent is no longer read as the extent of the whole holding.
+    assert.deepEqual(matter!.subjects, [{ fn: 'legal.title', set: 'land_site.parcel_identification', field: 'extent_title' }]);
     assert.match(sweepSaid(matter!).line, /: 19\.1% apart\.$/);
   });
 

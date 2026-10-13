@@ -368,7 +368,8 @@ export function classifyIngestFile(
   let byTitle = read
     ? matchReadToRow(project, read, file.kindHint)
     : (titled.find((gap) => named.includes(plainWords(gap.title)))
-      ?? titled.find((gap) => kinds.some((kind) => singular(gap.title).includes(kind) || kind.includes(singular(gap.title)))));
+      // Only a row titled as that kind is: "Façade maintenance contract" is not waiting for whatever file is some contract.
+      ?? titled.find((gap) => kinds.some((kind) => singular(gap.title).trim() === kind.trim())));
   const assessmentIds = new Set<string>(byTitle?.assessmentIds ?? []);
   const scopeInstanceIds = new Set<string>(byTitle?.scopeInstanceIds ?? []);
   const checkIds = new Set<string>(byTitle?.checkIds ?? []);
@@ -596,7 +597,10 @@ export function proposalsFromIngest(
       // A paper put on its row as it was read (`landed`) has been in front of people since. A value set aside or corrected there
       // meanwhile is what the paper states now, so its checks are offered the row as it stands, never the reading as it was read.
       out.push(...factFillProposals(project, dropAsItStands(project, file).standing, source, actor, out, { differences: true }));
-      offerPaperToSheets(project, classified.evidence?.id, dropAsItStands(project, file).standing);
+      // And to the one field that owns each value, where it waits for that function's lead or signer: a model's reading too, which then
+      // waits there once with its page and words. Never a value a person set aside on the row.
+      const stated = dropAsItStands(project, file);
+      offerPaperToSheets(project, classified.evidence?.id, [...stated.standing, ...stated.waiting], undefined, { waiting: true });
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }

@@ -91,8 +91,6 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
         enterIn: ['acre', 'gunta', 'cent', 'sqm', 'sqft', 'hectare'],
         section: 'holding',
         from: 'Sale deed',
-        fromTypes: ['Sale deed', 'Mother deed'],
-        factKey: 'extent_title',
         proof: 'expected',
       },
       {
@@ -169,7 +167,7 @@ export const EXAMPLE_LAND_HOLDING: FieldSet[] = [
         showWhen: { situation: 'agricultural_land' },
         from: 'DC conversion order',
         fromTypes: ['DC conversion order'],
-        factKey: 'conversion_order_number',
+        factKey: 'order_number',
       },
       {
         key: 'conversion_date',

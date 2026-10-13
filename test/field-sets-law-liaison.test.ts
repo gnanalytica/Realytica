@@ -279,8 +279,9 @@ describe('Contracts: a joint development whose allocation does not match the agr
     assert.deepEqual(offerPaperToSheets(p, deed.id, facts).filter(mine).map((o) => `${o.address.field}:${o.outcome}`), ['doc_no:waiting', 'extent_conveyed:waiting', 'consideration:waiting']);
     assert.equal(fieldRecords(p, 'legal.contracts.purchases').length, 1);
     assert.equal(sheet(p, 'legal.contracts.land').value('purchases_count'), 0, 'a purchase nobody has accepted a value of is not one yet');
+    // One line: the purchase as the deed states it, with where each of its values waits.
     const offered = page(p, 'legal.contracts').exceptions.filter((e) => e.kind === 'proposed');
-    assert.deepEqual(offered.map((e) => [e.label, e.source?.label, e.source?.page]), [['Document number', 'Sale deed 2025', 3], ['Extent conveyed', 'Sale deed 2025', 3], ['Consideration', 'Sale deed 2025', 3]]);
+    assert.deepEqual(offered.map((e) => [e.label, e.source?.label, e.source?.page, e.whole?.map((at) => at.field)]), [['New purchase', 'Sale deed 2025', 3, ['doc_no', 'extent_conveyed', 'consideration']]]);
     assert.equal(offerPaperToSheets(p, deed.id, facts).filter(mine).some((o) => o.outcome === 'waiting'), false);
     assert.equal(fieldRecords(p, 'legal.contracts.purchases').length, 1);
   });
