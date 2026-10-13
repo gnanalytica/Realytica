@@ -265,7 +265,11 @@ before(async () => {
   add('procurement.boq.evaluations', { approver: bidder });
   assert.deepEqual(setFieldValues(project, { set: 'finance.budget.contingency' }, { contingency_original: 12_345_678 }, OWNER).rejected, []);
   assert.deepEqual(setFieldValues(project, { set: 'finance.valuation.conclusion' }, { book_value: 987_654_321, liquidation_value: 555_444_333 }, OWNER).rejected, []);
+  // A figure the lender's sheet held before the one it holds now: kept as the field's history, and cut with the field.
+  assert.deepEqual(setFieldValues(project, { set: 'finance.lenders.position' }, { outstanding_per_statement: 777_999_111 }, OWNER).rejected, []);
   assert.deepEqual(setFieldValues(project, { set: 'finance.lenders.position' }, { outstanding_per_statement: 777_123_456 }, OWNER).rejected, []);
+  assert.equal(project.fieldSheets!['finance.lenders.position']!.values.outstanding_per_statement!.history![0]!.value, 777_999_111);
+  marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777999111'] });
   marked.push({ fn: 'procurement.boq', set: 'procurement.boq.earnest_money', forms: ['5432101'] });
   marked.push({ fn: 'finance.budget', set: 'finance.budget.contingency', forms: ['12345678'] });
   marked.push({ fn: 'finance.valuation', set: 'finance.valuation.conclusion', forms: ['987654321', '555444333'] });

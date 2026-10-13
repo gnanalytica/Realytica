@@ -1312,11 +1312,25 @@ function Viewer({ def, value, evidence, onOpen }: { def: CheckFieldDef; value: C
   );
 }
 
+/** A field's figures over time as a small line: oldest on the left, the value held now marked at the right. */
+export function Sparkline({ points, label }: { points: number[]; label: string }) {
+  const [w, h, pad] = [72, 18, 2];
+  const [low, high] = [Math.min(...points), Math.max(...points)];
+  const x = (index: number) => pad + (index * (w - 2 * pad)) / Math.max(1, points.length - 1);
+  const y = (value: number) => (high === low ? h / 2 : h - pad - ((value - low) * (h - 2 * pad)) / (high - low));
+  return (
+    <svg role="img" aria-label={label} width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0 text-brand">
+      <polyline fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" points={points.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ')} />
+      <circle cx={x(points.length - 1)} cy={y(points[points.length - 1]!)} r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** Whether a field has anything behind its label: a source to show, a rule row it read, or a decision the reader may take on it. */
 function hasMore(def: CheckFieldDef, view: FieldView, may: boolean): boolean {
   const derived = def.kind === 'computed' || def.kind === 'status' || Boolean(def.sameAs);
   if (view.state === 'proposed' || view.state === 'disputed' || view.state === 'not_applicable') return false;
-  return Boolean(view.source?.label || view.cites?.length || (may && !derived));
+  return Boolean(view.source?.label || view.cites?.length || view.past || (may && !derived));
 }
 
 function sourceSaid(source: FieldSource | undefined): string {
@@ -1458,6 +1472,18 @@ function FieldMarks({
             <p>
               Accepted by {person(view.held.acceptedBy)}
               {view.held.acceptedAt ? `, ${daySaid(view.held.acceptedAt)}` : ''}
+            </p>
+          ) : null}
+          {/* What it held before: one line put together from the record, and the figures as a small line where there are three. */}
+          {view.past ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5" data-field-past>
+              <span>{view.past.line}</span>
+              {view.past.spark ? <Sparkline points={view.past.spark} label={`${def.label} over ${view.past.spark.length} values`} /> : null}
+            </p>
+          ) : null}
+          {view.past && view.past.earlier > 1 && view.past.since ? (
+            <p>
+              {view.past.earlier} earlier values kept, from {daySaid(view.past.since)}
             </p>
           ) : null}
           {(view.cites ?? []).map((cite) => (

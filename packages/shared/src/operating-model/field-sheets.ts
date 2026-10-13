@@ -30,6 +30,7 @@ import { paperCarries, type DocumentFact, type FactProof } from './document-pars
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, proposedFacts, settled, standingFacts } from './fact-review';
 import { projectFigure } from './field-figures';
+import { fieldHistorySaid, stand, type FieldHistorySaid } from './field-history';
 import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { RULE_ROWS } from './field-sets';
@@ -571,6 +572,8 @@ export interface FieldView {
   heldAt?: FieldAddress;
   /** A link that names a record since taken off its list. */
   removedLink?: boolean;
+  /** What it held before, as its popover says it: one templated line, and the figures for a sparkline where there are three. */
+  past?: FieldHistorySaid;
 }
 
 /** The party a field's value is waited on from. */
@@ -762,6 +765,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     if (!linked.has(key)) linked.set(key, refChoices(project, def.target, catalog));
     return linked.get(key)!.find((choice) => choice.id === value!.value)?.label ?? removedLabel(project, catalog, refSet(def.target), String(value!.value)) ?? String(value!.value);
   };
+  // A person as the project's team names them, else as the record keeps them.
+  const personNamed = (by: string): string => (project.team ?? []).find((member) => member.name && member.email.toLowerCase() === by.toLowerCase())?.name ?? by;
   const linkGone = (def: CheckFieldDef, value: CheckFieldValue | undefined): boolean => def.kind === 'ref' && !isBlank(value) && removedLabel(project, catalog, refSet(def.target), String(value!.value)) !== undefined;
   // A record nobody has accepted or typed anything on holds only what was offered: it asks nothing and counts for nothing.
   const pending = Boolean(recordId) && !catalog.checks.has(setId) && !Object.values(held).some((value) => fieldStands(value) && !isBlank(value));
@@ -812,6 +817,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
     const expected = asked && !owed;
     const empty = state === 'empty' && !own?.other?.length;
     const missing = expected && empty;
+    // What it held before, where it has held anything: a mirror says its owner's, and what is worked out has no past of its own.
+    const past = (kept ?? own)?.history?.length ? fieldHistorySaid(def, def.sameAs ? own : (kept ?? own), lists, personNamed) : undefined;
     return {
       def,
       address,
@@ -842,6 +849,7 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       ...(derived && own?.assumes?.length ? { assumes: own.assumes } : {}),
       ...(def.sameAs ? { heldAt: { ...def.sameAs, fn: catalog.sets.get(def.sameAs.set)?.fn ?? def.sameAs.fn } } : {}),
       ...(shown !== 'hidden' && linkGone(def, own) ? { removedLink: true } : {}),
+      ...(past ? { past } : {}),
     };
   });
 
@@ -1450,6 +1458,10 @@ function mayDecideIn(fn: string, options: FieldWriteOptions): boolean {
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
+/** The most the trail keeps of one value as it prints, and of one line of them. */
+const AUDIT_VALUE_MOST = 60;
+const AUDIT_LINE_MOST = 240;
+
 /** A value checked against its field and against the project: a link has to name something that exists. */
 function checked(project: DdProject, catalog: FieldCatalog, def: CheckFieldDef, raw: unknown, proposer: 'person' | 'model' | 'parser') {
   const parsed = validateFieldValue(def, raw, { proposer, optionSet: (id) => optionSetById(id, catalog), state: project.jurisdiction });
@@ -1551,12 +1563,18 @@ export function setFieldValues(
     }
   }
   if (rejected.length) return { rejected, written: [] };
-  for (const [key, value] of Object.entries(next)) {
-    if (value === null) delete holder[key];
-    else holder[key] = value;
-  }
+  // The trail says what each field held and what it holds now, as the field prints them.
+  const lists = (id: string) => optionSetById(id, catalog);
+  const said = (values: (key: string) => CheckFieldValue | null | undefined) =>
+    Object.keys(next)
+      .map((key) => `${key}: ${isBlank(values(key) ?? undefined) ? 'nothing' : formatFieldValue(set.fields.find((field) => field.key === key)!, values(key)!, lists).slice(0, AUDIT_VALUE_MOST)}`)
+      .join('; ')
+      .slice(0, AUDIT_LINE_MOST);
+  const before = said((key) => standingField(holder[key]));
+  for (const [key, value] of Object.entries(next)) stand(holder, key, value, { at, by: actor });
   project.updatedAt = at;
-  recordAuditEvent(project, { actor, action: 'set_field_values', entityType: 'field_set', entityId: where.record ? `${where.set}::${where.record}` : where.set, newValue: Object.keys(next).join(', '), at });
+  project.historyFrom ??= at;
+  recordAuditEvent(project, { actor, action: 'set_field_values', entityType: 'field_set', entityId: where.record ? `${where.set}::${where.record}` : where.set, oldValue: before, newValue: said((key) => next[key]), at });
   return { rejected: [], written: Object.keys(next) };
 }
 
@@ -1764,7 +1782,7 @@ export function proposeFieldValues(
     const beside = { value: parsed.value, origin: offered.origin!, proposedBy: proposer, at, ...(offered.entered ? { entered: offered.entered } : {}) };
     if (!held || (isBlank(held) && fieldState(held) !== 'not_applicable') || fieldState(held) === 'proposed') {
       // One value waits on an empty field at a time: a newer reading takes the place of the one that waited.
-      holder[def.key] = { ...offered, ...(held?.declined ? { declined: held.declined } : {}), ...(held?.other?.length ? { other: held.other } : {}) };
+      stand(holder, def.key, { ...offered, ...(held?.declined ? { declined: held.declined } : {}), ...(held?.other?.length ? { other: held.other } : {}) }, { at, by: proposer });
     } else if (held.other?.some((other) => same(other.value, parsed.value))) {
       out.push({ address, outcome: 'waiting' });
       continue;
@@ -1850,7 +1868,7 @@ export function decideField(
   const state = fieldState(held);
   const at = now();
   const declined = (value: CheckFieldValue['value']) => [...(held?.declined ?? []), { value, by: actor, at }];
-  const stand = (origin: FieldOrigin | undefined): FieldState => (origin?.kind === 'person' || !origin ? 'typed' : 'accepted');
+  const standsAs = (origin: FieldOrigin | undefined): FieldState => (origin?.kind === 'person' || !origin ? 'typed' : 'accepted');
   const edit = () => {
     const parsed = checked(project, catalog, def, input.value, 'person');
     if ('error' in parsed) throw new FieldRefused(parsed.error);
@@ -1895,7 +1913,7 @@ export function decideField(
     }
     case 'keep': {
       if (!held || isBlank(held)) throw new FieldRefused('This field holds nothing to keep.');
-      next = { ...held, state: state === 'disputed' || state === 'proposed' ? stand(held.origin ?? (held.sourceEvidenceId ? { kind: 'paper', evidenceId: held.sourceEvidenceId, page: held.page ?? 0, quote: held.quote ?? '', reader: 'parser' } : undefined)) : state, acceptedBy: actor, acceptedAt: at, declined: [...(held.declined ?? []), ...(held.other ?? []).map((o) => ({ value: o.value, by: actor, at }))] };
+      next = { ...held, state: state === 'disputed' || state === 'proposed' ? standsAs(held.origin ?? (held.sourceEvidenceId ? { kind: 'paper', evidenceId: held.sourceEvidenceId, page: held.page ?? 0, quote: held.quote ?? '', reader: 'parser' } : undefined)) : state, acceptedBy: actor, acceptedAt: at, declined: [...(held.declined ?? []), ...(held.other ?? []).map((o) => ({ value: o.value, by: actor, at }))] };
       delete next.other;
       break;
     }
@@ -1930,12 +1948,15 @@ export function decideField(
       break;
     }
   }
-  if (next) holder[def.key] = next;
-  else delete holder[def.key];
+  const lists = (id: string) => optionSetById(id, catalog);
+  const stood = standingField(held);
+  const before = stood && !isBlank(stood) ? formatFieldValue(def, stood, lists).slice(0, AUDIT_LINE_MOST) : undefined;
+  stand(holder, def.key, next, { at, by: actor });
   project.updatedAt = at;
+  project.historyFrom ??= at;
   if (decision === 'accept' && next?.state === 'accepted') acceptOnPaper(project, def, next, actor, options);
-  recordAuditEvent(project, { actor, action: `field_${decision}`, entityType: 'field', entityId: addressKey(address), newValue: next && !isBlank(next) ? String(next.value).slice(0, 120) : decision, at });
-  return next;
+  recordAuditEvent(project, { actor, action: `field_${decision}`, entityType: 'field', entityId: addressKey(address), ...(before ? { oldValue: before } : {}), newValue: next && !isBlank(next) ? String(next.value).slice(0, 120) : decision, at });
+  return next ? holder[def.key] : next;
 }
 
 /**

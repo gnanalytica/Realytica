@@ -6,7 +6,8 @@ import { reconcileChecklistRequests } from './checklist';
 import { REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
-import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
+import { formatFieldValue, isBlank, readCheckFields, standingField, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
+import { stand } from './field-history';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import { fieldSourceFault, freezeFieldBlock, functionReportTemplate, isFieldSource, isFrozenFieldBlock, projectHoldsFields, reportNoteCap, statusFieldsBlock, templateBlocks, thawFieldBlock, type TemplateBlock } from './report-fields';
 import { statusTitle, statusWeekSoFar } from './status-report';
@@ -762,15 +763,26 @@ export function recordCheckFields(
   }
 
   if (rejected.length === 0) {
-    check.fields = { ...(check.fields ?? {}), ...accepted };
+    // What each field held is kept as it gives way (`stand`), and the trail says what it held and what it holds.
+    const held = { ...(check.fields ?? {}) };
+    const said = (values: Record<string, CheckFieldValue | undefined>) =>
+      Object.keys(accepted)
+        .map((key) => `${key}: ${isBlank(values[key]) ? 'nothing' : formatFieldValue(byKey.get(key)!, values[key], optionSetById).slice(0, 60)}`)
+        .join('; ')
+        .slice(0, 240);
+    const before = said(Object.fromEntries(Object.keys(accepted).map((key) => [key, standingField(held[key])])));
+    for (const [key, value] of Object.entries(accepted)) stand(held, key, value, { at, by: actor });
+    check.fields = held;
     check.updatedAt = at;
     touch(project, at);
+    project.historyFrom ??= at;
     audit(project, {
       actor,
       action: 'record_check_fields',
       entityType: 'check',
       entityId: check.id,
-      newValue: Object.keys(accepted).join(', '),
+      oldValue: before,
+      newValue: said(accepted),
       at,
     });
   }

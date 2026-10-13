@@ -40,7 +40,8 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   { file: 'packages/shared/src/operating-model/valuation-run.ts', has: 'withComputed(def?.fields ?? [], check.fields ?? {})', why: 'the valuation’s inputs: `withComputed` reads only what stands' },
 
   // Writing is not reading.
-  { file: 'packages/shared/src/operating-model/operations.ts', has: 'check.fields = { ...(check.fields ?? {}), ...accepted };', why: 'records a person’s values onto the check, keeping the keys it did not touch' },
+  { file: 'packages/shared/src/operating-model/operations.ts', has: 'const held = { ...(check.fields ?? {}) };', why: 'records a person’s values onto the check, keeping the keys it did not touch: each is put there by `stand`, which keeps what the field held before' },
+  { file: 'packages/shared/src/operating-model/operations.ts', has: 'check.fields = held;', why: 'the same write, put back on the check' },
   { file: 'packages/shared/src/operating-model/review.ts', has: 'const written = outcome.check.fields?.[k];', why: 'the value just accepted off a card, read back to keep the public source it was read from' },
   { file: 'packages/shared/src/operating-model/review.ts', has: "outcome.check.fields![k] = { ...written, state: 'accepted', origin", why: 'writes that source beside the value just accepted' },
 

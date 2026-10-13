@@ -29,6 +29,7 @@
 
 import { alertsOfCopy } from './alerts';
 import { scopesOfWorkstreams, workstreamDefinition } from './departments';
+import { historyOnCopy } from './field-history';
 import { fieldCatalog, sharedSetsOf } from './field-registry';
 import { CUSTOMER_SETS } from './field-sets/sales-marketing';
 import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
@@ -324,7 +325,9 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
   const uncited = (value: CheckFieldValue): CheckFieldValue => {
     const cited = value.origin?.kind === 'paper' ? value.origin.evidenceId : value.sourceEvidenceId;
     const other = value.other?.filter((o) => o.origin.kind !== 'paper' || evidenceIds.has(o.origin.evidenceId));
-    const kept = other ? { ...value, other } : value;
+    // What the field held before goes with it, each entry cut as the value is: its citation only where its paper is here.
+    const history = historyOnCopy(value.history, (id) => evidenceIds.has(id));
+    const kept = other || history ? { ...value, ...(other ? { other } : {}), ...(history ? { history } : {}) } : value;
     if (!cited || evidenceIds.has(cited)) return kept;
     const { origin: _origin, sourceEvidenceId: _source, page: _page, quote: _quote, ...rest } = kept;
     return rest;

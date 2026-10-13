@@ -351,6 +351,8 @@ export interface FieldAddress {
   field: string;
   column?: string;
   record?: string;
+  /** One period of a set kept by period, by its key (`2026-09`, `FY2026-Q2`): the field as that period holds it. Absent, the open one. */
+  period?: string;
 }
 
 export type Dimension = 'area' | 'length' | 'volume' | 'mass' | 'money' | 'time' | 'count' | 'ratio';
@@ -601,6 +603,8 @@ export interface FieldSet {
   sheets?: DepthSheet[];
   /** The reports this set's function hands over, each an ordered list of sections. See `report-fields.ts`. */
   reports?: FieldReportTemplate[];
+  /** Kept by period: opened from the last, compared with it, due, and issued by a named person (`field-periods.ts`). */
+  periodic?: Periodic;
 }
 
 /**
@@ -668,6 +672,115 @@ export type FieldOrigin =
   | { kind: 'person' }
   | { kind: 'default'; from: DefaultRule['from']; cite?: string };
 
+/**
+ * A value a field held before the one it holds now: what stood, who made it
+ * stand and from when, and when it stopped standing. Only what stood is kept:
+ * a value somebody offered, one in dispute and a usual value standing in
+ * never enter. A table keeps how many rows it had, never the rows.
+ */
+export interface FieldPast {
+  value: string | number | boolean | string[] | null;
+  /** A table's rows, counted. */
+  rows?: number;
+  entered?: { value: number; unit: string; text?: string };
+  state: 'accepted' | 'typed' | 'not_applicable' | 'empty';
+  /** Where it came from, its quoted words cut to 80 characters. */
+  origin?: FieldOrigin;
+  /** Who made it stand, and when. */
+  by: string;
+  at: string;
+  /** When it stopped standing. */
+  until: string;
+  /** Entries that came after this one were thinned out: between `until` and the next entry kept, the record no longer says what stood. */
+  thinnedAfter?: true;
+}
+
+/**
+ * How often a set is kept: by the week, the month, the quarter or the year, or
+ * once for each record of another set (a lender's engineer reports once for
+ * each drawdown). `on` names that record's own day, which the instance is due
+ * from.
+ */
+export type PeriodEvery = 'week' | 'month' | 'quarter' | 'year' | { event: string; on?: string };
+
+/**
+ * Rows that explain a figure of a period: dated rows of a table or of another
+ * set's records, summed where their day falls inside the period. They explain
+ * how far the figure moved since the last period (`movement`, the default) or
+ * the period's own amount (`amount`: the month's collections against the
+ * receipts dated in it). What they leave is "unexplained".
+ */
+export interface PeriodAttribute {
+  field: string;
+  rows: FormulaRows;
+  date: string;
+  amount: string;
+  label: string;
+  of?: 'movement' | 'amount';
+}
+
+/**
+ * A set kept by period (docs/fields.md, Periods).
+ *
+ * On a set that repeats, with `by`, each record is one period's instance: the
+ * month a cash record is for, the quarter a certificate covers. On a sheet
+ * held once, the sheet is the open period and each period issued is kept
+ * beside it, frozen (`StoredFieldSheet.periods`).
+ */
+export interface Periodic {
+  every: PeriodEvery;
+  /** On a set that repeats: the field that names the period. A date, the year as written, or for `event` the link to the event's record. */
+  by?: string;
+  /** On a set that repeats: fields that tell one instance from another inside a period (the certificate's kind, the building). */
+  per?: string[];
+  /** Keys copied from the last instance when a new one is opened; the rest open blank. */
+  carry?: string[];
+  /** Keys that are running totals: what moved in the period is this less the last. */
+  cumulative?: string[];
+  /** When the period is due after it ends: so many days, or a rule row that gives the days or months. */
+  due: { days: number } | { rate: string };
+  /** Who issues it: a lead of the department (a signer may too), its signer, or an outside party whose name is then given. */
+  issuer: 'lead' | 'signer' | OwedRole;
+  attribute?: PeriodAttribute[];
+  /** The option set a person picks from for what the rows do not explain. Never prose. */
+  reasons?: string;
+}
+
+/** One field of a period as it read when the period was issued: its value, how it printed, and the footnote it carried. */
+export interface FrozenField {
+  value: CheckFieldValue['value'];
+  said: string;
+  footnote?: string;
+  /** The paper the footnote cites, so a copy that does not hold the paper does not hold the footnote. */
+  evidenceId?: string;
+  /** Worked out, a standing or a mirror: nobody entered it. */
+  derived?: true;
+  tone?: Tone;
+}
+
+/** One issued period of a sheet held once: every field as it read at issue. The open period is the sheet itself. */
+export interface FieldPeriod {
+  /** `2026-09`, `FY2026-Q2`, `2026-W41`. */
+  key: string;
+  /** Its first and last day, inclusive. */
+  from: string;
+  to: string;
+  status: 'open' | 'issued';
+  /** What the sheet stored of the period: the typed and accepted fields. */
+  values: Record<string, CheckFieldValue>;
+  /** Every field in play at issue, the worked-out ones among them. */
+  frozen?: Record<string, FrozenField>;
+  openedAt: string;
+  openedBy: string;
+  issuedAt?: string;
+  issuedBy?: string;
+  issuedName?: string;
+  /** The issue of the same period this one corrects, by its `issuedAt`. */
+  revises?: string;
+  /** What a person picked for a figure's unexplained movement, by field key. */
+  reasons?: Record<string, string>;
+}
+
 /** One record of a set that repeats. */
 export interface FieldRecord {
   id: string;
@@ -676,6 +789,16 @@ export interface FieldRecord {
   by: string;
   /** Taken off the list. Kept, with who took it off. */
   removed?: { by: string; at: string };
+  /** On a set kept by period: issued by a named person. An issued record is never edited; a correction is a revision kept beside it. */
+  issued?: { by: string; at: string; name?: string };
+  /** Every field as it read at issue, the worked-out ones among them. */
+  frozen?: Record<string, FrozenField>;
+  /** The issued record this one corrects. Until this one is issued the other stands; once it is, this one does. */
+  revises?: string;
+  /** The fields filled from the last period when this one was opened, and the period they came from. */
+  carried?: { from: string; at: string; keys: string[] };
+  /** What a person picked for a figure's unexplained movement, by field key. */
+  reasons?: Record<string, string>;
 }
 
 /** What a project holds for one field set. */
@@ -684,6 +807,10 @@ export interface StoredFieldSheet {
   records?: FieldRecord[];
   /** Sections marked not applicable, each with the reason. */
   na?: Record<string, { reason: NaReason | string; note?: string; by: string; at: string }>;
+  /** On a sheet kept by period: the periods issued, each frozen. The sheet itself is the open one. */
+  periods?: FieldPeriod[];
+  /** The period the sheet is open on, and what it carried from the last. */
+  open?: { key: string; openedAt: string; openedBy: string; carried?: { from: string; keys: string[] }; reasons?: Record<string, string> };
 }
 
 /** A line under Due soon put off by a person until a day. It comes back that day, or sooner if it starts failing. */
@@ -956,7 +1083,11 @@ export interface CheckFieldValue {
   /** A worked-out zero that is a sum over nothing entered: no rule fires on it and no standing is drawn from it. Never stored: set when the value is resolved. */
   overNothing?: boolean;
   /** What the field held when it was marked not applicable: put back as it was when the field is asked again. */
-  was?: Omit<CheckFieldValue, 'was'>;
+  was?: Omit<CheckFieldValue, 'was' | 'history'>;
+  /** What stood here before, newest first, at most twenty-four (`field-history.ts`). Written only by `stand`. */
+  history?: FieldPast[];
+  /** From when the value held has stood, where that is neither `acceptedAt` nor `at`: kept after a dispute, asked again after not applicable. */
+  since?: string;
 }
 
 /**
@@ -2815,6 +2946,8 @@ export interface DdProject {
    * any more is kept as it is.
    */
   fieldSheets?: Record<string, StoredFieldSheet>;
+  /** The moment from which every change to a field's standing value is kept as history: the project's making, or its first change after history was kept. Before it, a past day reads as now and says so. */
+  historyFrom?: string;
   /** The situations in play, by key. A function's own is kept under `<fn>:<key>`. */
   situations?: Record<string, SituationState>;
   /** Lines under Due soon a person put off, by the line's key. Absent on a project where nobody has. */
