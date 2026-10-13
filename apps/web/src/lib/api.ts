@@ -1235,7 +1235,7 @@ export const api = {
   correctDocumentType: (projectId: string, evidenceId: string, documentType: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/correct`, { method: 'POST', body: JSON.stringify({ documentType }) }),
   /* --- Field sets: a function's sheets (docs/fields.md) --- */
-  setFieldValues: (projectId: string, body: { set: string; record?: string; values: Record<string, unknown> }) =>
+  setFieldValues: (projectId: string, body: { set: string; record?: string; period?: string; values: Record<string, unknown> }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/values`, { method: 'PUT', body: JSON.stringify(body) }),
   decideField: (projectId: string, body: { address: FieldAddress; decision: FieldValueDecision; value?: unknown; pick?: number; reason?: string; note?: string }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/fields/decide`, { method: 'POST', body: JSON.stringify(body) }),

@@ -895,6 +895,8 @@ export const LENDER_SETS: FieldSet[] = [
     fn: LEN,
     title: 'Loan position',
     v: 1,
+    // Kept by the month. What is owed and how the lender classes the account stand until restated.
+    periodic: { every: 'month', carry: ['account_class', 'outstanding_per_statement', 'outstanding_per_books', 'notice_dated', 'reply_by', 'matter'], due: { days: 7 }, issuer: 'lead' },
     situations: [
       LENDER_FUNDED,
       { key: 'account_in_default', label: 'Recall or demand notice received', scope: 'function', derive: { records: SET.letters, is: 'any', where: { column: 'kind', is: 'equals', value: 'recall_notice' } } },

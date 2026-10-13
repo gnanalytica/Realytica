@@ -31,6 +31,7 @@ import {
   generateReport,
   insertReportBlock,
   issuePeriod,
+  issueSheetPeriod,
   revisePeriod,
   issueReport,
   projectView,
@@ -272,6 +273,11 @@ before(async () => {
   assert.deepEqual(setFieldValues(project, { set: 'finance.lenders.position' }, { outstanding_per_statement: 777_123_456 }, OWNER).rejected, []);
   assert.equal(project.fieldSheets!['finance.lenders.position']!.values.outstanding_per_statement!.history![0]!.value, 777_999_111);
   marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777999111'] });
+  // The lender's sheet issued for a month, and a figure typed since: what the month was issued with is kept in the issue alone.
+  issueSheetPeriod(project, 'finance.lenders.position', { actor: OWNER }, {}, { period: '2026-08', at: new Date('2026-09-03T06:00:00.000Z') });
+  assert.deepEqual(setFieldValues(project, { set: 'finance.lenders.position' }, { outstanding_per_statement: 777_555_444 }, OWNER).rejected, []);
+  assert.equal(project.fieldSheets!['finance.lenders.position']!.periods![0]!.values.outstanding_per_statement!.value, 777_123_456);
+  marked.push({ fn: 'finance.lenders', set: 'finance.lenders.position', forms: ['777555444'] });
   marked.push({ fn: 'procurement.boq', set: 'procurement.boq.earnest_money', forms: ['5432101'] });
   marked.push({ fn: 'finance.budget', set: 'finance.budget.contingency', forms: ['12345678'] });
   marked.push({ fn: 'finance.valuation', set: 'finance.valuation.conclusion', forms: ['987654321', '555444333'] });

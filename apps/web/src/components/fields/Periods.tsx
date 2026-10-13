@@ -14,9 +14,9 @@
  * `comparePeriods`.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, Plus } from 'lucide-react';
-import { OWED_ROLE_LABEL, comparePeriods, daySaid, periodIssuedSaid, type DdProject, type FieldCatalog, type FieldSet, type PeriodInstance, type SetPeriods, type SheetReading } from '@realytica/shared';
+import { OWED_ROLE_LABEL, comparePeriods, compareSheetPeriods, daySaid, periodIssuedSaid, type DdProject, type FieldCatalog, type FieldSet, type PeriodComparison, type PeriodInstance, type SetPeriods, type SheetReading } from '@realytica/shared';
 import { Button, Card, CardBody, cn } from '../ui/kit';
 
 type PeriodAct = { act: 'open' | 'issue' | 'revise' | 'reason'; record?: string; period?: string; name?: string; field?: string; reason?: string | null };
@@ -192,7 +192,6 @@ export function PeriodHead({
       return undefined;
     }
   }, [project, set.id, instance.record, catalog]);
-  const moved = comparison?.fields.filter((field) => field.moved || field.unexplained) ?? [];
   return (
     <div className="mb-3 space-y-2" data-period-head>
       {issued ? (
@@ -235,56 +234,148 @@ export function PeriodHead({
           ) : null}
         </div>
       )}
-      {comparison?.previous ? (
+      {comparison?.previous ? <Comparison comparison={comparison} locked={issued || !mayEdit} onReason={(field, reason) => onAct({ act: 'reason', record: instance.record, field, reason })} /> : null}
+    </div>
+  );
+}
+
+/** One period beside the one before it, under one press: each figure that moved in a line, what explains it, and what is left to pick a reason for. */
+function Comparison({ comparison, locked, onReason }: { comparison: PeriodComparison; locked: boolean; onReason: (field: string, reason: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const moved = comparison.fields.filter((field) => field.moved || field.unexplained);
+  return (
+    <div className="rounded-lg border border-hairline">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((was) => !was)} data-period-compare className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] text-ink-secondary hover:bg-sunken coarse:min-h-11">
+        <span>{comparison.said}</span>
+        <ChevronRight size={14} aria-hidden className={cn('shrink-0 text-ink-muted transition-transform', open && 'rotate-90')} />
+      </button>
+      {open ? (
+        <ul className="divide-y divide-hairline border-t border-hairline" data-period-comparison>
+          {moved.length ? (
+            moved.map((field) => (
+              <li key={field.key} className="space-y-0.5 px-3 py-2 text-[12px]">
+                <p className="text-ink">
+                  <span className="font-medium">{field.label}</span> · {field.said}
+                </p>
+                {(field.causes ?? []).map((cause) => (
+                  <p key={cause.label} className="text-ink-muted">
+                    {cause.said}
+                  </p>
+                ))}
+                {field.unexplainedSaid ? (
+                  <div className="flex flex-wrap items-center gap-2 text-[var(--status-warning-text)]">
+                    <span>{field.unexplainedSaid}</span>
+                    {locked ? (
+                      <span className="text-ink-muted">{field.reasonSaid ?? 'no reason picked'}</span>
+                    ) : (
+                      <select
+                        aria-label={`Why ${field.label} is not explained`}
+                        value={field.reason ?? ''}
+                        onChange={(event) => onReason(field.key, event.target.value || null)}
+                        className="h-7 rounded-md border border-hairline bg-surface px-1.5 text-[12px] text-ink coarse:h-11"
+                      >
+                        <option value="">Pick why…</option>
+                        {comparison.reasons.map((reason) => (
+                          <option key={reason.key} value={reason.key}>
+                            {reason.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                ) : null}
+              </li>
+            ))
+          ) : (
+            <li className="px-3 py-2 text-[12px] text-ink-muted">Nothing moved since {comparison.previous!.period.short}.</li>
+          )}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * What stands above the fields of a sheet kept by period: the period the
+ * sheet is open on and what it carried, the comparison with the last period
+ * issued, the one line that opens the past, and the press that issues the
+ * period just ended.
+ */
+export function SheetPeriodsBar({
+  project,
+  set,
+  periods,
+  catalog,
+  mayEdit,
+  mayDecide,
+  onAct,
+  onOpenPeriod,
+}: {
+  project: DdProject;
+  set: FieldSet;
+  periods: SetPeriods;
+  catalog: FieldCatalog;
+  mayEdit: boolean;
+  mayDecide: boolean;
+  onAct: (body: PeriodAct) => void;
+  onOpenPeriod: (instance: PeriodInstance) => void;
+}) {
+  const [past, setPast] = useState(false);
+  const comparison = useMemo(() => {
+    try {
+      return compareSheetPeriods(project, set.id, undefined, new Date(), catalog);
+    } catch {
+      return undefined;
+    }
+  }, [project, set.id, catalog]);
+  const revisions = periods.open;
+  return (
+    <div className="mb-4 space-y-2" data-sheet-periods={set.id}>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-ink-secondary">
+        <span>
+          <span className="font-semibold text-ink">{periods.shown?.label}</span>
+          {periods.carried ? ` · ${periods.carried.keys.length} carried from ${periods.carried.from}` : ''}
+          {periods.due?.due ? ` · ${periods.due.period.short} ${periods.due.late ? 'was due' : 'due'} ${daySaid(periods.due.due)}` : ''}
+        </span>
+        {mayDecide && periods.toIssue ? (
+          <Button size="sm" variant="secondary" onClick={() => onAct({ act: 'issue', period: periods.toIssue!.key })}>
+            Issue {periods.toIssue.short}
+          </Button>
+        ) : null}
+      </div>
+      {comparison?.previous ? <Comparison comparison={comparison} locked={!mayEdit} onReason={(field, reason) => onAct({ act: 'reason', field, reason })} /> : null}
+      {periods.pastSaid || revisions.length ? (
         <div className="rounded-lg border border-hairline">
-          <button type="button" aria-expanded={comparing} onClick={() => setComparing((was) => !was)} data-period-compare className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] text-ink-secondary hover:bg-sunken coarse:min-h-11">
-            <span>{comparison.said}</span>
-            <ChevronRight size={14} aria-hidden className={cn('shrink-0 text-ink-muted transition-transform', comparing && 'rotate-90')} />
+          <button type="button" aria-expanded={past} onClick={() => setPast((was) => !was)} data-period-past className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] text-ink-secondary hover:bg-sunken coarse:min-h-11">
+            <span className="min-w-0 truncate">{periods.pastSaid ?? `${revisions.length} ${revisions.length === 1 ? 'revision' : 'revisions'} open`}</span>
+            <ChevronRight size={14} aria-hidden className={cn('shrink-0 text-ink-muted transition-transform', past && 'rotate-90')} />
           </button>
-          {comparing ? (
-            <ul className="divide-y divide-hairline border-t border-hairline" data-period-comparison>
-              {moved.length ? (
-                moved.map((field) => (
-                  <li key={field.key} className="space-y-0.5 px-3 py-2 text-[12px]">
-                    <p className="text-ink">
-                      <span className="font-medium">{field.label}</span> · {field.said}
-                    </p>
-                    {(field.causes ?? []).map((cause) => (
-                      <p key={cause.label} className="text-ink-muted">
-                        {cause.said}
-                      </p>
-                    ))}
-                    {field.unexplainedSaid ? (
-                      <p className="flex flex-wrap items-center gap-2 text-[var(--status-warning-text)]">
-                        <span>{field.unexplainedSaid}</span>
-                        {issued || !mayEdit ? (
-                          <span className="text-ink-muted">{field.reasonSaid ?? 'no reason picked'}</span>
-                        ) : (
-                          <select
-                            aria-label={`Why ${field.label} is not explained`}
-                            value={field.reason ?? ''}
-                            onChange={(event) => onAct({ act: 'reason', record: instance.record, field: field.key, reason: event.target.value || null })}
-                            className="h-7 rounded-md border border-hairline bg-surface px-1.5 text-[12px] text-ink coarse:h-11"
-                          >
-                            <option value="">Pick why…</option>
-                            {comparison.reasons.map((reason) => (
-                              <option key={reason.key} value={reason.key}>
-                                {reason.label}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </p>
-                    ) : null}
-                  </li>
-                ))
-              ) : (
-                <li className="px-3 py-2 text-[12px] text-ink-muted">Nothing moved since {comparison.previous.period.short}.</li>
-              )}
+          {past ? (
+            <ul className="divide-y divide-hairline border-t border-hairline">
+              {[...revisions, ...periods.past].map((instance) => (
+                <li key={`${instance.id}-${instance.issued?.at ?? 'open'}`}>
+                  <button type="button" onClick={() => onOpenPeriod(instance)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-left hover:bg-sunken coarse:min-h-11">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{instance.status === 'open' ? `${instance.period.label} · revision, not issued` : periodIssuedSaid(project, instance)}</span>
+                    <span className="text-[12px] text-ink-muted">{instance.superseded ? 'kept as issued, replaced by a revision' : instance.issued ? `${daySaid(instance.issued.at)}${instance.late ? ' · late' : ''}` : ''}</span>
+                    <ChevronRight size={14} aria-hidden className="text-ink-muted" />
+                  </button>
+                </li>
+              ))}
             </ul>
           ) : null}
         </div>
       ) : null}
+      {periods.notKeptSaid ? <p className="text-[12px] text-ink-muted">{periods.notKeptSaid}</p> : null}
+    </div>
+  );
+}
+
+/** The band that heads anything read as at a past day, or as a period was issued: what it is, that it is read only, and the one thing that may be done. */
+export function ReadOnlyBand({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div role="status" data-asat-band className="sticky top-0 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-hairline bg-sunken px-3 py-2 text-[12px] text-ink">
+      <span>{children}</span>
+      {action}
     </div>
   );
 }

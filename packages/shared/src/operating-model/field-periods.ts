@@ -37,6 +37,7 @@ import { optionSetById, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
 import { SHARED_FN } from './field-sets/shared-records';
 import { recordAuditEvent } from './operations';
+import { COST_REPORT_PERIODS, costReportDue, costReportPeriods, freezeReading, sheetPeriodDue, sheetPeriodToIssue, sheetPeriods, sheetPeriodsNotKept } from './sheet-periods';
 import { dayAfter, isCalendarDay, monthsAfter, periodKind, periodOfDay, periodOfKey, periodShift, periodsBetween, yearWritten, type CalendarEvery, type PeriodSpan } from './period-keys';
 import { QUARTER_YEAR_DEFAULT, indiaToday, type QuarterYear } from './quarters';
 import { ruleRow } from './rule-tables';
@@ -150,8 +151,11 @@ function perOf(set: FieldSet, record: FieldRecord, catalog: FieldCatalog): { key
  * each record is where the caller has read them already.
  */
 export function periodsOf(project: DdProject, setId: string, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project), readings?: (recordId: string) => Pick<SheetReading, 'filled' | 'total'> | undefined): PeriodInstance[] {
+  // The Cost Report keeps its own months, and a sheet held once its own issues: each is read as instances all the same.
+  if (setId === COST_REPORT_PERIODS) return costReportPeriods(project, at);
   const set = catalog.sets.get(setId);
-  if (!set?.periodic || !set.records) return [];
+  if (!set?.periodic) return [];
+  if (!set.records) return sheetPeriods(project, set, at);
   const today = indiaToday(at);
   const all = recordsOf(project, setId);
   const replaced = new Set(all.filter((record) => record.revises && record.issued).map((record) => record.revises!));
@@ -293,10 +297,18 @@ export function periodDueOf(project: DdProject, set: FieldSet, at: Date = new Da
 export function periodsDue(project: DdProject, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project)): PeriodDue[] {
   const out: PeriodDue[] = [];
   for (const set of catalog.sets.values()) {
-    if (!set.periodic || !set.records || catalog.checks.has(set.id) || !recordsOf(project, set.id).length) continue;
-    const due = periodDueOf(project, set, at, catalog);
-    if (due) out.push(due);
+    if (!set.periodic || catalog.checks.has(set.id)) continue;
+    if (set.records) {
+      if (!recordsOf(project, set.id).length) continue;
+      const due = periodDueOf(project, set, at, catalog);
+      if (due) out.push(due);
+    } else if (project.fieldSheets?.[set.id]?.periods?.length) {
+      const due = sheetPeriodDue(project, set, at, sheetPeriods(project, set, at), readSheet(project, set.id, undefined, undefined, catalog, at));
+      if (due) out.push(due);
+    }
   }
+  const cost = costReportDue(project, at);
+  if (cost) out.push(cost);
   return out;
 }
 
@@ -423,6 +435,9 @@ export function issuePeriod(
   const undecided = Object.values(record.values).filter((value) => fieldState(value) === 'proposed' || fieldState(value) === 'disputed' || (value.other?.length ?? 0) > 0).length;
   if (undecided) throw new FieldRefused(`${undecided} ${undecided === 1 ? 'value waits' : 'values wait'} on it for a person. Accept or set ${undecided === 1 ? 'it' : 'them'} aside first.`);
   const stamp = at.toISOString();
+  // Every field in play is written down as it reads and prints now, the worked-out ones among them: an issued period is never worked out again.
+  const reading = readSheet(project, setId, record.id, undefined, catalog, at);
+  if (reading) record.frozen = freezeReading(project, reading);
   record.issued = { by: issuer.actor, at: stamp, ...(name ? { name } : {}) };
   recordAuditEvent(project, { actor: issuer.actor, action: 'issue_period', entityType: 'field_set', entityId: `${setId}::${record.id}`, newValue: `${set.title}, ${period.label}`, at: stamp });
   return record;
@@ -545,22 +560,37 @@ export function comparePeriods(project: DdProject, setId: string, recordId: stri
   const resolution = resolveFields(project, at, catalog);
   const now = resolution.holder(setId, current.record);
   const was = previous?.record ? resolution.holder(setId, previous.record) : {};
-  const lists = (id: string) => optionSetById(id, catalog);
   const outside: FormulaOutside = { read: (address) => resolution.read(address), records: (id) => resolution.records(id), record: current.record, today: at };
-  const record = recordOf(project, setId, recordId);
-  const reasons = set.periodic.reasons ? (optionSetById(set.periodic.reasons, catalog)?.options ?? []).filter((option) => !option.retired) : [];
+  return compareHolders(set, { current, previous, now, was, picked: recordOf(project, setId, recordId).reasons, outside }, catalog);
+}
+
+/**
+ * The arithmetic of a comparison, whatever holds the two periods: the values
+ * of each as they act, and the rows that explain a figure read through
+ * `outside`.
+ */
+export function compareHolders(
+  set: FieldSet,
+  held: { current: PeriodInstance; previous?: PeriodInstance; now: Record<string, CheckFieldValue>; was: Record<string, CheckFieldValue>; picked?: Record<string, string>; outside: FormulaOutside },
+  catalog: FieldCatalog,
+): PeriodComparison {
+  const periodic = set.periodic!;
+  const { current, previous, now, was, outside } = held;
+  const lists = (id: string) => optionSetById(id, catalog);
+  const reasons = periodic.reasons ? (optionSetById(periodic.reasons, catalog)?.options ?? []).filter((option) => !option.retired) : [];
+  const worded = (def: CheckFieldDef): boolean => def.yields === 'date' || def.kind === 'date' || def.kind === 'text' || def.kind === 'enum' || def.kind === 'status' || def.kind === 'boolean';
   const fields: PeriodFieldMove[] = [];
   for (const def of set.fields) {
-    if (!COMPARED_KINDS.has(def.kind) || def.retired || def.key === set.periodic.by || (set.periodic.per ?? []).includes(def.key)) continue;
+    if (!COMPARED_KINDS.has(def.kind) || def.retired || def.key === periodic.by || (periodic.per ?? []).includes(def.key)) continue;
     const [a, b] = [was[def.key], now[def.key]];
     if (isBlank(a) && isBlank(b)) continue;
     const [wasSaid, nowSaid] = [formatFieldValue(def, a, lists), formatFieldValue(def, b, lists)];
-    const [n0, n1] = [def.yields === 'date' || def.kind === 'date' || def.kind === 'text' || def.kind === 'enum' || def.kind === 'status' || def.kind === 'boolean' ? null : fieldNumber(a), def.yields === 'date' || def.kind === 'date' || def.kind === 'text' || def.kind === 'enum' || def.kind === 'status' || def.kind === 'boolean' ? null : fieldNumber(b)];
+    const [n0, n1] = worded(def) ? [null, null] : [fieldNumber(a), fieldNumber(b)];
     const by = n0 !== null && n1 !== null ? Math.round((n1 - n0) * 100) / 100 : undefined;
     const moved = previous ? wasSaid !== nowSaid : false;
-    const cumulative = (set.periodic.cumulative ?? []).includes(def.key);
+    const cumulative = (periodic.cumulative ?? []).includes(def.key);
     const move: PeriodFieldMove = { key: def.key, label: def.label, wasSaid, nowSaid, moved, ...(by !== undefined ? { by, bySaid: figureSaid(def, by, true) } : {}), ...(cumulative ? { cumulative: true as const } : {}), said: '' };
-    const explains = (set.periodic.attribute ?? []).filter((attribute) => attribute.field === def.key);
+    const explains = (periodic.attribute ?? []).filter((attribute) => attribute.field === def.key);
     if (explains.length && n1 !== null) {
       // The rows explain how far the figure moved, or the period's own amount where the set says so.
       const target = explains[0]!.of === 'amount' ? n1 : (by ?? n1);
@@ -572,8 +602,8 @@ export function comparePeriods(project: DdProject, setId: string, recordId: stri
       move.unexplained = left;
       if (left !== 0) {
         move.unexplainedSaid = `Unexplained: ${figureSaid(def, left)}`;
-        const picked = record.reasons?.[def.key];
-        const option = picked ? reasons.find((held) => held.key === picked) : undefined;
+        const picked = held.picked?.[def.key];
+        const option = picked ? reasons.find((kept) => kept.key === picked) : undefined;
         if (option) {
           move.reason = option.key;
           move.reasonSaid = option.label;
@@ -592,7 +622,7 @@ export function comparePeriods(project: DdProject, setId: string, recordId: stri
   const moved = fields.filter((field) => field.moved).length;
   const figures = fields.length;
   return {
-    set: setId,
+    set: set.id,
     current,
     ...(previous ? { previous } : {}),
     fields,
@@ -652,6 +682,10 @@ export interface SetPeriods {
   due?: PeriodDue;
   /** The period one press opens: today's, where nothing is kept of it yet. */
   toOpen?: PeriodSpan;
+  /** On a sheet held once: the period one press issues, the latest that has ended and is not issued. */
+  toIssue?: PeriodSpan;
+  /** On a sheet held once: what the sheet carried from the last period issued, and which. */
+  carried?: { from: string; keys: string[] };
 }
 
 /** A person as the project's team names them, else as the record keeps them. */
@@ -664,8 +698,40 @@ export function periodIssuedSaid(project: DdProject, instance: PeriodInstance): 
 }
 
 /** One periodic set as a page draws it. Undefined for a set that is not kept by period. */
-export function setPeriods(project: DdProject, set: FieldSet, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project), readings?: (recordId: string) => Pick<SheetReading, 'filled' | 'total'> | undefined): SetPeriods | undefined {
-  if (!set.periodic || !set.records) return undefined;
+export function setPeriods(
+  project: DdProject,
+  set: FieldSet,
+  at: Date = new Date(),
+  catalog: FieldCatalog = fieldCatalogFor(project),
+  readings?: (recordId: string) => Pick<SheetReading, 'filled' | 'total'> | undefined,
+  /** On a sheet held once: how full the sheet is as it reads now. */
+  live?: Pick<SheetReading, 'filled' | 'total'>,
+): SetPeriods | undefined {
+  if (!set.periodic) return undefined;
+  if (!set.records) {
+    if (typeof set.periodic.every === 'object') return undefined;
+    const all = sheetPeriods(project, set, at);
+    const sheet = project.fieldSheets?.[set.id];
+    const current = periodOfDay(set.periodic.every, indiaToday(at), periodsNumbered(project))!;
+    const past = all.filter((instance) => instance.status === 'issued');
+    const standing = past.filter((instance) => !instance.superseded);
+    const notKept = sheetPeriodsNotKept(project, set, at, all);
+    const due = sheetPeriodDue(project, set, at, all, live);
+    const toIssue = sheetPeriodToIssue(project, set, at, all);
+    const carried = sheet?.open?.carried;
+    return {
+      current,
+      shown: (sheet?.open?.key ? periodOfKey(sheet.open.key) : undefined) ?? current,
+      open: all.filter((instance) => instance.status === 'open'),
+      past,
+      ...(standing.length ? { pastSaid: `${periodIssuedSaid(project, standing[0]!)}${past.length > 1 ? ` · ${past.length - 1} earlier` : ''}` } : {}),
+      notKept,
+      ...(notKept.length ? { notKeptSaid: `${notKept.length} ${notKept.length === 1 ? 'period' : 'periods'} not kept: ${notKept.slice(0, 6).map((span) => span.short).join(', ')}${notKept.length > 6 ? ` and ${notKept.length - 6} more` : ''}` } : {}),
+      ...(due ? { due } : {}),
+      ...(toIssue ? { toIssue } : {}),
+      ...(carried?.keys.length ? { carried: { from: periodOfKey(carried.from)?.short ?? carried.from, keys: carried.keys } } : {}),
+    };
+  }
   const all = periodsOf(project, set.id, at, catalog, readings);
   const current = typeof set.periodic.every === 'object' ? undefined : periodOfDay(set.periodic.every, indiaToday(at), periodsNumbered(project));
   const opened = all.filter((instance) => instance.status === 'open');

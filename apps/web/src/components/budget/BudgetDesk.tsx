@@ -143,7 +143,7 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
                   )}
                 >
                   {r.label}
-                  <span className="ml-1.5 text-ink-muted">{r.status === 'issued' ? 'Issued' : 'Draft'}</span>
+                  <span className="ml-1.5 text-ink-muted">{r.status === 'issued' ? 'Issued' : r.status === 'superseded' ? 'Issued, since revised' : r.revises ? 'Revision' : 'Draft'}</span>
                 </button>
               ))}
             </div>
@@ -167,7 +167,7 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
 
           {report ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={draft ? 'neutral' : 'good'}>{draft ? 'Draft' : 'Issued'}</Badge>
+              <Badge tone={draft ? 'neutral' : report.status === 'issued' ? 'good' : 'neutral'}>{draft ? (report.revises ? 'Revision of the issued report, which stands until this is issued' : 'Draft') : report.status === 'issued' ? 'Issued' : 'Issued, since revised: kept as it was sent'}</Badge>
               {draft && mayDecide ? (
                 <Button
                   size="sm"
@@ -178,15 +178,23 @@ export function BudgetDesk({ project, onChanged }: { project: DdProject; onChang
                   Issue
                 </Button>
               ) : null}
-              {!draft && mayDecide ? (
+              {report.status === 'issued' && mayDecide ? (
                 <Button
                   size="sm"
                   variant="ghost"
                   icon={<Unlock size={13} />}
                   loading={busy}
-                  onClick={() => void run('Could not reopen', () => workspaceApi.patchCostReport(project.id, report.id, { reopen: true }))}
+                  onClick={() =>
+                    void run('Could not open a revision', async () => {
+                      // The issued report stays as it was sent: a revision opens beside it, and is the one to work on.
+                      const out = await workspaceApi.patchCostReport(project.id, report.id, { reopen: true });
+                      setReportId(out.report.id);
+                      setNoteDraft(null);
+                      return out;
+                    })
+                  }
                 >
-                  Reopen
+                  Revise
                 </Button>
               ) : null}
             </div>
@@ -485,7 +493,7 @@ function PackageLedger({
           </p>
         ) : null}
         {!mayEdit && report.status === 'issued' ? (
-          <p className="text-mini text-ink-muted">Issued — reopen the report to change figures.</p>
+          <p className="text-mini text-ink-muted">Issued, and not edited. A lead or signer opens a revision to change figures.</p>
         ) : null}
       </CardBody>
     </Card>

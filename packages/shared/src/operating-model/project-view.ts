@@ -44,6 +44,7 @@ import type {
   DecisionRecord,
   EvidenceRecord,
   FindingRecord,
+  FrozenField,
   RiskRecord,
   ScopeInstance,
 } from './types';
@@ -387,13 +388,32 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
       if (CUSTOMER_SETS.includes(id)) return false;
       return set ? (set.fn === SHARED_FN ? sharedInReach.has(id) : inReach(set.fn)) : false;
     });
+    // What an issued period froze goes as its fields go: none of a field another department added out of reach, and no footnote that cites a paper not on this copy.
+    const frozenOnCopy = (id: string, frozen: Record<string, FrozenField>): Record<string, FrozenField> =>
+      Object.fromEntries(
+        Object.entries(frozen)
+          // Nor a field that printed a buyer's name through a link: the name was written down at issue, and the buyer is nobody's outside the firm.
+          .filter(([key, field]) => !added.get(id)?.has(key) && !buyerNames.some((name) => name && field.said.includes(name)))
+          .map(([key, field]) => {
+            if (!field.evidenceId || evidenceIds.has(field.evidenceId)) return [key, field];
+            const { footnote: _footnote, evidenceId: _paper, ...rest } = field;
+            return [key, rest];
+          }),
+      );
     view.fieldSheets = Object.fromEntries(
       kept.map(([id, sheet]) => [
         id,
         {
           ...sheet,
           values: copied(without(id, sheet.values)),
-          ...(sheet.records ? { records: sheet.records.filter((record) => id !== SHARED_RECORD_SETS.party || !isBuyer(record)).map((record) => ({ ...record, values: copied(without(id, record.values)) })) } : {}),
+          ...(sheet.records
+            ? {
+                records: sheet.records
+                  .filter((record) => id !== SHARED_RECORD_SETS.party || !isBuyer(record))
+                  .map((record) => ({ ...record, values: copied(without(id, record.values)), ...(record.frozen ? { frozen: frozenOnCopy(id, record.frozen) } : {}) })),
+              }
+            : {}),
+          ...(sheet.periods ? { periods: sheet.periods.map((period) => ({ ...period, values: copied(without(id, period.values)), ...(period.frozen ? { frozen: frozenOnCopy(id, period.frozen) } : {}) })) } : {}),
         },
       ]),
     );

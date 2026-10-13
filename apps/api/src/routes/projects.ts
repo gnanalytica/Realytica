@@ -83,6 +83,10 @@ import {
   issuePeriod,
   revisePeriod,
   setPeriodReason,
+  issueSheetPeriod,
+  reviseSheetPeriod,
+  setSheetPeriodReason,
+  periodOfKey,
   findCheck,
   recordCheckFields,
   SHARED_FN,
@@ -3462,7 +3466,7 @@ projectsRouter.put('/:projectId/fields/values', async (req, res) => {
   const seat = await fieldSeat(req, res, set?.fn);
   if (!seat || !set) return;
   try {
-    const outcome = setFieldValues(seat.project, { set: set.id, record: parsed.data.record }, parsed.data.values, actorOf(req), seat.options);
+    const outcome = setFieldValues(seat.project, { set: set.id, record: parsed.data.record, ...(parsed.data.period ? { period: parsed.data.period } : {}) }, parsed.data.values, actorOf(req), seat.options);
     if (outcome.rejected.length) {
       res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
       return;
@@ -3634,6 +3638,33 @@ projectsRouter.post('/:projectId/fields/period', async (req, res) => {
     const { act, record, period, name, field, reason } = parsed.data;
     let said: string;
     let recordId = record;
+    if (!set.records) {
+      // A sheet held once is its own open period: it is issued, a period it issued is revised, and a reason is picked on the sheet.
+      if (act === 'issue') {
+        const issued = issueSheetPeriod(seat.project, set.id, { actor: actorOf(req), ...(name?.trim() ? { name } : {}) }, seat.options, { ...(period ? { period } : {}) });
+        said = `Issued ${periodOfKey(issued.key)?.label ?? issued.key} of ${set.title}.`;
+      } else if (act === 'revise') {
+        if (!period) {
+          res.status(400).json({ error: 'Say which period.' });
+          return;
+        }
+        reviseSheetPeriod(seat.project, set.id, period, actorOf(req), seat.options);
+        said = `Opened a revision of an issued period of ${set.title}.`;
+      } else if (act === 'reason') {
+        if (!field) {
+          res.status(400).json({ error: 'Say which figure.' });
+          return;
+        }
+        setSheetPeriodReason(seat.project, set.id, field, reason ?? null, actorOf(req), seat.options);
+        said = `Picked why a figure of ${set.title} moved.`;
+      } else {
+        res.status(400).json({ error: `${set.title} is its own open period: there is nothing to open.` });
+        return;
+      }
+      await persistPaneWrite(req, seat.project, said);
+      res.json({ project: seat.project });
+      return;
+    }
     if (act === 'open') {
       const opened = openPeriod(seat.project, set.id, actorOf(req), seat.options, { ...(period ? { period } : {}) });
       recordId = opened.records[0]?.id;

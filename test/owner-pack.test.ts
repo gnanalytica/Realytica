@@ -53,6 +53,8 @@ const LEAD = 'lead@example.com';
 /** Monday 12 October 2026. */
 const NOW = new Date('2026-10-12T10:00:00.000Z');
 const SEPTEMBER = ownerPackPeriod({ month: '2026-09' });
+/** The month the packs below are made in: still running, so the schedule is read as it stands on the day. */
+const OCTOBER = ownerPackPeriod({ month: '2026-10' });
 
 function project(): DdProject {
   return createProject({ name: 'Lakeshore Block C', type: 'residential', location: 'Lakeshore Road', city: 'Mysuru', currentStage: 'construction' }, 'RYT-OP1', LEAD);
@@ -177,7 +179,7 @@ describe('where the project stands, and time', () => {
   }
 
   it('gives the stage, percent complete, planned and projected completion at the current rate, and the extension of time', () => {
-    const lines = partOf(ownerPack(scheduled(), SEPTEMBER, NOW), 'standing').lines;
+    const lines = partOf(ownerPack(scheduled(), OCTOBER, NOW), 'standing').lines;
     assert.deepEqual(
       lines.map((line) => line.what),
       [
@@ -197,7 +199,7 @@ describe('where the project stands, and time', () => {
     const p = scheduled();
     p.milestones!.find((m) => m.name === 'Finishes')!.plannedFinish = '2027-04-30';
     p.milestones!.find((m) => m.name === 'Finishes')!.plannedStart = '2027-03-01';
-    const pack = ownerPack(p, SEPTEMBER, NOW);
+    const pack = ownerPack(p, OCTOBER, NOW);
     assert.deepEqual(said(partOf(pack, 'standing')).slice(2), [
       'Planned completion: 30 Apr 2027.',
       'Projected completion at the current rate: 2 Jun 2027, about 33 days after the planned date.',
@@ -206,17 +208,32 @@ describe('where the project stands, and time', () => {
     assert.deepEqual(said(partOf(pack, 'decisions')), ['Extension of time: at the current rate the work finishes about 33 days after the planned completion of 30 Apr 2027.']);
   });
 
+  it('for a month that has ended, reads how far along the work was when its last day ended, and says the day', () => {
+    const p = scheduled();
+    const pack = ownerPack(p, SEPTEMBER, NOW);
+    assert.equal(pack.asAt, '2026-09-30');
+    assert.equal(ownerPack(p, OCTOBER, NOW).asAt, undefined, 'a month still running is read as it stands');
+    const lines = partOf(pack, 'standing').lines;
+    // Excavation 100, Foundation 30 (its 85 was reported on 5 October), Plinth 10, Superstructure 4, by weight.
+    assert.equal(lines[1]!.what, '12.4% complete: 1 of 7 milestones finished, each weighted by its share of the work.');
+    assert.equal(lines[1]!.source, 'the schedule: 7 milestones on the progress board, last reported 28 Sep 2026');
+    assert.deepEqual(said(partOf(pack, 'time', 'Late')), ['Foundation: 10 days late, 30% done.']);
+    // What was reported in October changes nothing in September's pack.
+    setMilestonePercent(p, p.milestones!.find((m) => m.name === 'Foundation')!.id, 100, 'site@firm.example', '2026-10-12T09:00:00.000Z');
+    assert.deepEqual(partOf(ownerPack(p, SEPTEMBER, NOW), 'standing').lines, lines);
+  });
+
   it('says there is no projection where no unfinished milestone has a rate', () => {
     const p = project();
     milestone(p, 'Foundation', 1, undefined, '2026-12-01', [['2026-10-01', 20]]);
-    assert.deepEqual(said(partOf(ownerPack(p, SEPTEMBER, NOW), 'standing')).slice(3), [
+    assert.deepEqual(said(partOf(ownerPack(p, OCTOBER, NOW), 'standing')).slice(3), [
       'No completion is projected: no unfinished milestone has progress reported on two days to take a rate from.',
       'No extension of time is indicated.',
     ]);
   });
 
   it('lists the milestones late, behind or slipping, each with its one-line warning, the late first', () => {
-    const part = partOf(ownerPack(scheduled(), SEPTEMBER, NOW), 'time', 'Late');
+    const part = partOf(ownerPack(scheduled(), OCTOBER, NOW), 'time', 'Late');
     assert.deepEqual(
       part.lines.map((line) => [line.what, line.when, line.overdue ?? false]),
       [
@@ -229,7 +246,7 @@ describe('where the project stands, and time', () => {
   });
 
   it('lists what is due in the next thirty days, to the day, and nothing finished or already past', () => {
-    const part = partOf(ownerPack(scheduled(), SEPTEMBER, NOW), 'time', 'Due in the next 30 days');
+    const part = partOf(ownerPack(scheduled(), OCTOBER, NOW), 'time', 'Due in the next 30 days');
     // 11 November is thirty days from 12 October; 12 November is thirty-one.
     assert.deepEqual(said(part), ['Plinth: planned to finish 20 Oct 2026, now at 35%.', 'Masonry: planned to finish 11 Nov 2026, now at 0%.']);
     assert.deepEqual(part.lines.map((line) => line.source), ['the milestone, last reported 8 Oct 2026', 'the milestone, with no progress reported yet']);

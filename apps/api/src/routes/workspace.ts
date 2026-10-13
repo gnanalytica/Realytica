@@ -634,19 +634,20 @@ projectWorkspaceRouter.patch<Params & { reportId: string }>('/cost-reports/:repo
   try {
     const actor = actorOf(principalOf(req));
     if (issue) issueCostReport(project, req.params.reportId, actor);
-    else if (reopen) reopenCostReport(project, req.params.reportId, actor);
-    const heldAfter = () => costReportOf(project, req.params.reportId);
+    // Reopening opens a revision beside the issued report, which stays as it was sent: what follows is done to the revision.
+    const reportId = reopen ? reopenCostReport(project, req.params.reportId, actor).id : req.params.reportId;
+    const heldAfter = () => costReportOf(project, reportId);
     if (note !== undefined) {
       if (issue || reopen) {
-        if (heldAfter().status === 'draft') setCostReportNote(project, req.params.reportId, note, actor);
+        if (heldAfter().status === 'draft') setCostReportNote(project, reportId, note, actor);
       } else {
-        setCostReportNote(project, req.params.reportId, note, actor);
+        setCostReportNote(project, reportId, note, actor);
       }
     }
     if (parsed.data.photoEvidenceIds !== undefined) {
-      if (heldAfter().status === 'draft') setCostReportPhotos(project, req.params.reportId, parsed.data.photoEvidenceIds, actor);
+      if (heldAfter().status === 'draft') setCostReportPhotos(project, reportId, parsed.data.photoEvidenceIds, actor);
     }
-    const report = costReportOf(project, req.params.reportId);
+    const report = costReportOf(project, reportId);
     touch(project);
     await store.save();
     res.json({ project, report, totals: costReportTotals(report) });

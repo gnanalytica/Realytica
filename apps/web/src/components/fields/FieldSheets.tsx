@@ -23,7 +23,7 @@
  * a save's answer redraws the page with no second request.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, ListChecks, Plus } from 'lucide-react';
 import {
   DEPARTMENT_KEYS,
@@ -31,6 +31,12 @@ import {
   NA_REASONS,
   NA_REASON_LABEL,
   NEED_LABEL,
+  asAtMoment,
+  isPastDay,
+  periodIssuedSaid,
+  periodsOf,
+  projectAsAt,
+  readSheetPeriod,
   FUNCTION_SHORT,
   SNOOZE_DAYS_MOST,
   daySaid,
@@ -51,6 +57,7 @@ import {
   type FieldValueDecision,
   type FieldView,
   type NeedKind,
+  type PeriodInstance,
   type RefTarget,
   type SheetReading,
   type SituationView,
@@ -59,7 +66,7 @@ import { api } from '../../lib/api';
 import { useFirmCatalog } from '../../lib/firmFields';
 import { useMe } from '../../lib/useMe';
 import { CheckFields } from '../CheckFields';
-import { PeriodHead, PeriodRecords } from './Periods';
+import { PeriodHead, PeriodRecords, ReadOnlyBand, SheetPeriodsBar } from './Periods';
 import { StackPlan, drawsAsStackPlan } from './StackPlan';
 import { NEEDS_SHOWN, needAction, needAssumes, needChips, needLines, needRuleRows, needRuleUnchecked, needSource, needUnverified, needWhere, sheetItem, sheetItemOf, type NeedAction, type NeedTarget } from './needs';
 import { AiMark, Badge, Button, Card, CardBody, CardHeader, Modal, cn, useToast } from '../ui/kit';
@@ -114,12 +121,18 @@ function holderElement(set: string, record?: string): HTMLElement | undefined {
     .pop();
 }
 
-export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked, onOpenCheck, onOpenFunction }: Props) {
+export function FieldSheets({ project: live, fn, onChanged, onOpenPaper, part, marked, onOpenCheck, onOpenFunction }: Props) {
   const toast = useToast();
-  const seat = useSeat(project, fn);
+  // The sheets as they stand, or as they stood when a past day ended: a reading of the same project, with every control off.
+  const [asAt, setAsAt] = useState<string | null>(null);
+  const project = useMemo(() => (asAt ? projectAsAt(live, asAt) : live), [live, asAt]);
+  const liveSeat = useSeat(live, fn);
+  const seat = asAt ? { mayEdit: false, mayDecide: false, mayDecideAt: () => false } : liveSeat;
   // The firm's own fields are part of the catalog this page reads: when they arrive or change, the page is read again.
-  const catalog = useFirmCatalog(project);
-  const page = useMemo(() => readFunctionFields(project, fn, new Date(), catalog), [project, fn, catalog]);
+  const catalog = useFirmCatalog(live);
+  const page = useMemo(() => readFunctionFields(project, fn, asAt ? asAtMoment(asAt) : new Date(), catalog), [project, fn, catalog, asAt]);
+  // One issued period of a sheet, open over the page as it was issued.
+  const [period, setPeriod] = useState<{ set: string; key: string; issuedAt?: string } | null>(null);
   const [open, setOpen] = useState<Opened | null>(null);
   // Every sheet opens as one line: its title, how full it is and where it stands. A person opens the one they came for.
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
@@ -259,6 +272,17 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
 
       {part !== 'needs' ? (
         <>
+          {asAt ? (
+            <ReadOnlyBand
+              action={
+                <Button size="sm" variant="secondary" onClick={() => setAsAt(null)}>
+                  Back to today
+                </Button>
+              }
+            >
+              <span className="font-semibold">As at {daySaid(asAt)}</span> · read only. A period issued for that day reads as it was issued.
+            </ReadOnlyBand>
+          ) : null}
           <Situations situations={page.situations} mayDecide={seat.mayDecide} onSet={(key, on) => run(() => api.setSituation(project.id, fn, key, on), 'That could not be set')} />
 
           {page.sheets.map((sheet) =>
@@ -274,6 +298,20 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
                   onToggle={() => toggle(sheet.set.id)}
                   onSection={(section, reason) => run(() => api.setSectionNotApplicable(project.id, sheet.set.id, section, reason), 'That could not be marked')}
                   onOpenDepth={(id) => setOpen({ set: sheet.set.id, depth: id })}
+                  head={
+                    sheet.periods ? (
+                      <SheetPeriodsBar
+                        project={project}
+                        set={sheet.set}
+                        periods={sheet.periods}
+                        catalog={catalog}
+                        mayEdit={seat.mayEdit}
+                        mayDecide={seat.mayDecide}
+                        onAct={(body) => actOnPeriod(sheet.set.id, body)}
+                        onOpenPeriod={(instance: PeriodInstance) => setPeriod({ set: sheet.set.id, key: instance.period.key, ...(instance.status === 'issued' && instance.issued ? { issuedAt: instance.issued.at } : {}) })}
+                      />
+                    ) : undefined
+                  }
                 />
               ) : null
             ) : sheet.periods ? (
@@ -319,8 +357,42 @@ export function FieldSheets({ project, fn, onChanged, onOpenPaper, part, marked,
             />
           ))}
           {!sheetsInPlay && !page.sheets.some((sheet) => sheet.records) && !notYet.length ? <p className="px-1 text-[12px] text-ink-muted">No sheet here yet.</p> : null}
+          {/* One quiet line: the same sheets read as at a past day. Live carries no mark; a past day carries the band above. */}
+          {sheetsInPlay || page.sheets.some((sheet) => sheet.records?.length) ? (
+            <label className="flex flex-wrap items-center gap-2 px-1 text-[12px] text-ink-muted" data-asat-pick>
+              Read these sheets as at
+              <input
+                type="date"
+                aria-label="Read these sheets as at a past day"
+                value={asAt ?? ''}
+                max={new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)}
+                onChange={(event) => setAsAt(event.target.value && isPastDay(event.target.value) ? event.target.value : null)}
+                className="h-7 rounded-md border border-hairline bg-surface px-1.5 text-[12px] text-ink coarse:h-11"
+              />
+            </label>
+          ) : null}
         </>
       ) : null}
+      <PeriodSheet
+        project={live}
+        catalog={catalog}
+        period={period}
+        mayDecide={liveSeat.mayDecide}
+        mayEdit={liveSeat.mayEdit}
+        onClose={() => setPeriod(null)}
+        onAct={(set, body) => {
+          actOnPeriod(set, body);
+          // What is shown next is the latest of that period: the revision just opened, or the issue just made of it.
+          setPeriod({ set, key: body.period });
+        }}
+        propsOf={(reading, editable, key) => ({
+          ...sheetPropsOf(reading, !editable),
+          disabled: !liveSeat.mayEdit || !editable,
+          // A revision takes its values under its period's name: the sheet itself is the open period, and is not touched.
+          onCommit: (values: Record<string, CheckFieldWrite>) => run(() => api.setFieldValues(live.id, { set: reading.set.id, period: key, values }), 'That value could not be saved'),
+          onDecide: undefined,
+        })}
+      />
 
       {/*
         One holder over the page: a record as a small sheet of its own, or a hard case's sheet. A dialog on a laptop, a
@@ -703,6 +775,7 @@ function Sheet({
   onToggle,
   onSection,
   onOpenDepth,
+  head,
 }: {
   reading: SheetReading;
   mayDecide: boolean;
@@ -711,6 +784,8 @@ function Sheet({
   onToggle: () => void;
   onSection: (section: string, reason: string | null) => void;
   onOpenDepth: (id: string) => void;
+  /** On a sheet kept by period: the period it is open on, and the line that opens the past. */
+  head?: ReactNode;
 }) {
   const missing = reading.fields.filter((view) => view.missing).length;
   const waiting = reading.fields.filter((view) => view.shown !== 'hidden' && (view.state === 'proposed' || view.waiting.length > 0)).length;
@@ -739,6 +814,7 @@ function Sheet({
         </button>
         {open ? (
           <CardBody className="border-t border-hairline">
+            {head}
             <SheetBody reading={reading} props={props} mayDecide={mayDecide} onSection={onSection} onOpenDepth={onOpenDepth} />
           </CardBody>
         ) : null}
@@ -946,6 +1022,73 @@ function SheetBody({
  * and what its summary fields hold), each opening its own sheet. A shared
  * record is drawn the same way and stays a count until somebody opens it.
  */
+/**
+ * One period of a sheet, open over the page. An issue reads as it was
+ * issued, under a band that says who issued it and that it is read only. A
+ * revision still open beside an issue takes values, is worked out as at the
+ * period's last day, and is issued in its turn.
+ */
+function PeriodSheet({
+  project,
+  catalog,
+  period,
+  mayEdit,
+  mayDecide,
+  onClose,
+  onAct,
+  propsOf,
+}: {
+  project: DdProject;
+  catalog: ReturnType<typeof useFirmCatalog>;
+  period: { set: string; key: string; issuedAt?: string } | null;
+  mayEdit: boolean;
+  mayDecide: boolean;
+  onClose: () => void;
+  onAct: (set: string, body: { act: 'issue' | 'revise'; period: string }) => void;
+  propsOf: (reading: SheetReading, editable: boolean, key: string) => SheetProps;
+}) {
+  const held = useMemo(() => (period ? readSheetPeriod(project, period.set, period.key, catalog, period.issuedAt) : undefined), [project, period, catalog]);
+  // Everything kept of the same period: the issue that stands, one a revision replaced, a revision still open.
+  const all = held ? periodsOf(project, held.reading.set.id, new Date(), catalog).filter((kept) => kept.period.key === held.period.key) : [];
+  // The issue shown is the one that stands unless a later one was issued for the same period.
+  const stands = Boolean(held && all.some((kept) => kept.status === 'issued' && !kept.superseded && kept.issued?.at === held.period.issuedAt));
+  const instance = held ? ({ set: held.reading.set.id, id: held.period.key, period: { key: held.period.key, from: held.period.from, to: held.period.to, label: held.reading.title, short: held.period.key }, status: held.period.status, late: false, filled: 0, total: 0, ...(held.period.issuedAt ? { issued: { by: held.period.issuedBy ?? '', at: held.period.issuedAt, ...(held.period.issuedName ? { name: held.period.issuedName } : {}) } } : {}) } satisfies PeriodInstance) : undefined;
+  return (
+    <Modal open={Boolean(held)} onClose={onClose} title={held ? `${held.reading.set.title} · ${daySaid(held.period.from)} to ${daySaid(held.period.to)}` : ''} width="md">
+      {held && instance ? (
+        <div data-holder={`${held.reading.set.id}::period`}>
+          {held.editable ? (
+            <ReadOnlyBand
+              action={
+                mayDecide ? (
+                  <Button size="sm" variant="secondary" onClick={() => onAct(held.reading.set.id, { act: 'issue', period: held.period.key })}>
+                    Issue the revision
+                  </Button>
+                ) : undefined
+              }
+            >
+              <span className="font-semibold">A revision, not issued.</span> Worked out as at {daySaid(held.period.to)}. The period as first issued stands until this is.
+            </ReadOnlyBand>
+          ) : (
+            <ReadOnlyBand
+              action={
+                mayDecide && stands && !all.some((kept) => kept.status === 'open') ? (
+                  <Button size="sm" variant="secondary" onClick={() => onAct(held.reading.set.id, { act: 'revise', period: held.period.key })}>
+                    Revise
+                  </Button>
+                ) : undefined
+              }
+            >
+              <span className="font-semibold">Issued{instance.issued ? ` ${periodIssuedSaid(project, instance).replace(/^.* issued/, '')} on ${daySaid(instance.issued.at)}` : ''}</span> · read only{stands ? '' : ' · since replaced by a revision'}
+            </ReadOnlyBand>
+          )}
+          <SheetBody reading={held.reading} props={propsOf(held.reading, held.editable && mayEdit, held.period.key)} />
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
 function Records({
   set,
   records,

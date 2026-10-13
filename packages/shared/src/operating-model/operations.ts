@@ -10,7 +10,7 @@ import { formatFieldValue, isBlank, readCheckFields, standingField, toleranceRea
 import { stand } from './field-history';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import { fieldSourceFault, freezeFieldBlock, functionReportTemplate, isFieldSource, isFrozenFieldBlock, projectHoldsFields, reportNoteCap, statusFieldsBlock, templateBlocks, thawFieldBlock, type TemplateBlock } from './report-fields';
-import { statusTitle, statusWeekSoFar } from './status-report';
+import { statusPeriodSaid, statusTitle, statusWeekSoFar } from './status-report';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
 import { CAPTURE_OFF_SITE_M, captureDistanceM, describeCapture, isGeotagged, type CaptureFacts, type CaptureFactsInput, type CapturePurpose } from './capture';
 import { readSheetFit, type SheetFitReading, type SheetKind, type SheetRecord } from './geo-sheet';
@@ -1847,7 +1847,10 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   // A function's report is laid out by the template declared beside its fields.
   const template = input.kind === 'function' ? functionReportTemplate(input.template) : undefined;
   if (input.kind === 'function' && !template) throw new Error('Name the function report to write: there is no template by that name.');
-  const rows: TemplateBlock[] = template ? templateBlocks(template) : reportTemplate(input.kind, period);
+  // A function's report made for a period reads its fields as at the period's last day, where that day has gone by.
+  const made = template && input.period && Date.parse(input.period.to) > Date.parse(input.period.from) ? input.period : undefined;
+  const asAt = made ? new Date(Date.parse(made.to) - 1).toISOString().slice(0, 10) : undefined;
+  const rows: TemplateBlock[] = template ? templateBlocks(template).map((row) => (asAt && row.source && isFieldSource(row.source.kind) ? { ...row, source: { ...row.source, asAt } } : row)) : reportTemplate(input.kind, period);
   // A status report on a project that keeps fields also says which were recorded in its period.
   if (period && projectHoldsFields(project)) rows.push(statusFieldsBlock(period));
   const blocks: ReportBlock[] = rows.map((row) => ({
@@ -1864,7 +1867,7 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   const report: GeneratedReport = {
     id: id('rpt'),
     kind: input.kind,
-    title: period ? statusTitle(project, period, input.audience) : `${template?.title ?? REPORT_KIND_LABEL[input.kind]} — ${project.name}`,
+    title: period ? statusTitle(project, period, input.audience) : `${template?.title ?? REPORT_KIND_LABEL[input.kind]} — ${project.name}${made ? `, ${statusPeriodSaid(made)}` : ''}`,
     ...(template ? { templateId: template.id } : {}),
     status: 'generated',
     assessmentIds,

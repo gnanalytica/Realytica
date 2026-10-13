@@ -237,6 +237,8 @@ const PROGRESS_SETS: FieldSet[] = [
     fn: PROGRESS,
     title: 'Month at a glance',
     v: 1,
+    // The sheet is the month in hand. Issued, the month is kept as it read; the workers planned go on into the next.
+    periodic: { every: 'month', carry: ['labour_planned'], due: { days: 7 }, issuer: 'lead' },
     sections: [
       { key: 'work', label: 'Work' },
       { key: 'quality', label: 'Quality and safety' },
@@ -713,6 +715,7 @@ const SAFETY_SETS: FieldSet[] = [
     fn: SAFETY,
     title: 'Safety statistics',
     v: 1,
+    periodic: { every: 'month', due: { days: 7 }, issuer: 'lead' },
     situations: [
       {
         key: 'reportable_accident',

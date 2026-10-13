@@ -173,6 +173,8 @@ export default function OwnerPackPrint() {
           <p className="mt-1 text-[12px] text-black/60">
             {heading.reference} · Read from the project record as it stood on {meetingDay(pack.asOf)}. No line is written by a model.
           </p>
+          {/* A period that had ended: how far along the work was, the schedule and the functions' fields are as at its last day. */}
+          {pack.asAt ? <p className="mt-1 text-[12px] text-black/60">Progress, the schedule and the functions’ fields are as at {meetingDay(pack.asAt)}. The stage and the papers owed are as on the day read.</p> : null}
           {kept ? <p className="mt-1 text-[12px] font-medium text-black/80">{ownerPackStanding(project, kept)}.</p> : null}
         </header>
 

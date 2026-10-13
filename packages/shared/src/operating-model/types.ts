@@ -620,7 +620,8 @@ export type FieldReportSection =
   | { heading: string; fields: Array<string | FieldAddress>; layout?: 'list' | 'table' }
   | { heading: string; table: string | FieldAddress; columns?: string[] }
   | { heading: string; records: string; columns?: string[] }
-  | { heading: string; chart: { of: string | FieldAddress | { records: string }; x: string; y: string; mark?: 'bar' | 'line' } }
+  /** `of: { periods }` draws one field of a set kept by period, period by period: `y` is the field, `x` is not read, and `moved` draws what each period added to a running total. */
+  | { heading: string; chart: { of: string | FieldAddress | { records: string } | { periods: string }; x: string; y: string; mark?: 'bar' | 'line'; moved?: true } }
   | { heading: string; note: { maxLength: number; hint?: string } }
   | { heading: string; register: ReportBoundSource };
 
@@ -811,6 +812,8 @@ export interface StoredFieldSheet {
   periods?: FieldPeriod[];
   /** The period the sheet is open on, and what it carried from the last. */
   open?: { key: string; openedAt: string; openedBy: string; carried?: { from: string; keys: string[] }; reasons?: Record<string, string> };
+  /** On a reading of the project as at a past day: the issued period that covers the day, whose frozen fields are what the sheet reads. Never stored. */
+  asIssued?: Pick<FieldPeriod, 'key' | 'frozen' | 'issuedAt' | 'issuedBy' | 'issuedName'>;
 }
 
 /** A line under Due soon put off by a person until a day. It comes back that day, or sooner if it starts failing. */
@@ -1088,6 +1091,11 @@ export interface CheckFieldValue {
   history?: FieldPast[];
   /** From when the value held has stood, where that is neither `acceptedAt` nor `at`: kept after a dispute, asked again after not applicable. */
   since?: string;
+  /**
+   * On a reading of the project as at a past day: the record does not reach that day for this value, and it is today's.
+   * The day history of it begins. Never stored: set by `projectAsAt`, and carried onto whatever is worked out from it.
+   */
+  asNow?: string;
 }
 
 /**
@@ -1724,6 +1732,15 @@ export interface ReportBoundSource {
   x?: string;
   y?: string;
   mark?: 'bar' | 'line';
+  /** `field_chart`: a set kept by period, by its id, in place of a table or records. The chart draws its field `y` period by period. */
+  periods?: string;
+  /** `field_chart` over periods: draw what each period added to a running total, in place of the total. */
+  moved?: boolean;
+  /**
+   * Fields, tables and charts of fields: the day the section is read as at, as `YYYY-MM-DD`. Absent, it reads the
+   * record as it stands. A report made for a period sets it to the period's last day.
+   */
+  asAt?: string;
 }
 
 export type ReportBlockOrigin = 'derived' | 'authored';
@@ -2948,6 +2965,8 @@ export interface DdProject {
   fieldSheets?: Record<string, StoredFieldSheet>;
   /** The moment from which every change to a field's standing value is kept as history: the project's making, or its first change after history was kept. Before it, a past day reads as now and says so. */
   historyFrom?: string;
+  /** On a reading of the project as at a past day (`projectAsAt`): the day. Never stored, and never on the project itself. */
+  asAt?: string;
   /** The situations in play, by key. A function's own is kept under `<fn>:<key>`. */
   situations?: Record<string, SituationState>;
   /** Lines under Due soon a person put off, by the line's key. Absent on a project where nobody has. */
@@ -3211,7 +3230,7 @@ export interface GenerateReportInput {
   kind: ReportKind;
   assessmentIds?: string[];
   generatedBy: string;
-  /** For a status report: the period it covers, and who it is written for. The week so far when left out. */
+  /** For a status report: the period it covers, and who it is written for. The week so far when left out. For a function's report: the period it is for, whose last day its fields are read as at. */
   period?: { from: string; to: string };
   audience?: string;
   /** For a function's report: the template it is laid out from, by id. */

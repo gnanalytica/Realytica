@@ -353,6 +353,8 @@ const STOCK_SET: FieldSet = {
   fn: SALES,
   title: 'Inventory',
   v: 1,
+  // The week's stock, kept as it read when the week was issued: "sold 61%" has a last week.
+  periodic: { every: 'week', due: { days: 2 }, issuer: 'lead' },
   // joint_development is declared by Law and lender_funded by Lenders; the fields here that wait on them name them.
   sections: [
     { key: 'stock', label: 'Stock' },
@@ -389,6 +391,7 @@ const BOOKINGS_SET: FieldSet = {
   fn: SALES,
   title: 'Bookings and agreements',
   v: 1,
+  periodic: { every: 'week', due: { days: 2 }, issuer: 'lead' },
   sections: [
     { key: 'value', label: 'Booked' },
     { key: 'papers', label: 'Agreements' },
@@ -616,7 +619,16 @@ const ENQUIRIES_SET: FieldSet = {
   id: ENQUIRIES,
   fn: SALES,
   title: 'Enquiries and site visits',
-  v: 1,
+  v: 2,
+  // Kept by the week, in place of a table of weeks typed by hand. The counts are running totals read off the CRM: they go on as
+  // last read, and what a week added is each less the last. The day they were read is the week's own.
+  periodic: {
+    every: 'week',
+    carry: ['kept_in', 'enquiries', 'qualified', 'visits', 'by_source', 'lost_by_reason', 'consent_recorded', 'sender_registered', 'templates_registered'],
+    cumulative: ['enquiries', 'qualified', 'visits'],
+    due: { days: 2 },
+    issuer: 'lead',
+  },
   optionSets: [
     {
       id: 'marketing_channel',
@@ -645,6 +657,9 @@ const ENQUIRIES_SET: FieldSet = {
     {
       key: 'weeks',
       label: 'Enquiries and visits by week',
+      // No longer asked: a week is an issue of this sheet. What a project typed here is kept, and shown as no longer asked.
+      retired: true,
+      required: false,
       kind: 'table',
       display: 'chart',
       chart: { x: 'week', y: 'enquiries', mark: 'bar' },
@@ -657,8 +672,9 @@ const ENQUIRIES_SET: FieldSet = {
         { key: 'visits', label: 'Site visits', kind: 'number', min: 0 },
       ],
     },
-    workedCount('enquiries', 'Enquiries', { op: 'sum', table: 'weeks', column: 'enquiries' }, { section: 'funnel' }),
-    workedCount('visits', 'Site visits', { op: 'sum', table: 'weeks', column: 'visits' }, { section: 'funnel' }),
+    { key: 'enquiries', label: 'Enquiries to date', kind: 'number', min: 0, precision: 0, section: 'funnel', from: 'CRM export', since: 2 },
+    { key: 'qualified', label: 'Qualified to date', kind: 'number', min: 0, precision: 0, section: 'funnel', from: 'CRM export', required: false, since: 2 },
+    { key: 'visits', label: 'Site visits to date', kind: 'number', min: 0, precision: 0, section: 'funnel', from: 'CRM export', since: 2 },
     workedShare('enquiry_to_visit_pct', 'Enquiry to visit', share(f('visits'), f('enquiries')), { section: 'funnel' }),
     workedCount('units_sold', 'Units sold', f('units_sold', at(SALES, STOCK, 'units_sold')), { section: 'funnel' }),
     workedShare('visit_to_sale_pct', 'Visit to sale', share(f('units_sold'), f('visits')), { section: 'funnel' }),
@@ -943,6 +959,8 @@ const COLLECTIONS_SET: FieldSet = {
   fn: BUYERS,
   title: 'Collections',
   v: 1,
+  // Kept by the month. The lending rate, what each demand answers to and the notices served stand until somebody changes them.
+  periodic: { every: 'month', carry: ['lending_rate', 'demands_to_milestones', 'notices'], due: { days: 7 }, issuer: 'lead' },
   situations: [
     {
       key: 'buyer_in_default',
@@ -1010,6 +1028,7 @@ const DUES_SET: FieldSet = {
   fn: BUYERS,
   title: 'Dues by age',
   v: 1,
+  periodic: { every: 'month', due: { days: 7 }, issuer: 'lead' },
   sections: [
     { key: 'overdue', label: 'Overdue' },
     { key: 'coming', label: 'Coming due' },
@@ -1471,6 +1490,7 @@ const SPEND_SET: FieldSet = {
   fn: MARKETING,
   title: 'Marketing spend',
   v: 1,
+  periodic: { every: 'month', carry: ['credited_to'], due: { days: 7 }, issuer: 'lead' },
   fields: [
     { key: 'budget', label: 'Marketing budget', kind: 'money', dimension: 'money', currency: 'INR', sameAs: at(MARKETING, LAUNCH, 'budget'), required: false },
     workedMoney('budgeted', 'Budgeted across campaigns', sumOf(CAMPAIGNS, 'budget')),
@@ -1657,7 +1677,8 @@ const SALES_REPORT: FieldReportTemplate = {
   sections: [
     { heading: 'Stock', fields: ['units_total', 'units_sold', 'sold_pct', 'unsold_value', 'unsold_carpet_area', 'lowest_list_price', 'sale_restraints', 'stock_standing'] },
     { heading: 'Bookings and agreements', fields: each(SALES, BOOKINGS, ['value_booked', 'carpet_booked', 'realised_rate', 'rate_in_appraisal', 'agreements_registered', 'agreements_overdue', 'advances_over_cap', 'bookings_standing']) },
-    { heading: 'Enquiries and visits by week', chart: { of: at(SALES, ENQUIRIES, 'weeks'), x: 'week', y: 'visits', mark: 'line' } },
+    { heading: 'Enquiries by week', chart: { of: { periods: ENQUIRIES }, x: 'period', y: 'enquiries', mark: 'bar', moved: true } },
+    { heading: 'Site visits by week', chart: { of: { periods: ENQUIRIES }, x: 'period', y: 'visits', mark: 'line', moved: true } },
     { heading: 'Enquiries by source', table: at(SALES, ENQUIRIES, 'by_source') },
     { heading: 'Collections', fields: each(BUYERS, COLLECTIONS, ['demanded', 'received', 'outstanding', 'efficiency_pct', 'interest_accrued']) },
     { heading: 'Dues by age', fields: each(BUYERS, DUES, ['overdue', 'overdue_first_month', 'overdue_second_month', 'overdue_third_month', 'overdue_beyond', 'due_within_month', 'refunds_outstanding', 'dues_standing']) },

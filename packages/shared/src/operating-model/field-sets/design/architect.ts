@@ -703,6 +703,7 @@ export const ARCHITECT_FIELD_SETS: FieldSet[] = [
     fn: FN.rfis,
     title: 'RFI log',
     v: 1,
+    periodic: { every: 'month', due: { days: 7 }, issuer: 'lead' },
     fields: [
       { key: 'raised', label: 'Requests raised', kind: 'computed', formula: countOf(SET.requests) },
       { key: 'open', label: 'Open', kind: 'computed', formula: countWhere(SET.requests, { column: 'standing', is: 'in', value: ['Open', 'Overdue'] }) },

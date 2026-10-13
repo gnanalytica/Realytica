@@ -167,6 +167,8 @@ export const FUNDING_SETS: FieldSet[] = [
     fn: FIN,
     title: 'Cash position',
     v: 1,
+    // Kept by the month. Where the figures come from, the balance the months start from and how a gap is covered go on; the day it is as at is the month's own.
+    periodic: { every: 'month', carry: ['figures_from', 'opening_balance', 'gap_cover'], due: { days: 7 }, issuer: 'lead' },
     optionSets: [
       options('cash_figures_from', 'Figures taken from', [
         ['package', 'Accounting package', 'good'],
@@ -528,6 +530,8 @@ export const FUNDING_SETS: FieldSet[] = [
     fn: FIN,
     title: 'Receivables',
     v: 1,
+    // Kept by the month. The three figures are running totals: they go on as last stated, and what moved in the month is each less the last.
+    periodic: { every: 'month', carry: ['agreement_value', 'demanded', 'collected'], cumulative: ['agreement_value', 'demanded', 'collected'], due: { days: 7 }, issuer: 'lead' },
     situations: [
       {
         key: 'sales_begun',

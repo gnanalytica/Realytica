@@ -243,7 +243,8 @@ describe('a chart of fields', () => {
     assert.deepEqual(resolved.chart, { mark: 'bar', x: 'Name', y: 'Share', points: [{ label: 'A. Rao', value: 60, said: resolved.chart!.points[0]!.said }, { label: 'B. Rao', value: 40, said: resolved.chart!.points[1]!.said }] });
     assert.match(resolved.chart!.points[0]!.said, /^60%/);
     assert.deepEqual(resolved.table!.rows.map((row) => row.cells[0]), ['A. Rao', 'B. Rao']);
-    assert.ok(!JSON.stringify(resolved).includes('99'), 'a share nobody accepted is not drawn');
+    // Looked for as a figure drawn and as a share printed: a record's own id is random, and may hold the two digits by chance.
+    assert.ok(!/"value":99\b|\b99%/.test(JSON.stringify(resolved)), 'a share nobody accepted is not drawn');
     assert.match(resolved.note!, /waits? for a person/);
     assert.match(resolveFieldBlock(project(), { kind: 'field_chart', records: OWNERS, x: 'name', y: 'share_pct' }).note!, /No owner is recorded yet/);
   });

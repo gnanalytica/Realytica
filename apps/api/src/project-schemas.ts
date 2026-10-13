@@ -756,7 +756,8 @@ export const waitingAcceptBodySchema = z.object({
 
 const fieldAddressSchema = z.object({ fn: z.string().max(80), set: z.string().min(1).max(120), field: z.string().min(1).max(80), record: z.string().max(80).optional() });
 
-export const setFieldValuesBodySchema = z.object({ set: z.string().min(1).max(120), record: z.string().max(80).optional(), values: z.record(z.string(), z.unknown()) });
+/** `period`: on a sheet kept by period, the period whose open revision the values are for. Absent, the sheet itself. */
+export const setFieldValuesBodySchema = z.object({ set: z.string().min(1).max(120), record: z.string().max(80).optional(), period: z.string().max(40).optional(), values: z.record(z.string(), z.unknown()) });
 
 export const decideFieldBodySchema = z.object({
   address: fieldAddressSchema,

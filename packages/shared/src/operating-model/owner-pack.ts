@@ -19,12 +19,15 @@
  * still waits on a card is counted in one line and not shown.
  *
  * The period governs what belongs to a period: which Cost Report, which
- * running bills, which meetings. Where the project stands, the schedule and
- * the papers owed are told as the record stands on the day the pack is made,
- * because the record keeps how far along a milestone is now and not how far
- * along it was (the status report's rule for what waits).
+ * running bills, which meetings. Where the period has ended, how far along
+ * the work is, the schedule and the functions' own fields are read as the
+ * record stood when its last day ended (`projectAsAt`), and the pack says the
+ * day: a pack for September made in October does not move with October's
+ * site reports. The stage and the papers owed keep no past, and are told as
+ * the record stands on the day the pack is made.
  */
 
+import { asAtMoment, isPastDay, projectAsAt } from './as-at';
 import { DECISION_STATUS_LABEL } from './catalogs';
 import { checklistOwed } from './checklist';
 import { costRegister, moneySaid } from './cost';
@@ -83,6 +86,8 @@ export interface OwnerPack {
   periodSaid: string;
   /** The day the record was read on. */
   asOf: string;
+  /** Where the period had ended by then: its last day, as at which the standing, the schedule and the functions' fields are read. */
+  asAt?: string;
   /** The six sections, in their order. */
   sections: OwnerPackSection[];
 }
@@ -143,11 +148,15 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
   const named = (actor: string | undefined): string | undefined => (actor ? ((project.team ?? []).find((member) => member.name && sameEmail(member.email, actor))?.name ?? actor) : undefined);
 
   /* ---- 1. Where the project stands ---- */
-  const progress = progressSummary(project, now);
-  const watch = scheduleWatch(project, now);
-  const milestones = project.milestones ?? [];
+  // A period that has ended is read as the record stood when its last day ended in India; one still running, as it stands.
+  const asAt = isPastDay(lastDay, now) ? lastDay : undefined;
+  const read = asAt ? projectAsAt(project, asAt) : project;
+  const at = asAt ? asAtMoment(asAt) : now;
+  const progress = progressSummary(read, at);
+  const watch = scheduleWatch(read, at);
+  const milestones = read.milestones ?? [];
   /** The last day progress was reported of each milestone: a re-plan moves its dates and is no report. */
-  const reportedOn = new Map(milestones.map((m) => [m.id, progressReadings(project, m).at(-1)?.on]));
+  const reportedOn = new Map(milestones.map((m) => [m.id, progressReadings(read, m).at(-1)?.on]));
   const lastReported = [...reportedOn.values()].filter((on): on is string => Boolean(on)).sort().at(-1);
   const schedule = `the schedule: ${counted(milestones.length, 'milestone', 'milestones')} on the progress board${lastReported ? `, last reported ${meetingDay(lastReported)}` : ''}`;
   const standing: OwnerPackLine[] = [{ what: `Stage: ${stageAndStep(project.currentStage)}.`, source: 'the project record' }];
@@ -400,12 +409,13 @@ export function ownerPack(project: DdProject, period: StatusPeriod, now = new Da
       })
     : [{ lines: [], empty: nothingOwed }];
 
-  const timeFields = ownerPackFields(project, 'time', now);
-  const costFields = ownerPackFields(project, 'cost', now);
+  const timeFields = ownerPackFields(project, 'time', now, asAt);
+  const costFields = ownerPackFields(project, 'cost', now, asAt);
   return {
     period,
     periodSaid,
     asOf: today,
+    ...(asAt ? { asAt } : {}),
     sections: [
       { key: 'standing', title: 'Where the project stands', parts: [{ lines: standing, empty: '' }] },
       { key: 'time', title: 'Time', parts: time, ...(timeFields ? { fields: timeFields } : {}) },

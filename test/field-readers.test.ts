@@ -37,6 +37,9 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
 
   { file: 'packages/shared/src/operating-model/field-periods.ts', why: 'the periods of a set: a record’s period and what tells it from another are read through `standingField`; what waits on it is counted, never read, before an issue is allowed; an issued record is copied whole into its revision; every figure compared comes through `resolveFields`' },
 
+  { file: 'packages/shared/src/operating-model/sheet-periods.ts', why: 'a sheet’s periods: an issue copies what the sheet stores and freezes a reading made by `readSheet`; what waits is counted, never read; the sheet is then cleared through `stand`; every figure compared or drawn comes through `resolveFields` or from what was frozen' },
+  { file: 'packages/shared/src/operating-model/as-at.ts', why: 'turns the stored sheets and checks back to a past day, each value through `fieldAsAt`, which hands on only what stood: the reading it makes is then read by the field system like any project' },
+
   // Working out from a check's values goes through `withComputed`, which drops what does not stand before any formula runs.
   { file: 'packages/shared/src/operating-model/operations.ts', has: 'withComputed(fields, check.fields ?? {})', why: 'the tolerance readings: `withComputed` reads only what stands' },
   { file: 'packages/shared/src/operating-model/valuation-run.ts', has: 'withComputed(def?.fields ?? [], check.fields ?? {})', why: 'the valuation’s inputs: `withComputed` reads only what stands' },

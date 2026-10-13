@@ -30,7 +30,7 @@ import { paperCarries, type DocumentFact, type FactProof } from './document-pars
 import { allChecks } from './engagements';
 import { acceptedOneAtATime, proofOf, proposedFacts, settled, standingFacts } from './fact-review';
 import { projectFigure } from './field-figures';
-import { fieldHistorySaid, stand, type FieldHistorySaid } from './field-history';
+import { AS_NOW_NO_HISTORY, fieldHistorySaid, figureReadsAsAt, stand, type FieldHistorySaid } from './field-history';
 import { setPeriods, type SetPeriods } from './field-periods';
 import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
@@ -60,6 +60,7 @@ import type {
   FieldRecord,
   FieldSet,
   FieldState,
+  FrozenField,
   MatchList,
   RefTarget,
   RowWhere,
@@ -134,9 +135,14 @@ export function fieldRecords(project: DdProject, setId: string): FieldRecord[] {
 const openRevision = (record: FieldRecord): boolean => Boolean(record.revises) && !record.issued;
 
 /** Takes a key off the list of what a record carried from the last period: somebody has written it since. */
-function notCarried(project: DdProject, where: { set: string; record?: string }, key: string): void {
-  const record = where.record ? sheetOf(project, where.set)?.records?.find((held) => held.id === where.record) : undefined;
+function notCarried(project: DdProject, where: { set: string; record?: string; period?: string }, key: string): void {
+  if (where.period) return;
+  const sheet = sheetOf(project, where.set);
+  const record = where.record ? sheet?.records?.find((held) => held.id === where.record) : undefined;
   if (record?.carried?.keys.includes(key)) record.carried = { ...record.carried, keys: record.carried.keys.filter((held) => held !== key) };
+  // A sheet held once carries on its open period.
+  const open = where.record ? undefined : sheet?.open;
+  if (sheet && open?.carried?.keys.includes(key)) sheet.open = { ...open, carried: { ...open.carried, keys: open.carried.keys.filter((held) => held !== key) } };
 }
 
 /** Why an issued period takes no write. */
@@ -161,7 +167,7 @@ function recordStands(record: Pick<FieldRecord, 'values'>): boolean {
 }
 
 /** The holder to write into, made if it is not there. A check's is the check itself. */
-function holderFor(project: DdProject, catalog: FieldCatalog, address: Pick<FieldAddress, 'set' | 'record'>): Record<string, CheckFieldValue> {
+function holderFor(project: DdProject, catalog: FieldCatalog, address: Pick<FieldAddress, 'set' | 'record' | 'period'>): Record<string, CheckFieldValue> {
   if (catalog.checks.has(address.set)) {
     const check = checkHolding(project, address.set);
     if (!check) throw new FieldRefused('That check is not on this project.');
@@ -169,6 +175,12 @@ function holderFor(project: DdProject, catalog: FieldCatalog, address: Pick<Fiel
     return check.fields;
   }
   const sheet = sheetFor(project, address.set);
+  if (address.period && !address.record) {
+    // A period of a sheet takes a write only while a revision of it is open: an issue is never edited.
+    const revision = sheet.periods?.find((period) => period.key === address.period && period.status === 'open');
+    if (!revision) throw new FieldRefused(ISSUED_SAID);
+    return revision.values;
+  }
   if (!address.record) return sheet.values;
   const record = sheet.records?.find((held) => held.id === address.record && !held.removed);
   if (!record) throw new FieldRefused('That record is not on this project.');
@@ -236,9 +248,24 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
   const figures = new Map<string, unknown>();
 
   // What a worked-out value rests on that nobody entered: a usual value standing in, by its field's label.
+  // On a reading as at a past day: whether anything a value was worked out from is today's, for want of a past. Kept by the
+  // list of what the same value rests on, so each value being worked out has its own.
+  const nowOf = new Map<string[], string>();
   const rests = (assumes: string[], value: CheckFieldValue | undefined, label: () => string) => {
     if (value?.state === 'assumed' && !isBlank(value)) assumes.push(label());
     assumes.push(...(value?.assumes ?? []));
+    if (value?.asNow && !isBlank(value) && !nowOf.has(assumes)) nowOf.set(assumes, value.asNow);
+  };
+  // Every field of an issued period as it was frozen at issue: a record that is issued, or the sheet read as at a day an issue covers.
+  const frozenHeld = new Map<string, Record<string, FrozenField> | undefined>();
+  const frozenOf = (setId: string, recordId?: string): Record<string, FrozenField> | undefined => {
+    const key = `${setId}::${recordId ?? ''}`;
+    if (!frozenHeld.has(key)) {
+      const sheet = catalog.checks.has(setId) ? undefined : sheetOf(project, setId);
+      const record = recordId ? sheet?.records?.find((held) => held.id === recordId && !held.removed) : undefined;
+      frozenHeld.set(key, recordId ? (record?.issued ? record.frozen : undefined) : sheet?.asIssued?.frozen);
+    }
+    return frozenHeld.get(key);
   };
   const labelAt = (address: FieldAddress) => catalog.sets.get(address.set)?.fields.find((f) => f.key === address.field)?.label ?? address.field;
 
@@ -257,7 +284,11 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       if (row) cites.push(ruleCitation(row));
       return row?.value ?? null;
     },
-    figure: (key, of) => projectFigure(project, key, at, of, figures),
+    figure: (key, of) => {
+      // A figure of a module that keeps no past is today's, on whatever day the project is read as at.
+      if (project.asAt && !figureReadsAsAt(key) && !nowOf.has(assumes)) nowOf.set(assumes, AS_NOW_NO_HISTORY);
+      return projectFigure(project, key, at, of, figures);
+    },
     record: recordId,
     today: at,
   });
@@ -272,7 +303,11 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       const other = set.fields.find((f) => f.key === name);
       return other ? field(set, recordId, other) : undefined;
     };
-    if (def.sameAs) {
+    const frozen = fieldIsDerived(def) ? frozenOf(set.id, recordId)?.[def.key] : undefined;
+    if (frozen) {
+      // An issued period is never worked out again: what it read at issue is what it reads.
+      value = frozen.value === null || frozen.value === '' ? undefined : { value: frozen.value, at: '', by: 'computed', ...(def.sameAs ? { origin: { kind: 'field' as const, address: def.sameAs } } : {}) };
+    } else if (def.sameAs) {
       const owner = read(def.sameAs);
       value = owner && !isBlank(owner) ? { ...owner, origin: { kind: 'field', address: def.sameAs } } : undefined;
     } else if (def.kind === 'computed') {
@@ -292,6 +327,7 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
       if (assumes.length && !isBlank(value)) value.assumes = [...new Set(assumes)];
       // A zero that is a sum over nothing entered is said to be one, so no rule fires on it.
       if (def.formula && !isBlank(value) && formulaOverNothing(def.formula, values, around)) value.overNothing = true;
+      if (nowOf.has(assumes) && !isBlank(value)) value.asNow = nowOf.get(assumes)!;
     } else if (def.kind === 'status') {
       // The rule engine reads plain values: what the holder stores that stands, and the fields the cases name, resolved.
       const values: Record<string, CheckFieldValue> = {};
@@ -306,7 +342,7 @@ export function resolveFields(project: DdProject, at: Date = new Date(), catalog
         else delete values[name];
       }
       const standing = evaluateStatus(def, set.fields, values, at)?.label ?? null;
-      value = { value: standing, at: '', by: 'computed', ...(cites.length ? { cites: uniqueCites(cites) } : {}), ...(assumes.length && standing !== null ? { assumes: [...new Set(assumes)] } : {}) };
+      value = { value: standing, at: '', by: 'computed', ...(cites.length ? { cites: uniqueCites(cites) } : {}), ...(assumes.length && standing !== null ? { assumes: [...new Set(assumes)] } : {}), ...(nowOf.has(assumes) && standing !== null ? { asNow: nowOf.get(assumes)! } : {}) };
     } else {
       const held = storedOf(set.id, recordId)[def.key];
       value = standingField(held);
@@ -601,6 +637,10 @@ export interface FieldView {
   past?: FieldHistorySaid;
   /** Filled from the last period when this one was opened, and not written since: the period it came from, in short ("September"). */
   carried?: string;
+  /** On an issued period: the field as it was frozen at issue, with how it printed and its footnote. */
+  frozen?: FrozenField;
+  /** On a reading as at a past day: the record does not reach the day for this value. The day its history begins, or `AS_NOW_NO_HISTORY`. */
+  asNow?: string;
 }
 
 /** The party a field's value is waited on from. */
@@ -799,9 +839,12 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
   const pending = Boolean(recordId) && !catalog.checks.has(setId) && !Object.values(held).some((value) => fieldStands(value) && !isBlank(value));
   const na = sheetOf(project, setId)?.na ?? {};
   // What this record was opened with from the last period, said by the period it came from.
-  const carriedOn = recordId && set.periodic ? sheetOf(project, setId)?.records?.find((record) => record.id === recordId)?.carried : undefined;
+  const carriedOn = !set.periodic || catalog.checks.has(setId) ? undefined : recordId ? sheetOf(project, setId)?.records?.find((record) => record.id === recordId)?.carried : sheetOf(project, setId)?.open?.carried;
   const carriedKeys = new Set(carriedOn?.keys ?? []);
   const carriedFrom = carriedOn ? (periodOfKey(carriedOn.from)?.short ?? 'the last one') : undefined;
+  // An issued period: the record once issued, or the sheet read as at a day an issue covers.
+  const heldRecord = recordId && !catalog.checks.has(setId) ? sheetOf(project, setId)?.records?.find((record) => record.id === recordId) : undefined;
+  const frozenHere = recordId ? (heldRecord?.issued ? heldRecord.frozen : undefined) : catalog.checks.has(setId) ? undefined : sheetOf(project, setId)?.asIssued?.frozen;
   const sectionDefs = [...(set.sections ?? [])];
   if (set.fields.some((def) => !def.section && !def.sheet)) sectionDefs.unshift({ key: '', label: '' });
   // Whether a field is expected yet: its step of the project has come, or its day has.
@@ -858,7 +901,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       notInPlay: !inPlay && holds && !derived,
       state,
       held: own,
-      text: said(def, own),
+      // An issued period prints as it printed at issue.
+      text: frozenHere?.[def.key] && !isBlank(own) ? frozenHere[def.key]!.said : said(def, own),
       tone: fieldTone(def, own, lists),
       source: sourceOf(project, catalog, own, own?.origin),
       waiting: (own?.other ?? []).map((other, index) => ({
@@ -882,6 +926,8 @@ export function readSheet(project: DdProject, setId: string, recordId?: string, 
       ...(shown !== 'hidden' && linkGone(def, own) ? { removedLink: true } : {}),
       ...(past ? { past } : {}),
       ...(carriedFrom && carriedKeys.has(def.key) && !isBlank(own) ? { carried: carriedFrom } : {}),
+      ...(frozenHere?.[def.key] ? { frozen: frozenHere[def.key] } : {}),
+      ...(own?.asNow && !isBlank(own) ? { asNow: own.asNow } : {}),
     };
   });
 
@@ -1104,7 +1150,12 @@ function namesSituation(when: ShowWhen | undefined, key: string): boolean {
 export function readFunctionFields(project: DdProject, fn: string, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project)): FunctionFields {
   const resolution = resolveFields(project, at, catalog);
   const sheets: FunctionFields['sheets'] = fieldSetsOf(fn, catalog).map((set) => {
-    if (!set.records) return { set, reading: readSheet(project, set.id, undefined, resolution, catalog, at) };
+    if (!set.records) {
+      const reading = readSheet(project, set.id, undefined, resolution, catalog, at);
+      // A sheet kept by period: the sheet is the open one, and what it has issued is one line beside it.
+      const periods = set.periodic && !project.asAt ? setPeriods(project, set, at, catalog, undefined, reading) : undefined;
+      return { set, reading, ...(periods ? { periods } : {}) };
+    }
     const records = fieldRecords(project, set.id).flatMap((record) => readSheet(project, set.id, record.id, resolution, catalog, at) ?? []);
     const periods = set.periodic ? setPeriods(project, set, at, catalog, (id) => records.find((read) => read.recordId === id)) : undefined;
     return { set, records, ...(periods ? { periods } : {}) };
@@ -1541,7 +1592,7 @@ export interface FieldWriteResult {
  */
 export function setFieldValues(
   project: DdProject,
-  where: { set: string; record?: string },
+  where: { set: string; record?: string; period?: string },
   values: Record<string, unknown>,
   actor: string,
   options: FieldWriteOptions = {},

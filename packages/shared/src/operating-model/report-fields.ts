@@ -28,7 +28,11 @@
  * move, add and remove blocks. No model writes any of it.
  */
 
+import { asAtMoment, isPastDay, projectAsAt } from './as-at';
 import { fieldIsDerived, fieldNumber, formatFieldValue, isBlank, tableRows } from './check-fields';
+import { asNowSaid } from './field-history';
+import { daySaid } from './said';
+import { COST_REPORT_PERIODS, COST_REPORT_SERIES, periodSeries } from './sheet-periods';
 import { workstreamDefinition } from './departments';
 import { fieldCatalog, optionSetById, sharedSetsOf, type FieldCatalog } from './field-registry';
 import { FIELD_SETS } from './field-sets';
@@ -110,6 +114,8 @@ function papersSaid(project: DdProject, value: CheckFieldValue | undefined): str
 /** What a report prints of one field: its value where that stands, and the word for where it does not. */
 export function fieldPrinted(project: DdProject, view: FieldView): FieldPrinted {
   const held = view.held;
+  // A field of an issued period prints as it printed at issue, with the footnote it carried then.
+  if (view.frozen) return { value: view.frozen.said, standing: 'as issued', notes: view.frozen.footnote ? [view.frozen.footnote] : [], waits: false, unverified: false };
   if (view.state === 'proposed') {
     return { value: 'waiting', standing: 'waiting', notes: ['A value has been offered for this field and waits for a person to accept it.'], waits: true, unverified: false };
   }
@@ -149,7 +155,10 @@ export function fieldPrinted(project: DdProject, view: FieldView): FieldPrinted 
   if (assumes.length) notes.push(`Rests on a usual value nobody entered: ${assumes.join(', ')}.`);
   const worked = assumes.length ? 'worked out, on an assumed value' : 'worked out';
   const standing = view.state === 'assumed' ? 'assumed' : def.kind === 'computed' || def.kind === 'status' ? worked : view.state === 'typed' ? 'entered' : 'accepted';
-  return { value, standing: unverified ? `${standing}, not verified` : standing, notes, waits: false, unverified };
+  // Read as at a past day the record does not reach for this value: it is today's, and says so.
+  if (view.asNow) notes.push(asNowSaid(view.asNow));
+  const said = [standing, unverified ? 'not verified' : '', view.asNow ? 'as now' : ''].filter(Boolean).join(', ');
+  return { value, standing: said, notes, waits: false, unverified };
 }
 
 /** Numbers each distinct footnote once, in the order first met. */
@@ -380,7 +389,34 @@ function resolveFieldTable(project: DdProject, source: ReportBoundSource, at: Da
 
 /* ---- field_chart ----------------------------------------------------- */
 
+/** One field of a set kept by period, drawn period by period, oldest first: what each period issued said, then the period still open. */
+function resolvePeriodChart(project: DdProject, source: ReportBoundSource, at: Date, catalog: FieldCatalog): ResolvedReportBlock {
+  const def = source.periods === COST_REPORT_PERIODS ? undefined : catalog.sets.get(source.periods ?? '')?.fields.find((field) => field.key === source.y);
+  const label = def?.label ?? (source.y ?? '');
+  const series = periodSeries(project, { set: source.periods ?? '', field: source.y ?? '' }, at, catalog, PERIODS_DRAWN).filter((point) => point.value !== null);
+  // What each period added to a running total: this period's less the last. The first has nothing before it to take away.
+  const points = source.moved
+    ? series.slice(1).map((point, index) => {
+        const by = Math.round((point.value! - series[index]!.value!) * 100) / 100;
+        return { ...point, value: by, said: def ? formatFieldValue(def.kind === 'computed' ? { ...def, kind: 'number' } : def, { value: by, at: '', by: '' }) : String(by) };
+      })
+    : series;
+  if (!points.length) return { lines: [], recordIds: [], note: `No period of ${label.toLowerCase()} is kept to be drawn yet.` };
+  const open = points.filter((point) => point.status === 'open').length;
+  return {
+    lines: points.map((point) => `${point.period.label}: ${point.said}`),
+    recordIds: points.map(() => ''),
+    table: { columns: ['Period', label], rows: points.map((point) => ({ cells: [point.period.label, point.said] })) },
+    chart: { mark: source.mark ?? 'line', x: 'Period', y: label, points: points.map((point) => ({ label: point.period.short, value: point.value!, said: point.said })) },
+    note: `${plural(points.length, 'period')}${source.moved ? ', each as what it added' : ''}${open ? '; the last is still open' : ', each as issued'}.`,
+  };
+}
+
+/** The most periods a chart draws: the latest of them. */
+const PERIODS_DRAWN = 24;
+
 function resolveFieldChart(project: DdProject, source: ReportBoundSource, at: Date, catalog: FieldCatalog): ResolvedReportBlock {
+  if (source.periods) return resolvePeriodChart(project, source, at, catalog);
   if (!source.x || !source.y) return { lines: [], recordIds: [], note: 'This chart has not been told which column to draw.' };
   const read = tabled(project, source, at, catalog, [source.x, source.y]);
   if (read.columns.length < 2) return { lines: [], recordIds: [], note: read.empty ?? 'A column this chart draws is no longer declared.' };
@@ -411,9 +447,17 @@ function resolveFieldChart(project: DdProject, source: ReportBoundSource, at: Da
 
 /** One block that reads fields, resolved from what the project holds now. */
 export function resolveFieldBlock(project: DdProject, source: ReportBoundSource, at: Date = new Date(), catalog: FieldCatalog = fieldCatalogFor(project)): ResolvedReportBlock {
-  if (source.kind === 'field_table') return resolveFieldTable(project, source, at, catalog);
-  if (source.kind === 'field_chart') return resolveFieldChart(project, source, at, catalog);
-  return resolveFieldsBlock(project, source, at, catalog);
+  // A section made for a period reads the project as it stood when the period's last day ended, and says the day.
+  const asAt = source.asAt && isPastDay(source.asAt, at) ? source.asAt : undefined;
+  const read = asAt ? projectAsAt(project, asAt) : project;
+  const when = asAt ? asAtMoment(asAt) : at;
+  const out = source.kind === 'field_table' ? resolveFieldTable(read, source, when, catalog) : source.kind === 'field_chart' ? resolveFieldChart(read, source, when, catalog) : resolveFieldsBlock(read, source, when, catalog);
+  return asAt ? { ...out, note: [figuresAsAtSaid(asAt), out.note].filter(Boolean).join(' ') } : out;
+}
+
+/** What a section read as at a day says of itself. */
+export function figuresAsAtSaid(day: string): string {
+  return `Figures as at ${daySaid(day)}.`;
 }
 
 /** What a frozen field block shows: what the fields said the day it was issued or detached. */
@@ -475,6 +519,14 @@ export function fieldSourceFault(source: ReportBoundSource, catalog: FieldCatalo
     return undefined;
   }
   let columns: CheckFieldDef[];
+  if (source.kind === 'field_chart' && source.periods) {
+    if (source.periods === COST_REPORT_PERIODS) return (COST_REPORT_SERIES as readonly string[]).includes(source.y ?? '') ? undefined : 'Name the figure of the Cost Report the chart draws.';
+    const set = catalog.sets.get(source.periods);
+    if (!set?.periodic) return `“${source.periods}” is not a set kept by period.`;
+    const y = set.fields.find((field) => field.key === source.y);
+    if (!y) return 'Name the field the chart draws.';
+    return CHARTED.has(y.kind) ? undefined : `“${y.label}” is not a figure, so there is nothing to draw.`;
+  }
   if (source.records) {
     const set = catalog.sets.get(source.records);
     if (!set?.records) return `“${source.records}” is not a set of records.`;
@@ -581,6 +633,7 @@ export function templateBlocks(template: FunctionReportTemplate): TemplateBlock[
     if ('records' in section) return { heading: section.heading, source: { kind: 'field_table', records: section.records, ...(section.columns ? { columns: section.columns } : {}) } };
     if ('chart' in section) {
       const of = section.chart.of;
+      if (typeof of === 'object' && 'periods' in of) return { heading: section.heading, source: { kind: 'field_chart', periods: of.periods, x: section.chart.x, y: section.chart.y, mark: section.chart.mark ?? 'line', ...(section.chart.moved ? { moved: true } : {}) } };
       const what = typeof of === 'object' && 'records' in of ? { records: of.records } : { address: addressIn(template, of) };
       return { heading: section.heading, source: { kind: 'field_chart', ...what, x: section.chart.x, y: section.chart.y, mark: section.chart.mark ?? 'bar' } };
     }
@@ -658,8 +711,8 @@ export const OWNER_PACK_FIELDS: Record<'time' | 'cost', FieldAddress[]> = {
 };
 
 /** A pack section's fields, or nothing where none of them is recorded or waiting: a project that keeps none reads as it did. */
-export function ownerPackFields(project: DdProject, section: 'time' | 'cost', at: Date = new Date()): ResolvedReportBlock | undefined {
-  const resolved = resolveFieldBlock(project, { kind: 'fields', addresses: OWNER_PACK_FIELDS[section] }, at);
+export function ownerPackFields(project: DdProject, section: 'time' | 'cost', at: Date = new Date(), asAt?: string): ResolvedReportBlock | undefined {
+  const resolved = resolveFieldBlock(project, { kind: 'fields', addresses: OWNER_PACK_FIELDS[section], ...(asAt ? { asAt } : {}) }, at);
   const holds = (resolved.table?.rows ?? []).some((row) => row.cells.at(-1) !== 'not recorded');
   return holds ? resolved : undefined;
 }
@@ -701,7 +754,9 @@ function fieldReach(inReach: (fn: string) => boolean) {
   /** Everything a source names: its fields, its table, and the records it prints. */
   const sourceReached = (source: ReportBoundSource, frozen: boolean): boolean => {
     const named = [...(source.addresses ?? []), ...(source.address ? [source.address] : [])];
-    return named.every(reached) && (!source.records || recordsReached(source.records, source.columns, frozen));
+    // A figure drawn period by period is a field of its set, and goes where the set goes. The Cost Report's months go with the budget, which a copy holds or does not.
+    const periods = !source.periods || (source.periods === COST_REPORT_PERIODS ? inReach('finance.budget') : reached({ set: source.periods, field: source.y }));
+    return named.every(reached) && periods && (!source.records || recordsReached(source.records, source.columns, frozen));
   };
   return { reached, sourceReached };
 }

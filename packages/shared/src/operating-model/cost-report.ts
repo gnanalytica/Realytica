@@ -9,15 +9,18 @@
  *
  * Editing a draft updates those rows and keeps matching work packages on the
  * cost register so the graph and checks stay coherent. Issuing freezes the
- * period: print reads what stood then; further edits need a new draft or an
- * explicit reopen.
+ * period: print reads what stood then, and an issued report is never edited.
+ * A correction is a revision: a draft opened beside the issued report, which
+ * goes on being the one that is read until the revision is issued and takes
+ * its place. The first is kept as it was sent.
  */
 
 import type { DdProject } from './types';
 import { addWorkPackages, costRegister, moneySaid, updateWorkPackage } from './cost';
 import { recordAuditEvent } from './operations';
 
-export type CostReportStatus = 'draft' | 'issued';
+/** `superseded`: issued, and since replaced by a revision that was issued in its turn. Kept as it was sent, and read by nothing. */
+export type CostReportStatus = 'draft' | 'issued' | 'superseded';
 
 /** One work package on a Cost Report: the four figures the exec sheets share. */
 export interface CostReportPackageRow {
@@ -88,6 +91,10 @@ export interface CostReportPeriod {
   updatedBy: string;
   issuedAt?: string;
   issuedBy?: string;
+  /** The issued report this one corrects. Until this one is issued the other stands. */
+  revises?: string;
+  /** On a superseded report: the revision that took its place. */
+  supersededBy?: string;
 }
 
 export interface CostReportTotals {
@@ -180,8 +187,8 @@ export function costReportOf(project: Pick<DdProject, 'costReports'>, reportId: 
 }
 
 function assertDraft(report: CostReportPeriod): void {
-  if (report.status === 'issued') {
-    throw new Error('This Cost Report is issued. Reopen it before changing figures, or start a new period.');
+  if (report.status !== 'draft') {
+    throw new Error('This Cost Report is issued, and is not edited. Open a revision of it to change figures, or start a new period.');
   }
 }
 
@@ -522,9 +529,15 @@ export function setCostReportChangeReason(
 /** Freeze the period for print. Further figure edits are refused until reopened. */
 export function issueCostReport(project: DdProject, reportId: string, actor: string): CostReportPeriod {
   const report = costReportOf(project, reportId);
-  if (report.status === 'issued') throw new Error('This Cost Report is already issued.');
+  if (report.status !== 'draft') throw new Error('This Cost Report is already issued.');
   if (!report.rows.length) throw new Error('Add at least one package before issuing the Cost Report.');
   const at = nowIso();
+  // A revision issued takes the place of the report it corrects, which is kept as it was sent.
+  const corrected = report.revises ? costReportsOf(project).find((held) => held.id === report.revises && held.status === 'issued') : undefined;
+  if (corrected) {
+    corrected.status = 'superseded';
+    corrected.supersededBy = report.id;
+  }
   report.status = 'issued';
   report.issuedAt = at;
   report.issuedBy = actor;
@@ -546,23 +559,48 @@ export function issueCostReport(project: DdProject, reportId: string, actor: str
   return report;
 }
 
-/** Return an issued report to draft so figures can change again. */
+/**
+ * Open a revision of an issued Cost Report. The issued report stays as it
+ * was sent and goes on being the one that is read. A draft is kept beside it
+ * with the same period and a copy of its figures, to be corrected and issued
+ * in its turn; where one is open already it is handed back and no second is
+ * made. Returns the draft.
+ */
 export function reopenCostReport(project: DdProject, reportId: string, actor: string): CostReportPeriod {
-  const report = costReportOf(project, reportId);
-  if (report.status !== 'issued') throw new Error('Only an issued Cost Report can be reopened.');
-  report.status = 'draft';
-  delete report.issuedAt;
-  delete report.issuedBy;
-  report.updatedAt = nowIso();
-  report.updatedBy = actor;
+  const issued = costReportOf(project, reportId);
+  if (issued.status === 'superseded') throw new Error('A later revision of this Cost Report has been issued. Revise that one.');
+  if (issued.status !== 'issued') throw new Error('Only an issued Cost Report can be reopened.');
+  const open = costReportsOf(project).find((held) => held.revises === issued.id && held.status === 'draft');
+  if (open) return open;
+  const at = nowIso();
+  const draft: CostReportPeriod = {
+    id: newId('crep'),
+    label: issued.label,
+    from: issued.from,
+    to: issued.to,
+    status: 'draft',
+    rows: issued.rows.map((row) => ({ ...row })),
+    ...(issued.variations ? { variations: issued.variations.map((line) => ({ ...line })) } : {}),
+    ...(issued.basicPriceAdjustments ? { basicPriceAdjustments: issued.basicPriceAdjustments.map((line) => ({ ...line })) } : {}),
+    ...(issued.photoEvidenceIds ? { photoEvidenceIds: [...issued.photoEvidenceIds] } : {}),
+    ...(issued.note ? { note: issued.note } : {}),
+    ...(issued.changeReasons ? { changeReasons: { ...issued.changeReasons } } : {}),
+    createdAt: at,
+    createdBy: actor,
+    updatedAt: at,
+    updatedBy: actor,
+    revises: issued.id,
+  };
+  reportsOf(project).push(draft);
   recordAuditEvent(project, {
     actor,
     action: 'reopen_cost_report',
     entityType: 'cost_report',
-    entityId: report.id,
-    newValue: report.label,
+    entityId: draft.id,
+    oldValue: issued.id,
+    newValue: issued.label,
   });
-  return report;
+  return draft;
 }
 
 

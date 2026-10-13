@@ -290,3 +290,16 @@ export function historyOnCopy(history: readonly FieldPast[] | undefined, paperOn
     return rest;
   });
 }
+
+/** In place of a day, on a value that is today's because the module that keeps it keeps no past at all. */
+export const AS_NOW_NO_HISTORY = 'no_history';
+
+/** The figures other modules work out that a reading as at a day turns back with the project (`projectAsAt`). Every other figure is today's. */
+export function figureReadsAsAt(key: string): boolean {
+  return /^(progress|schedule|site_log|cost_report|cash_flow)\./.test(key);
+}
+
+/** How a value that is today's on a reading as at a past day says so. */
+export function asNowSaid(asNow: string): string {
+  return asNow === AS_NOW_NO_HISTORY ? 'As now: what keeps this figure keeps no history.' : `As now: no history before ${daySaid(asNow)}.`;
+}
