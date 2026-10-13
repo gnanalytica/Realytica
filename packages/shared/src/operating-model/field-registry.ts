@@ -15,7 +15,7 @@
 import { CHECK_CONDITIONS, CHECK_SITUATIONS } from './check-conditions';
 import { CHECK_DEFINITIONS } from './libraries';
 import { SUB_STAGES, workstreamDefinition, workstreamOfCheck } from './departments';
-import { projectFigureDef } from './field-figures';
+import { PROJECT_FIGURES } from './field-figures';
 import { FIELD_SETS, RULE_ROWS, RULE_SHAPES } from './field-sets';
 import { SHARED_FN, SHARED_RECORD_SETS } from './field-sets/shared-records';
 import { ruleRowFaults } from './rule-tables';
@@ -238,6 +238,8 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
   const own = (field: string): FieldAddress => ({ fn: set.fn, set: set.id, field });
   const rows = (over: FormulaRows, ...columns: string[]): FieldAddress[] =>
     'table' in over ? columns.map((column) => ({ ...own(over.table), column })) : columns.map((field) => ({ fn: set.fn, set: over.records, field }));
+  // A join on one of the record's own fields reads that field.
+  const joined = (where: { is: string; value?: unknown }): FieldAddress[] => (where.is === 'own' && typeof where.value === 'string' ? [own(where.value)] : []);
   const condition = (when: FormulaCondition): FieldAddress[] => {
     if ('all' in when) return when.all.flatMap(condition);
     if ('any' in when) return when.any.flatMap(condition);
@@ -247,11 +249,12 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
   switch (formula.op) {
     case 'const':
     case 'today':
-    case 'figure':
       return [];
     case 'field':
     case 'date':
-      return [formula.at ?? own(formula.key)];
+      return [formula.at ?? own(formula.key), ...(formula.via ? [own(formula.via)] : [])];
+    case 'figure':
+      return formula.of ? [own(formula.of)] : [];
     case 'records':
       return [{ fn: set.fn, set: formula.set, field: formula.field ?? '' }];
     case 'sum':
@@ -266,9 +269,9 @@ function formulaReads(formula: CheckFormula, set: FieldSet): FieldAddress[] {
     case 'if':
       return [...condition(formula.when), ...formulaReads(formula.then, set), ...formulaReads(formula.else, set)];
     case 'sum_if':
-      return rows(formula.over, formula.column, formula.where.column);
+      return [...rows(formula.over, formula.column, formula.where.column), ...joined(formula.where)];
     case 'count_if':
-      return rows(formula.over, formula.where.column);
+      return [...rows(formula.over, formula.where.column), ...joined(formula.where)];
     case 'rate':
       return [...(formula.on ? [own(formula.on)] : []), ...Object.values(formula.where ?? {}).flatMap((from) => ('field' in from ? [own(from.field)] : []))];
     case 'irr':
@@ -312,10 +315,11 @@ function formulaRates(formula: CheckFormula): string[] {
   }
 }
 
-/** The figures of other modules a formula names, wherever in it they sit. */
-function formulaFigures(node: unknown): string[] {
+/** The figures of other parts of the product a formula reads, wherever in it they sit, each with the own link it is asked of. */
+function formulaFigures(node: unknown): Array<{ key: string; of?: string }> {
   if (!node || typeof node !== 'object') return [];
-  const here = (node as { op?: unknown }).op === 'figure' ? [String((node as { of?: unknown }).of)] : [];
+  const held = node as { op?: unknown; key?: unknown; of?: unknown };
+  const here = held.op === 'figure' ? [{ key: String(held.key), ...(typeof held.of === 'string' ? { of: held.of } : {}) }] : [];
   return [...here, ...Object.values(node).flatMap(formulaFigures)];
 }
 
@@ -435,7 +439,11 @@ export function catalogFaults(sheets: readonly FieldSet[] = FIELD_SETS, rules: r
       if (def.display === 'chart' && (!def.chart || ![def.chart.x, def.chart.y].every((key) => def.columns?.some((column) => column.key === key)))) faults.push(`${at(def.key)}: a chart table names its x and y columns.`);
       if (def.display === 'chart' && def.chart?.mark === 'stacked' && !def.columns?.some((column) => column.key === def.chart!.stack)) faults.push(`${at(def.key)}: a stacked chart names the column its bars are built of.`);
       for (const table of def.formula ? formulaRates(def.formula) : []) if (!rated.has(table)) faults.push(`${at(def.key)}: reads the rule "${table}", which the rule table does not have.`);
-      for (const figure of def.formula ? formulaFigures(def.formula) : []) if (!projectFigureDef(figure)) faults.push(`${at(def.key)}: reads the figure "${figure}", which no module gives.`);
+      for (const figure of def.formula ? formulaFigures(def.formula) : []) {
+        const known = PROJECT_FIGURES[figure.key];
+        if (!known) faults.push(`${at(def.key)}: reads the figure "${figure.key}", which nothing works out.`);
+        else if (Boolean(known.of) !== Boolean(figure.of)) faults.push(`${at(def.key)}: the figure "${figure.key}" ${known.of ? `is of one ${known.of}: name the link to it` : 'is of the project, not of one thing'}.`);
+      }
       if (def.kind === 'status' && !def.cases?.length) faults.push(`${at(def.key)}: a status field needs cases.`);
       if (def.kind === 'computed' && !def.formula) faults.push(`${at(def.key)}: a computed field needs a formula.`);
       for (const column of [def, ...(def.columns ?? [])]) {

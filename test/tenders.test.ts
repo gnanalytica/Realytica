@@ -554,8 +554,10 @@ describe('the Tenders page, in the menu and in the chat’s words', () => {
   it('is a built function of Procurement, laid out in the parts every built function has', () => {
     const tenders = menuFunctions('procurement').find((fn) => fn.key === 'procurement.boq')!;
     assert.deepEqual([tenders.label, tenders.built], ['Tenders', true]);
-    assert.deepEqual(menuFunctions('procurement').filter((fn) => fn.built).map((fn) => fn.label), ['Tenders']);
-    assert.deepEqual(functionSections('procurement.boq'), ['standing', 'tenders', 'checks', 'documents', 'connections']);
+    // Tenders is built in full. The other three are pages of their field sheets and their documents.
+    assert.deepEqual(menuFunctions('procurement').filter((fn) => fn.built).map((fn) => fn.label), ['Tenders', 'Orders', 'Vendors', 'Deliveries']);
+    assert.deepEqual(functionSections('procurement.boq'), ['standing', 'sheet', 'tenders', 'checks', 'documents', 'connections']);
+    assert.deepEqual(functionSections('procurement.orders'), ['sheet', 'documents']);
   });
 
   it('is opened by its name, and at its own part by the words for it', () => {

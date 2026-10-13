@@ -280,8 +280,9 @@ describe('the menu’s words are held in one place', () => {
     const drawn = new Set([...page.matchAll(/id: '([a-z]+)',\s*name: '/g)].map((m) => m[1]!));
     const sectioned = WORKSTREAMS.filter((w) => functionSections(w.key).length > 0);
     assert.deepEqual(sectioned.filter((w) => w.status === 'live').map((w) => w.key).sort(), ['construction.progress', 'finance.budget', 'legal.approvals', 'legal.title', 'procurement.boq'], 'the built functions laid out as one page with a rail');
-    // A function that is not built has a page as soon as a catalog gives it a sheet: those sheets and its documents. Which those are is the catalogs’ to say.
+    // A function not built beyond its sheets is those sheets and its documents, whichever department declared them.
     for (const w of sectioned.filter((w) => w.status !== 'live')) assert.deepEqual(functionSections(w.key), ['sheet', 'documents'], w.key);
+    for (const key of ['construction.safety', 'procurement.orders', 'procurement.vendors', 'procurement.deliveries']) assert.ok(sectioned.some((w) => w.key === key), `${key} has sheets, and so a page`);
     for (const w of sectioned) for (const section of functionSections(w.key)) assert.ok(drawn.has(section), `${w.key} lands on “${section}”, which the page does not draw`);
     for (const section of drawn) assert.ok(sectioned.some((w) => functionSections(w.key).includes(section)), `the page draws “${section}”, which the chat cannot land on`);
     // A function whose page is not laid out in parts has none: Valuation, the site record, the technical due diligence, and anything not built.

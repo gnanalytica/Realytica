@@ -10,15 +10,16 @@
 
 import type { FieldSet, RuleRow, RuleShape } from '../types';
 import { DESIGN_FIELD_SETS, DESIGN_RULE_ROWS, DESIGN_RULE_SHAPES } from './architect-design-engineer-mep';
+import { CONSTRUCTION_PROCUREMENT_FIELD_SETS, CONSTRUCTION_PROCUREMENT_RULE_ROWS } from './construction-procurement';
 import { EXAMPLE_LAND_HOLDING } from './example-land-holding';
-import { LAW_LIAISON_FIELD_SETS } from './law-liaison';
 import { FINANCE_RULE_ROWS, FINANCE_TAX_LENDERS_FIELD_SETS } from './finance-tax-lenders';
+import { LAW_LIAISON_FIELD_SETS } from './law-liaison';
 import { BASE_RULE_ROWS } from './rule-rows';
-import { TITLES_LITIGATION_RULE_ROWS } from './rules/titles-litigation';
 import { LAW_LIAISON_RULE_ROWS } from './rules/law-liaison';
+import { TITLES_LITIGATION_RULE_ROWS } from './rules/titles-litigation';
+import { VALUATION_FEASIBILITY_BUDGET_RULE_ROWS } from './rules/valuation-feasibility-budget';
 import { SHARED_RECORDS } from './shared-records';
 import { TITLES_LITIGATION_FIELD_SETS } from './titles-litigation';
-import { VALUATION_FEASIBILITY_BUDGET_RULE_ROWS } from './rules/valuation-feasibility-budget';
 import { VALUATION_FEASIBILITY_BUDGET_FIELD_SETS } from './valuation-feasibility-budget';
 
 export const FIELD_SETS: readonly FieldSet[] = [
@@ -29,6 +30,7 @@ export const FIELD_SETS: readonly FieldSet[] = [
   ...VALUATION_FEASIBILITY_BUDGET_FIELD_SETS,
   ...FINANCE_TAX_LENDERS_FIELD_SETS,
   ...DESIGN_FIELD_SETS,
+  ...CONSTRUCTION_PROCUREMENT_FIELD_SETS,
 ];
 
 export const RULE_ROWS: readonly RuleRow[] = [
@@ -38,6 +40,7 @@ export const RULE_ROWS: readonly RuleRow[] = [
   ...VALUATION_FEASIBILITY_BUDGET_RULE_ROWS,
   ...FINANCE_RULE_ROWS,
   ...DESIGN_RULE_ROWS,
+  ...CONSTRUCTION_PROCUREMENT_RULE_ROWS,
 ];
 
 /** Rules a formula may read whose figures are not loaded yet (see `RuleShape`). Registered as rule rows are. */

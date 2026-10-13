@@ -139,10 +139,10 @@ describe('the sets of Valuation, Feasibility and Budget', () => {
   });
 
   it('read the modules’ figures through named adapters, and refuse one that is not there', () => {
-    assert.ok(PROJECT_FIGURES.some((figure) => figure.key === 'cost.budget' && figure.from === 'cost register'));
-    const bad = buildFieldCatalog([{ id: 'x', fn: BUD, title: 'x', v: 1, rules: [], fields: [{ key: 'a', label: 'a', kind: 'computed', formula: { op: 'figure', of: 'cost.no_such' } }] }]);
+    assert.equal(PROJECT_FIGURES['cost.budget']?.from, 'cost register');
+    const bad = buildFieldCatalog([{ id: 'x', fn: BUD, title: 'x', v: 1, rules: [], fields: [{ key: 'a', label: 'a', kind: 'computed', formula: { op: 'figure', key: 'cost.no_such' } }] }]);
     assert.ok(bad.sets.has('x'));
-    assert.ok(catalogFaults([{ id: 'x', fn: BUD, title: 'x', v: 1, rules: [], fields: [{ key: 'a', label: 'a', kind: 'computed', formula: { op: 'figure', of: 'cost.no_such' } }] }]).some((fault) => /reads the figure "cost.no_such"/.test(fault)));
+    assert.ok(catalogFaults([{ id: 'x', fn: BUD, title: 'x', v: 1, rules: [], fields: [{ key: 'a', label: 'a', kind: 'computed', formula: { op: 'figure', key: 'cost.no_such' } }] }]).some((fault) => /reads the figure "cost.no_such"/.test(fault)));
   });
 });
 

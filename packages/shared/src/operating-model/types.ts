@@ -453,7 +453,13 @@ export type FormulaCondition =
 /** A condition on one row of a table or one record of a set. */
 export interface RowCondition {
   column: string;
-  is: 'set' | 'true' | 'false' | 'equals' | 'in' | 'gt' | 'lt';
+  /**
+   * `own` joins a row to the record the formula is worked out for: the row's
+   * column holds that record's id, or, with `value` naming one of the
+   * record's own fields, what that field holds. The claims of this contract,
+   * the samples of this pour.
+   */
+  is: 'set' | 'true' | 'false' | 'equals' | 'in' | 'gt' | 'lt' | 'own';
   value?: unknown;
 }
 
@@ -692,8 +698,20 @@ export type CheckFieldProof = 'required' | 'expected' | 'none';
  * can see what it computes. Every leaf is either a field key or a literal.
  */
 export type CheckFormula =
-  /** With `at`, the field is read from another set or another function (`resolveFields`). */
-  | { op: 'field'; key: string; at?: FieldAddress }
+  /**
+   * With `at`, the field is read from another set or another function
+   * (`resolveFields`). With `via` as well, `at` names a field of a set that
+   * repeats and `via` one of this set's own links: the field is read from
+   * the record that link holds (the completion date of this claim's contract).
+   */
+  | { op: 'field'; key: string; at?: FieldAddress; via?: string }
+  /**
+   * A figure another part of the product already works out: progress from
+   * the milestones, the last day on the site log, a package's award. Read,
+   * never entered here (`field-figures.ts`). `of` names one of this set's own
+   * links, where the figure is of one thing: a work package.
+   */
+  | { op: 'figure'; key: string; of?: string }
   /** Over the records of a set that repeats: how many there are, or one numeric field of theirs summed. */
   | { op: 'records'; set: string; reduce: 'count' | 'sum' | 'min' | 'max' | 'spread_pct'; field?: string }
   /** The least or the most of several amounts. One that is not known is left out. */
@@ -713,13 +731,11 @@ export type CheckFormula =
   /** Dated cash flows discounted to the first of them, at a yearly rate given as a percentage. */
   | { op: 'npv'; rate: CheckFormula; over: FormulaRows; date: string; amount: string }
   /** A date field as a day number, so days can be added to it or two dates compared. A computed field that yields a date turns it back. */
-  | { op: 'date'; key: string; at?: FieldAddress }
+  | { op: 'date'; key: string; at?: FieldAddress; via?: string }
   | { op: 'today' }
   | { op: 'add_days'; date: CheckFormula; days: CheckFormula }
   | { op: 'add_months'; date: CheckFormula; months: CheckFormula }
   | { op: 'const'; value: number }
-  /** A figure kept by a module of its own (the cost register, the cost report, the valuation), read and never written: see `field-figures.ts`. */
-  | { op: 'figure'; of: string }
   | { op: 'add' | 'subtract' | 'multiply' | 'divide'; left: CheckFormula; right: CheckFormula }
   /** `100 * (left - right) / right`, the shape most DD variances take. */
   | { op: 'variance_pct'; left: CheckFormula; right: CheckFormula }

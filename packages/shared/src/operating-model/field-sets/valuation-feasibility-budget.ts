@@ -77,7 +77,7 @@ const B_TO_COMPLETE = 'finance.budget.to_complete';
 
 const own = (key: string): CheckFormula => ({ op: 'field', key });
 const there = (address: FieldAddress): CheckFormula => ({ op: 'field', key: address.field, at: address });
-const figure = (of: string): CheckFormula => ({ op: 'figure', of });
+const figure = (key: string): CheckFormula => ({ op: 'figure', key });
 const n = (value: number): CheckFormula => ({ op: 'const', value });
 const add = (left: CheckFormula, right: CheckFormula): CheckFormula => ({ op: 'add', left, right });
 const sub = (left: CheckFormula, right: CheckFormula): CheckFormula => ({ op: 'subtract', left, right });

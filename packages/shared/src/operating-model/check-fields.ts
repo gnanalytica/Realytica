@@ -337,8 +337,10 @@ export interface FormulaOutside {
   records(setId: string): Array<Record<string, CheckFieldValue>> | undefined;
   /** A figure from the rule table for the project's place, in force on a day, under conditions. */
   rate?(table: string, on: string | undefined, conditions: Record<string, string | number>): number | null;
-  /** A figure a module of its own keeps, by its key in `field-figures.ts`. */
-  figure?(key: string): number | null;
+  /** A figure another part of the product works out, by its key, of one thing where it is of one. */
+  figure?(key: string, of?: string): number | null;
+  /** The record the formula is worked out for, where its set repeats. */
+  record?: string;
   today?: Date;
 }
 
@@ -385,7 +387,29 @@ export function rowMeets(row: Record<string, unknown>, where: RowCondition): boo
       return cellNumber(raw) !== null && cellNumber(raw)! > Number(where.value);
     case 'lt':
       return cellNumber(raw) !== null && cellNumber(raw)! < Number(where.value);
+    case 'own':
+      // Settled by whoever knows the record it is asked for (`ownRows`). Asked bare, nothing is its own.
+      return false;
   }
+}
+
+/**
+ * A condition that joins rows to the record a formula is worked out for, as
+ * one that can be asked of a row: the row's column equals the record's id,
+ * or what the record's own field named in `value` holds. Null where that is
+ * not known, and then no row is the record's own.
+ */
+export function ownRows(where: RowCondition, values: Record<string, CheckFieldValue>, record: string | undefined): RowCondition | null {
+  if (where.is !== 'own') return where;
+  const own = typeof where.value === 'string' ? values[where.value]?.value : record;
+  return own === null || own === undefined || own === '' || typeof own === 'object' ? null : { column: where.column, is: 'equals', value: own };
+}
+
+/** The address a formula reads through one of its own links: the field of the record that link holds. */
+function through(at: FieldAddress, via: string | undefined, values: Record<string, CheckFieldValue>): FieldAddress | null {
+  if (!via) return at;
+  const record = values[via]?.value;
+  return typeof record === 'string' && record ? { ...at, record } : null;
 }
 
 function formulaRows(over: FormulaRows, values: Record<string, CheckFieldValue>, outside: FormulaOutside | undefined): Array<Record<string, unknown>> | null {
@@ -463,11 +487,18 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
   switch (formula.op) {
     case 'const':
       return formula.value;
-    case 'figure':
-      return outside?.figure?.(formula.of) ?? null;
     case 'field':
       // A field of another set is read through `outside`, and only where it stands there.
-      return formula.at ? fieldNumber(outside?.read(formula.at)) : fieldNumber(values[formula.key]);
+      if (!formula.at) return fieldNumber(values[formula.key]);
+      {
+        const at = through(formula.at, formula.via, values);
+        return at ? fieldNumber(outside?.read(at)) : null;
+      }
+    case 'figure': {
+      const of = formula.of ? values[formula.of]?.value : undefined;
+      if (formula.of && (typeof of !== 'string' || !of)) return null;
+      return outside?.figure?.(formula.key, typeof of === 'string' ? of : undefined) ?? null;
+    }
     case 'records': {
       const rows = outside?.records(formula.set);
       if (!rows) return null;
@@ -498,7 +529,8 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
     case 'count_if': {
       const rows = formulaRows(formula.over, values, outside);
       if (rows === null) return null;
-      const met = rows.filter((row) => rowMeets(row, formula.where));
+      const where = ownRows(formula.where, values, outside?.record);
+      const met = where ? rows.filter((row) => rowMeets(row, where)) : [];
       if (formula.op === 'count_if') return met.length;
       return met.reduce((total, row) => total + (cellNumber(row[formula.column]) ?? 0), 0);
     }
@@ -530,7 +562,11 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
       return rate === null ? null : rate * 100;
     }
     case 'date':
-      return dayNumber((formula.at ? outside?.read(formula.at) : values[formula.key])?.value);
+      if (!formula.at) return dayNumber(values[formula.key]?.value);
+      {
+        const at = through(formula.at, formula.via, values);
+        return at ? dayNumber(outside?.read(at)?.value) : null;
+      }
     case 'today':
       return Math.floor((outside?.today ?? new Date()).getTime() / 86_400_000);
     case 'add_days': {
