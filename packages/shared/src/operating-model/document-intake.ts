@@ -13,7 +13,7 @@
  */
 
 import { checkSchema } from './operations';
-import { acceptedFacts, standingFacts, settled, waitingReadings } from './fact-review';
+import { acceptedFacts, acceptedStanding, standingFacts, settled, unacceptedReadings, waitingReadings } from './fact-review';
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS } from './libraries';
 import { SCOPE_LABEL } from './catalogs';
 import { formatFieldValue, isBlank, standingField } from './check-fields';
@@ -442,6 +442,26 @@ export function factsOnFile(project: DdProject): Array<{ fact: DocumentFact; evi
   const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
   const rows = [...project.evidence].filter((e) => standingFacts(e).length).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   for (const evidence of rows) for (const fact of standingFacts(evidence)) out.push({ fact, evidence });
+  return out;
+}
+
+/**
+ * Every fact on the register a person has accepted, newest document first:
+ * what a chat answer tells as a fact. Narrower than `factsOnFile`: a reading
+ * nobody has looked at is offered to a check, and never said in a sentence.
+ */
+export function factsAcceptedOnFile(project: DdProject): Array<{ fact: DocumentFact; evidence: EvidenceRecord }> {
+  const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
+  const rows = [...project.evidence].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const evidence of rows) for (const fact of acceptedStanding(evidence)) out.push({ fact, evidence });
+  return out;
+}
+
+/** Every reading nobody has decided on a paper still relied on, whoever read it, newest document first: what such an answer says is waiting. */
+export function readingsUnacceptedOnFile(project: DdProject): Array<{ fact: DocumentFact; evidence: EvidenceRecord }> {
+  const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
+  const rows = [...project.evidence].filter((e) => e.status !== 'superseded' && e.status !== 'rejected').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const evidence of rows) for (const fact of unacceptedReadings(evidence)) out.push({ fact, evidence });
   return out;
 }
 

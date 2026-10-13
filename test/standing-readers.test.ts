@@ -24,6 +24,7 @@ import {
   DD_TYPE_DEFINITIONS,
   acceptWaiting,
   acceptedFacts,
+  acceptedStanding,
   acceptedOneAtATime,
   addEvidence,
   addRequest,
@@ -451,9 +452,24 @@ describe('a value that waits', () => {
     ]);
     const line = () => approvalsRegister(p, now).find((l) => l.kind.key === 'conversion')!;
     assert.deepEqual([line().status, line().held[0]!.issuedOn, line().held[0]!.validUntil], ['in_force', undefined, undefined], 'on file, and not lapsed on a model’s word');
-    assert.equal(line().say, 'On file; no dates read yet. A reading of its details is waiting to be accepted on the document.');
+    assert.equal(line().say, 'On file; no date accepted yet. What was read off it is waiting to be accepted.');
     reviewFacts(p, row.id, ['valid_until'], 'accept', 'tester');
     assert.deepEqual([line().status, line().held[0]!.validUntil], ['expired', '2020-03-12'], 'accepted by a person, the date is the approval’s');
+  });
+
+  it('dates no approval by the rules’ own sure reading either, until a person accepts it', () => {
+    // The rules read a typed sanction surely. It is offered to the check and the field, and is not told as "Issued" with nobody having looked.
+    const p = project();
+    const now = new Date('2026-10-06T00:00:00.000Z');
+    const row = filed(p, 'Plan sanction', 'Sanctioned building plan', [fact('sanction_date', 'Date of sanction', '2026-10-01', '1 Oct 2026')]);
+    assert.equal(standingFacts(row).length, 1, 'it stands far enough to be offered');
+    assert.deepEqual(acceptedStanding(row), [], 'and not far enough to be told as a fact');
+    const line = () => approvalsRegister(p, now).find((l) => l.kind.key === 'plan_sanction')!;
+    assert.equal(line().held[0]!.issuedOn, undefined);
+    assert.match(line().say, /What was read off it is waiting to be accepted\.$/);
+    reviewFacts(p, row.id, ['sanction_date'], 'accept', 'tester');
+    assert.equal(line().held[0]!.issuedOn, '2026-10-01');
+    assert.match(line().say, /^Issued 1 Oct 2026/);
   });
 
   it('is not said in the chat as on file, only as waiting', () => {
@@ -463,7 +479,7 @@ describe('a value that waits', () => {
     assert.deepEqual(readingsWaitingOnFile(p).map(({ fact: f }) => f.value), ['143/2']);
     const answer = answerFromFile(p, 'What is the survey number?')!;
     // The paper it waits on is cited after the sentence, as a mark the page draws as a chip for that paper at its page.
-    assert.equal(answer.text, `A model read survey number 143/2. Nobody has accepted it, so it is not on file. [ev:${row.id}:p1]`);
+    assert.equal(answer.text, `Survey number 143/2 was read off the paper. Nobody has accepted it, so it is not on file. [ev:${row.id}:p1]`);
     assert.equal(answer.summary, 'A reading is waiting');
     reviewFacts(p, row.id, ['survey_numbers'], 'accept', 'tester');
     assert.equal(answerFromFile(p, 'What is the survey number?')!.text, `Survey No. 143/2. [ev:${row.id}:p1]`);
@@ -472,14 +488,17 @@ describe('a value that waits', () => {
     const q = project();
     const deed = filed(q, 'Sale deed', 'Sale deed', [fact('extent_title', 'Extent per title', 2450, '2,450 sqm', { unit: 'sqm' })]);
     const khata = filed(q, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 'Extent per khata', 1115, '1,115 sqm', { unit: 'sqm', ...byModel('second_reader') })]);
+    // The deed's extent, read surely by the rules, is not told as a fact either while nobody has accepted it: both wait.
+    assert.equal(answerFromFile(q, 'What is the extent?')!.text, '2 readings are waiting to be accepted and are not on file: extent per title, extent per khata.');
+    reviewFacts(q, deed.id, ['extent_title'], 'accept', 'tester');
     assert.equal(
       answerFromFile(q, 'What is the extent?')!.text,
-      `Title 2,450 sqm. [ev:${deed.id}:p1]\nA model read extent per khata 1,115 sqm. Nobody has accepted it, so it is not on file. [ev:${khata.id}:p1]`,
+      `Title 2,450 sqm. [ev:${deed.id}:p1]\nExtent per khata 1,115 sqm was read off the paper. Nobody has accepted it, so it is not on file. [ev:${khata.id}:p1]`,
       'the model’s 1,115 is not set against the deed’s 2,450 as if both were on file',
     );
     const r = project();
     const held = filed(r, 'Sale deed', 'Sale deed', [contested()]);
-    assert.equal(answerFromFile(r, 'What is the survey number?')!.text, `Two readers read the survey number differently: 73/4 and 73/1. Nobody has kept one, so it is not on file. [ev:${held.id}:p1]`);
+    assert.equal(answerFromFile(r, 'What is the survey number?')!.text, `The survey number was read two ways: 73/4 and 73/1. Nobody has kept one, so it is not on file. [ev:${held.id}:p1]`);
   });
 
   it('raises no parcel or address card from a model’s notes or the words it quoted, nor from a paper this server was unsure of', () => {

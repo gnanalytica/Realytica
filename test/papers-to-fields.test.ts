@@ -31,6 +31,8 @@ import { confirmProposedType } from '../apps/api/src/documents/register-read';
 import { enrichIngestWithDocumentIntelligence } from '../packages/agents/src/project/ingest-intelligence';
 import {
   acceptAllFromPaper,
+  answerFromFile,
+  approvalsRegister,
   proposeFieldValues,
   refChoices,
   resolveFields,
@@ -468,6 +470,29 @@ describe('a paper dropped in the chat reaches the fields that wait for it', () =
     const q = project();
     const again = await drop(q, 'rtc');
     assert.deepEqual(fromPaper(q, again.id), { 'legal.title.land_records/parcel': '41/3', 'legal.title.land_records/rtc_extent': 2833 });
+  });
+
+  it('tells nothing a paper states as a fact until a person accepts it, and accepting it on its field is accepting it on its paper', async () => {
+    const p = project();
+    const now = new Date('2026-10-13T06:00:00.000Z');
+    const order = await drop(p, 'conversionOrder');
+    const line = () => approvalsRegister(p, now).find((held) => held.kind.key === 'conversion')!;
+    // Read surely by the rules, and still nobody has looked: the Approvals card dates nothing by it.
+    assert.equal(line().held[0]!.issuedOn, undefined);
+    assert.match(line().say, /What was read off it is waiting to be accepted\.$/);
+    const deed = await drop(p, 'saleDeed');
+    assert.doesNotMatch(answerFromFile(p, 'What is the property worth?')?.text ?? '', /last changed hands/);
+
+    // Accepted on the field it was offered to, by somebody who may decide: the paper is accepted as stating it.
+    decideField(p, { fn: 'legal.title', set: 'legal.title.holding', field: 'conversion_date' }, 'accept', 'lead', {}, { mayDecide: () => true });
+    assert.equal(line().held[0]!.issuedOn, '2018-06-12');
+    assert.equal(p.evidence.find((e) => e.id === order.id)!.facts!.find((f) => f.key === 'conversion_date')!.review, 'accepted');
+    assert.equal(p.evidence.find((e) => e.id === order.id)!.facts!.find((f) => f.key === 'conversion_order_no')?.review ?? 'proposed', 'proposed', 'and only that value');
+
+    // The purchase, taken as the deed offered it: its consideration is then a fact the chat may tell.
+    decideField(p, accepts(p, 'legal.contracts')[0]!.address!, 'accept', 'lead', {}, { mayDecide: () => true });
+    assert.equal(p.evidence.find((e) => e.id === deed.id)!.facts!.find((f) => f.key === 'consideration')!.review, 'accepted');
+    assert.match(answerFromFile(p, 'What is the property worth?')?.text ?? '', /last changed hands for/);
   });
 
   it('reads the papers the rules know into their fields', async () => {

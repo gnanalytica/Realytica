@@ -15,7 +15,7 @@
  */
 
 import type { DocumentFact } from './document-parse';
-import { factsOnFile, readingsWaitingOnFile } from './document-intake';
+import { factsAcceptedOnFile, readingsUnacceptedOnFile } from './document-intake';
 import { packCompleteness } from './operations';
 import { plural } from './text';
 import type { ChatChoice, DdProject, EvidenceRecord, FindingRecord, FindingSeverity } from './types';
@@ -277,10 +277,10 @@ function waitingLine(rows: Sourced[]): string {
   const where = cite(first);
   if (rows.length === 1) {
     return first.fact.otherReading
-      ? `Two readers read the ${first.fact.label.toLowerCase()} differently: ${first.fact.display} and ${first.fact.otherReading.display}. Nobody has kept one, so it is not on file. ${where}`
-      : first.fact.source === 'model'
-        ? `A model read ${first.fact.label.toLowerCase()} ${first.fact.display}. Nobody has accepted it, so it is not on file. ${where}`
-        : `${first.fact.label} ${first.fact.display} was read on a paper that was hard to read here. Nobody has accepted it, so it is not on file. ${where}`;
+      ? `The ${first.fact.label.toLowerCase()} was read two ways: ${first.fact.display} and ${first.fact.otherReading.display}. Nobody has kept one, so it is not on file. ${where}`
+      : first.fact.unsure
+        ? `${first.fact.label} ${first.fact.display} was read off a paper that was hard to read. Nobody has accepted it, so it is not on file. ${where}`
+        : `${first.fact.label} ${first.fact.display} was read off the paper. Nobody has accepted it, so it is not on file. ${where}`;
   }
   const labels = [...new Set(rows.map((row) => row.fact.label.toLowerCase()))];
   return `${rows.length} readings are waiting to be accepted and are not on file: ${labels.slice(0, 4).join(', ')}${labels.length > 4 ? ` and ${labels.length - 4} more` : ''}.`;
@@ -289,7 +289,7 @@ function waitingLine(rows: Sourced[]): string {
 /** An answer with what waits for its topic said after it; or, where the answer was that nothing is on file, said in its place. */
 function withWaiting(project: DdProject, topic: string, answer: FileAnswer | null): FileAnswer | null {
   const keys = TOPIC_KEYS[topic];
-  const waiting = keys ? readingsWaitingOnFile(project).filter((row) => keys.includes(row.fact.key)) : [];
+  const waiting = keys ? readingsUnacceptedOnFile(project).filter((row) => keys.includes(row.fact.key)) : [];
   if (!waiting.length) return answer;
   const line = waitingLine(waiting);
   const lead = waiting[0]!;
@@ -953,7 +953,8 @@ function answerFromFileUnfitted(project: DdProject, question: string, here: Chat
   if (top) return top;
   if (!looksLikeFileQuestion(q)) return null;
   const topics = topicsOf(q);
-  const facts = factsOnFile(project);
+  // Only what a person has accepted is told as a fact. What was read and waits is said to be waiting (`withWaiting`).
+  const facts = factsAcceptedOnFile(project);
   const scope = scopeOf(project, q, here);
   for (const topic of topics) {
     switch (topic) {

@@ -26,9 +26,9 @@ import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, 
 import { checkFieldsAsRead, checkOfferCards, checkOfferStanding, decideCheckWaiting, type CheckOffer } from './check-waiting';
 import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey } from './departments';
 import { surveyNumbersIn } from './document-intake';
-import type { DocumentFact, FactProof } from './document-parse';
+import { paperCarries, type DocumentFact, type FactProof } from './document-parse';
 import { allChecks } from './engagements';
-import { acceptedOneAtATime, proofOf, settled, standingFacts } from './fact-review';
+import { acceptedOneAtATime, proofOf, proposedFacts, settled, standingFacts } from './fact-review';
 import { projectFigure } from './field-figures';
 import { addressKey, depthSheet, fieldCatalog, fieldSetsOf, matchSides, optionSetById, refSet, sharedSetsOf, situationsOf, type FieldCatalog } from './field-registry';
 import { fieldCatalogFor, ruleRowsFor } from './firm-fields';
@@ -38,7 +38,7 @@ import { indiaToday } from './quarters';
 import { ruleCitation, ruleRow } from './rule-tables';
 import { parseMeasure, type Entered } from './units';
 import { recordAuditEvent } from './operations';
-import { decisionRefused } from './review';
+import { decisionRefused, mayDecidePaper, reviewFacts } from './review';
 import type { MayDecide } from './team';
 import { documentWorkstream } from './vault';
 import type {
@@ -1933,8 +1933,31 @@ export function decideField(
   if (next) holder[def.key] = next;
   else delete holder[def.key];
   project.updatedAt = at;
+  if (decision === 'accept' && next?.state === 'accepted') acceptOnPaper(project, def, next, actor, options);
   recordAuditEvent(project, { actor, action: `field_${decision}`, entityType: 'field', entityId: addressKey(address), newValue: next && !isBlank(next) ? String(next.value).slice(0, 120) : decision, at });
   return next;
+}
+
+/**
+ * Accepted on a field as read off a paper, so the paper is accepted as
+ * stating it: the same value is not asked about twice, and what tells only a
+ * paper's accepted values (the Approvals card, an answer in the chat) follows
+ * the field. Only acceptance travels this way, only for the value the paper
+ * itself holds under the field's key, and only where the person may decide
+ * the paper too: a lead of the field's department who does not lead the
+ * paper's leaves the paper's own value waiting there.
+ */
+function acceptOnPaper(project: DdProject, def: CheckFieldDef, accepted: CheckFieldValue, actor: string, options: FieldWriteOptions): void {
+  const origin = accepted.origin;
+  if (origin?.kind !== 'paper') return;
+  const row = project.evidence.find((held) => held.id === origin.evidenceId);
+  const key = def.factKey ?? def.key;
+  if (!row || !paperCarries(row.documentType, key)) return;
+  const agrees = (read: DocumentFact['value']) =>
+    typeof read === 'number' && typeof accepted.value === 'number' ? Math.abs(read - accepted.value) <= Math.max(1, Math.abs(read) * 0.001) : String(read) === String(accepted.value);
+  if (!proposedFacts(row).some((fact) => fact.key === key && agrees(fact.value))) return;
+  if (options.mayDecide && !mayDecidePaper(project, row, options.mayDecide)) return;
+  reviewFacts(project, row.id, [key], 'accept', actor, undefined, options.mayDecide ? { mayDecide: options.mayDecide } : {});
 }
 
 /**
