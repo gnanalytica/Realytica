@@ -2711,6 +2711,14 @@ export interface ChoicePin {
   plan?: { id: string; act: 'run' | 'cancel' | 'stop' | 'carry_on' | 'take_out'; step?: number };
   /** On the Undo under a reply: the reply whose changes are put back, by its id. The sentence beside it is not read. */
   undo?: { turnId: string };
+  /**
+   * On a choice of the chat asking for what is missing: start a run over the
+   * fields or readings it names, answer the question open with the value it
+   * carries, skip it, or stop. A choice that answers or skips names the run
+   * and the question by its place, so a press of an old button changes
+   * nothing once the run has moved on (`chat-ask.ts`).
+   */
+  ask?: import('./operating-model/chat-ask').AskPin;
 }
 
 export interface CopilotTurn {
@@ -2758,6 +2766,10 @@ export interface CopilotTurn {
   planId?: string;
   /** On a project's chat: what this reply changed on the record, and whether it has been undone. */
   changed?: import('./operating-model/turn-changes').TurnChanged;
+  /** On a project's chat: where this reply's message left suggestions, a line for each place. See `ProjectChatTurn`. */
+  suggested?: import('./operating-model/chat-suggestions').TurnSuggested[];
+  /** On a project's chat: the run of questions this reply is part of, as it stood then. See `ProjectChatTurn`. */
+  asking?: import('./operating-model/chat-ask').ChatAsking;
 }
 
 /* ------------------------------------------------------------------ */

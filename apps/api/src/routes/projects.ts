@@ -98,6 +98,7 @@ import {
   decideField,
   departmentRole,
   fieldFunctionsInReach,
+  fieldsInReach,
   fieldSourceInReach,
   functionReportTemplate,
   projectView,
@@ -151,6 +152,10 @@ import {
   setAsideWaiting,
   assignOwner,
   applyProjectAgentTurn,
+  chatTurnId,
+  chatWaiting,
+  chatAcceptedSaid,
+  type ChatAccepted,
   PHOTO_NOTE_MOST,
   setPhotoNote,
   chatPlaceFrom,
@@ -188,6 +193,7 @@ import {
   memAsksForLint,
   memAsksMemory,
   CHAT_NOT_ANSWERED,
+  asksForMissing,
   chatQuestionAsked,
   memContextText,
   memLintLine,
@@ -1284,6 +1290,23 @@ function ownSitting(project: DdProject, sessionId: string | undefined, actor: st
 }
 
 /**
+ * The chat a page names by id, among the chats this person is in.
+ *
+ * The page names the chat on screen: their own sitting, or the earlier chat
+ * it carries on (`liveChatId`), which may be a colleague's. That is the chat
+ * when this person has said something in it, under its id or a sitting of
+ * theirs within it. Otherwise the id is read as their own sitting
+ * (`ownSitting`), so naming somebody else's chat finds none of it.
+ */
+function chatOnScreen(canvas: DdProject, project: DdProject, id: string, actor: string): string {
+  const own = ownSitting(project, id, actor) ?? id;
+  const chats = chatSessions(canvas.conversation);
+  const theirs = (chatId: string) => chats.some((chat) => (chat.id === chatId || chat.turns.some((turn) => turn.sessionId === chatId)) && chat.turns.some((turn) => turn.actor === actor));
+  if (own !== id && theirs(own)) return own;
+  return theirs(id) ? id : own;
+}
+
+/**
  * The earlier chat a sitting carries on, when it is one this person can see.
  *
  * Asked of their own view of the thread, before this request adds to it. A
@@ -1538,7 +1561,8 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * firm's own people, and never for a choice that accepts or sets aside.
    * Whatever it is, it is answered here and goes no further.
    */
-  if (!sitting?.decision && viewFor(req, project).project === project) {
+  // Nor for the chat asking for what is missing: "stop" or "skip" there is about the question open, and no plan's.
+  if (!sitting?.decision && !asksForMissing(viewFor(req, project).project, question, { sitting, place, chat: { sessionId: ownSitting(project, parsed.data.sessionId, actorOf(req)), continues: carriedChat(project, parsed.data.continues), actor: actorOf(req) } }) && viewFor(req, project).project === project) {
     const who = actorOf(req);
     const sessionId = ownSitting(project, parsed.data.sessionId, who);
     const setting: PlanSetting = { project, actor: who, mayDecide: decidesFor(req, project), tenantId: principalOf(req).tenantId, chat: { sessionId, continues: carriedChat(project, parsed.data.continues), startedAt: parsed.data.sessionStartedAt, actor: who }, place };
@@ -1686,7 +1710,9 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * which reads a single value off the file does not answer in its place.
    */
   // Not one of the questions answered from the functions the screens read: "what changed in cost since last month" is the Cost Report's to answer, and memory's only where no such rule has it.
-  const askedOfMemory = !notes && memoryLint === undefined && !sitting?.decision && !chatQuestionAsked(question) ? memAsksMemory(question) : undefined;
+  // Nor is an answer to the chat's own question, or "ask me": the rules read those, and nothing else does.
+  const askingNow = asksForMissing(canvas, question, { sitting, place, chat });
+  const askedOfMemory = !notes && memoryLint === undefined && !sitting?.decision && !askingNow && !chatQuestionAsked(question) ? memAsksMemory(question) : undefined;
   const memorySaid = askedOfMemory ? await memoryAnswer(seen, askedOfMemory, { question, place, sitting }).catch(() => undefined) : undefined;
   const deterministic = Boolean(notes) || nothingLeftToRead || memoryLint !== undefined || memorySaid !== undefined || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
   const stream = beginNdjson(res);
@@ -1757,7 +1783,18 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
        * is tagged by code, and the answer cites lines by their marks.
        */
       const remembered = await memoryContext(seen, { question, place, sitting }).catch(() => undefined);
+      /*
+       * The message, as its turn will be kept, told to the model's tools
+       * before the turn is made: a value the person states is offered in
+       * their own words, and everything offered is kept under the message.
+       * What the tools write is compared with the record as it stood before,
+       * so the message can be undone with its suggestions.
+       */
+      const askedSitting = ownSitting(project, parsed.data.sessionId, actor);
+      const asked = { turnId: chatTurnId(), ...(askedSitting ? { sessionId: askedSitting } : {}) };
+      if (canvas === project) stood ??= recordBefore(project);
       const agent = await runProjectChat({
+        said: { tag: asked, by: actor, message: question, at: new Date().toISOString() },
         project: canvas,
         question,
         actor,
@@ -1823,7 +1860,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
          * of those surfaces is a fix missing from the others.
          */
         agent.text = linkRecordIds(canvas, agent.text);
-        const result = applyProjectAgentTurn(canvas, question, agent);
+        const result = applyProjectAgentTurn(canvas, question, agent, asked, { outside: canvas !== project });
         sayWhatIsMissing(seen, question, result);
         /*
          * Tags last, on the words as they are kept. Each mark the answer
@@ -1839,7 +1876,9 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
         // A question the turn held back is kept as words: no mark and no tag is left in it.
         if (result.assistantTurn.heldQuestions) result.assistantTurn.heldQuestions = result.assistantTurn.heldQuestions.map((held) => memTagsPrinted(held, undefined).text);
         stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
-        mergeConversation(project, canvas, actor, turnsBefore);
+        mergeConversation(project, canvas, actor, turnsBefore, grantedFieldReach(req, project));
+        // What the model's tools suggested is kept with the reply: listed under it, and undone on its own, later.
+        await keepTurnChanges(project, stood, result.assistantTurn);
         // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
         project.updatedAt = new Date().toISOString();
         await store.save();
@@ -1912,7 +1951,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
    * does, the chat's rules answer as they did. Only the papers on this
    * person's copy of the project are searched.
    */
-  const ownTurn = !notes && !nothingLeftToRead && memoryLint === undefined && memorySaid === undefined && !sitting?.decision;
+  const ownTurn = !notes && !nothingLeftToRead && memoryLint === undefined && memorySaid === undefined && !sitting?.decision && !askingNow;
   let sought = ownTurn ? paperWordsAsked(question) : undefined;
   let named: MemSaid | undefined;
   if (ownTurn && !sought && !deterministic) {
@@ -2007,7 +2046,7 @@ projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
     const last = canvas.conversation[canvas.conversation.length - 1];
     if (last?.id === result.assistantTurn.id) last.unanswered = unanswered;
   }
-  mergeConversation(project, canvas, actor, turnsBefore);
+  mergeConversation(project, canvas, actor, turnsBefore, grantedFieldReach(req, project));
   if (result.commands.some((c) => /approved|accepted/i.test(c))) await rememberProject(project);
   // What this message changed is kept with its reply: listed under it, and undone on its own, later.
   await keepTurnChanges(project, stood, result.assistantTurn);
@@ -2221,6 +2260,78 @@ projectsRouter.post('/:projectId/proposals/:proposalId/set-aside', async (req, r
     refreshProjectDerived(project);
     await store.save();
     res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * Accept everything one chat suggested that still waits: the button at the
+ * top of that chat.
+ *
+ * What it accepts is read here, afresh, from the chat's id: every value on a
+ * sheet, every value for a check, every fact of the record and every row or
+ * change to a row that carries one of the chat's messages and still waits
+ * (`chatWaiting`), as this caller's copy of the project holds them. Nothing
+ * the page sends says what to accept. Each is accepted the way accepting it
+ * where it waits would: a value by a lead or signer of its function, a
+ * check's values by a lead or signer of the check's department, a card by
+ * the firm's own people. What is not this person's is left waiting, and the
+ * line said back says how many and why. A value that waits beside a value the
+ * field holds is a choice between the two, and is left for the field.
+ */
+projectsRouter.post('/:projectId/chat/sessions/:sessionId/accept', async (req, res) => {
+  await store.syncProject(req.params.projectId, { force: true }).catch(() => undefined);
+  const project = findProject(req.params.projectId);
+  const access = project ? accessTo(req, project) : undefined;
+  if (!project || !access?.ok) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    const who = actorOf(req);
+    // Read off this caller's copy: a collaborator's holds the sheets in their reach and none of the firm's cards.
+    const seen = viewFor(req, project).project;
+    const waiting = chatWaiting(seen, chatOnScreen(seen, project, req.params.sessionId, who));
+    const me = principalOf(req);
+    const person = { email: me.email, workspaceRole: me.role };
+    const mayDecide = decidesFor(req, project);
+    const options: FieldWriteOptions = { mayDecide, mayEdit: (department) => roleCanEdit(departmentRole(project, person, department)), roleIn: (department) => departmentRole(project, person, department) };
+    const done: ChatAccepted = { accepted: {}, left: 0, why: [], beside: waiting.beside };
+    const kindOf = new Map(waiting.suggestions.map((one) => [one.id, one]));
+    const leave = (err: unknown): void => {
+      done.left += 1;
+      const why = err instanceof Error ? err.message : 'It could not be accepted.';
+      if (!done.why.includes(why)) done.why.push(why);
+    };
+    for (const address of waiting.fields) {
+      try {
+        decideField(project, address, 'accept', who, {}, options);
+        done.accepted.value = (done.accepted.value ?? 0) + 1;
+      } catch (err) {
+        if (!(err instanceof FieldRefused || err instanceof DecisionRefused)) throw err;
+        leave(err);
+      }
+    }
+    for (const id of waiting.cards) {
+      const card = project.chatProposals.find((held) => held.id === id && held.status === 'proposed');
+      const one = kindOf.get(id);
+      if (!card || !one) continue;
+      try {
+        if (access.access.kind === 'granted') throw new WriteRefused('What the firm keeps on its registers and its record is for the firm’s own people to accept.', 403);
+        if (card.kind === 'record_check_fields') assertMayDecideCheck(project, String(card.payload.checkId), mayDecide);
+        acceptWaiting(project, card.id, who, { mayDecide });
+        done.accepted[one.kind] = (done.accepted[one.kind] ?? 0) + one.count;
+      } catch (err) {
+        leave(err);
+      }
+    }
+    const said = chatAcceptedSaid(done);
+    if (Object.keys(done.accepted).length) {
+      refreshProjectDerived(project);
+      await persistPaneWrite(req, project, `${said.split('. ')[0]!.replace(/\.$/, '')} from a chat.`);
+    }
+    res.json({ project: projectFor(req, project), ...done, said });
   } catch (err) {
     fail(res, err);
   }
@@ -2909,7 +3020,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
     if (last?.id === result.assistantTurn.id && last !== result.assistantTurn) last.text = result.assistantTurn.text;
   }
   stampSession(result, ownSitting(project, fields.sessionId, actor), { continues, place: fields.place });
-  mergeConversation(project, canvas, actor, turnsBefore);
+  mergeConversation(project, canvas, actor, turnsBefore, grantedFieldReach(req, project));
   // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
   project.updatedAt = new Date().toISOString();
   if (canvas !== project) keepReadings(project, enriched);
@@ -4706,6 +4817,12 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
 /* ==================================================================== */
 /* Editing a report                                                      */
 /* ==================================================================== */
+
+/** The same test, field by field: what a collaborator's chat may write back onto the sheets from their copy. Nothing for the firm's own people, whose chat runs on the project itself. */
+function grantedFieldReach(req: Request, project: DdProject): ((set: string, field: string) => boolean) | undefined {
+  const access = accessTo(req, project);
+  return access.ok && access.access.kind === 'granted' ? fieldsInReach(access.access.grant) : undefined;
+}
 
 /** The test a grant's copy of the sheets is cut by, for somebody working from one. Nothing for the firm's own people, who read every field. */
 function grantedReach(req: Request, project: DdProject): ((fn: string) => boolean) | undefined {

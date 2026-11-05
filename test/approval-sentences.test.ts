@@ -1003,7 +1003,7 @@ describe('a paper read where it was filed on the register', () => {
     assert.equal(acceptedFacts(row).length, waiting);
   });
 
-  it('and not an older reply of that chat', async () => {
+  it('and with it what an older reply of that chat left waiting, as the chat’s own Accept all takes it', async () => {
     const p = seedBdaReferenceProject();
     const chat = sitting('me@example.com');
     kept(drop(p, order()), chat, 'me@example.com');
@@ -1011,7 +1011,7 @@ describe('a paper read where it was filed on the register', () => {
 
     say(p, 'approve all', chat);
     assert.equal(proposedFacts(row).length, 0, 'the khata, which the last reply read');
-    assert.equal(dateOnCheck(p), undefined, 'and not the order’s date, from the reply before');
+    assert.equal(dateOnCheck(p), '2019-04-02', 'and the order’s date, which the reply before left on its check in this chat');
   });
 
   it('is not on screen in a chat that began after it', async () => {
@@ -1245,11 +1245,16 @@ describe('a card whose title holds the words of a register command', () => {
     }
   });
 
-  it('while the same words with no card named are the register’s', () => {
+  it('while the same words with no card named are the register’s, and wait on it as a change to the risk', () => {
     const p = seedDemoProject();
     raise(p, 'One thing.', request('Request the fire NOC'));
     const risk = p.risks.find((r) => r.title === 'Fire approval risk on Tower A')!;
+    const was = risk.status;
     say(p, 'accept the fire approval risk');
+    assert.equal(risk.status, was, 'nothing changes until the suggestion is accepted');
+    const change = p.chatProposals.find((card) => card.kind === 'patch_record' && card.status === 'proposed')!;
+    assert.deepEqual(change.payload, { register: 'risk', status: 'accepted', recordId: risk.id });
+    say(p, 'approve all');
     assert.equal(risk.status, 'accepted');
   });
 });

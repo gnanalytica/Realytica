@@ -145,6 +145,7 @@ export function fieldPrinted(project: DdProject, view: FieldView): FieldPrinted 
   else if (source?.kind === 'external') notes.push([`${source.label}${source.asOf ? `, read ${day(source.asOf) || source.asOf}` : ''}`, decided].filter(Boolean).join('; '));
   else if (source?.kind === 'field') notes.push(`Read from ${source.label}.`.replace(/\.\.$/, '.'));
   else if (source?.kind === 'default') notes.push(`A usual value${source.label ? `: ${source.label}` : ''}. It gives way when a value is recorded.`);
+  else if (source?.kind === 'chat') notes.push([`Said in the chat by ${source.label}${day(source.asOf) ? ` on ${day(source.asOf)}` : ''}`, decided].filter(Boolean).join('; '));
   else if (!fieldIsDerived(def) && held!.by && held!.by !== 'computed') notes.push(`Entered by ${personSaid(project, held!.by)}${day(held!.at) ? ` on ${day(held!.at)}` : ''}`);
 
   const cites = view.cites ?? [];

@@ -226,9 +226,12 @@ describe('what counts as a question', () => {
 });
 
 describe('commands that used to land in the wrong place', () => {
-  it('"add a risk: …" logs a risk and adds no asset called "a risk"', () => {
+  it('"add a risk: …" suggests a risk, logged once accepted, and no asset called "a risk"', () => {
     const project = readFile();
-    applyProjectChat(project, 'Add a risk: boundary wall encroachment on the north edge');
+    const out = applyProjectChat(project, 'Add a risk: boundary wall encroachment on the north edge');
+    assert.deepEqual(out.proposals.map((card) => card.kind), ['add_risk'], 'it waits on the register as a suggested row');
+    assert.ok(!project.risks.some((r) => /boundary wall encroachment/.test(r.title)), 'nothing is on the register until it is accepted');
+    applyProjectChat(project, 'approve all');
     assert.ok(project.risks.some((r) => /boundary wall encroachment/.test(r.title)));
     assert.ok(!project.assets.some((a) => /^a risk$/i.test(a.name)), project.assets.map((a) => a.name).join(', '));
   });
@@ -241,9 +244,11 @@ describe('commands that used to land in the wrong place', () => {
     assert.ok((out.assistantTurn.choices ?? []).length > 0, 'offers where it could go');
   });
 
-  it('"add evidence: …" puts a requested row on the register', () => {
+  it('"add evidence: …" suggests a requested row, on the register once accepted', () => {
     const project = readFile();
     applyProjectChat(project, 'add evidence: survey sketch');
+    assert.equal(project.evidence.find((e) => e.title === 'Survey sketch'), undefined, 'it waits until accepted');
+    applyProjectChat(project, 'approve all');
     const row = project.evidence.find((e) => e.title === 'Survey sketch');
     assert.equal(row?.status, 'requested');
   });
@@ -273,11 +278,14 @@ describe('commands that used to land in the wrong place', () => {
     assert.equal(reportKindRequested('what does the red flag report say?'), null, 'asking about one is not asking for one');
   });
 
-  it('re-grades a finding it can name, and asks when it cannot', () => {
+  it('suggests a new grade for a finding it can name, graded once accepted, and asks when it cannot', () => {
     const project = readFile();
     const named = applyProjectChat(project, 'mark the "Subsisting mortgage" finding as high');
+    assert.equal(project.findings.find((f) => f.title === 'Subsisting mortgage on the EC')?.severity, 'critical', 'the grade waits on the register');
+    assert.match(named.assistantTurn.text, /was critical\) waits as a suggestion on Findings/);
+    assert.deepEqual(named.assistantTurn.suggested?.map((line) => line.words), ['Suggested a change on Findings']);
+    applyProjectChat(project, 'approve all');
     assert.equal(project.findings.find((f) => f.title === 'Subsisting mortgage on the EC')?.severity, 'high');
-    assert.match(named.assistantTurn.text, /was critical/);
     addFinding(project, { title: 'Built area exceeds permitted FAR', description: 'x', severity: 'high', discipline: 'regulatory' });
     const vague = applyProjectChat(project, 'mark the finding as critical');
     assert.deepEqual(tools(vague), ['clarify']);
@@ -409,6 +417,7 @@ describe('a record asked for by its own words', () => {
   it('opens a risk, an action and a decision the same way', () => {
     const project = readFile();
     applyProjectChat(project, 'Add a risk: boundary wall encroachment on the north edge');
+    applyProjectChat(project, 'approve all');
     const risk = project.risks.find((r) => /boundary wall/.test(r.title))!;
     assert.equal(applyProjectChat(project, 'open the boundary wall risk').navigations.at(-1)?.riskId, risk.id);
     project.decisions.push({ ...structuredClone(seedDecision()), id: 'dec_1', title: 'The lender will be given the 30-year encumbrance certificate.', status: 'approved' });

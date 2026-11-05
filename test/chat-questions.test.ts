@@ -358,7 +358,11 @@ describe('a place, never a change', () => {
     assert.deepEqual([result.proposals.length, p.chatProposals.length, p.owner], [0, 0, owner], 'the project’s owner is not offered a change');
     assert.equal(wantsDeterministicProjectChat(p, 'Open the owner pack for September 2026'), true);
     // Other ways of naming the month, and none.
-    assert.deepEqual(ask(p, 'show me the owner pack for Aug 2026').navigations, [{ target: 'reports', item: `${PACK_MONTH}2026-08` }]);
+    // August's milestones have no reading for it: Reports opens with the chat beside it, which offers to ask for them before the paper is read.
+    const august = ask(p, 'show me the owner pack for Aug 2026');
+    assert.deepEqual(august.navigations, [{ target: 'reports' }]);
+    assert.match(august.assistantTurn.text, /^No owner pack is kept for August 2026 yet\. \d+ milestones? ha(?:s|ve) no reading for that month: /);
+    assert.deepEqual(august.assistantTurn.choices?.map((choice) => [choice.label, choice.sitting?.ask]), [['Ask me for the readings', { act: 'start', month: '2026-08' }]]);
     assert.deepEqual(ask(p, 'Open the owner pack for last month').navigations, [{ target: 'reports', item: `${PACK_MONTH}2026-09` }]);
     assert.deepEqual(ask(p, 'Open the owner pack').navigations.at(-1), { target: 'reports' });
   });

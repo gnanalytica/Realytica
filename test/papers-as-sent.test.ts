@@ -384,9 +384,11 @@ describe('what Overview says of a project in two places', () => {
     const p = project('procurement');
     loadTenderForm(p, parseTenderFormRows(formRows({ '6.1': '5%', '7.4': '12 months', '7.1': 'Item rate' }))!, { file: 'Client inputs.xlsx', actor: WHO, today: '2026-11-01' });
     const now = new Date('2026-11-01T06:00:00Z');
-    const top = projectBrief(p, now).find((line) => line.key === 'needs')!.parts.find((part) => /to accept/.test(part.text))!.text;
+    // The top line counts a place at a time ("Procurement › Tender: 4 suggestions"); added up, it is the same count as by department.
+    const parts = projectBrief(p, now).find((line) => line.key === 'needs')!.parts.map((part) => part.text);
+    const top = parts.reduce((sum, text) => sum + Number(/(\d+) (?:suggestions?|values? on papers to read|(?:more )?to accept)\b/.exec(text)?.[1] ?? 0), 0);
     const byDepartment = departmentAnalytics(p, now).departments.reduce((sum, department) => sum + department.waiting.count, 0);
-    assert.equal(top, `${byDepartment} to accept`, 'never "N to accept" above "nothing waits in any department"');
+    assert.equal(top, byDepartment, `never a count to accept above "nothing waits in any department": ${parts.join(' | ')}`);
     assert.ok(byDepartment > 0);
   });
 

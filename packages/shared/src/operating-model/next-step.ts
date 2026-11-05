@@ -32,10 +32,14 @@ import type {
 import { isoDaysFromNow } from './sitting';
 import { plural } from './text';
 import {
-  createChatProposal,
+  createChatProposal as cardOf,
   recommendedDdTypesForProject,
   suggestedAssets,
 } from './wizard';
+import { apartFromChat } from './chat-tag';
+
+/** A card the next step raises: its own suggestion, never under the message being answered (`apartFromChat`). */
+const createChatProposal: typeof cardOf = (...made) => apartFromChat(() => cardOf(...made));
 
 const SCOPE_PRIORITY: Array<ScopeInstance['scopeKey']> = [
   'legal',

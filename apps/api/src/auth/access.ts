@@ -1,5 +1,6 @@
 import type { Request } from 'express';
 import {
+  chatValuesCarried,
   decidesIn,
   fullView,
   grantHasExpired,
@@ -193,14 +194,24 @@ export function decidesFor(req: Request, project: DdProject): MayDecide {
  * copy and is gone with it. A line for it would have the trail name a record
  * that does not exist.
  *
+ * So do the values a message of theirs suggested on a sheet: an answer to
+ * the chat's own question, or a model's offer in their words. The copy's
+ * sheets are copies too, so each value is offered again on the real sheet,
+ * checked again, and only on a field `reach` says their grant hands over
+ * (`chatValuesCarried`). With no `reach`, none is: a reply that says
+ * "Suggested" for a value that is nowhere is what this is here to stop, and
+ * writing into a sheet nobody said was in reach would be worse.
+ *
  * Every turn is stamped with who wrote it. That stamp is what makes a
  * collaborator's own thread readable to them later — an unattributed turn
  * cannot be shown to be theirs, so it stays inside.
  */
-export function mergeConversation(project: DdProject, canvas: DdProject, actor: string, from: number): void {
+export function mergeConversation(project: DdProject, canvas: DdProject, actor: string, from: number, reach?: (set: string, field: string) => boolean): void {
   if (canvas !== project) {
     const known = new Set(project.conversation.map((t) => t.id));
+    const said = canvas.conversation.filter((t) => !known.has(t.id) && t.role === 'user');
     for (const t of canvas.conversation) if (!known.has(t.id)) project.conversation.push(t);
+    if (reach) for (const t of said) chatValuesCarried(project, canvas, { turnId: t.id, text: t.text, by: t.actor ?? actor }, reach);
 
     const raised = new Set((project.chatProposals ?? []).map((p) => p.id));
     for (const p of canvas.chatProposals ?? []) {

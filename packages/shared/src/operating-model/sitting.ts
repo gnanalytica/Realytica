@@ -145,6 +145,8 @@ export const WAITING_FROM_EARLIER = 'waiting_from_earlier';
  * and stays a button.
  */
 export function choiceMayBePressed(choice: ChatChoice, turn: { id: string }, onScreen: readonly { id: string; role: string }[], readingAnEarlierChat: boolean): boolean {
+  // A choice of the chat's asking names its run and question, and the server reads it against the run as it stands now. Not in a chat being read.
+  if (choice.sitting?.ask) return !readingAnEarlierChat;
   if (!choice.sitting?.decision) return true;
   if (readingAnEarlierChat) return false;
   return onScreen.filter((t) => t.role === 'assistant').at(-1)?.id === turn.id;

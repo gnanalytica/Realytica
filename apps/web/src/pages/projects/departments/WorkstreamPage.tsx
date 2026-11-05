@@ -247,6 +247,8 @@ function visitOf(key: string): number {
  */
 function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = false }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void; highlightIds?: string[]; sheetsOnly?: boolean }) {
   const nav = useWorkstreamNav(project);
+  // A reading the chat suggested is accepted on its milestone the way it is anywhere it waits.
+  const { onAcceptWaiting, onSetAsideWaiting, waitingBusy } = useOutletContext<ProjectOutlet>();
   const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useSearchParams();
@@ -340,7 +342,13 @@ function FunctionSections({ project, ws, setProject, highlightIds, sheetsOnly = 
     ws.key === 'legal.approvals'
       ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={openHere} marked={item} onChanged={setProject} /> }
       : ws.key === 'construction.progress'
-        ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} marked={item} /> }
+        ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard
+              project={project}
+              onChanged={setProject}
+              onPairPhone={nav.pairPhone}
+              marked={item}
+              decide={onAcceptWaiting && onSetAsideWaiting ? { onAccept: (id) => onAcceptWaiting(id), onSetAside: onSetAsideWaiting, busy: waitingBusy } : undefined}
+            /> }
         : ws.key === 'finance.budget'
           ? { id: 'cost', name: 'Cost Report', icon: Wallet, body: <BudgetDesk project={project} onChanged={setProject} /> }
           : ws.key === 'procurement.boq'

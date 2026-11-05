@@ -253,7 +253,9 @@ describe('one card waiting', () => {
     const one = applyProjectChat(fresh(), 'The owner is Asha Menon');
     assert.equal(one.proposals.length, 1);
     // Was: "I can apply these updates from what you just said. They are waiting on the right; …"
-    assert.equal(one.assistantTurn.text.split('\n')[0], 'I can apply this update from what you just said. It is waiting on the right; nothing is written until you accept it there.');
+    // A fact of the project record waits beside the fact, on Overview, and the reply says where.
+    assert.equal(one.assistantTurn.text.split('\n')[0], 'I can apply this update from what you just said. It waits beside the fact on Overview, under Key facts; nothing is written until you accept it there.');
+    assert.deepEqual(one.assistantTurn.suggested?.map((line) => line.words), ['Suggested the owner on Overview › Key facts']);
   });
 });
 

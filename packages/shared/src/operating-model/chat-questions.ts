@@ -29,7 +29,7 @@
 import type { ChatAnswerCard, ChatAnswerRow, ChatOpen } from './chat-answer';
 import { chatAnswerCard } from './chat-answer';
 import type { ChatPlace } from './chat-places';
-import { chatPlaceLabel, menuPlaceOfWords, papersOwedOpen } from './chat-places';
+import { PLACE_PERIOD, chatPlaceLabel, menuPlaceOfWords, papersOwedOpen } from './chat-places';
 import { moneySaid } from './cost';
 import { costReportPeriodOrder, costReportTotals, costReportsOf, type CostReportPackageRow, type CostReportPeriod } from './cost-report';
 import { costReportChanges, largestCostMovements, type CostReportChangeCause, type CostReportPackageChange } from './cost-report-compare';
@@ -47,7 +47,7 @@ import { partiesByRole } from './project-parties';
 import { ownerPacksKept } from './report-day';
 import { daySaid } from './said';
 import { projectDepartments } from './team';
-import type { DdProject, FieldAddress } from './types';
+import type { DdProject, FieldAddress, ProjectChatTurn } from './types';
 
 /* ==================================================================== */
 /* The shapes                                                            */
@@ -357,8 +357,19 @@ const REPORT_FIGURES: ReadonlyArray<{ key: ReportFigure; label: string; words: R
 
 const CERTIFIED = /\bcertified\b/;
 
+/** How far a forecast is over its budget, in the words people use for it: "over budget", "overrun", "overspend", "how much over". */
+const OVER = /\bover(?:[- ]the)?[- ]?budget\b|\bover ?run\w*|\bover ?spen[dt]\w*|\bhow (?:much|far) over\b|\bexceed\w* (?:the |its |our )?budget\b|\bbudget (?:overrun|variance)\b/i;
+/** The figure an over-budget question is asked as, and as a model names it. */
+export const OVER_BUDGET = 'over budget';
+
 /** Words of a package's name that tell one package from another. */
 const packageWords = (name: string): string[] => fold(name).split(' ').filter((word) => word && !['the', 'a', 'package', 'packages', 'work', 'works', 'so', 'far', 'to', 'date', 'till', 'now', 'on', 'this', 'project'].includes(word));
+
+/** The packages a sentence names anywhere in it, by a word of their own: "how much over budget is civil now" names Civil works. */
+function packagesSaid(report: CostReportPeriod, said: string): CostReportPackageRow[] {
+  const words = new Set(packageWords(said));
+  return report.rows.filter((row) => packageWords(`${row.code ?? ''} ${row.name}`).some((word) => word.length > 1 && words.has(word)));
+}
 
 function packagesNamed(report: CostReportPeriod, of: string): CostReportPackageRow[] {
   const asked = packageWords(of);
@@ -421,8 +432,24 @@ const figureNamed: Builder = (project, asked, { now, catalog = fieldCatalogFor(p
     if (stated.length) return { card: card(`No bill is certified on the cost register. As the ${COST_REPORT} states it:`, stated), summary };
     return { card: card('No bill is certified on the cost register, so nothing says how much is certified.', [], [{ label: COST_REPORT, open }]), summary };
   }
-  const which = REPORT_FIGURES.find((held) => held.words.test(name));
   const report = lastIssued(project) ?? costReportsOf(project).filter((held) => held.status !== 'superseded').sort(costReportPeriodOrder).at(-1);
+  if (OVER.test(name)) {
+    // How far the forecast stands from the budget: of the packages the sentence names, else of the whole report with the packages over it.
+    if (!report) return { card: card('No Cost Report is on file, so nothing says how far cost is from the budget.', [], [{ label: COST_REPORT, open }]), summary };
+    const from = `${report.label}${report.status === 'issued' ? '' : ', not issued'}`;
+    const against = (forecast: number, budget: number): string => {
+      const over = forecast - budget;
+      const both = `forecast ${money(forecast)} against a budget of ${money(budget)}`;
+      return `${over > 0 ? `+${money(over)}` : over < 0 ? `${money(-over)} under` : 'On budget'} (${both})`;
+    };
+    const row = (label: string, forecast: number, budget: number) => figure(`${forecast > budget ? 'Over budget' : 'Against budget'} · ${label} · ${from}`, against(forecast, budget), open, 'worked_out');
+    const packs = packagesSaid(report, asked.of ?? '');
+    if (packs.length) return { card: card(`From the ${COST_REPORT}:`, packs.slice(0, PACKAGES_SAID).map((pack) => row(packageLabel(pack), pack.anticipatedCost, pack.budget))), summary };
+    const totals = costReportTotals(report);
+    const over = report.rows.filter((pack) => pack.anticipatedCost > pack.budget).sort((a, b) => b.anticipatedCost - b.budget - (a.anticipatedCost - a.budget));
+    return { card: card(`From the ${COST_REPORT}:`, [row('all packages', totals.anticipatedCost, totals.budget), ...over.slice(0, PACKAGES_SAID).map((pack) => row(packageLabel(pack), pack.anticipatedCost, pack.budget))]), summary };
+  }
+  const which = REPORT_FIGURES.find((held) => held.words.test(name));
   if (which && report) {
     const from = `${report.label}${report.status === 'issued' ? '' : ', not issued'}`;
     const total = figure(`${which.label} · all packages · ${from}`, money(costReportTotals(report)[which.key]), open);
@@ -457,7 +484,7 @@ export const CHAT_QUESTIONS: Readonly<Record<ChatQuestionShape, { asks: string; 
   cost_changed: { asks: 'What changed in cost since the last report and why: forecast then and now, the largest movements with their cause, the unexplained amount.', answer: costChanged },
   schedule_late: { asks: 'What is late, behind or about to be, which milestones, and when the work finishes.', answer: scheduleLate },
   due_this_period: { asks: 'What is due this week, month or quarter: sheets kept by period, and stations to photograph.', answer: dueThisPeriod },
-  figure: { asks: 'One cost figure by name: budget, anticipated cost (forecast), paid, PO issued or certified. Give `figure`, and `of` when a package is named.', answer: figureNamed },
+  figure: { asks: 'One cost figure by name: budget, anticipated cost (forecast), paid, PO issued or certified, or how far the forecast is over budget (figure "over budget", for "are we over budget", "civil overrun", "the overspend on MEP"). Give `figure`, and `of` when a package is named.', answer: figureNamed },
 };
 
 /** The card for a question of a known shape, from the functions the screens read. */
@@ -508,7 +535,9 @@ export function chatQuestionAsked(question: string): ChatQuestionAsked | undefin
   const q = question.trim().replace(/\s+/g, ' ');
   // "Pending from the client", "outstanding from the architect": a question in the words a person says it in, with no question word.
   const terse = /^(?:what(?:'s|’s| is| are)? )?(?:still )?(?:pending|outstanding|awaited|owed|overdue) from\b/i.test(q);
-  if (!q || q.length > 200 || (!ASKS.test(q) && !terse)) return undefined;
+  // "Civil overrun", "MEP overspend": a cost question in a few words, never an instruction ("add a risk: civil overrun").
+  const overTerse = OVER.test(q) && q.length <= 60 && !/[:;]/.test(q) && !/^(?:please\s+)?(?:add|log|record|raise|create|set|note|flag|mark|make|put|update|change|treat|write|draft|send)\b/i.test(q);
+  if (!q || q.length > 200 || (!ASKS.test(q) && !terse && !overTerse)) return undefined;
   if (NEEDS_ME.test(q)) return { shape: 'needs_me' };
   const owes = OWES.exec(q) ?? (/\bnot\b|n['’]t\b|\byet to\b/i.test(q) ? NOT_SENT.exec(q) : null);
   if (owes) return { shape: 'papers_pending', ...(cleanParty(owes[1]) ? { party: cleanParty(owes[1]) } : {}) };
@@ -517,6 +546,8 @@ export function chatQuestionAsked(question: string): ChatQuestionAsked | undefin
     return { shape: 'papers_pending', ...(party ? { party } : {}) };
   }
   if (COST_WORD.test(q) && CHANGE_WORD.test(q)) return { shape: 'cost_changed' };
+  // How far over budget: the packages it names are read off the whole sentence, as people name them ("civil", "MEP").
+  if (OVER.test(q)) return { shape: 'figure', figure: OVER_BUDGET, of: q.replace(/[?.!]+$/, '') };
   if (SCHEDULE_LATE.test(q) && !NOT_THE_SCHEDULE.test(q)) return { shape: 'schedule_late' };
   if (DUE_PERIOD.test(q)) return { shape: 'due_this_period' };
   const named = FIGURE.exec(q);
@@ -560,6 +591,23 @@ function monthNamed(text: string, now: Date): string | undefined {
   if (shifted === undefined) return undefined;
   const then = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + shifted, 1));
   return key(then.getUTCFullYear(), then.getUTCMonth() + 1);
+}
+
+/**
+ * The month in play in a chat: the one the page has open, else the last one
+ * the chat itself asked about, by the words of a message ("the owner pack for
+ * September 2026", "last month") or by the month the page had open when it
+ * was asked. Undefined when neither names one.
+ */
+export function chatPeriod(place: Pick<ChatPlace, 'period'> | undefined, turns: readonly Pick<ProjectChatTurn, 'role' | 'text' | 'at' | 'place'>[]): string | undefined {
+  if (place?.period && PLACE_PERIOD.test(place.period)) return place.period;
+  for (let at = turns.length - 1; at >= 0; at -= 1) {
+    const turn = turns[at]!;
+    if (turn.role !== 'user') continue;
+    const named = monthNamed(turn.text, new Date(turn.at)) ?? (turn.place?.period && PLACE_PERIOD.test(turn.place.period) ? turn.place.period : undefined);
+    if (named) return named;
+  }
+  return undefined;
 }
 
 /** The word an address carries for a month's owner pack that is not kept yet. */

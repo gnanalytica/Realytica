@@ -7,8 +7,10 @@
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
 import { offerPaperToSheets } from './field-sheets';
+import { apartFromChat, chatInHand, saidInChat } from './chat-tag';
 import { dropAsItStands, proofOf, proposeOnRow, standingAsRead, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
+import { SQM_PER_AREA_UNIT } from './units';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
   recordCheckResult,
@@ -28,19 +30,25 @@ import {
   insertReportBlock,
   retuneReportBlock,
   patchAsset,
+  patchFindingSeverity,
+  patchRecordStatus,
   recommendedDdTypes,
   updateEvidenceStatus,
 } from './operations';
-import { logSiteEntry } from './progress';
+import { logSiteEntry, setMilestonePercent } from './progress';
+import { dayTyped, daySaid } from './said';
+import { indiaToday } from './quarters';
 import { fieldSourceHeading } from './report-fields';
 import { siteEntryInput, type SiteEntryProposal } from './site-notes';
 import { LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
 import type {
+  ActionRecord,
   CheckResult,
   ChatIngestFile,
   ChatProposal,
   ChatProposalKind,
+  ChatSaid,
   CreateActionInput,
   CreateAssessmentInput,
   CreateAssetInput,
@@ -53,12 +61,14 @@ import type {
   DdTypeKey,
   EvidenceKind,
   EvidenceRecord,
+  FindingRecord,
   LifecycleStage,
   PatchAssetInput,
   PatchProjectInput,
   ProjectArchetype,
   ReportKind,
   ReportBoundSource,
+  RiskRecord,
   ScopeKey,
 } from './types';
 import { connectorEvidenceInput } from './chat-sides';
@@ -192,6 +202,7 @@ function proposal(
   actor: string,
   extra: Partial<ChatProposal> = {},
 ): ChatProposal {
+  const chat = extra.chat ?? chatInHand()?.tag;
   return {
     id: id('prp'),
     kind,
@@ -206,6 +217,9 @@ function proposal(
     // The page and the page's own words of each paper it cites, where whoever raised it found them.
     ...(extra.cites?.length ? { cites: extra.cites } : {}),
     citedNodeIds: extra.citedNodeIds,
+    // The chat message it was raised by: given, or the one the rules are answering now.
+    ...(chat ? { chat } : {}),
+    ...(extra.said ? { said: extra.said } : {}),
   };
 }
 
@@ -247,7 +261,12 @@ function openGaps(project: DdProject): EvidenceRecord[] {
   return project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
 }
 
+/** The report to generate, where material findings are open: the rules' own suggestion, under no chat message (`apartFromChat`). */
 export function proposeReportCard(project: DdProject, actor = 'operator'): ChatProposal | undefined {
+  return apartFromChat(() => reportCard(project, actor));
+}
+
+function reportCard(project: DdProject, actor: string): ChatProposal | undefined {
   const owner = project.owner || actor;
   const material = project.findings.filter(
     (f) => (f.status === 'open' || f.status === 'under_review') && (f.severity === 'high' || f.severity === 'critical'),
@@ -265,7 +284,12 @@ export function proposeReportCard(project: DdProject, actor = 'operator'): ChatP
   );
 }
 
+/** What the wizard suggests adding next: the rules' own suggestions, under no chat message (`apartFromChat`). */
 export function buildWizardProposals(project: DdProject, actor = 'operator'): ChatProposal[] {
+  return apartFromChat(() => wizardCards(project, actor));
+}
+
+function wizardCards(project: DdProject, actor: string): ChatProposal[] {
   ensureProjectShape(project);
   const out: ChatProposal[] = [];
   const owner = project.owner || actor;
@@ -912,6 +936,15 @@ export function commitChatProposal(
   } else if (item.kind === 'patch_asset') {
     const record = patchAsset(project, String(payload.assetId), payload as PatchAssetInput, actor);
     recordId = record.id;
+  } else if (item.kind === 'patch_record') {
+    const change = payload as unknown as RecordChange;
+    if (change.register === 'finding' && change.severity) recordId = patchFindingSeverity(project, change.recordId, change.severity, actor).id;
+    else if (change.register === 'finding' && change.status) recordId = patchRecordStatus(project, project.findings, change.recordId, change.status as FindingRecord['status'], 'finding', actor).id;
+    else if (change.register === 'action' && change.status) recordId = patchRecordStatus(project, project.actions, change.recordId, change.status as ActionRecord['status'], 'action', actor).id;
+    else if (change.register === 'risk' && change.status) recordId = patchRecordStatus(project, project.risks, change.recordId, change.status as RiskRecord['status'], 'risk', actor).id;
+    // A milestone's reading for a day, said in the chat: kept at the day it is of, so it lowers nothing read since.
+    else if (change.register === 'milestone' && typeof change.percent === 'number' && change.on) recordId = setMilestonePercent(project, change.recordId, change.percent, actor, nowIso(), change.on).id;
+    else throw new Error('That change names nothing to change.');
   } else if (item.kind === 'change_stage') {
     const record = changeStage(
       project,
@@ -1062,8 +1095,13 @@ function parseNumber(raw: string): number | undefined {
 
 function toSqm(n: number, unit?: string): number {
   const u = (unit ?? 'sqm').toLowerCase();
-  if (/acre/.test(u)) return Math.round(n * 4046.8564224);
-  if (/^ha|hectare/.test(u)) return Math.round(n * 10_000);
+  // Feet and yards before metres: "sq ft" and "sq m" share their first letters.
+  if (/f(?:ee|oo)?t|sft/.test(u)) return Math.round(n * SQM_PER_AREA_UNIT.sqft);
+  if (/yd|yard/.test(u)) return Math.round(n * SQM_PER_AREA_UNIT.sqyd);
+  if (/acre/.test(u)) return Math.round(n * SQM_PER_AREA_UNIT.acre);
+  if (/gunta/.test(u)) return Math.round(n * SQM_PER_AREA_UNIT.gunta);
+  if (/cent/.test(u)) return Math.round(n * SQM_PER_AREA_UNIT.cent);
+  if (/^ha|hectare/.test(u)) return Math.round(n * SQM_PER_AREA_UNIT.hectare);
   return Math.round(n);
 }
 
@@ -1170,6 +1208,9 @@ export function interpretConversation(project: DdProject, question: string, acto
   const patch: PatchProjectInput = {};
   const patchBits: string[] = [];
   const owner = project.owner || actor;
+  // Read off the person's own sentence: where the message is in hand, each card rests on their words, and the row or fact it waits beside says so.
+  const said = saidInChat(chatInHand());
+  const inWords = said ? { said } : {};
 
   const ownerHit = fieldStated(q, 'owner|dd lead|diligence lead|project lead', '[^.\\n]+');
   if (ownerHit) {
@@ -1208,7 +1249,7 @@ export function interpretConversation(project: DdProject, question: string, acto
   }
 
   const areaHit = q.match(
-    /\b(land(?:\s+area)?|plot|site area|bua|built-?up(?:\s+area)?|saleable(?:\s+area)?)\b[^\d]{0,24}([\d,.]+)\s*(sq\.?\s*m|sqm|acres?|ha|hectares?)?/i,
+    /\b(land(?:\s+area)?|plot|site area|bua|built-?up(?:\s+area)?|saleable(?:\s+area)?)\b[^\d]{0,24}([\d,.]+)\s*(sq\.?\s*(?:ft|feet|yd|yards?)|sqft|sft|square\s+(?:feet|foot|yards?)|sq\.?\s*m|sqm|acres?|guntas?|cents?|ha|hectares?)?/i,
   );
   const acresOnly = !areaHit ? q.match(/\b([\d,.]+)\s*(acres?)\b/i) : null;
   const areaSource = areaHit ?? (acresOnly ? (['land', acresOnly[1], acresOnly[2]] as string[]) : null);
@@ -1256,7 +1297,7 @@ export function interpretConversation(project: DdProject, question: string, acto
         'Patches the project record. Valuation, reports and the work pane read these fields live.',
         patch as Record<string, unknown>,
         actor,
-        { citedNodeIds: [project.id] },
+        { citedNodeIds: [project.id], ...inWords },
       ),
     );
   }
@@ -1377,6 +1418,7 @@ export function interpretConversation(project: DdProject, question: string, acto
         'Creates an open finding on the register. Attach proof afterwards.',
         { title, description: q, severity, discipline, owner } satisfies CreateFindingInput,
         actor,
+        inWords,
       ),
     );
   }
@@ -1392,6 +1434,7 @@ export function interpretConversation(project: DdProject, question: string, acto
         'Creates an open action on the register.',
         { title, kind: 'clarification', owner, priority: 'medium', description: q } satisfies CreateActionInput,
         actor,
+        inWords,
       ),
     );
   }
@@ -1444,6 +1487,7 @@ export function interpretConversation(project: DdProject, question: string, acto
           owner,
         } satisfies CreateRiskInput,
         actor,
+        inWords,
       ),
     );
   }
@@ -1465,6 +1509,7 @@ export function interpretConversation(project: DdProject, question: string, acto
           status: 'proposed',
         } satisfies CreateDecisionInput,
         actor,
+        inWords,
       ),
     );
   }
@@ -1515,6 +1560,159 @@ export function interpretConversation(project: DdProject, question: string, acto
   }
 
   return { proposals: out, imperative: isImperative(q) && out.length > 0 };
+}
+
+/** A change to a row already on a register, as a `patch_record` card carries it. */
+export interface RecordChange {
+  register: 'finding' | 'action' | 'risk' | 'milestone';
+  recordId: string;
+  severity?: FindingRecord['severity'];
+  status?: string;
+  /** On a milestone: how far along it was, and the day that reading is of. */
+  percent?: number;
+  on?: string;
+}
+
+/**
+ * A change to a row on a register, said in the chat, as a card that waits on
+ * that register: "Grade “Encroachment” critical (was high)", "Close action
+ * “Get the EC”". It rests on the person's own words where a message is in
+ * hand, and nothing changes until a person accepts it on the register.
+ */
+export function recordChangeProposal(record: { id: string; title: string; severity?: string }, change: Omit<RecordChange, 'recordId'>, actor: string, given?: ChatSaid): ChatProposal {
+  const said = given ?? saidInChat(chatInHand());
+  const name = `“${record.title}”`;
+  const title = change.register === 'milestone'
+    ? `${name} at ${change.percent}% on ${daySaid(change.on)}`
+    : change.severity
+    ? `Grade ${name} ${change.severity}${record.severity ? ` (was ${record.severity})` : ''}`
+    : change.register === 'risk'
+      ? `Mark risk ${name} ${change.status}`
+      : `Close ${change.register} ${name}`;
+  return proposal(
+    'patch_record',
+    title,
+    'Said in the chat.',
+    change.register === 'milestone' ? 'Adds the reading to the milestone on the progress board when a person accepts this.' : `Changes the ${change.register} on its register when a person accepts this.`,
+    { ...change, recordId: record.id } satisfies RecordChange as unknown as Record<string, unknown>,
+    actor,
+    { citedNodeIds: [record.id], ...(said ? { said } : {}) },
+  );
+}
+
+/* ==================================================================== */
+/* A reading or a defect, stated in the chat                             */
+/* ==================================================================== */
+
+/** Words that put a reading in the future or deny it: "should be 60% done by December", "is not finished". Such a sentence states no reading. */
+const NOT_A_READING = /\b(?:not|never|yet to|will|shall|should|would|could|planned|plan|expected|expect|scheduled|due|target\w*|going to|to be|by when|if)\b|n['’]t\b/i;
+const PERCENT_SAID = /(\d{1,3}(?:\.\d+)?)\s*(?:%|percent\b|per\s*cent\b)/i;
+const DONE_SAID = /\b(?:done|complete|completed|finished|topped out|cast)\b/i;
+
+/**
+ * A milestone's reading in what a person says: the milestone named by its
+ * own name as whole words, how far along (a percent, or done, complete or
+ * finished for 100%), and the day it is of (a day the words say, else today
+ * in India). Undefined for a question, for a sentence that puts the reading
+ * in the future or denies it, for a day still to come, and where no
+ * milestone on the progress board is named.
+ */
+export function readingStated(project: DdProject, text: string, now: Date = new Date()): { milestone: { id: string; name: string }; percent: number; on: string } | undefined {
+  const q = text.trim();
+  if (!q || q.length > 220 || asksAQuestion(q) || /^(?:what|which|how|is|are|has|have|did|does|when|why)\b/i.test(q) || NOT_A_READING.test(q)) return undefined;
+  const said = ` ${wordsOf(q).join(' ')} `;
+  const milestone = [...(project.milestones ?? [])]
+    .filter((held) => wordsOf(held.name).length && said.includes(` ${wordsOf(held.name).join(' ')} `))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (!milestone) return undefined;
+  const pct = PERCENT_SAID.exec(q);
+  const percent = pct ? Number(pct[1]) : DONE_SAID.test(q) ? 100 : undefined;
+  if (percent === undefined || !Number.isFinite(percent) || percent < 0 || percent > 100) return undefined;
+  // The day the words say, as a field reads one, looked for after the milestone's name; "today" and no day at all are today.
+  const today = indiaToday(now);
+  const tokens = q.replace(/[,;:]+(?=\s|$)/g, '').split(/\s+/);
+  let on = today;
+  for (let from = 0; from < tokens.length; from += 1) {
+    let read: string | null = null;
+    for (let to = Math.min(tokens.length, from + 3); to > from && !read; to -= 1) read = dayTyped(tokens.slice(from, to).join(' ').replace(/[.]+$/, ''));
+    if (read) {
+      on = read;
+      break;
+    }
+    if (/^yesterday[.!]*$/i.test(tokens[from]!)) on = indiaToday(new Date(now.getTime() - 86_400_000));
+  }
+  if (on > today) return undefined;
+  return { milestone: { id: milestone.id, name: milestone.name }, percent: Math.round(percent * 100) / 100, on };
+}
+
+/**
+ * The reading a person stated, as a change that waits on the milestone's row
+ * of Progress until a person accepts it, in their words. `said` where the
+ * words are a part of a message a model quoted; otherwise the message in
+ * hand.
+ */
+export function readingFromWords(project: DdProject, text: string, actor: string, now: Date = new Date(), said?: ChatSaid): ChatProposal | undefined {
+  const reading = readingStated(project, text, now);
+  if (!reading) return undefined;
+  return recordChangeProposal({ id: reading.milestone.id, title: reading.milestone.name }, { register: 'milestone', percent: reading.percent, on: reading.on }, actor, said);
+}
+
+/** A severity as a person says it, each to the register's own: "treat it as critical", "a major defect", "high severity". */
+const SEVERITY_SAID: ReadonlyArray<[RegExp, FindingRecord['severity']]> = [
+  [/critical/, 'critical'],
+  [/high|major|serious|severe/, 'high'],
+  [/medium|moderate/, 'medium'],
+  [/low|minor/, 'low'],
+];
+const SEVERITY_WORDS = 'critical|high|major|serious|severe|medium|moderate|low|minor';
+const SEVERITY_PHRASE = new RegExp(`\\b(?:as|it\\s+is|it'?s|this\\s+is|mark(?:ed)?|treat(?:ed)?|severity|priority|rate[ds]?|grade[ds]?|call it|log it)\\s+(?:it\\s+|this\\s+)?(?:as\\s+)?(?:an?\\s+)?(${SEVERITY_WORDS})\\b|\\b(${SEVERITY_WORDS})\\s+(?:severity|priority|defects?|issues?|problems?|findings?|observations?|concerns?)\\b`, 'i');
+/** What was seen, by the verb that says it was: found, observed, noticed, or "there is a crack in …". */
+const SEEN = /\b(?:found|observed|noticed|noted|spotted|detected|identified|saw|seen)\s+(?:that\s+)?(?:there\s+(?:is|are)\s+)?(.+)|\bthere\s+(?:is|are|was|were)\s+((?:an?\s+|some\s+)?(?:defects?|issues?|problems?|cracks?|cracking|leaks?|leakage|seepage|honeycombing|spalling|corrosion|settlement)\b.*)/i;
+
+/**
+ * A defect a person states with its severity, as the finding it is: what was
+ * seen, in their words, and the severity they gave. Only a statement: a
+ * question states nothing. Undefined where no severity is said, so "we found
+ * the khata extract" is never a finding.
+ */
+export function findingStated(text: string): { title: string; severity: FindingRecord['severity']; discipline: ScopeKey } | undefined {
+  const q = text.trim();
+  if (!q || q.length > 300 || asksAQuestion(q) || /^(?:what|which|how|is|are|has|have|did|does|was|were|when|why|can|could|should)\b/i.test(q)) return undefined;
+  const graded = SEVERITY_PHRASE.exec(q);
+  const seen = SEEN.exec(q);
+  if (!graded || !seen) return undefined;
+  const word = (graded[1] ?? graded[2] ?? '').toLowerCase();
+  const severity = SEVERITY_SAID.find(([test]) => test.test(word))?.[1];
+  if (!severity) return undefined;
+  // What was seen, up to where the severity is said: "honeycombing in column C4".
+  const what = (seen[1] ?? seen[2] ?? '')
+    .split(/[,;]|\s+[-–—]\s+|\.\s|\b(?:treat|mark|grade|rate|log|call|severity|priority|which is|it is|it's)\b/i)[0]!
+    .replace(/[.!\s]+$/, '')
+    .trim();
+  if (what.length < 4) return undefined;
+  const title = clipPhrase(what).slice(0, 160);
+  const discipline: ScopeKey = /\blegal|title\b/i.test(q) ? 'legal' : /\bhse|safety|fire\b/i.test(q) ? 'hse' : 'technical';
+  return { title: title.charAt(0).toUpperCase() + title.slice(1), severity, discipline };
+}
+
+/**
+ * The defect a person stated, as a finding that waits as a suggested row of
+ * the findings register, in their words. `said` where the words are a part
+ * of a message a model quoted; otherwise the message in hand.
+ */
+export function findingFromWords(project: DdProject, text: string, actor: string, said?: ChatSaid): ChatProposal | undefined {
+  const stated = findingStated(text);
+  if (!stated) return undefined;
+  const given = said ?? saidInChat(chatInHand());
+  return proposal(
+    'add_finding',
+    `Log finding: ${stated.title}`,
+    `Severity ${stated.severity}, discipline ${SCOPE_LABEL[stated.discipline]}. Said in the chat; no evidence is linked yet.`,
+    'Creates an open finding on the register. Attach proof afterwards.',
+    { title: stated.title, description: text.trim().slice(0, 1000), severity: stated.severity, discipline: stated.discipline, owner: project.owner || actor } satisfies CreateFindingInput,
+    actor,
+    given ? { said: given } : {},
+  );
 }
 
 export function startDdFromQuestion(project: DdProject, question: string, actor: string): ChatProposal | undefined {

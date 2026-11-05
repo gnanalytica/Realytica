@@ -8,7 +8,7 @@
  */
 
 import { CHECK_RESULT_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
-import { FIRM_ONLY_PANES, QUESTIONS_STEP, chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, paneOfFunction, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, titleWords, type ChatPlace } from './chat-places';
+import { FIRM_ONLY_PANES, QUESTIONS_STEP, chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, paneOfFunction, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, titleWords, PLACE_PERIOD, periodLabel, type ChatPlace } from './chat-places';
 import { DEPARTMENT_KEYS, DEPARTMENT_SHORT, STAGES, STAGE_WORD, departmentDefinition, functionKey, stageAndStep, workstreamOfCheck, type DepartmentKey } from './departments';
 import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingChoices, waitingSentence } from './document-filing';
 import { readInstruction, sameTitle, wordsOf, type Instruction, type InstructionVerb } from './instruction';
@@ -31,8 +31,6 @@ import {
   issueReport,
   packCompleteness,
   packEvidence,
-  patchFindingSeverity,
-  patchRecordStatus,
   reattachReportBlock,
   recommendedDdTypes,
   recordCheckResult,
@@ -51,9 +49,11 @@ import type {
   TurnSpend,
   ChatProposalKind,
   ChatSideBundle,
+  ChatTag,
   ChatTurnPlace,
   DdProject,
   EvidenceRecord,
+  FieldAddress,
   FindingRecord,
   OrchestratorRun,
   ProjectChatResult,
@@ -78,9 +78,24 @@ import {
   wantsScopes,
   wantsWizard,
   proposeReportCard,
+  recordChangeProposal,
+  findingFromWords,
+  findingStated,
+  readingFromWords,
+  readingStated,
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
-import { CHAT_NOT_ANSWERED, CHAT_QUESTION, chatNotAnswered, chatQuestionRuled, projectIsRunning, reportPlaceAsked } from './chat-questions';
+import { withChatInHand } from './chat-tag';
+import { chatWaiting, functionLabel, suggestedRowOf, suggestionsOn, turnSuggested } from './chat-suggestions';
+import { daySaid } from './said';
+import { projectFactsWaiting } from './proposal-diff';
+
+/** The function whose page holds the milestones and their readings. */
+const PROGRESS_FN = 'construction.progress';
+import { ASK_AT_MOST, CHAT_ASK, askAnswerTyped, askAnswered, askChoices, askCommandTyped, askOffer, askOfferDetail, askResumed, askSkipped, askStarted, askStopped, askableFields, askableOf, asksToBeAsked, chatAskingLeft, chatAskingOpen, unreadReadings, type AskStep, type AskTarget, type ChatAsking } from './chat-ask';
+import { decideField, departmentOfFunction, mayDecideIn } from './field-sheets';
+import { fieldCatalogFor } from './firm-fields';
+import { CHAT_NOT_ANSWERED, CHAT_QUESTION, PACK_MONTH, chatNotAnswered, chatQuestionRuled, projectIsRunning, reportPlaceAsked } from './chat-questions';
 import { chatAnswerText, type ChatAnswerCard } from './chat-answer';
 import { placeProposalsFromIngest } from './place-extract';
 import { ddForDocumentsProposal, factsOnFile, pendingFactProposals } from './document-intake';
@@ -113,6 +128,9 @@ import {
   rankTalkSittings,
   filedByReply,
   lastSpokenReply,
+  liveTurns,
+  chatSessions,
+  splitThread,
   paneForTalk,
   sittingBrief,
   sittingCheckOf,
@@ -446,7 +464,9 @@ export function chatPlaceFrom(raw: ChatTurnPlace | undefined, viewContext?: stri
   const pane = isProjectCockpitPane(sent) ? sent : isProjectCockpitPane(viewContext) ? viewContext : undefined;
   const menu = menuPlaceOfWords(raw);
   if (!pane && !menu.department) return undefined;
-  return { ...(pane ? { pane } : {}), ...menu };
+  // A month the page has open goes with the place, and only as a month: anything else sent is left out.
+  const period = raw?.period && PLACE_PERIOD.test(raw.period) ? raw.period : undefined;
+  return { ...(pane ? { pane } : {}), ...menu, ...(period ? { period } : {}) };
 }
 
 function nowIso(): string {
@@ -458,9 +478,14 @@ function id(prefix: string): string {
   return `${prefix}_${uuid}`;
 }
 
+/** A new chat turn's id. Minted before the turn is made where something the turn raises has to name it first. */
+export function chatTurnId(): string {
+  return id('cht');
+}
+
 function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<ProjectChatTurn> = {}): ProjectChatTurn {
   return {
-    id: id('cht'),
+    id: extra.id ?? chatTurnId(),
     role,
     text,
     at: nowIso(),
@@ -477,6 +502,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     unanswered: extra.unanswered,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
+    ...(extra.asking ? { asking: extra.asking } : {}),
   };
 }
 
@@ -760,6 +786,32 @@ function mostCommonKind(cards: ChatProposal[]): ChatProposalKind {
 }
 
 /**
+ * Where the cards a chat message raised wait, as its reply says it: beside
+ * the facts on Overview, on the one register they are rows of, or on the
+ * right where they have no field or row of their own.
+ */
+function whereCardsWait(cards: readonly ChatProposal[]): { said: string; pane?: ProjectCockpitPane } {
+  if (cards.every((card) => card.kind === 'patch_project')) return { said: cards.length === 1 ? 'beside the fact on Overview, under Key facts' : 'beside the facts on Overview, under Key facts', pane: 'overview' };
+  const panes = new Set(cards.map((card) => suggestedRowOf(card)?.pane));
+  const [pane] = [...panes];
+  if (panes.size === 1 && pane) return { said: `as ${cards.length === 1 ? 'a suggestion' : 'suggestions'} on ${chatPlaceLabel({ pane })}`, pane };
+  return { said: 'on the right' };
+}
+
+/**
+ * A change to a row on a register, said in the chat, raised as a card that
+ * waits on the register: the reply says what waits and where, and the
+ * register opens with it lit. Nothing on the row changes until a person
+ * accepts it there.
+ */
+function rowChangeSaid(card: ChatProposal, fresh: boolean, outside?: boolean): string {
+  // An outside collaborator's suggestion goes to the firm, whose register it waits on and who accepts it: they cannot see it there.
+  if (outside) return fresh ? `${card.title} is sent to the firm to accept. Nothing changes until somebody there accepts it.` : `${card.title} has already been sent to the firm to accept.`;
+  const at = chatPlaceLabel({ pane: suggestedRowOf(card)?.pane ?? 'overview' });
+  return fresh ? `${card.title} waits as a suggestion on ${at}. Nothing changes until it is accepted there.` : `${card.title} already waits on ${at}. Accept it there, or set it aside.`;
+}
+
+/**
  * What approving just did, in words — "Filed 9 documents, started the
  * Acquisition / Site DD and recorded the parcel." — rather than "Filed 13
  * cards", which named the mechanism and not the result.
@@ -783,11 +835,12 @@ function approvalReceipt(cards: ChatProposal[]): string {
   if (count('add_action') + count('request_evidence')) parts.push(`opened ${plural(count('add_action') + count('request_evidence'), 'action')}`);
   if (count('log_site_entry')) parts.push(`added ${plural(count('log_site_entry'), 'entry', 'entries')} to the site log`);
   if (count('patch_project')) parts.push('updated the project record');
+  if (count('patch_record')) parts.push(`changed ${plural(count('patch_record'), 'row')} on the registers`);
   if (count('add_asset')) parts.push(`added ${plural(count('add_asset'), 'asset')}`);
   if (count('generate_report')) parts.push(`generated ${plural(count('generate_report'), 'report')}`);
   if (count('run_screen')) parts.push('ran the property screen');
   if (count('run_valuation')) parts.push('ran the valuation');
-  const known = new Set<ChatProposalKind>(['file_evidence', 'start_dd', 'record_check_fields', 'record_check', 'add_finding', 'add_risk', 'add_action', 'request_evidence', 'add_decision', 'log_site_entry', 'patch_project', 'add_asset', 'generate_report', 'run_screen', 'run_valuation']);
+  const known = new Set<ChatProposalKind>(['file_evidence', 'start_dd', 'record_check_fields', 'record_check', 'add_finding', 'add_risk', 'add_action', 'request_evidence', 'add_decision', 'log_site_entry', 'patch_project', 'patch_record', 'add_asset', 'generate_report', 'run_screen', 'run_valuation']);
   const other = cards.filter((c) => !known.has(c.kind)).length;
   if (other) parts.push(`applied ${plural(other, 'other change')}`);
   if (!parts.length) return `Done — ${plural(cards.length, 'suggestion')} accepted.`;
@@ -966,6 +1019,36 @@ interface LeftByLastReply {
   /** The ones a chat may accept or set aside. */
   mine: ChatProposal[];
   rows: EvidenceRecord[];
+  /** The fields of a function's sheets where a value its message suggested still waits. */
+  fields: FieldAddress[];
+  /**
+   * What this chat suggested in any of its messages that still waits where it
+   * lands: its cards and its values on the sheets. "Approve all" takes these
+   * with what the last reply left, as the chat's own Accept all does.
+   */
+  ofChat: { cards: ChatProposal[]; fields: FieldAddress[] };
+}
+
+/** The sheets' fields where a value suggested by a chat message, or by any, waits on its own: what accepting there takes. */
+function suggestedFields(project: DdProject, of?: { turnId: string }): FieldAddress[] {
+  const catalog = fieldCatalogFor(project);
+  return suggestionsOn(project, of).flatMap((one) => {
+    if (one.kind !== 'value' || !one.fn || !one.id.includes('::')) return [];
+    const [set, record, field] = one.id.split('::') as [string, string, string];
+    const holder = record ? project.fieldSheets?.[set]?.records?.find((held) => held.id === record)?.values : project.fieldSheets?.[set]?.values;
+    const value = holder?.[field];
+    // Only a value that waits on its own field: one beside a value held is a choice between the two, made where they are shown.
+    if (!value || value.state !== 'proposed' || (of && value.chat?.turnId !== of.turnId) || (!of && !value.chat) || !catalog.sets.get(set)) return [];
+    return [{ fn: one.fn, set, field, ...(record ? { record } : {}) }];
+  });
+}
+
+/** The person's message a reply answered: the turn said just before it. */
+function messageOf(project: DdProject, reply: ProjectChatTurn | undefined): ProjectChatTurn | undefined {
+  if (!reply) return undefined;
+  const at = project.conversation.indexOf(reply);
+  const before = at > 0 ? project.conversation[at - 1] : undefined;
+  return before?.role === 'user' ? before : undefined;
 }
 
 function leftByLastReply(project: DdProject, chat?: ChatSitting): LeftByLastReply {
@@ -973,7 +1056,24 @@ function leftByLastReply(project: DdProject, chat?: ChatSitting): LeftByLastRepl
   const listed = new Set(reply?.proposalIds ?? []);
   const cards = project.chatProposals.filter((p) => p.status === 'proposed' && listed.has(p.id));
   const filed = new Set(filedByReply(reply));
-  return { cards, mine: cards.filter(decidedInChat), rows: project.evidence.filter((e) => filed.has(e.id) && proposedFacts(e).length) };
+  const message = messageOf(project, reply);
+  const own = chat?.sessionId ? chatWaiting(project, chat.sessionId) : undefined;
+  const ownCards = new Set(own?.cards ?? []);
+  return {
+    cards,
+    mine: cards.filter(decidedInChat),
+    rows: project.evidence.filter((e) => filed.has(e.id) && proposedFacts(e).length),
+    fields: message ? suggestedFields(project, { turnId: message.id }) : [],
+    ofChat: { cards: project.chatProposals.filter((p) => p.status === 'proposed' && ownCards.has(p.id) && decidedInChat(p)), fields: own?.fields ?? [] },
+  };
+}
+
+/** What "approve all" takes in a chat: what the last reply left, and everything else this chat suggested that still waits. Each once. */
+function lastAndChat(left: LeftByLastReply): { cards: ChatProposal[]; fields: FieldAddress[] } {
+  const cards = [...new Set([...left.mine, ...left.ofChat.cards])];
+  const key = (address: FieldAddress): string => `${address.set}::${address.record ?? ''}::${address.field}`;
+  const fields = [...new Map([...left.fields, ...left.ofChat.fields].map((address) => [key(address), address])).values()];
+  return { cards, fields };
 }
 
 /**
@@ -992,8 +1092,133 @@ function instructionSaid(project: DdProject, sentence: string, chat?: ChatSittin
   const said = readInstruction(sentence);
   if (!said) return undefined;
   const left = leftByLastReply(project, chat);
-  if (said.form === 'unclear' && !left.mine.length && !(said.verb === 'accept' && left.rows.length)) return undefined;
+  if (said.form === 'unclear' && !left.mine.length && !(said.verb === 'accept' && (left.rows.length || left.fields.length))) return undefined;
   return { said, left };
+}
+
+/* ==================================================================== */
+/* Asking for what is missing                                            */
+/* ==================================================================== */
+
+/** This chat's turns, as the page shows them: its sitting and the earlier chat it carries on. */
+function turnsOfChat(project: DdProject, chat?: ChatSitting): ProjectChatTurn[] {
+  const thread = project.conversation ?? [];
+  return liveTurns(splitThread(thread).conversation, chatSessions(thread), chat ?? {});
+}
+
+/**
+ * This person's own sitting, which the chat's questions are asked in: of the
+ * chat on screen, the turns under their sitting, and never a colleague's in
+ * the chat it carries on. With no sitting named, the turns signed with their
+ * name. One person never answers a question the chat put to another.
+ */
+function ownTurns(project: DdProject, chat?: ChatSitting): ProjectChatTurn[] {
+  const turns = turnsOfChat(project, chat);
+  if (!chat) return turns;
+  if (chat.sessionId) return turns.filter((turn) => turn.sessionId === chat.sessionId);
+  return chat.actor ? turns.filter((turn) => turn.actor === chat.actor) : turns;
+}
+
+/**
+ * What a message does to the chat's asking for what is missing: begin a run
+ * (`resumed` where it carries on one that something else ended), answer,
+ * skip or stop the question open, or press a button that changes nothing,
+ * with why.
+ */
+type AskWanted =
+  | { act: 'start'; targets: AskTarget[]; resumed?: 'left' | 'other' }
+  | { act: 'answer'; asking: ChatAsking; value: unknown }
+  | { act: 'skip' | 'stop'; asking: ChatAsking }
+  | { act: 'moved'; asking?: ChatAsking; said?: string };
+
+/** The questions a choice that starts a run means, read again as the record stands: what is still missing, and in reach. */
+function askTargetsOf(project: DdProject, start: NonNullable<ChoicePin['ask']>, outside: boolean | undefined): AskTarget[] {
+  if (start.fields?.length) return askableOf(project, start.fields, { outside });
+  if (start.fn) return askableFields(project, start.fn, { outside });
+  // A milestone's reading is a change to the firm's progress board, and is put to the firm's own people.
+  if (start.month && !outside) return unreadReadings(project, start.month);
+  return [];
+}
+
+/**
+ * What a message means for the chat's asking, read before any other rule:
+ * a pressed choice of a run acts on the question it names; with a question
+ * open, a skip, a stop or a value of the field's kind answers it; and "ask
+ * me", "fill in the blanks" or "what's missing here" begins a run over what
+ * the last reply offered to ask for, or else over the missing fields of the
+ * function the page is on. Undefined for any other message: with a question
+ * open, it is a message like any other, and the question stays open.
+ */
+function askWanted(project: DdProject, question: string, options: { sitting?: ChoicePin; chat?: ChatSitting; place?: ChatPlace; outside?: boolean }): AskWanted | undefined {
+  const pin = options.sitting?.ask;
+  const turns = ownTurns(project, options.chat);
+  const open = chatAskingOpen(turns);
+  if (pin) {
+    if (pin.act === 'start') return { act: 'start', targets: askTargetsOf(project, pin, options.outside) };
+    if (!open || open.run !== pin.run || open.at !== pin.at) return { act: 'moved', ...(open ? { asking: open } : {}) };
+    if (pin.act !== 'answer') return { act: pin.act, asking: open };
+    // A tap gives the value the question offered under it, and no other: what a page sends is checked against what was offered.
+    const offered = askChoices(project, open).some((choice) => choice.sitting?.ask?.act === 'answer' && JSON.stringify(choice.sitting.ask.value) === JSON.stringify(pin.value));
+    return offered ? { act: 'answer', asking: open, value: pin.value } : { act: 'moved', asking: open, said: 'That is not one of the answers offered, so nothing was changed.' };
+  }
+  const q = question.trim();
+  if (open) {
+    const command = askCommandTyped(q);
+    if (command) return { act: command, asking: open };
+    const typed = askAnswerTyped(project, open.targets[open.at]!, q);
+    if (typed) return { act: 'answer', asking: open, value: typed.value };
+  }
+  if (!asksToBeAsked(q)) return undefined;
+  const offered = turns.filter((turn) => turn.role === 'assistant').at(-1)?.choices?.find((choice) => choice.sitting?.ask?.act === 'start')?.sitting?.ask;
+  // A run that something said in between ended is said to have ended. What the last reply offered to ask for is asked; failing that, the run carries on where it stood.
+  const left = chatAskingLeft(turns);
+  if (offered) {
+    const targets = askTargetsOf(project, offered, options.outside);
+    return targets.length ? { act: 'start', targets, ...(left ? { resumed: 'other' as const } : {}) } : undefined;
+  }
+  if (left) return { act: 'start', targets: left.targets.slice(left.at), resumed: 'left' };
+  const fn = menuPlaceOfWords(options.place).fn;
+  const targets = fn ? askableFields(project, fn, { outside: options.outside }) : [];
+  return targets.length ? { act: 'start', targets } : undefined;
+}
+
+/** Whether a message is the chat's asking for what is missing, which the rules answer and no model. */
+export function asksForMissing(project: DdProject, question: string, options: { sitting?: ChoicePin; chat?: ChatSitting; place?: ChatPlace } = {}): boolean {
+  ensureProjectShape(project);
+  return Boolean(askWanted(project, question, options));
+}
+
+/** The choice that offers to ask for what a reply could not answer: the fields it names, or else the page's own missing fields. */
+function fillOffer(project: DdProject, question: string, here: ChatPlace, outside: boolean | undefined, named: readonly FieldAddress[] = []): ChatChoice | undefined {
+  const catalog = fieldCatalogFor(project);
+  let targets: AskTarget[] = named.length ? askableOf(project, named, { outside, catalog }) : [];
+  if (!named.length) {
+    // A field whose label the question names: its functions are found by the labels alone, and only those are read.
+    const fn = menuPlaceOfWords(here).fn;
+    const words = new Set(wordsOf(question));
+    const said = (label: string) => {
+      const own = wordsOf(label).filter((word) => word.length > 3);
+      return own.length > 0 && own.every((word) => words.has(word));
+    };
+    const named = new Set([...catalog.sets.values()].filter((set) => !set.fields.every((def) => !said(def.label))).map((set) => set.fn));
+    targets = [...named].flatMap((key) => askableFields(project, key, { outside, catalog }).filter((target) => said(target.label))).slice(0, ASK_AT_MOST);
+    if (!targets.length && fn) targets = askableFields(project, fn, { outside, catalog });
+  }
+  if (!targets.length) return undefined;
+  return askOffer('Fill these in', { fields: targets.flatMap((target) => (target.kind === 'field' ? [target.address] : [])) }, askOfferDetail(targets));
+}
+
+/** The choice that offers to ask for a month's missing readings, where its owner pack has milestones with none. */
+function readingsOffer(project: DdProject, month: string | undefined, outside: boolean | undefined, now?: Date): { choice: ChatChoice; said: string } | undefined {
+  if (!month || outside) return undefined;
+  const targets = unreadReadings(project, month, now);
+  if (!targets.length) return undefined;
+  const names = targets.map((target) => target.label);
+  const listed = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]!;
+  return {
+    choice: askOffer('Ask me for the readings', { month }, askOfferDetail(targets)),
+    said: `${plural(targets.length, 'milestone has', 'milestones have')} no reading for that month: ${listed}. I can ask you for ${targets.length === 1 ? 'it' : 'them'}, one at a time.`,
+  };
 }
 
 /** A sentence that asks what to do next, or where to begin: the one thing the next step answers. */
@@ -1016,6 +1241,10 @@ export function wantsDeterministicProjectChat(
   if (asksForOutgoing(draftToSendSaid(q))) return true;
   // A pressed choice that accepts or sets aside acts on the ids it carries. Its sentence is not for anything to read.
   if (options.sitting?.decision) return true;
+  // The chat asking for what is missing, a question at a time: a pressed choice of it, an answer to the question open, or "ask me".
+  if (askWanted(project, q, options)) return true;
+  // A milestone's reading, or a defect with its severity, stated in so many words: it waits where it lands, read by rule.
+  if (readingStated(project, q) || findingStated(q)) return true;
   // A report asked for by its period is a place, and the questions a person running a project asks are answered from the functions the screens read.
   if (reportPlaceAsked(project, q)) return true;
   const ruled = chatQuestionRuled(project, q, { here: options.place });
@@ -1087,13 +1316,23 @@ export function applyProjectAgentTurn(
     /** The answer as a card of fields. `text` is then code's rendering of it, and is kept whole. */
     card?: import('./chat-answer').ChatAnswerCard;
   },
+  /**
+   * The message's turn, where the model's tools were told it before the turn
+   * was made (`chatTurnId`), and the chat it is in. What the model offered is
+   * kept under that message.
+   */
+  asked: { turnId?: string; sessionId?: string } = {},
+  /** The person asking is an outside collaborator: the chat offers to ask only for fields in their reach. */
+  opts: { outside?: boolean } = {},
 ): ProjectChatResult {
   ensureProjectShape(project);
-  const userTurn = turn('user', question.trim());
+  const userTurn = turn('user', question.trim(), asked.turnId ? { id: asked.turnId } : {});
+  const tag: ChatTag = { turnId: userTurn.id, ...(asked.sessionId ? { sessionId: asked.sessionId } : {}) };
   const offered: ChatProposal[] = [];
   const openTitles = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map((p) => p.title));
   for (const item of agent.proposals) {
     if (openTitles.has(item.title)) continue;
+    item.chat ??= tag;
     project.chatProposals.push(item);
     offered.push(item);
     openTitles.add(item.title);
@@ -1118,8 +1357,25 @@ export function applyProjectAgentTurn(
    */
   // A card's text is one line a row, made by code: there is no prose in it to trim and no question to hold back.
   const brief = agent.card ? { text: agent.text, heldQuestions: [], trimmed: false } : trimTurn(agent.text);
+  /*
+   * A fact of the project record the model suggested waits beside that fact
+   * on Overview: the reply names the fact, the value and where it waits
+   * ("Owner: Asha Menon waits beside Key facts on Overview."), in place of
+   * the line that says only that something was proposed.
+   */
+  const facts = projectFactsWaiting(project).filter((row) => offered.some((card) => card.id === row.card.id));
+  if (agent.card && !agent.card.rows.length && facts.length) {
+    const others = offered.some((card) => card.kind !== 'patch_project');
+    const lead = facts.map((row) => `${row.label}: ${row.to}${row.unit ? ` ${row.unit}` : ''} waits beside Key facts on Overview.`);
+    agent.card.said = { ...(agent.card.said ?? { lead: '' }), lead: [...lead, ...(others && agent.card.said?.lead ? [agent.card.said.lead] : [])].join('\n') };
+    brief.text = chatAnswerText(agent.card);
+  }
+  // Fields the answer names to look at that nobody has filled: the chat offers to ask for them, a question at a time.
+  const blanks = (agent.card?.look ?? []).flatMap((look) => (look.address ? [look.address] : []));
+  const fill = blanks.length ? fillOffer(project, question, {}, opts.outside, blanks) : undefined;
+  const choices = [...(agent.choices ?? []), ...(fill ? [fill] : [])];
   const assistantTurn = turn('assistant', brief.text, {
-    choices: agent.choices?.length ? agent.choices : undefined,
+    choices: choices.length ? choices : undefined,
     card: agent.card,
     heldQuestions: brief.heldQuestions.length ? brief.heldQuestions : undefined,
     trimmed: brief.trimmed || undefined,
@@ -1130,6 +1386,9 @@ export function applyProjectAgentTurn(
     spend: agent.spend,
     proposalIds: offered.map((p) => p.id),
   });
+  // Where what the message suggested waits, a line for each place: on the reply, kept. A collaborator's names only the sheets in their reach.
+  const suggested = turnSuggested(project, tag, {}, { outside: opts.outside });
+  if (suggested.length) assistantTurn.suggested = suggested;
   appendTurns(project, userTurn, assistantTurn);
   const talk = sittingWithField(
     project,
@@ -1354,10 +1613,34 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
   return rows.length ? rows : undefined;
 }
 
-export function applyProjectChat(
+/**
+ * Answer a chat message by rule.
+ *
+ * The message is held while it is answered (`withChatInHand`), so every
+ * value offered and every card raised under it carries it, and a value the
+ * person states outright waits on its field in their own words. The reply
+ * then says where those suggestions went, a line for each place.
+ */
+export function applyProjectChat(project: DdProject, question: string, options: ProjectChatOptions = {}): ProjectChatResult {
+  const turnId = chatTurnId();
+  const sessionId = options.chat?.sessionId;
+  const tag: ChatTag = { turnId, ...(sessionId ? { sessionId } : {}) };
+  const by = options.chat?.actor ?? options.actor ?? 'operator';
+  const result = withChatInHand({ tag, by, message: question.trim(), at: nowIso() }, () => answerProjectChat(project, question, { ...options, turnId }));
+  const here: ChatPlace = options.place ?? chatPlaceFrom(undefined, options.viewContext) ?? {};
+  const suggested = turnSuggested(project, tag, here, { outside: options.outside });
+  if (suggested.length) result.assistantTurn.suggested = suggested;
+  return result;
+}
+
+export type ProjectChatOptions = NonNullable<Parameters<typeof answerProjectChat>[2]>;
+
+function answerProjectChat(
   project: DdProject,
   question: string,
   options: {
+    /** The id the person's turn is kept under, minted by `applyProjectChat` so what the message raises can name it. */
+    turnId?: string;
     actor?: string;
     viewContext?: string;
     ingest?: ChatIngestFile[];
@@ -1444,7 +1727,7 @@ export function applyProjectChat(
   const q = question.trim() || (options.ingest?.length ? DROPPED_WITHOUT_WORDS : '');
   const ql = q.toLowerCase();
   const here: ChatPlace = options.place ?? chatPlaceFrom(undefined, options.viewContext) ?? {};
-  const userTurn = turn('user', q);
+  const userTurn = turn('user', q, options.turnId ? { id: options.turnId } : {});
   const commands: string[] = [];
   const navigations: ProjectChatResult['navigations'] = [];
   let offered: ChatProposal[] = [];
@@ -1503,6 +1786,16 @@ export function applyProjectChat(
     for (const p of fresh) project.chatProposals.push(p);
     offered = [...fresh, ...waiting];
     return fresh;
+  };
+  /** Raise a change to a row on a register as a card that waits there, say so, and open the register at it. */
+  const waitOnRow = (card: ChatProposal, tool: string) => {
+    const [fresh] = offer([card]);
+    const held = fresh ?? offered[0] ?? card;
+    const at = suggestedRowOf(held);
+    assistantText = rowChangeSaid(held, Boolean(fresh), options.outside);
+    toolCalls = [{ name: tool, summary: `Suggested: ${held.title}` }];
+    if (at && !options.outside) navigate(at.pane, '', { [at.id]: held.id });
+    highlightIds.push(held.id);
   };
 
   let assistantText = '';
@@ -1608,6 +1901,12 @@ export function applyProjectChat(
   // A choice that was pressed, or failing that a typed instruction. Read before this request adds its own turns to the thread.
   const pressed = !ingest.length && options.sitting?.decision ? options.sitting : undefined;
   const typed = ingest.length || pressed ? undefined : instructionSaid(project, q, chat);
+  // The chat asking for what is missing: read before every other rule, so "yes", "skip" or "75" answers the question open and is no instruction.
+  const askNow = own ? askWanted(project, q, { sitting: options.sitting, chat, place: here, outside: options.outside }) : undefined;
+  let asking: ChatAsking | undefined;
+  // A milestone's reading or a defect with its severity, stated: each waits where it lands, in the person's words. A collaborator is offered no readings.
+  const readingSaid = own && !askNow && !reportAsked && !ruled && !options.outside ? readingFromWords(project, q, actor, options.now) : undefined;
+  const findingSaid = own && !askNow && !reportAsked && !ruled && !readingSaid ? findingFromWords(project, q, actor) : undefined;
   /*
    * A record asked for by its own words: one is opened, several are put to
    * the person. A choice offered for one of them carries which, and it is
@@ -1669,8 +1968,8 @@ export function applyProjectChat(
   /** What an approval could not move, and why: a card that would take a paper out of a function this person neither leads nor signs in. */
   const notMoved: string[] = [];
 
-  /** Accept these cards, and the values waiting on these papers. */
-  const acceptThese = (targets: ChatProposal[], factRows: EvidenceRecord[]) => {
+  /** Accept these cards, the values waiting on these papers, and the values suggested on these fields. */
+  const acceptThese = (targets: ChatProposal[], factRows: EvidenceRecord[], suggested: FieldAddress[] = []) => {
     const before = fileStanding(project);
     const rows = factRows.filter((row) => {
       if (!mayDecide || mayDecidePaper(project, row, mayDecide)) return true;
@@ -1678,8 +1977,14 @@ export function applyProjectChat(
       return false;
     });
     const cards = theirsToDecide(targets);
+    // A value on a sheet is a lead's or signer's of the sheet's function to accept, as a check's is: the rule accepting it on its field asks, a shared record's among it.
+    const fields = suggested.filter((address) => {
+      if (mayDecideIn(address.fn, { mayDecide })) return true;
+      leave(departmentOfFunction(address.fn), [valueName(address.set, `${address.record ?? ''}:${address.field}`)]);
+      return false;
+    });
     // Nothing named is this person's to decide: said, and nothing is written.
-    if (awaitingRole.size && !rows.length && !cards.length) {
+    if (awaitingRole.size && !rows.length && !cards.length && !fields.length) {
       refused('accept', `Nothing was accepted. ${waitsForRoleSaid(awaitingRole)}`);
       return;
     }
@@ -1687,6 +1992,16 @@ export function applyProjectChat(
     for (const row of rows) {
       valuesAccepted += reviewFacts(project, row.id, 'all', 'accept', actor, undefined, { mayDecide }).changed.length;
       highlightIds.push(row.id);
+    }
+    // The values the chat suggested on the sheets, each accepted on its field. One the field no longer has waiting is passed over.
+    let onSheets = 0;
+    for (const address of fields) {
+      try {
+        decideField(project, address, 'accept', actor, {}, { mayDecide });
+        onSheets += 1;
+      } catch {
+        /* decided since, or no longer asked: it stays as it is */
+      }
     }
     const done: string[] = [];
     /*
@@ -1731,11 +2046,11 @@ export function applyProjectChat(
       if (result.recordId) highlightIds.push(result.recordId);
     }
     // Nothing was taken, and a paper that was not this person's to move is why: said as a refusal, so the next instruction still answers the reply before it.
-    if (notMoved.length && !rows.length && !done.length && !toPick) {
+    if (notMoved.length && !rows.length && !done.length && !toPick && !onSheets) {
       refused('accept', ['Nothing was accepted.', ...notMoved, waitsForRoleSaid(awaitingRole)].filter(Boolean).join(' '));
       return;
     }
-    const accepted = [valuesAccepted ? plural(valuesAccepted, 'value') : '', done.length ? plural(done.length, 'suggestion') : ''].filter(Boolean).join(' and ');
+    const accepted = [valuesAccepted + onSheets ? plural(valuesAccepted + onSheets, 'value') : '', done.length ? plural(done.length, 'suggestion') : ''].filter(Boolean).join(' and ');
     commands.push(accepted ? `Accepted ${accepted}` : 'Nothing left to accept');
     /*
      * A receipt, not a re-listing. The cards above have just flipped to
@@ -1750,6 +2065,7 @@ export function applyProjectChat(
      */
     assistantText = [
       valuesAccepted ? `Accepted ${plural(valuesAccepted, 'value')} on ${plural(rows.length, 'document')}.` : '',
+      onSheets ? `Accepted ${plural(onSheets, 'value')} where ${onSheets === 1 ? 'it was' : 'they were'} suggested.` : '',
       done.length ? approvalReceipt(targets.filter((t) => t.status === 'committed')) : '',
       toPick ? `${toPick === 1 ? 'One value the documents disagree on waits' : `${toPick} values the documents disagree on wait`} on the checks for you to pick.` : '',
       // Left where it was, and said: a check takes nothing its document no longer states.
@@ -1792,12 +2108,14 @@ export function applyProjectChat(
      */
     const lead = cards[0];
     const extra = cards.length === 1 && lead ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
-    // Only document values accepted: the register they are on.
-    const pane = !cards.length ? 'evidence' : extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(cards));
-    // Site entries were filed on the site log, a part of the Progress page: the one entry accepted is marked there.
-    const siteLog = pane === 'workstream' ? openPlace(project, SITE_LOG, undefined, here) : undefined;
-    if (siteLog?.kind === 'go') navigate(siteLog.open.pane, `Opened ${chatPlaceLabel(siteLog.place)}`, { ...siteLog.open.extra, ...(cards.length === 1 && lead?.committedRecordId ? { item: lead.committedRecordId } : {}) });
-    else navigate(siteLog ? 'overview' : pane, opened(siteLog ? 'overview' : pane), extra);
+    // Only document values accepted: the register they are on. Only values on the sheets: nothing opens, they were accepted where they are shown.
+    if (cards.length || rows.length) {
+      const pane = !cards.length ? 'evidence' : extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(cards));
+      // Site entries were filed on the site log, a part of the Progress page: the one entry accepted is marked there.
+      const siteLog = pane === 'workstream' ? openPlace(project, SITE_LOG, undefined, here) : undefined;
+      if (siteLog?.kind === 'go') navigate(siteLog.open.pane, `Opened ${chatPlaceLabel(siteLog.place)}`, { ...siteLog.open.extra, ...(cards.length === 1 && lead?.committedRecordId ? { item: lead.committedRecordId } : {}) });
+      else navigate(siteLog ? 'overview' : pane, opened(siteLog ? 'overview' : pane), extra);
+    }
     /*
      * One suggestion, and only one.
      *
@@ -2213,6 +2531,36 @@ export function applyProjectChat(
   } else if (options.memoryAnswer) {
     assistantText = options.memoryAnswer;
     toolCalls = [{ name: MEMORY_ANSWER, summary: 'Answered from memory' }];
+  } else if (askNow) {
+    /*
+     * One question a reply. An answer waits on its field as the person's own
+     * words, and the next reply says what was suggested and asks the next;
+     * a skip moves on and a stop ends the run. A button of a question that
+     * has moved on changes nothing, and the question open is asked again.
+     */
+    const step: AskStep | undefined =
+      askNow.act === 'start'
+        ? askStarted(project, askNow.targets, { resumed: askNow.resumed })
+        : askNow.act === 'moved'
+          ? askNow.asking && askResumed(project, askNow.asking, askNow.said ?? 'That question has moved on, so nothing was changed.')
+          : askNow.act === 'answer'
+            ? askAnswered(project, askNow.asking, askNow.value, {
+                actor,
+                raise: (card) => void offer([card]),
+                makeReading: (milestone, percent, on) => recordChangeProposal(milestone, { register: 'milestone', percent, on }, actor),
+              })
+            : askNow.act === 'skip'
+              ? askSkipped(project, askNow.asking)
+              : askStopped(askNow.asking);
+    if (step) {
+      assistantText = step.text;
+      if (step.choices.length) choices = step.choices;
+      asking = step.asking;
+      toolCalls = [{ name: CHAT_ASK, summary: step.summary }];
+    } else {
+      assistantText = askNow.act === 'start' ? 'Nothing there is missing now, so there is nothing to ask.' : 'That run of questions is over, so nothing was changed.';
+      toolCalls = [{ name: CHAT_ASK, summary: 'Nothing to ask' }];
+    }
   } else if (!options.outside && asksForMeetings(q)) {
     assistantText = meetingsSaid(project);
     toolCalls = [{ name: MEETINGS_LISTED, summary: 'Meetings on file' }];
@@ -2263,11 +2611,45 @@ export function applyProjectChat(
     }
   } else if (reportAsked) {
     // A report and its period are a place: it opens, and nothing is changed.
-    navigate(reportAsked.open.pane, reportAsked.label, reportAsked.open.extra);
-    assistantText = reportAsked.text;
+    // A month whose milestones have no reading for it: said, and offered to be asked for, a reading at a time. Reports opens
+    // and not the paper, which has no chat beside it: the readings are asked for first, and the pack is opened from there.
+    const month = reportAsked.open.extra.item.slice(PACK_MONTH.length);
+    const readings = readingsOffer(project, month, options.outside, options.now);
+    if (readings) {
+      navigate('reports', opened('reports'));
+      assistantText = `No owner pack is kept for ${periodLabel(month)} yet. ${readings.said} Or open the pack from Reports as it stands.`;
+      choices = [readings.choice];
+    } else {
+      navigate(reportAsked.open.pane, reportAsked.label, reportAsked.open.extra);
+      assistantText = reportAsked.text;
+    }
     toolCalls = [{ name: 'navigate', summary: reportAsked.label }];
   } else if (ruled) {
     sayCard(ruled.card, CHAT_QUESTION, ruled.summary);
+  } else if (readingSaid) {
+    /*
+     * "Tower A slab 7 is about 60% done": a reading of the milestone, of the
+     * day the words say or today. It waits on the milestone's row of
+     * Progress until a person accepts it there, as a reading the chat asked
+     * for does, and Progress opens at the milestone.
+     */
+    const [fresh] = offer([readingSaid]);
+    const held = fresh ?? offered[0] ?? readingSaid;
+    const percent = Number(held.payload.percent);
+    const milestoneId = String(held.payload.recordId);
+    const name = project.milestones?.find((milestone) => milestone.id === milestoneId)?.name ?? '';
+    const where = functionLabel(PROGRESS_FN);
+    assistantText = fresh
+      ? `Suggested ${percent}% on Progress — ${name}, as at ${daySaid(String(held.payload.on))}. It waits on the milestone’s row of ${where} until it is accepted there.`
+      : `That reading already waits on the milestone’s row of ${where}. Accept it there, or set it aside.`;
+    toolCalls = [{ name: 'propose_reading', summary: `Suggested: ${held.title}` }];
+    const page = openPlace(project, { fn: PROGRESS_FN, section: 'progress' }, undefined, here);
+    if (page.kind === 'go') navigate(page.open.pane, '', { ...page.open.extra, ...(page.section ? { item: milestoneId } : {}) });
+    highlightIds.push(held.id, milestoneId);
+    citedNodeIds = [milestoneId];
+  } else if (findingSaid) {
+    // "The plinth inspection found honeycombing in column C4, treat it as critical": a suggested finding at the top of the register, in the person's words.
+    waitOnRow(findingSaid, 'propose_finding');
   } else if (asksToFileUnder(project, q)) {
     /*
      * "File “Survey notes” under Legal › Title": a person giving a document
@@ -2324,14 +2706,19 @@ export function applyProjectChat(
      */
     const { said, left } = typed;
     if (said.form === 'last') {
-      if (left.mine.length || left.rows.length) acceptThese(left.mine, left.rows);
+      // The last reply's, and with them, said with "all", whatever else this chat suggested that still waits: what the chat's own Accept all takes.
+      // "Both", "these" and "them" point at the last reply, and take only its.
+      const taken = said.reply ? { cards: left.mine, fields: left.fields } : lastAndChat(left);
+      if (taken.cards.length || left.rows.length || taken.fields.length) acceptThese(taken.cards, left.rows, taken.fields);
       else nothingTaken('accept', left);
     } else if (said.form === 'open') {
       // Everything open is the firm's to take. An outside collaborator sees the papers in their grant and none of the firm's cards.
+      // With the cards and the papers go the values any chat suggested on the sheets.
       const cards = openCards().filter(decidedInChat);
       const rows = project.evidence.filter((e) => proposedFacts(e).length);
+      const fields = suggestedFields(project);
       if (options.outside) refused('accept', 'Only the firm’s own people can accept everything that is open. Nothing was accepted.');
-      else if (cards.length || rows.length) acceptThese(cards, rows);
+      else if (cards.length || rows.length || fields.length) acceptThese(cards, rows, fields);
       else nothingTaken('accept', left);
     } else if (said.form === 'titled') {
       // The exact title, of exactly one open card, which the last reply listed. Anything less is picked below, by id.
@@ -2390,14 +2777,15 @@ export function applyProjectChat(
     toolCalls = [{ name: 'generate_report', summary: REPORT_KIND_LABEL[reportToGenerate] }];
   } else if (severityChange) {
     const hit = matchTitle(openFindings(), q) as FindingRecord | undefined;
-    if (hit) {
-      const before = hit.severity;
-      patchFindingSeverity(project, hit.id, severityChange, actor);
-      navigate('findings', `Re-graded finding “${hit.title}”`, { findingId: hit.id });
-      assistantText = before === severityChange ? `“${hit.title}” is already ${severityChange}.` : `“${hit.title}” is now ${severityChange} (was ${before}).`;
-      toolCalls = [{ name: 'patch_finding', summary: `${hit.title} → ${severityChange}` }];
+    if (hit && hit.severity === severityChange) {
+      navigate('findings', '', { findingId: hit.id });
+      assistantText = `“${hit.title}” is already ${severityChange}.`;
+      toolCalls = [{ name: 'advise', summary: `${hit.title} is ${severityChange}` }];
       citedNodeIds = [hit.id];
-      highlightIds.push(hit.id);
+    } else if (hit) {
+      // Graded again in the chat, the change waits on the finding's register for a person to accept.
+      waitOnRow(recordChangeProposal(hit, { register: 'finding', severity: severityChange }, actor), 'patch_finding');
+      citedNodeIds = [hit.id];
     } else {
       const asked = clarifyRecordCommand(project, q, 'finding', openFindings(), `Mark ${severityChange}`);
       assistantText = asked.text;
@@ -2663,41 +3051,35 @@ export function applyProjectChat(
       } else {
       const interpreted = interpretConversation(project, q, actor);
       if (interpreted.proposals.length) {
-        if (interpreted.imperative) {
-          const done: string[] = [];
-          for (const item of interpreted.proposals) {
-            project.chatProposals.push(item);
-            const committed = commitChatProposal(project, item.id, actor, { mayDecide });
-            // The record's title, never its id: "→ ast_1a0cfb…" named nothing
-            // a person recognises and read like a stack trace in the chat.
-            done.push(item.title);
-            if (committed.recordId) highlightIds.push(committed.recordId);
-          }
-          commands.push(`Applied ${done.length} update(s) from chat`);
-          assistantText =
-            done.length === 1
-              ? `Done — ${done[0]!.charAt(0).toLowerCase()}${done[0]!.slice(1)}. It’s open on the right.`
-              : `Done:\n${done.map((d) => `• ${d}`).join('\n')}\nOpen on the right.`;
-          toolCalls = [{ name: 'apply', summary: `${done.length} applied` }];
-          navigate(paneForProposalKind(interpreted.proposals[0]!.kind), opened(paneForProposalKind(interpreted.proposals[0]!.kind)));
-          citedNodeIds = highlightIds;
+        /*
+         * Said as an instruction or as a fact, it waits all the same: what the
+         * chat produces is a suggestion where it lands, a fact beside the
+         * fact on Overview, a row at the top of its register, until a person
+         * accepts it there. "Set owner to …" used to be written at once.
+         */
+        const cards = offer(interpreted.proposals);
+        if (!cards.length) {
+          assistantText = 'That update is already waiting. Accept it where it is shown, or set it aside and say the value again.';
+          toolCalls = [{ name: 'advise', summary: 'Already proposed' }];
         } else {
-          const cards = offer(interpreted.proposals);
-          if (!cards.length) {
-            assistantText = 'That update is already waiting on the right. Accept it there, or set it aside and say the value again.';
-            toolCalls = [{ name: 'advise', summary: 'Already proposed' }];
-          } else {
+          // A fact of the project record waits beside that fact, on Overview, and a row on its register: the reply says where, and the line under it opens there.
+          const where = whereCardsWait(cards);
           assistantText = [
-            cards.length === 1
-              ? 'I can apply this update from what you just said. It is waiting on the right; nothing is written until you accept it there.'
-              : 'I can apply these updates from what you just said. They are waiting on the right; nothing is written until you accept them there.',
+            // An outside collaborator's suggestion is the firm's to accept, on a register or a record they cannot see: it is said to go there, and nothing opens.
+            options.outside
+              ? cards.length === 1
+                ? 'This is sent to the firm to accept. Nothing is written until somebody there accepts it.'
+                : 'These are sent to the firm to accept. Nothing is written until somebody there accepts them.'
+              : cards.length === 1
+                ? `I can apply this update from what you just said. It waits ${where.said}; nothing is written until you accept it there.`
+                : `I can apply these updates from what you just said. They wait ${where.said}; nothing is written until you accept them there.`,
             cards.map((p) => `• ${p.title}\n  ${p.rationale}`).join('\n'),
           ].join('\n\n');
           toolCalls = [{ name: 'advise', summary: `${cards.length} update(s)` }];
-          navigate(paneForProposalKind(cards[0]?.kind ?? interpreted.proposals[0]!.kind), opened(paneForProposalKind(cards[0]?.kind ?? interpreted.proposals[0]!.kind)));
+          const pane = where.pane ?? paneForProposalKind(cards[0]!.kind);
+          if (!options.outside) navigate(pane, opened(pane));
           citedNodeIds = cards.flatMap((p) => p.citedNodeIds ?? []);
           citedEvidenceIds = cards.flatMap((p) => p.citedEvidenceIds ?? []);
-          }
         }
       } else {
       const side = recordCommand ? null : handleChatSides(project, q, actor, options.sides, options.sitting);
@@ -2749,12 +3131,8 @@ export function applyProjectChat(
   } else if (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql)) {
     const hit = matchTitle(openActions(), q) as ActionRecord | undefined;
     if (hit) {
-      patchRecordStatus(project, project.actions, hit.id, 'closed', 'action', actor);
-      navigate('actions', `Closed action “${hit.title}”`);
-      assistantText = `Closed action “${hit.title}”.`;
-      toolCalls = [{ name: 'patch_action', summary: `Closed ${hit.title}` }];
+      waitOnRow(recordChangeProposal(hit, { register: 'action', status: 'closed' }, actor), 'patch_action');
       citedNodeIds = [hit.id];
-      highlightIds.push(hit.id);
     } else {
       const asked = clarifyRecordCommand(project, q, 'action', openActions(), 'Close');
       assistantText = asked.text;
@@ -2765,12 +3143,8 @@ export function applyProjectChat(
   } else if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) {
     const hit = matchTitle(openFindings(), q) as FindingRecord | undefined;
     if (hit) {
-      patchRecordStatus(project, project.findings, hit.id, 'closed', 'finding', actor);
-      navigate('findings', `Closed finding “${hit.title}”`);
-      assistantText = `Closed finding “${hit.title}”.`;
-      toolCalls = [{ name: 'patch_finding', summary: `Closed ${hit.title}` }];
+      waitOnRow(recordChangeProposal(hit, { register: 'finding', status: 'closed' }, actor), 'patch_finding');
       citedNodeIds = [hit.id];
-      highlightIds.push(hit.id);
     } else {
       const asked = clarifyRecordCommand(project, q, 'finding', openFindings(), 'Close');
       assistantText = asked.text;
@@ -2782,12 +3156,8 @@ export function applyProjectChat(
     const hit = matchTitle(openRisks(), q) as RiskRecord | undefined;
     if (hit) {
       const next = /\baccept/.test(ql) ? 'accepted' : 'mitigated';
-      patchRecordStatus(project, project.risks, hit.id, next, 'risk', actor);
-      navigate('risks', `Marked risk “${hit.title}” ${next}`);
-      assistantText = `Marked risk “${hit.title}” ${next}.`;
-      toolCalls = [{ name: 'patch_risk', summary: `${next} ${hit.title}` }];
+      waitOnRow(recordChangeProposal(hit, { register: 'risk', status: next }, actor), 'patch_risk');
       citedNodeIds = [hit.id];
-      highlightIds.push(hit.id);
     } else {
       const asked = clarifyRecordCommand(project, q, 'risk', openRisks(), /\baccept/.test(ql) ? 'Accept' : 'Mitigate');
       assistantText = asked.text;
@@ -2930,6 +3300,9 @@ export function applyProjectChat(
            */
           const not = chatNotAnswered(project, q, here);
           sayCard(not.card, CHAT_NOT_ANSWERED, not.summary);
+          // Where the answer has a home in a field nobody has filled, the chat offers to ask for it. A run that was open ends with this reply, so it is offered then too.
+          const fill = fillOffer(project, q, here, options.outside);
+          if (fill) choices = [fill];
         } else {
           const next = projectNextStep(project, actor);
           offer(next.proposals);
@@ -2957,6 +3330,7 @@ export function applyProjectChat(
     metrics,
     spend: options.spend,
     proposalIds: [...new Set(offered.map((p) => p.id))],
+    ...(asking ? { asking } : {}),
   });
   appendTurns(project, userTurn, assistantTurn);
   return { userTurn, assistantTurn, commands, navigations, proposals: [...new Set(offered)], highlightIds: [...new Set(highlightIds)] };

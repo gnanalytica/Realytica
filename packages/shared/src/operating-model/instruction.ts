@@ -12,7 +12,9 @@
  *
  *  - the last reply's: "approve" or "accept", then "all", "all of them", "all
  *    of these", "everything", "both", "both of them", "both of these",
- *    "them", "them all" or "these";
+ *    "them", "them all" or "these". The words of "all" and "everything"
+ *    take with it what else the chat suggested that still waits; the others
+ *    point at the last reply and take only its;
  *  - everything open, said in full: "approve" or "accept", then "all open",
  *    "every open one", "everything open" or "everything waiting";
  *  - one card by its exact title in quotes: "approve", "accept", "skip",
@@ -36,8 +38,13 @@
 export type InstructionVerb = 'accept' | 'aside';
 
 export type Instruction =
-  /** Everything the last reply of this chat listed or filed. */
-  | { verb: 'accept'; form: 'last' }
+  /**
+   * Everything the last reply of this chat listed or filed. Said with "all"
+   * or "everything", with it whatever else this chat suggested that still
+   * waits; said with "both", "these" or "them" (`reply`), only the last
+   * reply's: those words point at what is in front of the person.
+   */
+  | { verb: 'accept'; form: 'last'; reply?: true }
   /** Every card open on the project. */
   | { verb: 'accept'; form: 'open' }
   /** The card with this title, word for word. */
@@ -105,6 +112,9 @@ function neverAnInstruction(frame: string): boolean {
 /** What stands for "all" after the verb, where the last reply's are what is meant. */
 const THE_LAST_REPLYS = new Set(['all', 'all of them', 'all of these', 'everything', 'both', 'both of them', 'both of these', 'them', 'them all', 'these']);
 
+/** Of those, the words that point at the last reply's alone, and not at the rest of the chat's: what is in front of the person. */
+const ONLY_THE_LAST_REPLYS = new Set(['both', 'both of them', 'both of these', 'them', 'these']);
+
 /** Every open card on the project is said in full, in these words only. */
 const EVERYTHING_OPEN = new Set(['all open', 'every open one', 'everything open', 'everything waiting']);
 
@@ -139,7 +149,7 @@ function formOf(words: readonly string[], title: string | undefined): Instructio
   const object = words.slice(opens.length).join(' ');
   if (title) return object ? undefined : { verb: opens.verb, form: 'titled', title };
   if (opens.verb !== 'accept') return undefined;
-  if (THE_LAST_REPLYS.has(object)) return { verb: 'accept', form: 'last' };
+  if (THE_LAST_REPLYS.has(object)) return ONLY_THE_LAST_REPLYS.has(object) ? { verb: 'accept', form: 'last', reply: true } : { verb: 'accept', form: 'last' };
   if (EVERYTHING_OPEN.has(object)) return { verb: 'accept', form: 'open' };
   return undefined;
 }

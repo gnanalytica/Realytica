@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowRight, ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelLeftOpen, PanelRight, Search } from 'lucide-react';
 import {
+  PACK_MONTH,
+  PLACE_PERIOD,
   STAGES,
   STAGE_WORD,
   WAITING_FROM_EARLIER,
@@ -80,6 +82,7 @@ import { AlertsBell } from '../../components/departments/AlertsBell';
 import type { PhaseOpen } from '../../components/project/PhaseRecord';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
 import { TurnWaiting, WaitingHere } from './cockpit/Waiting';
+import { ChatStrip } from './cockpit/ChatStrip';
 
 function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
   return (
@@ -247,9 +250,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    * is answered about Title, and a stage named in the chat moves the page the
    * way the track would.
    */
+  // A month's owner pack open on Reports (`item=month:2026-09`) is the month in play, and the chat is told it with the page.
+  const itemWord = searchParams.get('item');
+  const period = pane === 'reports' && itemWord?.startsWith(PACK_MONTH) && PLACE_PERIOD.test(itemWord.slice(PACK_MONTH.length)) ? itemWord.slice(PACK_MONTH.length) : undefined;
   const here = useMemo<ChatPlace>(
-    () => ({ pane, ...(place.department ? { department: place.department } : {}), ...(place.fn ? { fn: place.fn } : {}), stage }),
-    [pane, place.department, place.fn, stage],
+    () => ({ pane, ...(place.department ? { department: place.department } : {}), ...(place.fn ? { fn: place.fn } : {}), stage, ...(period ? { period } : {}) }),
+    [pane, place.department, place.fn, stage, period],
   );
   useEffect(() => {
     if (!loaded) return;
@@ -656,7 +662,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       // Whether this send is nobody's to hear of any more: the project was left, or the request was ended by a later send and not by Stop.
       const left = (): boolean => goneRef.current || (ac.signal.aborted && !stoppedRef.current.has(ac));
       // A choice that accepts or sets aside pins the cards and papers it means, one under a plan pins the plan, and Undo pins the reply it undoes. They go with it whole.
-      const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision || pinned?.plan || pinned?.undo
+      const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision || pinned?.plan || pinned?.undo || pinned?.ask
         ? pinned
         : {
             ddId: params.ddId,
@@ -1118,6 +1124,21 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           />
         ) : null
       }
+      renderPinned={(chat) => (
+        <ChatStrip
+          project={project}
+          chatId={chat.id}
+          turns={chat.turns}
+          here={here}
+          heldAt={chat.heldAt}
+          reading={chat.reading}
+          outside={me?.role === 'collaborator'}
+          busy={asking}
+          onGo={goChip}
+          onProject={setProject}
+          onSay={(text, pin) => void handleAsk(text, undefined, pin, true)}
+        />
+      )}
       renderTurnExtras={(turn) => {
         const talk = sittingFromTurn(project, turn);
         const field = talk && (talk.kind === 'check' || talk.kind === 'scope') ? talk : null;
@@ -1264,7 +1285,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               pane={pane}
               workstream={params.workstream}
               waiting={waiting}
-              sittingCheckId={searchParams.get('check')}
               busy={deciding || asking || sending.length > 0}
               highlightIds={highlightIds}
               onAccept={(id, payload) => void acceptWaiting(id, payload)}

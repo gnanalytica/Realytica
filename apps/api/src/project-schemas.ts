@@ -659,6 +659,8 @@ export const chatPlaceSchema = z.object({
   department: z.string().max(40).optional(),
   fn: z.string().max(80).optional(),
   stage: z.string().max(40).optional(),
+  /** The month the page has open, as `YYYY-MM`. Anything else is left out of the place (`chatPlaceFrom`), and the question still goes. */
+  period: z.string().max(20).optional(),
 });
 
 export const projectChatBodySchema = z.object({
@@ -699,6 +701,27 @@ export const projectChatBodySchema = z.object({
         .optional(),
       /** The Undo under a reply: the reply whose changes are put back, by its id. It reads no words. */
       undo: z.object({ turnId: z.string().max(120) }).optional(),
+      /**
+       * A pressed choice of the chat asking for what is missing: start a run
+       * over the fields, the function or the month named, or answer, skip or
+       * stop the question named by its run and place. A start is read again
+       * against what is missing now, and an answer is written as the words
+       * sent beside it, so nothing here is taken on trust.
+       */
+      ask: z
+        .object({
+          act: z.enum(['start', 'answer', 'skip', 'stop']),
+          run: z.string().max(80).optional(),
+          at: z.number().int().min(0).max(50).optional(),
+          value: z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(120)).max(20)]).optional(),
+          fields: z
+            .array(z.object({ fn: z.string().max(80), set: z.string().min(1).max(120), field: z.string().min(1).max(80), record: z.string().max(80).optional() }))
+            .max(20)
+            .optional(),
+          fn: z.string().max(80).optional(),
+          month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+        })
+        .optional(),
     })
     .optional(),
 });

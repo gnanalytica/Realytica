@@ -1711,8 +1711,10 @@ describe('the routes a decision arrives by', () => {
     const said: string[] = [];
     for (const sentence of ['Add a finding: honeycombing in the basement slab, high severity', 'Add an action: get the core test report from the lab', 'Add a risk: slab may need jacketing']) {
       said.push((await chat(p.id, sentence, sam())).text);
+      said.push((await chat(p.id, 'approve all', sam())).text);
     }
-    assert.ok(said.some((text) => /^Done/.test(text)), `their chat carried something out: ${said.join(' | ')}`);
+    // Each is raised as a suggestion on their own copy, which the project never gets, and their chat says it is sent to the firm to accept.
+    assert.ok(said.some((text) => /sent to the firm to accept/.test(text)), `their chat answered: ${said.join(' | ')}`);
     // Whatever the trail gained, each line names something that is on the project.
     const onFile = projectRecordIds(p);
     assert.deepEqual(p.audit.slice(before).filter((line) => !onFile.has(line.entityId)).map((line) => [line.actor, line.action, line.entityType]), []);

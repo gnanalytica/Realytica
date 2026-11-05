@@ -138,7 +138,9 @@ describe('with no model set up', () => {
     const p = await site();
     const owner = p.owner;
     const said = await say(p, 'Open the owner pack for September 2026');
-    assert.deepEqual(said.navigations, [{ target: 'reports', item: 'month:2026-09' }]);
+    // The Plinth was due in January and nothing was ever reported of it: Reports opens, offering to ask for its reading first.
+    assert.deepEqual(said.navigations, [{ target: 'reports' }]);
+    assert.deepEqual(said.turn.choices?.map((choice) => choice.label), ['Ask me for the readings']);
     assert.deepEqual([said.proposals.length, p.chatProposals.length, p.owner], [0, 0, owner]);
   });
 

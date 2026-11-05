@@ -20,6 +20,7 @@ import {
   readFunctionFields,
   readSheet,
   type FieldAddress,
+  type ChatInHand,
   type FieldOrigin,
   CHECK_RESULTS,
   candidateChoices,
@@ -60,6 +61,10 @@ import {
   clampGraphHops,
   compareProjectPlanning,
   createChatProposal,
+  findingFromWords,
+  readingFromWords,
+  saidInChat,
+  saidRefused,
   extractProjectSubgraph,
   captureConcerns,
   conditionRatings,
@@ -427,6 +432,12 @@ export function createProjectTools(
      * duplicate.
      */
     searchWeb?: (question: string) => Promise<ChatWebPull>;
+    /**
+     * The person's message this turn answers. A value the person stated in it
+     * is offered in their own words, and everything offered this turn is kept
+     * under the message (`ChatTag`).
+     */
+    said?: ChatInHand;
   },
 ) {
   const getSitting = betaTool({
@@ -626,7 +637,7 @@ export function createProjectTools(
               situations: page.situations.map((s) => ({ key: s.situation.key, label: s.situation.label, state: s.state })),
             }
           : {}),
-        note: 'Offer a value only with where you read it: a paper on this project with its page and its exact words, or a public source with its name and the date read. Never offer a value for a field that is worked out, mirrored or prose. What you offer waits for a person and counts for nothing until they accept it.',
+        note: 'Offer a value only with where you read it: a paper on this project with its page and its exact words, a public source with its name and the date read, or the person\'s own words in this message. Never offer a value for a field that is worked out, mirrored or prose. What you offer waits for a person and counts for nothing until they accept it.',
       });
     },
   });
@@ -640,7 +651,7 @@ export function createProjectTools(
   const proposeFieldValuesTool = betaTool({
     name: 'propose_field_values',
     description:
-      'Offer values for fields, each with its address from get_fields and its source. origin is {kind:"paper", evidenceId, page, quote} with the paper\'s exact words, or {kind:"external", source, asOf, url?} for a named public source and the date read (YYYY-MM-DD). Refused: a value with no source, a choice not on the list, a link to something not on the project, and any field that is computed, a status, a mirror or prose. For a set that repeats, give record to fill an existing record; leave it out and the values offered together make one new record.',
+      'Offer values for fields, each with its address from get_fields and its source. origin is {kind:"paper", evidenceId, page, quote} with the paper\'s exact words, {kind:"external", source, asOf, url?} for a named public source and the date read (YYYY-MM-DD), or {kind:"said", quote} for a value the person stated in this message, quoting the words that state it exactly: more than one word, never from a question they asked, and the value has to be what those words say (the choice named, the figure with its unit, the day). Refused: a value with no source, a choice not on the list, a link to something not on the project, and any field that is computed, a status, a mirror or prose. For a set that repeats, give record to fill an existing record; leave it out and the values offered together make one new record.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -660,10 +671,10 @@ export function createProjectTools(
                 additionalProperties: false,
                 required: ['kind'],
                 properties: {
-                  kind: { type: 'string', enum: ['paper', 'external'] },
+                  kind: { type: 'string', enum: ['paper', 'external', 'said'] },
                   evidenceId: { type: 'string' },
                   page: { type: 'number' },
-                  quote: { type: 'string', description: 'The paper\'s own words that state the value, copied exactly, under 220 characters.' },
+                  quote: { type: 'string', description: 'The paper\'s own words that state the value, or the person\'s own words in this message, copied exactly, under 220 characters.' },
                   source: { type: 'string', description: 'The name of the public source, under 120 characters.' },
                   asOf: { type: 'string', description: 'The date it was read, YYYY-MM-DD.' },
                   url: { type: 'string', description: 'Its https address.' },
@@ -682,7 +693,7 @@ export function createProjectTools(
       // is this model, and whether its words are on the page is found by looking, on the pages this server read itself.
       const placed = await quotePlacer(project, offered.map((row) => (row.origin as { evidenceId?: unknown } | undefined)?.evidenceId));
       // One door for a sheet's field and a check's. A check's value waits on a card of the check's, which this turn collects, and reads on the field as proposed.
-      const outcomes = proposeFieldValues(project, withFn, 'model', catalog, { pending: bag.proposals, raise: (card) => bag.proposals.push(card), placed });
+      const outcomes = proposeFieldValues(project, withFn, 'model', catalog, { pending: bag.proposals, raise: (card) => bag.proposals.push(card), placed, said: extra?.said });
       const waiting = outcomes.filter((o) => o.outcome === 'waiting').length;
       bag.toolCalls.push({ name: 'propose_field_values', summary: `${waiting} offered, ${outcomes.filter((o) => o.outcome === 'refused').length} refused` });
       return JSON.stringify({ outcomes, note: 'Offered values wait for a person. Do not speak of one as recorded.' });
@@ -1229,12 +1240,52 @@ export function createProjectTools(
         const hit = (bag.passages ?? []).find((passage) => passage.evidenceId === id);
         return hit ? [{ evidenceId: id, page: hit.page, quote: hit.quote.replace(/\s+/g, ' ').trim().slice(0, 220) }] : [];
       });
-      const card = createChatProposal(kind as ChatProposalKind, title, rationale, impact, payload, actor, { ...(papers.length ? { citedEvidenceIds: papers } : {}), ...(cites.length ? { cites } : {}) });
+      const card = createChatProposal(kind as ChatProposalKind, title, rationale, impact, payload, actor, { ...(papers.length ? { citedEvidenceIds: papers } : {}), ...(cites.length ? { cites } : {}), ...(extra?.said ? { chat: extra.said.tag } : {}) });
       bag.proposals.push(card);
       bag.toolCalls.push({ name: 'propose_update', summary: title });
       const pane = paneForProposalKind(kind as ChatProposalKind);
       if (!bag.navigations.some((n) => n.target === pane)) bag.navigations.push({ target: pane });
       return JSON.stringify({ queued: true, id: card.id, pane, note: 'Queued — a person must approve before it writes.' });
+    },
+  });
+
+  /**
+   * A row the person states in so many words: a milestone's reading, or a
+   * defect seen with its severity. The model only points at the words; the
+   * reading or the finding is read off them by the same rule the chat's own
+   * rules use (`readingFromWords`, `findingFromWords`), so nothing in it is
+   * the model's. The words are held to what any said value is held to.
+   */
+  const proposeSaid = betaTool({
+    name: 'propose_said',
+    description:
+      'For a row of a register the person states in this message, not a field: a milestone\'s progress ("Tower A slab 7 is about 60% done", "the plinth was finished on 3 Nov 2026") or a defect seen on site with its severity ("the plinth inspection found honeycombing in column C4, treat it as critical"). Give kind and quote: the person\'s own words that state it, copied exactly, with the milestone\'s name and the percent or "done", or what was found and its severity. The reading (its percent and day, today unless the words give one) or the finding (its title and severity) is read off those words by the system: you give no value, title or severity. A reading waits on the milestone\'s row of Progress, a finding as a suggested row of Findings, until a person accepts it. Refused: words that are not in the message, a question, a reading put in the future, a milestone not on the progress board, and a defect with no severity said.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'quote'],
+      properties: {
+        kind: { type: 'string', enum: ['milestone_reading', 'finding'] },
+        quote: { type: 'string', description: 'The person\'s own words in this message that state it, copied exactly, under 220 characters.' },
+      },
+    } as const,
+    run: async ({ kind, quote }) => {
+      const words = typeof quote === 'string' ? quote : '';
+      const refused = saidRefused(extra?.said, words);
+      if (refused) return JSON.stringify({ error: `Not proposed: ${refused}` });
+      const said = saidInChat(extra?.said, words, { strict: true });
+      const card = kind === 'finding' ? findingFromWords(project, words, actor, said) : readingFromWords(project, words, actor, new Date(), said);
+      if (!card) {
+        return JSON.stringify({
+          error: kind === 'finding' ? 'Those words state no defect with its severity. Quote what was found and the severity said.' : 'Those words state no reading of a milestone on the progress board: quote its name and the percent or "done" as said.',
+        });
+      }
+      const open = project.chatProposals.filter((p) => p.status === 'proposed');
+      if (open.some((p) => p.title === card.title) || bag.proposals.some((p) => p.title === card.title)) return JSON.stringify({ error: 'That already waits. Do not duplicate it.' });
+      if (extra?.said) card.chat = extra.said.tag;
+      bag.proposals.push(card);
+      bag.toolCalls.push({ name: 'propose_said', summary: card.title });
+      return JSON.stringify({ queued: true, id: card.id, title: card.title, note: 'It waits where it lands for a person to accept. Do not speak of it as recorded.' });
     },
   });
 
@@ -1790,6 +1841,7 @@ export function createProjectTools(
     getPortalRoute,
     comparePlanning,
     proposeUpdate,
+    proposeSaid,
     askToChoose,
     runCapability,
     reviewFindings,

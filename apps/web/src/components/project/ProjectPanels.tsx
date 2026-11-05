@@ -4,6 +4,9 @@ import { Link } from 'react-router-dom';
 import {
   cockpitPath,
   currentEngagement,
+  daySaid,
+  projectFactsWaiting,
+  type FactWaiting,
   parcelLabels,
   revenueGuidance,
   revenueReads,
@@ -12,7 +15,7 @@ import {
   type FindingRecord,
   daysInWords,
 } from '@realytica/shared';
-import { Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
+import { AiMark, Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
 
 /* ==================================================================== */
 /* Small formatting helpers                                              */
@@ -77,7 +80,87 @@ function Avatar({ name, className }: { name: string; className?: string }) {
 /* Lifecycle                                                             */
 /* ==================================================================== */
 
-export function KeyFacts({ project, className }: { project: DdProject; className?: string }) {
+/** Where a suggestion for a fact came from: the person's words in the chat, the paper it was read off, or the day it was raised. */
+function factSource(project: DdProject, waiting: FactWaiting): string {
+  const { card } = waiting;
+  if (card.said) return `said in chat by ${person(card.said.by)}, ${daySaid(card.said.at)}`;
+  const paper = (card.citedEvidenceIds ?? []).map((id) => project.evidence.find((row) => row.id === id)?.title).find(Boolean);
+  return paper ? `from ${paper}` : `suggested ${daySaid(card.createdAt)}`;
+}
+
+/** The facts each row of Key facts shows, by their keys on the project: a suggestion for one of them waits under that row. */
+const FACT_ROW_KEYS: Record<string, string[]> = {
+  'Survey Nos.': ['parcelId'],
+  Location: ['siteAddress', 'city', 'location'],
+  Extent: ['landAreaSqm'],
+  'Built-up': ['builtUpAreaSqm'],
+  Developer: ['developer'],
+};
+
+/**
+ * A suggestion for a fact, under the fact it would change: the value, where
+ * it came from, and Accept and Set aside. A card that changes several facts
+ * is decided whole, and says so on its buttons.
+ */
+function FactSuggestion({
+  project,
+  waiting,
+  busy,
+  onAccept,
+  onSetAside,
+}: {
+  project: DdProject;
+  waiting: FactWaiting;
+  busy?: boolean;
+  onAccept?: (id: string) => void;
+  onSetAside?: (id: string) => void;
+}) {
+  const together = projectFactsWaiting(project).filter((other) => other.card.id === waiting.card.id).length;
+  const act = 'rounded-md px-2 py-1 text-[12px] font-medium hover:underline disabled:opacity-50 coarse:min-h-11';
+  return (
+    <div className="mt-1 rounded-lg border border-ai bg-ai/5 px-2.5 py-1.5">
+      <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink">
+        <AiMark size="xs" />
+        <span>
+          Suggested: {waiting.to}
+          {waiting.unit ? ` ${waiting.unit}` : ''}
+        </span>
+        <span className="text-ink-muted">· {factSource(project, waiting)}</span>
+      </p>
+      {waiting.card.said?.quote ? <p className="mt-0.5 text-[11px] text-ink-muted">“{waiting.card.said.quote}”</p> : null}
+      {onAccept && onSetAside ? (
+        <p className="mt-0.5 flex gap-1">
+          <button type="button" disabled={busy} className={cn(act, 'bg-action text-action-ink hover:no-underline')} onClick={() => onAccept(waiting.card.id)}>
+            {together > 1 ? `Accept all ${together}` : 'Accept'}
+          </button>
+          <button type="button" disabled={busy} className={cn(act, 'text-ink-muted')} onClick={() => onSetAside(waiting.card.id)}>
+            {together > 1 ? `Set aside all ${together}` : 'Set aside'}
+          </button>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The facts set once for a project, and any suggestion to change one, under
+ * the fact it would change. A suggestion for a fact the card does not show
+ * (the owner, the budget, the pin) is a row of its own, with what the fact
+ * holds now.
+ */
+export function KeyFacts({
+  project,
+  className,
+  busy,
+  onAccept,
+  onSetAside,
+}: {
+  project: DdProject;
+  className?: string;
+  busy?: boolean;
+  onAccept?: (id: string) => void;
+  onSetAside?: (id: string) => void;
+}) {
   // One published value, from the first parcel read that carries one. On a site of several it says which parcel that is.
   const parcels = revenueReads(project);
   const published = revenueGuidance(parcels);
@@ -103,6 +186,12 @@ export function KeyFacts({ project, className }: { project: DdProject; className
       }`,
     ]);
   }
+  const waiting = projectFactsWaiting(project);
+  const shownKeys = new Set(rows.flatMap(([label]) => FACT_ROW_KEYS[label] ?? []));
+  const under = (label: string) => waiting.filter((row) => (FACT_ROW_KEYS[label] ?? []).includes(row.key));
+  // A suggestion for a fact no row shows is a row of its own, with what the fact holds now.
+  const own = waiting.filter((row) => !shownKeys.has(row.key));
+  const suggestion = (row: FactWaiting) => <FactSuggestion key={`${row.card.id}:${row.key}`} project={project} waiting={row} busy={busy} onAccept={onAccept} onSetAside={onSetAside} />;
   return (
     <Card className={className}>
       <CardHeader title="Key facts" subtitle={project.reference} />
@@ -111,7 +200,19 @@ export function KeyFacts({ project, className }: { project: DdProject; className
           {rows.map(([label, value]) => (
             <div key={label} className="grid grid-cols-[7.5rem_1fr] gap-3 py-2 text-[13px]">
               <dt className="text-ink-secondary">{label}</dt>
-              <dd className="min-w-0 text-ink [overflow-wrap:anywhere]">{value}</dd>
+              <dd className="min-w-0 text-ink [overflow-wrap:anywhere]">
+                {value}
+                {under(label).map(suggestion)}
+              </dd>
+            </div>
+          ))}
+          {own.map((row) => (
+            <div key={`${row.card.id}:${row.key}`} className="grid grid-cols-[7.5rem_1fr] gap-3 py-2 text-[13px]">
+              <dt className="text-ink-secondary">{row.label}</dt>
+              <dd className="min-w-0 text-ink [overflow-wrap:anywhere]">
+                {row.from ?? <span className="text-ink-muted">Not set</span>}
+                {suggestion(row)}
+              </dd>
             </div>
           ))}
         </dl>

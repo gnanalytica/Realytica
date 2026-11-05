@@ -83,6 +83,17 @@ export interface ChatPlace {
   department?: DepartmentKey;
   fn?: string;
   stage?: StageKey;
+  /** The month in play on the page, as `YYYY-MM`: the owner pack the Reports page has open. */
+  period?: string;
+}
+
+/** A month as a place carries it, `YYYY-MM`. */
+export const PLACE_PERIOD = /^\d{4}-(?:0[1-9]|1[0-2])$/;
+
+/** "September 2026", for a month as a place carries it. */
+export function periodLabel(period: string): string {
+  const [year, month] = period.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
 /** Every function of the menu, in menu order. */
@@ -206,7 +217,8 @@ export function chatPlaceLine(project: DdProject, place: ChatPlace | undefined):
   const page = place.fn ? withDepartment(place.fn, functionOf(place.fn)?.label ?? place.fn) : chatPlaceLabel(place);
   const kind = place.fn ? 'function' : place.department ? 'department summary' : 'page';
   const looking = place.stage && place.stage !== own ? `, looked at in the ${stageDefinition(place.stage).label} stage (the project is at ${stageDefinition(own).label})` : '';
-  return `${page} (${kind})${looking}`;
+  const month = place.period ? `, with ${periodLabel(place.period)} open` : '';
+  return `${page} (${kind})${looking}${month}`;
 }
 
 /* ==================================================================== */

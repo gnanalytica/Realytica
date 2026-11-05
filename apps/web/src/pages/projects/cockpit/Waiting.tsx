@@ -4,6 +4,8 @@ import { ArrowRight, ChevronRight, FileText } from 'lucide-react';
 import {
   proposalChanges,
   turnChips,
+  waitsWhereItLands,
+  type ChatProposalKind,
   type ChatPlace,
   type ChatProposal,
   type CopilotTurn,
@@ -26,7 +28,12 @@ import { WAITING_CHIPS_SHOWN, visibleTurnChips } from './turn-waiting-chips';
 export type Waiting = ReturnType<typeof waitingOnCanvas>;
 
 /**
- * The ways on from a chat turn, as chips under it.
+ * The ways on from a chat turn: where its suggestions went, then chips.
+ *
+ * A reply whose message left suggestions says where each went, a line for
+ * each place ("Suggested 2 values on Legal › Title"), and each line opens
+ * that page at the field or the row. Those places are not said again as
+ * chips. A reply kept from before it said so keeps its chips as they were.
  *
  * The chat holds no buttons that decide anything: a reply that read a deed or
  * proposed a finding says so in words, and these point to where it happened.
@@ -52,11 +59,36 @@ export function TurnWaiting({
   here: ChatPlace;
   onGo: (chip: TurnChip) => void;
 }) {
-  const chips = useMemo(() => turnChips(project, turn, waiting, here), [project, turn, waiting, here]);
+  const suggested = turn.suggested ?? [];
+  // What waits on a field or as a row is said by the lines above: only what has nowhere else to wait is a chip.
+  const rest = useMemo(
+    () => (turn.suggested ? { ...waiting, entries: waiting.entries.filter((entry) => !(entry.proposalId && waitsWhereItLands({ kind: entry.kind as ChatProposalKind, id: entry.proposalId }, project))) } : waiting),
+    [turn.suggested, waiting, project],
+  );
+  const chips = useMemo(() => turnChips(project, turn, rest, here), [project, turn, rest, here]);
   const [expanded, setExpanded] = useState(false);
   const { shown, hiddenWaiting } = useMemo(() => visibleTurnChips(chips, expanded), [chips, expanded]);
-  if (!chips.length) return null;
+  if (!chips.length && !suggested.length) return null;
   return (
+    <>
+    {suggested.length ? (
+      <ul className="mt-2 space-y-0.5" aria-label="Where the suggestions went">
+        {suggested.map((line) => (
+          <li key={line.words}>
+            <button
+              type="button"
+              onClick={() => onGo({ key: `suggested|${line.words}`, kind: 'filed', words: line.words, open: line.open, ...(line.ids?.length ? { ids: line.ids } : {}) })}
+              className="group inline-flex items-center gap-1.5 rounded-md text-left text-[13px] font-medium text-brand hover:underline coarse:min-h-11"
+            >
+              <span className="size-1.5 shrink-0 rounded-full bg-provenance" aria-hidden />
+              {line.words}
+              <ArrowRight size={12} aria-hidden className="shrink-0 transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : null}
+    {chips.length ? (
     <div className="mt-2 flex flex-wrap gap-1.5">
       {shown.map((chip) => (
         <button
@@ -98,6 +130,8 @@ export function TurnWaiting({
         </button>
       ) : null}
     </div>
+    ) : null}
+    </>
   );
 }
 
@@ -215,14 +249,16 @@ function WaitingCard({
 }
 
 /**
- * What waits for a person in the pane they are looking at.
+ * What waits for a person in the pane they are looking at, that has no field
+ * or row of its own to wait on.
  *
- * Proposals used to wait in the chat, as cards to approve there. Now each
- * waits in the register it would change, at the top of it: a finding among
- * the findings, a request among the actions, a DD under Technical DD. On the
- * documents, the documents with values to review; on the checks, the other
- * checks with values waiting. A long list folds, so a busy file does not
- * push the register itself off the screen.
+ * A suggestion waits where it lands: a value on its field (a sheet's, or a
+ * check's), a finding, an action, a risk or a decision as a suggested row of
+ * its register, a fact of the project record beside it on Overview. None of
+ * those is listed here. What is left is what has nowhere else to wait: a
+ * valuation to run, a report to make, a stage to change, a DD to start, and
+ * on the documents, the papers with values to read on the desk. A long list
+ * folds, so a busy file does not push the page itself off the screen.
  *
  * On a function's page it lists only what concerns that function. What waits
  * for another function, or for none, is not this page's to show: it is
@@ -233,7 +269,6 @@ export function WaitingHere({
   pane,
   workstream,
   waiting,
-  sittingCheckId,
   busy,
   highlightIds,
   onAccept,
@@ -245,8 +280,6 @@ export function WaitingHere({
   /** The function whose page is on screen, where the pane is a function's. */
   workstream?: string;
   waiting: Waiting;
-  /** The check already open on the scope — its values are decided there, not listed here. */
-  sittingCheckId?: string | null;
   busy: boolean;
   /** The records a chip in the chat lit. A card among them is lit here. */
   highlightIds?: string[];
@@ -256,12 +289,12 @@ export function WaitingHere({
 }) {
   const here = waitingOnPane(waiting.entries, { pane, workstream, sameTab: (a, b) => tabHolding(a).tab.pane === tabHolding(b).tab.pane });
   const documents = here.filter((e) => e.kind === 'facts');
-  const checks = here.filter((e) => e.pane === 'scope' && e.extra?.checkId !== sittingCheckId);
+  // A check's values wait on the check's fields, and are decided there: none is listed here.
   const cards = here
-    .filter((e) => e.kind !== 'facts' && e.pane !== 'scope' && e.proposalId)
+    .filter((e) => e.kind !== 'facts' && e.pane !== 'scope' && e.proposalId && !waitsWhereItLands({ kind: e.kind as ChatProposalKind, id: e.proposalId }, project))
     .map((e) => project.chatProposals.find((p) => p.id === e.proposalId))
     .filter((p): p is ChatProposal => Boolean(p));
-  const total = documents.length + checks.length + cards.length;
+  const total = documents.length + cards.length;
   const [folded, setFolded] = useState(total > 4);
   useEffect(() => {
     if (total <= 4) setFolded(false);
@@ -273,16 +306,7 @@ export function WaitingHere({
   }, [litCard, highlightIds]);
   if (!total) return null;
 
-  // Checks are grouped: three values on one check are one place to go.
-  const byCheck = new Map<string, { entry: WaitingEntry; count: number; title: string }>();
-  for (const e of checks) {
-    const id = e.extra?.checkId ?? e.proposalId ?? e.title;
-    const title = project.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks)).find((c) => c.id === e.extra?.checkId)?.title ?? e.title;
-    const g = byCheck.get(id);
-    if (g) g.count += e.count;
-    else byCheck.set(id, { entry: e, count: e.count, title });
-  }
-  const shown = documents.length + byCheck.size + cards.length;
+  const shown = documents.length + cards.length;
 
   return (
     <section aria-label="To accept" data-waiting-anchor="pane" className="mb-3 scroll-mt-3 overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-inset ring-ai/25">
@@ -324,23 +348,6 @@ export function WaitingHere({
                 className="group inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11"
               >
                 Review
-                <ArrowRight size={12} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
-              </button>
-            </StaggerItem>
-          ))}
-          {[...byCheck.values()].map((g) => (
-            <StaggerItem as="li" key={g.entry.proposalId ?? g.title} className="flex items-center gap-2.5 px-3 py-2 transition-colors duration-quick hover:bg-sunken/50">
-              <span className="size-1.5 shrink-0 rounded-full bg-provenance" aria-hidden />
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{g.title}</span>
-              <span className="shrink-0 text-[12px] text-ink-muted">
-                {g.count} value{g.count === 1 ? '' : 's'}
-              </span>
-              <button
-                type="button"
-                onClick={() => onGo(g.entry)}
-                className="group inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11"
-              >
-                Open
                 <ArrowRight size={12} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
               </button>
             </StaggerItem>

@@ -132,6 +132,26 @@ export function fieldFunctionsInReach(grant: Pick<ProjectGrant, 'allScopes' | 's
 }
 
 /**
+ * Whether a field of a set is in a grant's reach: the set goes with the
+ * copy a grant is handed (`projectView`), and the field is not one that a
+ * department out of reach added to it. A buyer's sets are in nobody's reach.
+ * One test for the copy and for what a collaborator's chat writes back from
+ * it (`chatValuesCarried`), so nothing they reach on their copy lands where
+ * the copy would not have shown it.
+ */
+export function fieldsInReach(grant: Pick<ProjectGrant, 'allScopes' | 'scopeKeys' | 'areas'>): (setId: string, field?: string) => boolean {
+  const inReach = fieldFunctionsInReach(grant);
+  const catalog = fieldCatalog();
+  const sharedInReach = new Set([...catalog.sheets.keys()].filter(inReach).flatMap((fn) => sharedSetsOf(fn, catalog).map((set) => set.id)));
+  return (setId, field) => {
+    const set = catalog.sets.get(setId);
+    if (!set || CUSTOMER_SETS.includes(setId) || !(set.fn === SHARED_FN ? sharedInReach.has(setId) : inReach(set.fn))) return false;
+    const def = field === undefined ? undefined : set.fields.find((held) => held.key === field);
+    return !def?.addedBy || inReach(def.addedBy);
+  };
+}
+
+/**
  * The links that name a buyer from outside the buyers' own sets: the buyer a
  * tax deduction is for and the buyer a ledger is kept on. A party one of them
  * names is a buyer, whether or not anybody marked the record a customer.
@@ -327,7 +347,6 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
    */
   const inReach = fieldFunctionsInReach(grant);
   const catalog = fieldCatalog();
-  const sharedInReach = new Set([...catalog.sheets.keys()].filter(inReach).flatMap((fn) => sharedSetsOf(fn, catalog).map((set) => set.id)));
   const uncited = (value: CheckFieldValue): CheckFieldValue => {
     const cited = value.origin?.kind === 'paper' ? value.origin.evidenceId : value.sourceEvidenceId;
     const other = value.other?.filter((o) => o.origin.kind !== 'paper' || evidenceIds.has(o.origin.evidenceId));
@@ -388,11 +407,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     }
     const without = (id: string,values: Record<string, CheckFieldValue>) => Object.fromEntries(Object.entries(values).filter(([key]) => !added.get(id)?.has(key)));
 
-    const kept = Object.entries(project.fieldSheets).filter(([id]) => {
-      const set = catalog.sets.get(id);
-      if (CUSTOMER_SETS.includes(id)) return false;
-      return set ? (set.fn === SHARED_FN ? sharedInReach.has(id) : inReach(set.fn)) : false;
-    });
+    const setInReach = fieldsInReach(grant);
+    const kept = Object.entries(project.fieldSheets).filter(([id]) => setInReach(id));
     // What an issued period froze goes as its fields go: none of a field another department added out of reach, and no footnote that cites a paper not on this copy.
     const frozenOnCopy = (id: string, frozen: Record<string, FrozenField>): Record<string, FrozenField> =>
       Object.fromEntries(

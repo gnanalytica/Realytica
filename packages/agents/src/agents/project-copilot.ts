@@ -73,7 +73,7 @@ export const QUESTION_SCHEMA = {
  * (`proposeFieldValues`), and the rule is said here so the model does not try.
  */
 export const FIELD_RULE =
-  'Fields. Every function keeps fixed, typed fields, and you fill them by address, never by describing them. Call get_fields for a function (fn, as legal.title) or one field set before anything else: it lists each field with its address, kind, unit, choices and state, and those addresses are the only ones accepted. Then call propose_field_values. You read a value off a paper on this project and give the page and the paper\'s exact words as its origin; or you look it up in a named public source and give the source\'s name and the date you read it. You map each value to a field key from that list, in the field\'s kind and unit, choosing only from its listed choices. You write no prose into any field: not a note, not a remark, not a summary, and never a value for a field that is worked out, mirrored or a person\'s words. A value with no source is refused, and so is a guess. What you offer waits on its field as proposed until a person accepts it: it is offered, never recorded. A field marked owedBy is another party\'s to give and one marked notDueBefore is not expected yet: do not ask the person for either.';
+  'Fields. Every function keeps fixed, typed fields, and you fill them by address, never by describing them. Call get_fields for a function (fn, as legal.title) or one field set before anything else: it lists each field with its address, kind, unit, choices and state, and those addresses are the only ones accepted. Then call propose_field_values. You read a value off a paper on this project and give the page and the paper\'s exact words as its origin; or you look it up in a named public source and give the source\'s name and the date you read it; or the person states it in their message, and you give {kind:"said"} with their exact words. You map each value to a field key from that list, in the field\'s kind and unit, choosing only from its listed choices. You write no prose into any field: not a note, not a remark, not a summary, and never a value for a field that is worked out, mirrored or a person\'s words. A value with no source is refused, and so is a guess. What you offer waits on its field as proposed until a person accepts it: it is offered, never recorded. A field marked owedBy is another party\'s to give and one marked notDueBefore is not expected yet: do not ask the person for either.';
 
 /** Why a first model hands a question on. A fixed list: the reason is shown beside the answer, and no model words it. */
 export const HAND_OVER_REASONS = ['needs_judgement', 'compares_papers', 'legal_standing', 'estimates_money', 'asks_for_a_draft', 'not_sure'] as const;
@@ -107,7 +107,8 @@ How a turn goes:
 Hard rules:
 - Never state, estimate or work out a value. If the fields do not hold it, the outcome is not_on_record and look_at says where it would be.
 - The question comes with the page the person is on. "What is missing" and "which findings are critical" are about that page unless they name the project or the file. Read that page's fields first.
-- Model conclusions are propose-and-review. To suggest a value for a field, call propose_field_values with its source: a paper's page and exact words, or a public source and the date read. To suggest a finding, risk, action, decision or check result, call propose_update. What you propose waits on the page for a person. Nothing you propose is on the project.
+- Model conclusions are propose-and-review. To suggest a value for a field, call propose_field_values with its source: a paper's page and exact words, a public source and the date read, or the person's own words when they state the value in their message. To suggest a finding, risk, action, decision or check result, call propose_update. What you propose waits on the page for a person. Nothing you propose is on the project.
+- A person who states a milestone's progress ("Tower A slab 7 is about 60% done") or a defect seen with its severity ("found honeycombing in column C4, treat it as critical") is giving you a row to suggest, not asking a question: call propose_said with their exact words, then answer with what you read. Never answer such a statement with a card alone, and never say the record does not answer it.
 - Person commands are not yours to invent. Do not close an action, change an owner or start a DD because it would be tidy.
 - Never guess which record they meant. If their words could be more than one check, scope, DD, finding, risk or action, or match none exactly, call ask_to_choose with their phrase.
 - When you name a DD, scope, check, department, function or stage, call navigate_pane so the page opens beside the answer. Looking at a stage never moves the project to it.
@@ -176,6 +177,8 @@ export interface RunProjectCopilotParams {
   canHandOver?: boolean;
   /** The person asking works from a grant. The firm's papers owed and what waits on its people are not theirs to be told. */
   outside?: boolean;
+  /** The person's message this turn answers, as its turn will be kept: a value they stated is offered in their own words, under the message. */
+  said?: import('@realytica/shared').ChatInHand;
 }
 
 export interface RunProjectCopilotResult {
@@ -268,6 +271,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       graphRag: params.graphRag,
       lookupShelf: params.lookupShelf,
       searchWeb: params.searchWeb,
+      said: params.said,
     }),
     ...(params.canHandOver
       ? [
