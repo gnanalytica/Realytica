@@ -24,6 +24,7 @@
 import { APPROVAL_KINDS } from './approvals';
 import { checkInsights, computedValue, dayNumber, dayOfNumber, evaluateFormula, evaluateStatus, formulaOverNothing, ownRows, rowMeets, tableRows, fieldIsDerived, fieldNumber, fieldOptions, fieldStands, fieldState, fieldTone, formatFieldValue, isBlank, standingField, validateFieldValue, type FormulaOutside } from './check-fields';
 import { checkFieldsAsRead, checkOfferCards, checkOfferStanding, decideCheckWaiting, type CheckOffer } from './check-waiting';
+import { chatInHand, saidInChat, saidRefused, saidValueRefused, type ChatInHand } from './chat-tag';
 import { listAssumptions } from './checklist';
 import { DEPARTMENT_KEYS, SUB_STAGES, workstreamDefinition, type DepartmentKey, type DepartmentRole } from './departments';
 import { surveyNumbersIn } from './document-intake';
@@ -829,6 +830,8 @@ function sourceOf(project: DdProject, catalog: FieldCatalog, value: CheckFieldVa
   // Who typed it, as the project's team names them: a line never prints an address.
   if (origin?.kind === 'person') return { kind: 'person', label: personSaid(project, value?.acceptedBy ?? value?.by) };
   if (origin?.kind === 'default') return { kind: 'default', label: origin.cite ?? '' };
+  // Said in the chat: who said it, as the team names them, their words and the day.
+  if (origin?.kind === 'chat') return { kind: 'chat', label: personSaid(project, origin.by), quote: origin.quote, asOf: origin.at };
   // A value saved before origins were kept: its paper, where it cites one.
   if (value?.sourceEvidenceId) {
     const row = project.evidence.find((e) => e.id === value.sourceEvidenceId);
@@ -1713,8 +1716,8 @@ function assertMayDecide(fn: string, what: string, options: FieldWriteOptions): 
   if (!may) throw decisionRefused(what, department, options.mayDecide);
 }
 
-/** Whether the caller may make a value count in a function. With nobody asking, nothing is refused. */
-function mayDecideIn(fn: string, options: FieldWriteOptions): boolean {
+/** Whether the caller may make a value count in a function. With nobody asking, nothing is refused. A shared record's is anybody's who decides somewhere. */
+export function mayDecideIn(fn: string, options: FieldWriteOptions): boolean {
   if (!options.mayDecide) return true;
   const department = departmentOfFunction(fn);
   return fn === SHARED_FN ? DEPARTMENT_KEYS.some((key) => options.mayDecide!(key)) : Boolean(department && options.mayDecide(department));
@@ -1886,12 +1889,17 @@ export type QuotePlaced = (evidenceId: string, page: number, quote: string) => n
  *   is proven by the page's text; not found, or with no pages to look in, it
  *   is unverified and a person names it to accept it.
  * - Every string is cut to a bound, and a link is kept only as https.
+ * - Words the person said in the chat are looked for in their message: found
+ *   there, the value is theirs, said in that message; not found, it is no
+ *   source at all.
  *
  * Undefined where what was sent is no source at all.
  */
-function offeredOrigin(sent: unknown, proposer: 'model' | 'parser', placed: QuotePlaced | undefined): Extract<FieldOrigin, { kind: 'paper' | 'external' }> | undefined {
+function offeredOrigin(sent: unknown, proposer: 'model' | 'parser', placed: QuotePlaced | undefined, said: ChatInHand | undefined): Extract<FieldOrigin, { kind: 'paper' | 'external' | 'chat' }> | undefined {
   if (!sent || typeof sent !== 'object') return undefined;
   const given = sent as Record<string, unknown>;
+  // The person's own words in the message being answered: their name, the message and the chat are the server's, never what was sent.
+  if (saidKind(given.kind)) return saidInChat(said, saidQuoteOf(given), { strict: true });
   const text = (value: unknown, most: number): string => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, most) : '');
   if (given.kind === 'paper') {
     const evidenceId = text(given.evidenceId, 200);
@@ -1912,6 +1920,12 @@ function offeredOrigin(sent: unknown, proposer: 'model' | 'parser', placed: Quot
   return undefined;
 }
 
+/** The kinds a proposal may give for the person's own words in the chat: `said` as a model is told to, `chat` as one is kept. */
+const saidKind = (kind: unknown): boolean => kind === 'said' || kind === 'chat';
+
+/** The part of the person's message a proposal quotes, or undefined for the whole message. */
+const saidQuoteOf = (given: Record<string, unknown> | undefined): string | undefined => (typeof given?.quote === 'string' && given.quote.trim() ? given.quote : undefined);
+
 export interface FieldProposalOutcome {
   address: FieldAddress;
   /** `waiting`: it is on the field for a person to accept. `held`: the field already holds this value. `declined`: a person has already set this value aside here. */
@@ -1925,9 +1939,15 @@ export interface FieldProposalOutcome {
  *
  * Refused, each with its reason: an address that names no field; a field
  * that is worked out, mirrored, prose or no longer asked; a value with no
- * source (a paper's page and words, or a public source and its date); a
- * paper that is not on the project; a choice that is not on the list; a link
- * to something that does not exist.
+ * source (a paper's page and words, a public source and its date, or the
+ * words of the person's message being answered); a paper that is not on the
+ * project; words the person did not say; a choice that is not on the list; a
+ * link to something that does not exist.
+ *
+ * A value offered while a chat message is answered carries that message
+ * (`chat`), whatever its source: the chat lists it among its suggestions and
+ * the reply says where it went. The message is `cards.said`, or the one the
+ * rules hold while they answer (`chatInHand`).
  *
  * A value for a set that repeats names its record. With no record named, the
  * values offered together make one new record, which is nothing until one of
@@ -1945,9 +1965,11 @@ export function proposeFieldValues(
   proposals: readonly FieldProposal[],
   proposer: 'model' | 'parser',
   catalog: FieldCatalog = fieldCatalogFor(project),
-  cards: { pending?: readonly ChatProposal[]; raise?: (card: ChatProposal) => void; placed?: QuotePlaced } = {},
+  cards: { pending?: readonly ChatProposal[]; raise?: (card: ChatProposal) => void; placed?: QuotePlaced; said?: ChatInHand } = {},
 ): FieldProposalOutcome[] {
   const at = now();
+  const said = cards.said ?? chatInHand();
+  const tag = said ? { chat: said.tag } : {};
   const fresh = new Map<string, FieldRecord>();
   const out: FieldProposalOutcome[] = [];
   const onChecks: CheckOffer[] = [];
@@ -1963,11 +1985,17 @@ export function proposeFieldValues(
       refuse(`${def.label} is no longer asked.`);
       continue;
     }
-    const origin = offeredOrigin(proposal.origin, proposer, cards.placed);
+    const origin = offeredOrigin(proposal.origin, proposer, cards.placed, said);
     if (!origin) {
-      refuse(`${def.label} needs a source: a paper with its page and words, or a public source with its date.`);
+      const sent = (proposal.origin as { kind?: unknown } | undefined)?.kind;
+      refuse(
+        saidKind(sent)
+          ? `${def.label}: ${saidRefused(said, saidQuoteOf(proposal.origin as unknown as Record<string, unknown>)) ?? 'those words are not in what the person said. Quote their message exactly.'}`
+          : `${def.label} needs a source: a paper with its page and words, a public source with its date, or the person's own words in this chat.`,
+      );
       continue;
     }
+    // The person's words were found in their message: a paper and a public source each have more to look at.
     if (origin.kind === 'paper') {
       if (!origin.quote || !(origin.page >= 1)) {
         refuse(`${def.label} needs the page and the paper’s own words.`);
@@ -1977,7 +2005,7 @@ export function proposeFieldValues(
         refuse(`${def.label} cites a paper that is not on this project.`);
         continue;
       }
-    } else if (!origin.source || dayNumber(origin.asOf) === null || dayOfNumber(dayNumber(origin.asOf)!) !== origin.asOf) {
+    } else if (origin.kind === 'external' && (!origin.source || dayNumber(origin.asOf) === null || dayOfNumber(dayNumber(origin.asOf)!) !== origin.asOf)) {
       refuse(`${def.label} needs the source’s name and the date it was read.`);
       continue;
     }
@@ -1990,6 +2018,12 @@ export function proposeFieldValues(
       refuse(`${def.label}: no value was given.`);
       continue;
     }
+    // The person's words have to give this value, read with the field's own reader: words that say another value, or none, are no source for it.
+    const notSaid = origin.kind === 'chat' ? saidValueRefused(def, parsed.value, origin.quote, { optionSet: (id) => optionSetById(id, catalog), state: project.jurisdiction }) : undefined;
+    if (notSaid) {
+      refuse(notSaid);
+      continue;
+    }
     const asWritten = writtenAs(def, parsed.value, proposal.written, project.jurisdiction);
     if (asWritten) (parsed as { entered?: Entered }).entered = asWritten;
     if (catalog.checks.has(set.id)) {
@@ -1998,7 +2032,7 @@ export function proposeFieldValues(
         refuse('That check is not on this project.');
         continue;
       }
-      if (origin.kind === 'external' && def.proof === 'required') {
+      if (origin.kind !== 'paper' && def.proof === 'required') {
         refuse(`${def.label} has to cite a paper on this project: give the paper, the page and its words.`);
         continue;
       }
@@ -2038,6 +2072,7 @@ export function proposeFieldValues(
       v: set.v,
       ...('entered' in parsed && parsed.entered ? { entered: parsed.entered } : {}),
       ...(origin.kind === 'paper' ? { sourceEvidenceId: origin.evidenceId, page: origin.page, quote: origin.quote } : {}),
+      ...tag,
     };
     if (held?.declined?.some((declined) => same(declined.value, parsed.value))) {
       out.push({ address, outcome: 'declined' });
@@ -2047,7 +2082,7 @@ export function proposeFieldValues(
       out.push({ address, outcome: 'held' });
       continue;
     }
-    const beside = { value: parsed.value, origin: offered.origin!, proposedBy: proposer, at, ...(offered.entered ? { entered: offered.entered } : {}) };
+    const beside = { value: parsed.value, origin: offered.origin!, proposedBy: proposer, at, ...(offered.entered ? { entered: offered.entered } : {}), ...tag };
     if (!held || (isBlank(held) && fieldState(held) !== 'not_applicable') || fieldState(held) === 'proposed') {
       // One value waits on an empty field at a time: a newer reading takes the place of the one that waited.
       stand(holder, def.key, { ...offered, ...(held?.declined ? { declined: held.declined } : {}), ...(held?.other?.length ? { other: held.other } : {}) }, { at, by: proposer });
@@ -2060,13 +2095,86 @@ export function proposeFieldValues(
     }
     out.push({ address, outcome: 'waiting' });
   }
-  for (const card of checkOfferCards(onChecks, proposer)) {
+  for (const card of checkOfferCards(onChecks, proposer, said?.tag)) {
     if (cards.raise) cards.raise(card);
     else project.chatProposals.push(card);
   }
   if (out.some((row) => row.outcome === 'waiting')) {
     project.updatedAt = at;
     recordAuditEvent(project, { actor: proposer, action: 'propose_field_values', entityType: 'field_set', entityId: [...new Set(out.filter((r) => r.outcome === 'waiting').map((r) => r.address.set))].join(', '), newValue: `${out.filter((r) => r.outcome === 'waiting').length} offered`, at });
+  }
+  return out;
+}
+
+/**
+ * What one chat message suggested on a copy of the project, offered again on
+ * the project itself.
+ *
+ * An outside collaborator's chat runs on their copy (`projectView`), so a
+ * value their message suggested, an answer to the chat's own question or a
+ * model's offer, waits on the copy's sheet and would be gone with it at the
+ * end of the request, though the reply says it was suggested. Each value on
+ * the copy that carries the message (`turnId`) is offered here through the
+ * same door it went through on the copy, with the same source and the same
+ * message, and so is checked again in full: its words in the message, its
+ * paper on the project. Only where `inReach` says the field is the
+ * collaborator's to fill: a sheet or a field their grant does not hand over
+ * is not written by a value that reached it on the copy. A record the copy
+ * made new is made new here, its values together; a record the copy holds is
+ * written only where the project holds it too.
+ */
+export function chatValuesCarried(
+  project: DdProject,
+  copy: DdProject,
+  message: { turnId: string; text: string; by: string },
+  inReach: (set: string, field: string) => boolean,
+  catalog: FieldCatalog = fieldCatalogFor(project),
+): FieldProposalOutcome[] {
+  type Offer = FieldProposal & { proposer: 'model' | 'parser'; said: ChatInHand };
+  const groups = new Map<string, Offer[]>();
+  const add = (group: string, offer: Offer) => groups.set(group, [...(groups.get(group) ?? []), offer]);
+  for (const [setId, sheet] of Object.entries(copy.fieldSheets ?? {})) {
+    const set = catalog.sets.get(setId);
+    if (!set || !sheet || catalog.checks.has(setId)) continue;
+    const onFile = sheetOf(project, setId);
+    const holders: Array<{ group: string; address: Pick<FieldAddress, 'record' | 'period'>; values: Record<string, CheckFieldValue> }> = [
+      { group: `${setId}::sheet`, address: {}, values: sheet.values ?? {} },
+      ...(sheet.periods ?? []).filter((period) => period.status === 'open').map((period) => ({ group: `${setId}::${period.key}`, address: { period: period.key }, values: period.values })),
+      ...(sheet.records ?? []).filter((record) => !record.removed).map((record) => {
+        const known = onFile?.records?.some((held) => held.id === record.id);
+        return { group: `${setId}::${known ? 'record' : 'new'}::${record.id}`, address: known ? { record: record.id } : {}, values: record.values };
+      }),
+    ];
+    for (const holder of holders) {
+      for (const [key, value] of Object.entries(holder.values)) {
+        if (!inReach(setId, key)) continue;
+        const own = value.chat?.turnId === message.turnId && fieldState(value) === 'proposed' ? [{ value: value.value, origin: value.origin, proposedBy: value.proposedBy, entered: value.entered, chat: value.chat }] : [];
+        const beside = (value.other ?? []).filter((other) => other.chat?.turnId === message.turnId);
+        for (const offered of [...own, ...beside]) {
+          if (!offered.origin || !offered.chat) continue;
+          const by = offered.origin.kind === 'chat' ? offered.origin.by : message.by;
+          const at = offered.origin.kind === 'chat' ? offered.origin.at : now();
+          const written = offered.entered ? (offered.entered.text ?? `${offered.entered.value} ${offered.entered.unit}`) : undefined;
+          // A record the copy made new is one record here too: its values go together. Anything else is offered by itself.
+          add(holder.group.includes('::new::') ? holder.group : `${holder.group}::${key}`, {
+            address: { fn: set.fn, set: setId, field: key, ...holder.address },
+            value: offered.value,
+            origin: offered.origin,
+            ...(written ? { written } : {}),
+            proposer: offered.proposedBy === 'parser' ? 'parser' : 'model',
+            said: { tag: offered.chat, by, message: message.text, at },
+          });
+        }
+      }
+    }
+  }
+  const out: FieldProposalOutcome[] = [];
+  for (const offers of groups.values()) {
+    const [first] = offers;
+    if (!first) continue;
+    // A paper's words the copy found on the page are found there again: the copy's papers are the project's own.
+    const placed: QuotePlaced = (evidenceId, page, quote) => (offers.some((offer) => offer.origin.kind === 'paper' && offer.origin.evidenceId === evidenceId && offer.origin.page === page && offer.origin.quote === quote && offer.origin.proof === 'page_text') ? page : undefined);
+    out.push(...proposeFieldValues(project, offers.map(({ proposer: _proposer, said: _said, ...offer }) => offer), first.proposer, catalog, { said: first.said, placed }));
   }
   return out;
 }

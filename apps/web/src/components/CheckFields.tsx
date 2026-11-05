@@ -1357,6 +1357,8 @@ function sourceSaid(source: FieldSource | undefined): string {
   if (source.kind === 'external') return `${source.label}${source.asOf ? `, read ${daySaid(source.asOf)}` : ''}`;
   if (source.kind === 'field') return `from ${source.label}`;
   if (source.kind === 'default') return `usual value${source.label ? `, ${source.label}` : ''}`;
+  // A person's own words in the chat: who said them and the day, with the words themselves under it.
+  if (source.kind === 'chat') return `said in chat by ${person(source.label)}${source.asOf ? `, ${daySaid(source.asOf)}` : ''}`;
   return source.label ? `typed by ${person(source.label)}` : '';
 }
 
@@ -1453,6 +1455,7 @@ function FieldMarks({
             <p className="text-[12px] text-ink">
               Also offered: {other.text} <span className="text-ink-muted">· {open(other.source)}</span>
             </p>
+            {other.source?.kind === 'chat' && other.source.quote ? <p className="mt-0.5">“{other.source.quote}”</p> : null}
             {other.source?.proof === 'unverified' ? <p className="mt-0.5 text-[var(--status-warning-text)]">These words were not found on that page. Look at the paper before accepting.</p> : null}
             {may ? (
               <p className="mt-0.5 flex gap-1">
@@ -1469,6 +1472,7 @@ function FieldMarks({
       )}
       {/* Once a value stands, the paper or the public source it was read from is a small link under its box. */}
       {(view.state === 'accepted' || view.state === 'typed') && !derived && (view.source?.kind === 'paper' || view.source?.kind === 'external') && sourceSaid(view.source) ? <p>from {open(view.source)}</p> : null}
+      {view.state === 'accepted' && !derived && view.source?.kind === 'chat' ? <p>{sourceSaid(view.source)}</p> : null}
       {view.state === 'assumed' ? <p>Assumed: {sourceSaid(view.source)}</p> : null}
       {view.cites?.some((cite) => !cite.verified) && view.held && view.held.value !== null && view.held.value !== '' ? (
         <p className="text-[var(--status-warning-text)]">

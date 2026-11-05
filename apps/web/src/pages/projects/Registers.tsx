@@ -65,6 +65,7 @@ import { CreateButton } from '../../components/create/CreateWizard';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
+import { SuggestedRows } from './SuggestedRows';
 import { EvidenceProof } from './EvidenceProof';
 import { OutgoingFromPaper } from '../../components/outgoing/OutgoingStart';
 import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceDropZone';
@@ -76,6 +77,8 @@ import { DEPARTMENT_ICON } from '../../components/departments/icons';
 
 const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[];
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
+
+const FINDING_SUGGESTIONS = ['add_finding'] as const;
 
 const GAP_STATUSES: EvidenceStatus[] = ['expected', 'requested', 'missing'];
 const FILED_STATUSES: EvidenceStatus[] = ['received', 'validated', 'used'];
@@ -730,7 +733,7 @@ export function EvidenceRegister() {
 }
 
 export function FindingRegister() {
-  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds, onAcceptWaiting, onSetAsideWaiting, waitingBusy } = useOutletContext<ProjectOutlet>();
   const [searchParams] = useSearchParams();
   const toast = useToast();
   const focusId = searchParams.get('finding') ?? undefined;
@@ -763,6 +766,8 @@ export function FindingRegister() {
         <div className="flex-grow" />
         <CreateButton kind="add_finding" project={project} onCreated={setProject} />
       </div>
+      {/* Findings suggested and not yet on the register, each accepted or set aside on its own row. */}
+      <SuggestedRows project={project} kinds={FINDING_SUGGESTIONS} changes="finding" liveIds={liveIds} busy={waitingBusy} onAccept={onAcceptWaiting} onSetAside={onSetAsideWaiting} />
       {rows.length === 0 ? (
         mineOnly && project.findings.length > 0 ? (
           <EmptyState

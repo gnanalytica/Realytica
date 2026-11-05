@@ -30,7 +30,8 @@ import { acceptedFacts, proposedFacts } from './fact-review';
 import { meetingCalled, meetingDay, meetingItemStands, meetingOfRecord, meetingsHeld } from './meetings';
 import { memPeople } from './mem-answer';
 import { memPointer, memoryDelta, type MemEntry } from './mem-delta';
-import { milestoneWatch } from './milestone-schedule';
+import { milestoneWatch, progressReadings } from './milestone-schedule';
+import { costReportsOf } from './cost-report';
 import { memoryFacts, type MemFact } from './mem-facts';
 import { isQuarter, quarterHolding, quarterMonthsSaid, quarterOfKey } from './quarters';
 import { sameEmail } from './tenancy';
@@ -407,6 +408,22 @@ export function statusReport(project: DdProject, period: StatusPeriod, now = new
     }
   }
 
+  // A Cost Report issued in the period: it is a report issued, under the name of whoever issued it. Its figures are the Cost Report's to say.
+  for (const report of costReportsOf(project)) {
+    if (!inside(report.issuedAt)) continue;
+    changed.push({ kind: 'report', what: `Cost Report issued: ${report.label}${report.status === 'superseded' ? ', since revised' : ''}.`, when: day(report.issuedAt!), who: named(report.issuedBy), stands: report.status === 'superseded' ? 'revised' : 'issued', behind: 'the Cost Report as issued', recordId: report.id });
+  }
+  // The progress board: milestones put on it in the period, and readings of a day in the period, each milestone once with its last reading.
+  for (const event of project.audit ?? []) {
+    if (event.entityType !== 'milestone' || !inside(event.at) || (event.action !== 'add_milestones' && event.action !== 'import_schedule') || !event.newValue) continue;
+    changed.push({ kind: 'milestone', what: event.action === 'add_milestones' ? `Put on the progress board: ${event.newValue}.` : `Schedule brought in: ${event.newValue}.`, when: day(event.at), who: named(event.actor), stands: 'on the board', behind: 'the progress board' });
+  }
+  for (const milestone of project.milestones ?? []) {
+    const read = progressReadings(project, milestone).filter((reading) => reading.on >= fromDay && reading.on < toDay).at(-1);
+    if (!read) continue;
+    changed.push({ kind: 'milestone', what: `Progress reported: ${milestone.name} at ${read.percent}% on ${meetingDay(read.on)}.`, when: read.on, who: named(milestone.updatedBy), stands: read.percent >= 100 ? 'done' : 'in progress', behind: 'the progress board', recordId: milestone.id });
+  }
+
   // An action whose date passed in the period and that is still open.
   for (const action of project.actions) {
     const due = action.dueDate?.slice(0, 10);
@@ -719,6 +736,7 @@ function changedCounted(lines: readonly StatusLine[]): string {
     of('finding') ? counted(of('finding'), 'finding raised', 'findings raised') : '',
     of('meeting') ? counted(of('meeting'), 'meeting', 'meetings') : '',
     of('report') ? counted(of('report'), 'report issued', 'reports issued') : '',
+    of('milestone') ? counted(of('milestone'), 'change on the progress board', 'changes on the progress board') : '',
   ]
     .filter(Boolean)
     .join(', ');

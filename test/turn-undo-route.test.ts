@@ -76,6 +76,12 @@ async function resultOf(res: Response): Promise<Answered> {
 const say = async (projectId: string, question: string, sitting?: ChoicePin, sessionId?: string): Promise<Answered> =>
   resultOf(await realFetch(`${base}/api/projects/${projectId}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, ...(sitting ? { sitting } : {}), ...(sessionId ? { sessionId } : {}) }) }));
 
+/** Say something the chat suggests a change for, and accept it in the chat: the reply that accepts it is the one that changed the record. */
+const settle = async (projectId: string, question: string, sessionId?: string): Promise<Answered> => {
+  await say(projectId, question, undefined, sessionId);
+  return say(projectId, 'Approve all', undefined, sessionId);
+};
+
 /** Press Undo under a reply. */
 const undo = (projectId: string, turn: Pick<ProjectChatTurn, 'id'>): Promise<Answered> => say(projectId, 'Undo that message', { undo: { turnId: turn.id } });
 
@@ -90,6 +96,8 @@ before(async () => {
   dataDir = mkdtempSync(path.join(tmpdir(), 'realytica-undo-'));
   process.env.REALYTICA_DATA_DIR = dataDir;
   process.env.REALYTICA_AUTH_MODE = 'off';
+  // Every change waits and is accepted in a message of its own, so a suite says twice as much as it used to.
+  process.env.REALYTICA_RATE_LIMIT_MODEL = '500';
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     if (!url.startsWith('http://127.0.0.1')) throw new Error('this test has no network');
@@ -111,7 +119,7 @@ after(async () => {
   const { afterReplyWorkDone } = await import('../apps/api/src/runs/background');
   await afterReplyWorkDone();
   rmSync(dataDir, { recursive: true, force: true });
-  for (const name of ['REALYTICA_AUTH_MODE', 'REALYTICA_DATA_DIR']) delete process.env[name];
+  for (const name of ['REALYTICA_AUTH_MODE', 'REALYTICA_DATA_DIR', 'REALYTICA_RATE_LIMIT_MODEL']) delete process.env[name];
 });
 
 describe('what a reply changed', () => {
@@ -121,7 +129,7 @@ describe('what a reply changed', () => {
     const { storageAdapter } = await import('../apps/api/src/storage');
     await storageAdapter.putDocument(project.id, 'undo-old-token.json', Buffer.from('{}'), 'application/json');
     (await stored(project.id)).lastUndo = { token: 'old-token', label: 'the last change', state: 'x', at: '2026-09-01T00:00:00.000Z' };
-    const set = await say(project.id, 'Set owner to Asha Rao');
+    const set = await settle(project.id, 'Set owner to Asha Rao');
     assert.deepEqual([set.project.lastUndo, await inStorage(project.id, 'undo-old-token.json')], [undefined, false], 'the whole copy an earlier build kept is let go');
     assert.deepEqual(set.assistantTurn.changed, { lines: ['Set the owner to Asha Rao'], kept: true });
     assert.equal((await say(project.id, 'what is the budget?')).assistantTurn.changed, undefined, 'a question changed nothing');
@@ -134,9 +142,9 @@ describe('what a reply changed', () => {
 describe('undoing a message', () => {
   it('is done on its own, later, after other things have happened, and takes back no later work', async () => {
     const project = await seeded();
-    const owner = await say(project.id, 'Set owner to Asha Rao');
-    await say(project.id, 'Set the budget to 5000000');
-    await say(project.id, 'Add an action: get the tax receipt');
+    const owner = await settle(project.id, 'Set owner to Asha Rao');
+    await settle(project.id, 'Set the budget to 5000000');
+    await settle(project.id, 'Add an action: get the tax receipt');
     const back = await undo(project.id, owner.assistantTurn);
     // The undo is itself a message, and says what it put back.
     assert.deepEqual([back.userTurn.text, back.assistantTurn.text.split('\n')], ['Undo that message', ['Undone:', '- Set the owner to Asha Rao.']]);
@@ -154,8 +162,8 @@ describe('undoing a message', () => {
 
   it('leaves what was changed again since, and says which and why', async () => {
     const project = await seeded();
-    const first = await say(project.id, 'Set the budget to 5000000');
-    await say(project.id, 'Set the budget to 6000000');
+    const first = await settle(project.id, 'Set the budget to 5000000');
+    await settle(project.id, 'Set the budget to 6000000');
     const back = await undo(project.id, first.assistantTurn);
     assert.deepEqual(back.assistantTurn.text.split('\n'), ['Nothing was undone.', 'Left as it is:', '- Set the budget to 50,00,000: it was changed again since.']);
     assert.equal(back.project.budget, 6_000_000);
@@ -164,7 +172,7 @@ describe('undoing a message', () => {
 
   it('means the last thing this chat changed when it is typed alone', async () => {
     const project = await seeded();
-    await say(project.id, 'Set owner to Asha Rao', undefined, 'sit_one');
+    await settle(project.id, 'Set owner to Asha Rao', 'sit_one');
     await say(project.id, 'what is the budget?', undefined, 'sit_one');
     const back = await say(project.id, 'undo', undefined, 'sit_one');
     assert.deepEqual([back.assistantTurn.text.split('\n')[0], back.project.owner], ['Undone:', undefined]);
@@ -173,7 +181,7 @@ describe('undoing a message', () => {
 
   it('is told to the trail with the records it put something back on', async () => {
     const project = await seeded();
-    const added = await say(project.id, 'Add an action: get the tax receipt');
+    const added = await settle(project.id, 'Add an action: get the tax receipt');
     const actionId = added.project.actions[0]!.id;
     const back = await undo(project.id, added.assistantTurn);
     assert.deepEqual(back.project.actions, []);
@@ -183,7 +191,7 @@ describe('undoing a message', () => {
 
   it('is the author’s to do, and nobody else’s', async () => {
     const project = await seeded();
-    const set = await say(project.id, 'Set owner to Asha Rao');
+    const set = await settle(project.id, 'Set owner to Asha Rao');
     const { undoTurn } = await import('../apps/api/src/chat-changes');
     const refused = await undoTurn(await stored(project.id), set.assistantTurn.id, 'somebody.else@example.com');
     assert.deepEqual([refused.done, (await stored(project.id)).owner], [false, 'Asha Rao']);

@@ -27,14 +27,14 @@ import { alreadyDecided, statesTheSameOnField } from './document-intake';
 import { decideCheckFields, pickCheckValue, waitingOnCheck } from './review';
 import type { MayDecide } from './team';
 import { createChatProposal } from './wizard';
-import type { ChatProposal, CheckFieldDef, CheckFieldValue, CheckInstance, DdProject, FieldOrigin } from './types';
+import type { ChatProposal, ChatTag, CheckFieldDef, CheckFieldValue, CheckInstance, DdProject, FieldOrigin } from './types';
 
 type Offer = NonNullable<CheckFieldValue['other']>[number];
 
 /** Where a value waiting on a card was read: the paper the card cites, or the public source it names for this field. */
 function originOf(card: ChatProposal | undefined, key: string, cite: { page?: number; quote?: string; sourceEvidenceId?: string }): FieldOrigin {
   const named = ((card?.payload.origins ?? {}) as Record<string, FieldOrigin | undefined>)[key];
-  if (named?.kind === 'external') return named;
+  if (named?.kind === 'external' || named?.kind === 'chat') return named;
   const reader = card?.createdBy === 'copilot' ? 'model' : 'parser';
   if (cite.sourceEvidenceId) return { kind: 'paper', evidenceId: cite.sourceEvidenceId, page: cite.page ?? 0, quote: cite.quote ?? '', reader };
   return { kind: 'person' };
@@ -63,6 +63,7 @@ export function checkFieldsAsRead(project: DdProject, check: CheckInstance): Rec
         proposedBy: card?.createdBy === 'copilot' ? 'model' : 'parser',
         at: card?.createdAt,
         card: offer.proposalId,
+        ...(card?.chat ? { chat: card.chat } : {}),
       };
     });
     const held = out[field.key];
@@ -76,6 +77,7 @@ export function checkFieldsAsRead(project: DdProject, check: CheckInstance): Rec
         origin: first.origin,
         proposedBy: first.proposedBy,
         card: first.card,
+        ...(first.chat ? { chat: first.chat } : {}),
         ...(first.origin.kind === 'paper' ? { sourceEvidenceId: first.origin.evidenceId, page: first.origin.page, quote: first.origin.quote } : {}),
         ...(held?.declined ? { declined: held.declined } : {}),
         ...(rest.length || held?.other?.length ? { other: [...(held?.other ?? []), ...rest] } : {}),
@@ -132,7 +134,7 @@ export interface CheckOffer {
   check: CheckInstance;
   def: CheckFieldDef;
   value: NonNullable<CheckFieldValue['value']>;
-  origin: Extract<FieldOrigin, { kind: 'paper' | 'external' }>;
+  origin: Extract<FieldOrigin, { kind: 'paper' | 'external' | 'chat' }>;
 }
 
 /** Why a value offered for a check's field makes no new card: the field holds it, it waits there already, or a person set it aside. */
@@ -156,12 +158,13 @@ export function checkOfferStanding(project: DdProject, offer: CheckOffer, pendin
  * The cards that carry values offered for checks' fields: one for each check
  * and source, as a paper's reading makes them. Every line on a card is the
  * field's label, its value as the field prints it, and the page: put together
- * here, never written by a model.
+ * here, never written by a model. A card raised while a chat message is
+ * answered carries that message (`chat`).
  */
-export function checkOfferCards(offers: readonly CheckOffer[], proposer: 'model' | 'parser'): ChatProposal[] {
+export function checkOfferCards(offers: readonly CheckOffer[], proposer: 'model' | 'parser', chat?: ChatTag): ChatProposal[] {
   const groups = new Map<string, CheckOffer[]>();
   for (const offer of offers) {
-    const source = offer.origin.kind === 'paper' ? offer.origin.evidenceId : `${offer.origin.source}@${offer.origin.asOf}`;
+    const source = offer.origin.kind === 'paper' ? offer.origin.evidenceId : offer.origin.kind === 'chat' ? `chat@${offer.origin.turnId}` : `${offer.origin.source}@${offer.origin.asOf}`;
     const key = `${offer.check.id}::${source}`;
     groups.set(key, [...(groups.get(key) ?? []), offer]);
   }
@@ -177,6 +180,9 @@ export function checkOfferCards(offers: readonly CheckOffer[], proposer: 'model'
       if (offer.origin.kind === 'paper') {
         citations[offer.def.key] = { page: offer.origin.page, quote: offer.origin.quote.slice(0, 220), value: offer.value };
         lines.push(`${offer.def.label}: ${said} (p.${offer.origin.page})`);
+      } else if (offer.origin.kind === 'chat') {
+        origins[offer.def.key] = offer.origin;
+        lines.push(`${offer.def.label}: ${said} (said in the chat, ${offer.origin.at.slice(0, 10)})`);
       } else {
         origins[offer.def.key] = offer.origin;
         lines.push(`${offer.def.label}: ${said} (${offer.origin.source}, read ${offer.origin.asOf.slice(0, 10)})`);
@@ -190,7 +196,7 @@ export function checkOfferCards(offers: readonly CheckOffer[], proposer: 'model'
       'Writes these values onto the check, citing where each was read. The check result is not changed.',
       { checkId: check.id, values, ...(Object.keys(citations).length ? { citations } : {}), ...(Object.keys(origins).length ? { origins } : {}), ...(origin.kind === 'paper' ? { sourceEvidenceId: origin.evidenceId } : {}) },
       proposer === 'model' ? 'copilot' : 'operator',
-      { citedNodeIds: [check.id], ...(origin.kind === 'paper' ? { citedEvidenceIds: [origin.evidenceId] } : {}) },
+      { citedNodeIds: [check.id], ...(origin.kind === 'paper' ? { citedEvidenceIds: [origin.evidenceId] } : {}), ...(chat ? { chat } : {}), ...(origin.kind === 'chat' ? { said: origin } : {}) },
     );
   });
 }

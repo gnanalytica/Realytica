@@ -76,6 +76,10 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
 
   // Asking whether anything points at a thing before it is taken away or renamed: a guard on a write, which acts on no value.
   { file: 'packages/shared/src/operating-model/cost-report.ts', has: 'JSON.stringify(project.fieldSheets ?? {})', why: 'whether any field, standing or waiting, links to a work package, before the package is taken off with the Cost Report row that made it: a link that only waits still must not be left pointing at nothing' },
+  // What waits, read as waiting: a suggestion is listed where it waits, and nothing is told or worked out from it as if it stood.
+  { file: 'packages/shared/src/operating-model/chat-ask.ts', has: '!project.fieldSheets?.[set.id]', why: 'asks only whether a collaborator’s copy holds a sheet at all, to keep the questions to sheets in their reach: no value is read' },
+  { file: 'packages/shared/src/operating-model/chat-suggestions.ts', why: 'reads the values that wait on the sheets, each by `fieldState`, to say where suggestions wait and how many: a value counts only while it waits, and nothing is worked out or told from it' },
+  { file: 'packages/shared/src/operating-model/cockpit.ts', has: 'const holder = record ? project.fieldSheets?.[set]?.records', why: '"approve all" finds the fields where a value the last message suggested waits on its own, to accept each through `decideField`: it reads whether the value waits, never what it says' },
   { file: 'packages/shared/src/operating-model/party-edits.ts', why: 'correcting the parties: it finds every link to a party, standing or waiting, so a merge moves them all and a removal is refused while any is left; a name is read only where `fieldStands` says it stands, and nothing is worked out from any value' },
 
   // Copying a project for somebody whose grant does not reach all of it. Nothing is acted on: what is copied is read again by the field system.

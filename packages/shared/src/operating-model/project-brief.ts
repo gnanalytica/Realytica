@@ -11,7 +11,8 @@
  * working from a grant gets the lines their copy can answer, and never the
  * firm's papers owed.
  */
-import { papersOwedOpen } from './chat-places';
+import { chatPlaceLabel, functionRank, papersOwedOpen } from './chat-places';
+import { placeCountSaid, suggestionPlaces, suggestionsOn, waitsWhereItLands } from './chat-suggestions';
 import { fieldsNeeding } from './field-sheets';
 import { waitingOnCanvas } from './cockpit';
 import { formatMoney } from './units';
@@ -20,10 +21,10 @@ import { costReportIssuedBefore, costReportTotals, costReportsOf } from './cost-
 import { costPapersOf } from './cost-import';
 import { daySaid } from './said';
 import { scheduleWatch } from './milestone-schedule';
-import { DEPARTMENT_SHORT, menuDepartment } from './departments';
+import { DEPARTMENT_SHORT, menuDepartment, withDepartment } from './departments';
 import { PAPERS_OWED, notAskedSaid, paperPlace, papersHeldAt, papersOwed, type PaperLine, type PapersPlace } from './papers-owed';
 import { projectDepartments } from './team';
-import type { DdProject } from './types';
+import type { ChatProposalKind, DdProject } from './types';
 
 export interface BriefPart {
   text: string;
@@ -64,27 +65,54 @@ function repliesToConfirm(lines: readonly PaperLine[]): BriefPart[] {
   return [...places.values()].map(({ place, where, n }) => ({ text: `${plural(n, 'reply to confirm', 'replies to confirm')}${places.size > 1 ? ` ${where}` : ''}`, open: place }));
 }
 
+/** How many places Needs you names one by one. The rest are one part, opening the first of them. */
+const PLACES_NAMED = 4;
+
 /**
- * What waits to be accepted, as one count: the values on the functions'
- * sheets, the values read off papers and what the chat proposed. It opens
- * the function that holds the most of them, at its sheet, and where no
- * function holds any, the first place one waits. A dispute is a part of its
- * own, opening the function that holds it. Empty fields and failing rules
- * are the sheet's own to show; this line is what waits on a decision.
+ * What waits to be accepted, a place at a time: "Legal › Title: 3
+ * suggestions", "Findings: 1 suggestion", each opening where they sit. A
+ * value on a sheet or a check waits on its field, a finding, an action, a
+ * risk or a decision as a row of its register, a fact of the project record
+ * beside it on Overview: none is listed here one by one. The values on
+ * papers waiting to be read are one part, opening the desk. What has no
+ * field or row (a valuation to run, a report to make, a stage to change) is
+ * one count, opening the first of it, as before. A dispute is a part of its
+ * own, opening the function that holds it.
  */
 function acceptParts(project: DdProject, now: Date): BriefPart[] {
   const needing = fieldsNeeding(project, now);
   const waiting = waitingOnCanvas(project);
   const sheet = (fn: string): PapersPlace => ({ pane: 'workstream', extra: { workstream: fn, section: 'sheet' } });
-  const offered = (row: (typeof needing)[number]) => row.counts.proposed + row.counts.situation;
-  const onSheets = needing.reduce((sum, row) => sum + offered(row), 0);
-  const most = [...needing].sort((a, b) => offered(b) - offered(a))[0];
-  const first = waiting.entries[0];
-  const total = onSheets + waiting.total;
+  const suggestions = suggestionsOn(project);
+  // A sheet's suggestions are counted as its function's page counts them, a line each (a new record a paper offered is one), with the situations a paper proposes:
+  // the same count the By department card makes, so the two never disagree. A check's values, a register's rows and the record's facts are counted off their cards.
+  const onSheet = (one: (typeof suggestions)[number]): boolean => one.kind === 'value' && one.id.includes('::');
+  const places = suggestionPlaces(suggestions.filter((one) => !onSheet(one)));
+  for (const row of needing) {
+    const offered = row.counts.proposed + row.counts.situation;
+    if (!offered) continue;
+    const key = `fn:${row.fn}`;
+    // It opens at the first field where one waits, where one does.
+    const first = suggestions.find((one) => onSheet(one) && one.fn === row.fn);
+    const held = places.find((place) => place.key === key);
+    if (held) held.count += offered;
+    else places.push({ key, label: withDepartment(row.fn, chatPlaceLabel({ fn: row.fn })), count: offered, kinds: { value: offered }, open: first?.open ?? { pane: 'workstream', extra: { workstream: row.fn, section: 'sheet' } }, ids: [] });
+  }
+  places.sort((a, b) => functionRank(a.key.startsWith('fn:') ? a.key.slice(3) : undefined) - functionRank(b.key.startsWith('fn:') ? b.key.slice(3) : undefined));
+  const named = places.slice(0, PLACES_NAMED);
+  const more = places.slice(PLACES_NAMED);
+  const papers = waiting.entries.filter((entry) => entry.kind === 'facts');
+  const onPapers = papers.reduce((sum, entry) => sum + entry.count, 0);
+  const others = waiting.entries.filter((entry) => entry.kind !== 'facts' && !(entry.proposalId && waitsWhereItLands({ kind: entry.kind as ChatProposalKind, id: entry.proposalId }, project)));
+  const otherCount = others.reduce((sum, entry) => sum + entry.count, 0);
+  const at = (entry: (typeof waiting.entries)[number]): PapersPlace => ({ pane: entry.pane, ...(entry.extra ? { extra: entry.extra } : {}) });
   const disputed = needing.reduce((sum, row) => sum + row.counts.disputed, 0);
   const holds = [...needing].sort((a, b) => b.counts.disputed - a.counts.disputed)[0];
   return [
-    ...(total ? [{ text: `${total} to accept`, open: onSheets && most ? sheet(most.fn) : first ? { pane: first.pane, ...(first.extra ? { extra: first.extra } : {}) } : { pane: 'actions' as const } }] : []),
+    ...named.map((place) => ({ text: placeCountSaid(place), open: place.open as PapersPlace })),
+    ...(more.length ? [{ text: `${plural(more.reduce((sum, place) => sum + place.count, 0), 'suggestion')} in ${plural(more.length, 'more place')}`, open: more[0]!.open as PapersPlace }] : []),
+    ...(onPapers ? [{ text: plural(onPapers, 'value on papers to read', 'values on papers to read'), open: at(papers[0]!) }] : []),
+    ...(otherCount ? [{ text: `${otherCount} ${named.length || onPapers ? 'more ' : ''}to accept`, open: at(others[0]!) }] : []),
     ...(disputed && holds ? [{ text: plural(disputed, 'value in dispute', 'values in dispute'), tone: 'critical' as const, open: sheet(holds.fn) }] : []),
   ];
 }

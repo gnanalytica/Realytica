@@ -47,6 +47,7 @@ import {
   issueSheetPeriod,
   revisePeriod,
   issueReport,
+  indiaToday,
   projectView,
   recordCheckFields,
   seedDemoProject,
@@ -363,7 +364,9 @@ before(async () => {
   shot.scopeInstanceIds = [project.assessments.flatMap((assessment) => assessment.scopes).find((scope) => scope.scopeKey === 'legal')!.id];
   attachEvidenceFile(project, shot.id, { fileName: 'zq7-shot.png', mimeType: 'image/png', sizeBytes: 10, storageKey: 'zq7-shot.png', capture: { takenAt: new Date().toISOString(), takenAtSource: 'stated' } }, OWNER);
   setShotPlace(project, { evidenceId: shot.id }, { stationId, place: { unit: unitId } }, OWNER);
-  const lastMonth = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
+  // The middle of last month as India's calendar has it, the calendar a report's periods are cut by: forty days back was two months back early in a month.
+  const [year, month] = indiaToday(new Date()).split('-').map(Number) as [number, number];
+  const lastMonth = new Date(Date.UTC(year, month - 2, 15)).toISOString().slice(0, 10);
   const siteEntry = logSiteEntry(project, { clientId: 'zq7-phone-entry-1', date: lastMonth, photos: [{ storageKey: `site_${project.id}_zq7.png`, fileName: 'Zq7-site-shot.png', mimeType: 'image/png', caption: 'Zq7 Caption From Site', stationId }] }, OWNER).entry;
   assert.equal(placeEntryShots(project, siteEntry), 1);
   marked.push({ fn: 'construction.site', set: 'construction.site.stations', forms: ['Zq7 Station Stair', stationId] });

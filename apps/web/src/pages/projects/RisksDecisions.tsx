@@ -29,9 +29,15 @@ import { Badge, Button, Card, CardBody, EmptyState, Input, RegisterRow, Select, 
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
+import { SuggestedRows } from './SuggestedRows';
+
+/** The suggestions each register shows as rows of its own, at its top. */
+const RISK_SUGGESTIONS = ['add_risk'] as const;
+const ACTION_SUGGESTIONS = ['add_action', 'request_evidence'] as const;
+const DECISION_SUGGESTIONS = ['add_decision'] as const;
 
 export function RisksActions() {
-  const { project, setProject, highlightIds, onReviewDocument } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds, onReviewDocument, onAcceptWaiting, onSetAsideWaiting, waitingBusy } = useOutletContext<ProjectOutlet>();
   const [searchParams] = useSearchParams();
   const liveIds = [
     ...(highlightIds ?? []),
@@ -67,6 +73,7 @@ export function RisksActions() {
       <DailyReviewList project={project} onAccepted={setProject} onOpenPaper={onReviewDocument} />
       <section className="space-y-2">
         <h2 className="text-[12px] font-semibold text-ink-secondary">Risks</h2>
+        <SuggestedRows project={project} kinds={RISK_SUGGESTIONS} changes="risk" liveIds={liveIds} busy={waitingBusy} onAccept={onAcceptWaiting} onSetAside={onSetAsideWaiting} />
         {risks.rows.length === 0 ? (
           mineOnly && project.risks.length > 0 ? (
             <EmptyState
@@ -128,6 +135,7 @@ export function RisksActions() {
       </section>
       <section className="space-y-2">
         <h2 className="text-[12px] font-semibold text-ink-secondary">Actions</h2>
+        <SuggestedRows project={project} kinds={ACTION_SUGGESTIONS} changes="action" liveIds={liveIds} busy={waitingBusy} onAccept={onAcceptWaiting} onSetAside={onSetAsideWaiting} />
         {actions.rows.length === 0 ? (
           mineOnly && project.actions.length > 0 ? (
             <EmptyState
@@ -185,7 +193,7 @@ export function RisksActions() {
 }
 
 export function DecisionRegister() {
-  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds, onAcceptWaiting, onSetAsideWaiting, waitingBusy } = useOutletContext<ProjectOutlet>();
   const [searchParams] = useSearchParams();
   // A decision a link named is lit, as a finding or a risk a link named is on its register.
   const linked = searchParams.get('decision');
@@ -195,6 +203,7 @@ export function DecisionRegister() {
       <div className="flex justify-end">
         <CreateButton kind="add_decision" project={project} onCreated={setProject} />
       </div>
+      <SuggestedRows project={project} kinds={DECISION_SUGGESTIONS} liveIds={liveIds} busy={waitingBusy} onAccept={onAcceptWaiting} onSetAside={onSetAsideWaiting} />
       {project.decisions.length === 0 ? (
         <EmptyState title="No decisions" description="Recorded against the findings that supported them." />
       ) : (

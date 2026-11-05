@@ -451,10 +451,12 @@ describe('the chat goes there', () => {
     assert.deepEqual([out.navigations.at(-1)?.workstream, out.navigations.at(-1)?.section], ['legal.title', 'documents']);
   });
 
-  it('still moves the project when a person says to move it', () => {
+  it('still moves the project when a person says to move it, once the move they asked for is accepted', () => {
     const p = seedBdaReferenceProject();
     const was = p.currentStage;
     applyProjectChat(p, 'move the project to Under construction');
+    assert.equal(p.currentStage, was, 'the move waits as a suggestion');
+    applyProjectChat(p, 'approve all');
     assert.notEqual(p.currentStage, was, 'a person’s own instruction to move it still runs');
     assert.equal(stageOf(p.currentStage), 'construction');
   });

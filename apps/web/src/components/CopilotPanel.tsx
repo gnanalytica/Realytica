@@ -529,6 +529,7 @@ export function CopilotPanel({
   compact,
   onCancel,
   dock,
+  renderPinned,
   plans,
   pending,
   askError,
@@ -660,6 +661,13 @@ export function CopilotPanel({
   onCancel?: () => void;
   /** Live sitting — the named field or scope, docked above the composer. */
   dock?: ReactNode;
+  /**
+   * Kept at the top of the chat on screen while its thread scrolls: where the
+   * chat is, and what it suggested that still waits. Given the chat by the id
+   * the list of chats knows it by, its turns, and, for an earlier chat being
+   * read, where it was held.
+   */
+  renderPinned?: (chat: { id?: string; turns: ProjectChatTurn[]; reading: boolean; heldAt?: ChatTurnPlace }) => ReactNode;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -1140,6 +1148,8 @@ export function CopilotPanel({
           </button>
         </div>
       ) : null}
+
+      {tab === 'chat' && renderPinned ? renderPinned({ id: reading ? reading.id : liveId, turns: reading ? reading.turns : own, reading: Boolean(reading), heldAt: reading?.place }) : null}
 
       <div
         ref={scrollRef}

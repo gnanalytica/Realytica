@@ -331,7 +331,8 @@ describe('a paper no function holds', () => {
       assert.ok(!/No document is called/.test(applyProjectChat(seedDemoProject(), sentence).assistantTurn.text), sentence);
     }
     applyProjectChat(p, 'Move "Tower A" to Completed');
-    assert.equal(tower.currentStage, 'handover', 'the tower moved, as it always has');
+    applyProjectChat(p, 'approve all');
+    assert.equal(tower.currentStage, 'handover', 'the tower moved, as it always has, once the move was accepted');
   });
 
   it('does not file under a function that is switched off', () => {
@@ -418,6 +419,7 @@ describe('a paper no function holds', () => {
     // A stage and no function follows: it is the tower that moves.
     assert.equal(asksToFileUnder(p, 'Move "Tower A" to Completed'), false);
     applyProjectChat(p, 'Move "Tower A" to Completed');
+    applyProjectChat(p, 'approve all');
     assert.equal(tower.currentStage, 'handover');
     assert.equal(sheet.workstream, undefined);
 

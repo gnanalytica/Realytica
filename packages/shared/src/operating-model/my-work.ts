@@ -167,7 +167,8 @@ export function myWorkOn(project: DdProject, person: WorkPerson, now: string): W
       status: action.status,
       severity: action.priority,
       dueDate: action.dueDate,
-      overdue: action.status === 'overdue' || isOverdue(action.dueDate, now),
+      // By the day asked about where there is a due date: the stored status is stamped by the clock of the day the action was last touched.
+      overdue: action.dueDate ? isOverdue(action.dueDate, now) : action.status === 'overdue',
       detail: action.description,
     });
   }

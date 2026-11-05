@@ -381,13 +381,18 @@ describe('project cockpit chat', () => {
     assert.match(result.assistantTurn.text, /^No figure yet\./);
   });
 
-  it('closes a named action from chat', () => {
+  it('suggests closing a named action from chat, closed once accepted', () => {
     const project = seedDemoProject();
     const open = project.actions.find((a) => a.status !== 'closed');
     assert.ok(open);
+    const was = open!.status;
     const result = applyProjectChat(project, `Close action "${open!.title}"`);
-    assert.equal(project.actions.find((a) => a.id === open!.id)?.status, 'closed');
+    assert.equal(project.actions.find((a) => a.id === open!.id)?.status, was, 'it waits on the register');
     assert.equal(result.navigations[0]?.target, 'actions');
+    const card = result.proposals.find((p) => p.kind === 'patch_record')!;
+    assert.equal(result.navigations[0]?.actionId, card.id, 'the register opens at the suggested change');
+    applyProjectChat(project, 'approve all');
+    assert.equal(project.actions.find((a) => a.id === open!.id)?.status, 'closed');
   });
 
   it('runProjectOrchestrator snapshots capabilities and does not auto-commit', () => {
@@ -609,16 +614,19 @@ describe('project chat wizard', () => {
     assert.ok(project.assessments[0].scopes.length > 0);
   });
 
-  it('applies an imperative project edit from chat and highlights the record', () => {
+  it('suggests an imperative project edit from chat, beside the fact, and writes it once accepted', () => {
     const project = createProject(
       { name: 'Edit me', type: 'residential', location: 'Whitefield', city: 'Bengaluru' },
       'RYT-ED',
     );
     const result = applyProjectChat(project, 'Set owner to Priya Shah');
-    assert.equal(project.owner, 'Priya Shah');
-    assert.ok(result.commands.some((c) => /applied/i.test(c)));
-    assert.ok(result.highlightIds.includes(project.id));
+    assert.equal(project.owner, undefined, 'an instruction waits as a suggestion, as a statement does');
+    assert.ok(!result.commands.some((c) => /applied/i.test(c)), 'nothing is applied');
+    assert.deepEqual(result.proposals.map((p) => p.kind), ['patch_project']);
     assert.equal(result.navigations.at(-1)?.target, 'overview');
+    const accepted = applyProjectChat(project, 'approve all');
+    assert.equal(project.owner, 'Priya Shah');
+    assert.ok(accepted.highlightIds.includes(project.id));
   });
 
   it('advises a land-area update from a statement and writes it only on approve', () => {
@@ -636,15 +644,17 @@ describe('project chat wizard', () => {
     assert.ok(committed.highlightIds.includes(project.id));
   });
 
-  it('adds a named asset from chat immediately when asked to add it', () => {
+  it('suggests a named asset from chat when asked to add it, added once accepted', () => {
     const project = createProject(
       { name: 'Towers', type: 'residential', location: 'Whitefield', city: 'Bengaluru' },
       'RYT-TW',
     );
     const result = applyProjectChat(project, 'Add Tower D as a residential tower');
-    assert.ok(project.assets.some((a) => a.name === 'Tower D'));
-    assert.ok(result.highlightIds.length >= 1);
+    assert.ok(!project.assets.some((a) => a.name === 'Tower D'));
     assert.equal(result.navigations.at(-1)?.target, 'assets');
+    const accepted = applyProjectChat(project, 'approve all');
+    assert.ok(project.assets.some((a) => a.name === 'Tower D'));
+    assert.ok(accepted.highlightIds.length >= 1);
   });
 
   it('offers Kaveri portal cards and files a collection action on approve', () => {
@@ -720,15 +730,18 @@ describe('project chat wizard', () => {
     assert.equal(project.evidence.some((e) => e.source === 'locality_pack'), false);
   });
 
-  it('commits an imperative risk from chat onto the work register', () => {
+  it('suggests an imperative risk from chat as a row of the register, logged once accepted', () => {
     const project = createProject(
       { name: 'Risks', type: 'residential', location: 'Whitefield', city: 'Bengaluru' },
       'RYT-RK',
     );
     const result = applyProjectChat(project, 'Add risk: Access road not adopted');
-    assert.ok(project.risks.some((r) => /Access road/i.test(r.title)));
+    assert.ok(!project.risks.some((r) => /Access road/i.test(r.title)));
+    assert.match(result.assistantTurn.text, /waits as a suggestion on Risks and actions/);
     assert.equal(project.assets.some((a) => a.name.toLowerCase() === 'risk'), false);
-    assert.ok(result.highlightIds.length >= 1);
+    const accepted = applyProjectChat(project, 'approve all');
+    assert.ok(project.risks.some((r) => /Access road/i.test(r.title)));
+    assert.ok(accepted.highlightIds.length >= 1);
   });
 
   it('proposes a property screen from chat and writes registers on approve', () => {

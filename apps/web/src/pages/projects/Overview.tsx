@@ -12,6 +12,7 @@ import {
   currentCertified,
   openAlerts,
   progressSummary,
+  projectFactsWaiting,
   projectDepartments,
   quickAssessment,
   stageAndStep,
@@ -202,10 +203,10 @@ function AcrossProject({ project }: { project: DdProject }) {
  * once it is first opened and stay drawn after: a map set up inside a closed
  * fold would measure a box of no size.
  */
-function Fold({ title, children }: { title: string; children: ReactNode }) {
-  const [opened, setOpened] = useState(false);
+function Fold({ title, children, open = false }: { title: string; children: ReactNode; open?: boolean }) {
+  const [opened, setOpened] = useState(open);
   return (
-    <details data-overview-fold className="group rounded-xl bg-surface ring-1 ring-inset ring-[var(--ring)]" onToggle={(event) => (event.currentTarget.open ? setOpened(true) : undefined)}>
+    <details data-overview-fold open={open || undefined} className="group rounded-xl bg-surface ring-1 ring-inset ring-[var(--ring)]" onToggle={(event) => (event.currentTarget.open ? setOpened(true) : undefined)}>
       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-medium text-ink hover:bg-sunken coarse:min-h-11 [&::-webkit-details-marker]:hidden">
         <ChevronRight size={14} aria-hidden className="shrink-0 text-ink-muted transition-transform group-open:rotate-90" />
         {title}
@@ -227,7 +228,8 @@ function Fold({ title, children }: { title: string; children: ReactNode }) {
  * the page so that pressing a stage on the track changes something in sight.
  */
 export default function Overview() {
-  const { project, setProject, onOpenFromStage, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, onOpenFromStage, onAcceptWaiting, onSetAsideWaiting, waitingBusy, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
+  const factsWaiting = useMemo(() => projectFactsWaiting(project).length > 0, [project]);
   const enabled = projectDepartments(project);
   const departments = DEPARTMENTS.filter((d) => enabled.includes(d.key));
   const subtitle = [[project.location, project.city].filter(Boolean).join(', '), stageAndStep(project.currentStage)].filter(Boolean).join(' · ');
@@ -293,14 +295,15 @@ export default function Overview() {
           <EngagementsCard project={project} onSaved={setProject} />
         </div>
       </Fold>
-      <Fold title="The site: map, plan and key facts">
+      {/* A suggestion for a fact waits beside the fact: the fold that holds them is open while one does. */}
+      <Fold title="The site: map, plan and key facts" open={factsWaiting}>
         <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
           <div className="min-w-0">
             <Suspense fallback={<Skeleton className="h-72 w-full rounded-xl" />}>
               <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
             </Suspense>
           </div>
-          <KeyFacts project={project} />
+          <KeyFacts project={project} busy={waitingBusy} onAccept={onAcceptWaiting} onSetAside={onSetAsideWaiting} />
         </div>
       </Fold>
       <Fold title="Recent activity">

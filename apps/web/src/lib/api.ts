@@ -106,7 +106,7 @@ import type {
   FlowRunSummary,
   FlowNodeType,
 } from '@realytica/shared';
-import type { CheckFieldsShown, FirmFieldPack, LawRuleRowOffer } from '@realytica/shared';
+import type { ChatAccepted, CheckFieldsShown, FirmFieldPack, LawRuleRowOffer } from '@realytica/shared';
 import { authHeader, renewToken, signOut } from './auth';
 import type { RevenueReadResult } from './revenue-run';
 
@@ -1205,6 +1205,9 @@ export const api = {
   /** Name a chat. An empty name hands it back to its first question. */
   renameChat: (projectId: string, sessionId: string, name: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/chat/sessions/${encodeURIComponent(sessionId)}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  /** Accept everything one chat suggested that still waits. The server reads what that is; the page names only the chat. */
+  acceptChatSuggestions: (projectId: string, sessionId: string) =>
+    request<{ project: DdProject; said: string } & ChatAccepted>(`/projects/${projectId}/chat/sessions/${encodeURIComponent(sessionId)}/accept`, { method: 'POST', body: '{}' }),
   /*
    * Deciding on the canvas. Each names what it decides by id, writes no chat
    * turn, and answers with the project as it now stands.

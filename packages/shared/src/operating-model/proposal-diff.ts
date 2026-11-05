@@ -35,6 +35,8 @@ export interface ProposalChange {
   to: string;
   /** The unit, when the field carries one — shown once, not on both sides. */
   unit?: string;
+  /** On a change to the project record: the fact it changes, by its key on the project. */
+  key?: string;
 }
 
 /** Long prose is compared by its opening, not dumped twice into a card. */
@@ -87,6 +89,8 @@ const PROJECT_FIELDS: Array<{
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'landAreaSqm', label: 'Land area', unit: 'sqm' },
   { key: 'builtUpAreaSqm', label: 'Built-up area', unit: 'sqm' },
+  // Said in the chat ("saleable area is 50000 sqm") as the other areas are, and shown beside them for a person to accept.
+  { key: 'saleableAreaSqm', label: 'Saleable area', unit: 'sqm' },
   { key: 'budget', label: 'Budget', unit: '₹' },
 ];
 
@@ -151,7 +155,7 @@ export function proposalChanges(project: DdProject, proposal: ChatProposal): Pro
       if (to === undefined) continue;
       const from = as(project[field.key]);
       if (from === to) continue;
-      out.push({ label: field.label, from, to, unit: field.unit });
+      out.push({ label: field.label, from, to, unit: field.unit, key: String(field.key) });
     }
     return out;
   }
@@ -181,4 +185,23 @@ function findCheckSafely(project: DdProject, checkId: string) {
     }
   }
   return undefined;
+}
+
+/** A fact of the project record a suggestion would change, and the suggestion: what Overview draws beside the fact. */
+export interface FactWaiting extends ProposalChange {
+  key: string;
+  card: ChatProposal;
+}
+
+/**
+ * The facts of the project record that suggestions would change, each with
+ * the suggestion it waits on: the owner, the developer, the city, the
+ * address, the areas, the parcel, the pin, the budget. Shown beside the fact
+ * on Overview, with Accept and Set aside there, in the order the cards were
+ * raised.
+ */
+export function projectFactsWaiting(project: DdProject): FactWaiting[] {
+  return (project.chatProposals ?? [])
+    .filter((card) => card.kind === 'patch_project' && card.status === 'proposed')
+    .flatMap((card) => proposalChanges(project, card).flatMap((change) => (change.key ? [{ ...change, key: change.key, card }] : [])));
 }

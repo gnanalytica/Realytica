@@ -48,12 +48,15 @@ after(() => {
   for (const name of ['REALYTICA_BASE_URL', 'REALYTICA_API_KEY', 'REALYTICA_MODEL_JUDGMENT']) delete process.env[name];
 });
 
+/** A day a year from today: the action is not yet due whenever the suite runs, so its status is "Not started" by any clock. */
+const DUE = new Date(Date.now() + 365 * 86_400_000).toISOString().slice(0, 10);
+
 /** A project with a land holding sheet filled in part, a paper and an action. */
 function held(): { project: DdProject; paperId: string; actionId: string } {
   const project = createProject({ name: 'Tank Road plots', type: 'residential', location: 'Tank Road', city: 'Kadamba' }, 'RYT-CA1', LEAD);
   setFieldValues(project, { set: 'legal.title.holding' }, { tenure: 'freehold' }, LEAD);
   const paper = addEvidence(project, { title: 'Sale deed of the tank parcel', kind: 'document', status: 'received' }, LEAD);
-  const action = addAction(project, { title: 'Get the encumbrance certificate', kind: 'clarification', owner: 'Anika Rao', priority: 'high', dueDate: '2026-11-01' }, LEAD);
+  const action = addAction(project, { title: 'Get the encumbrance certificate', kind: 'clarification', owner: 'Anika Rao', priority: 'high', dueDate: DUE }, LEAD);
   return { project, paperId: paper.id, actionId: action.id };
 }
 
@@ -83,7 +86,7 @@ describe('a model’s answer in the chat', () => {
       said.card!.rows.map((row) => [row.kind, row.label, row.value, row.standing]),
       [
         ['field', 'Tenure (Land holding)', 'Freehold', 'typed'],
-        ['record', 'Action', 'Get the encumbrance certificate · Not started · due 2026-11-01', 'on_record'],
+        ['record', 'Action', `Get the encumbrance certificate · Not started · due ${DUE}`, 'on_record'],
         ['record', 'Paper', 'Sale deed of the tank parcel · Received', 'on_record'],
       ],
     );
@@ -95,7 +98,7 @@ describe('a model’s answer in the chat', () => {
       [
         'The record holds part of this:',
         '- Tenure (Land holding): Freehold (Entered by a person)',
-        '- Action: Get the encumbrance certificate · Not started · due 2026-11-01 (On the record)',
+        `- Action: Get the encumbrance certificate · Not started · due ${DUE} (On the record)`,
         '- Paper: Sale deed of the tank parcel · Received (On the record; Sale deed of the tank parcel)',
         'To look at:',
         '- Extent held (Land holding)',

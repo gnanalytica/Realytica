@@ -18,6 +18,7 @@ import {
   roleCanDecide,
   roleCanEdit,
   scheduleWatch,
+  milestoneReadingsWaiting,
   type DdProject,
   type Milestone,
   type MilestonePhotoWaiver,
@@ -31,7 +32,9 @@ import { TrendChart } from '../fields/TrendChart';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, Input, Modal, Textarea, cn, useToast } from '../ui/kit';
+import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, Input, Modal, Textarea, cn, useToast } from '../ui/kit';
+import { DecideButtons } from '../review/Decide';
+import { rowSource } from '../../pages/projects/SuggestedRows';
 import { MARKED_ROW, useMarkedRow } from '../workspace/marked';
 
 function Ring({ percent }: { percent: number | null }) {
@@ -69,6 +72,7 @@ function MilestoneRow({
   mayRemove,
   onChanged,
   marked,
+  decide,
 }: {
   project: DdProject;
   milestone: Milestone;
@@ -79,6 +83,8 @@ function MilestoneRow({
   onChanged: (p: DdProject) => void;
   /** A link named this milestone. */
   marked: boolean;
+  /** Accept or set aside a reading waiting on it; absent for somebody who may not record one. */
+  decide?: WaitingDecide;
 }) {
   const toast = useToast();
   const [value, setValue] = useState(String(milestone.percent));
@@ -164,6 +170,7 @@ function MilestoneRow({
           Remove
         </button>
       ) : null}
+      <WaitingReadingMarks project={project} milestone={milestone} decide={decide} />
       {stopped.length ? (
         <div role="alert" data-milestone-refused className="basis-full rounded-lg border border-hairline bg-sunken px-3 py-2 text-[12px] text-ink">
           <p>{refused && wanting.length ? milestonePhotosRefusal(milestone.name, wanting) : `Complete, with ${stopped.length === 1 ? 'a required photograph' : `${stopped.length} required photographs`} not taken: ${stopped.map((station) => station.label).join(', ')}.`}</p>
@@ -195,6 +202,43 @@ function MilestoneRow({
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** What the board does with a reading waiting on a milestone: the same accept and set aside as anywhere else it waits. */
+interface WaitingDecide {
+  onAccept: (id: string) => void;
+  onSetAside: (id: string) => void;
+  busy?: boolean;
+}
+
+/**
+ * A reading of the milestone waiting to be accepted, under its row: the
+ * percent, the day it is for, who said it in the chat and their words. It is
+ * not on the milestone, and not among its readings, until it is accepted here
+ * or by the chat's Accept all.
+ */
+function WaitingReadingMarks({ project, milestone, decide }: { project: DdProject; milestone: Milestone; decide?: WaitingDecide }) {
+  const waiting = useMemo(() => milestoneReadingsWaiting(project, milestone.id), [project, milestone.id]);
+  if (!waiting.length) return null;
+  return (
+    <div className="basis-full space-y-1">
+      {waiting.map(({ card, percent, on }) => (
+        <div key={card.id} data-waiting-reading={card.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-ai bg-ai/5 px-2.5 py-1.5">
+          <div className="min-w-0 flex-1 text-[12px] text-ink">
+            <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <AiMark size="xs" />
+              <span className="font-medium text-ai-ink">Suggested reading</span>
+              <span className="font-mono tabular-nums">{percent}%</span>
+              <span>for {daySaid(on)}</span>
+              <span className="text-ink-muted">· {rowSource(project, card)}</span>
+            </p>
+            {card.said?.quote ? <p className="mt-0.5 text-[11px] text-ink-muted">“{card.said.quote}”</p> : null}
+          </div>
+          {decide ? <DecideButtons label={card.title} busy={decide.busy} size="sm" onAccept={() => decide.onAccept(card.id)} onSetAside={() => decide.onSetAside(card.id)} /> : null}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -296,12 +340,15 @@ export function ProgressBoard({
   onChanged,
   onPairPhone,
   marked,
+  decide,
 }: {
   project: DdProject;
   onChanged: (p: DdProject) => void;
   onPairPhone: () => void;
   /** A milestone or a site log entry a link named, by its id: it is lit and brought into view. */
   marked?: string | null;
+  /** Accept or set aside a reading the chat suggested, on its milestone's row. */
+  decide?: WaitingDecide;
 }) {
   const board = useMarkedRow<HTMLDivElement>(marked);
   const me = useMe();
@@ -422,6 +469,7 @@ export function ProgressBoard({
                   mayRemove={mayRemove}
                   onChanged={onChanged}
                   marked={m.id === marked}
+                  decide={mayEdit ? decide : undefined}
                 />
               ))}
             </ul>

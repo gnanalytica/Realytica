@@ -692,7 +692,27 @@ export type FieldOrigin =
   | { kind: 'external'; source: string; url?: string; asOf: string; quote?: string }
   | { kind: 'field'; address: FieldAddress }
   | { kind: 'person' }
-  | { kind: 'default'; from: DefaultRule['from']; cite?: string };
+  | { kind: 'default'; from: DefaultRule['from']; cite?: string }
+  /**
+   * Said in the chat by a person: their own words, quoted from their message,
+   * with the message's turn and the chat it was said in. It waits as any
+   * offered value waits, and stands only once somebody who decides accepts it.
+   */
+  | { kind: 'chat'; by: string; quote: string; turnId: string; sessionId?: string; at: string };
+
+/** A value or a card's source where it is a person's own words in the chat. */
+export type ChatSaid = Extract<FieldOrigin, { kind: 'chat' }>;
+
+/**
+ * The chat message a suggestion came from: the person's turn, and the chat
+ * it is in where the page sent one. Kept on every value and card a chat
+ * message raised, so a chat can list its own suggestions and the reply can
+ * say where they went.
+ */
+export interface ChatTag {
+  sessionId?: string;
+  turnId: string;
+}
 
 /**
  * A value a field held before the one it holds now: what stood, who made it
@@ -1109,7 +1129,9 @@ export interface CheckFieldValue {
   acceptedBy?: string;
   acceptedAt?: string;
   /** Other values stated for this field. One here waits beside the value held; with `state: 'disputed'` neither stands. */
-  other?: Array<{ value: CheckFieldValue['value']; origin: FieldOrigin; proposedBy?: string; at?: string; entered?: { value: number; unit: string; text?: string }; card?: string }>;
+  other?: Array<{ value: CheckFieldValue['value']; origin: FieldOrigin; proposedBy?: string; at?: string; entered?: { value: number; unit: string; text?: string }; card?: string; chat?: ChatTag }>;
+  /** The chat message that offered a value that waits, where a chat message did. */
+  chat?: ChatTag;
   /** On a check: the card a value that waits is read from. Never stored: set when the check is read as a sheet (`check-waiting.ts`). */
   card?: string;
   /** Values a person set aside here, so the same reading is not offered a second time. */
@@ -2177,6 +2199,8 @@ export interface ChatTurnPlace {
   department?: string;
   fn?: string;
   stage?: string;
+  /** The month in play on the page, as `YYYY-MM`, where one was. */
+  period?: string;
 }
 
 /** Structurally the copilot turn the cockpit chat panel already renders. */
@@ -2331,6 +2355,20 @@ export interface ProjectChatTurn {
    * reply that changed nothing.
    */
   changed?: import('./turn-changes').TurnChanged;
+  /**
+   * Where this reply's message left suggestions: a line for each place, each
+   * opening the page that holds them (`turnSuggested`). Set by code when the
+   * reply is made, and absent where the message left none.
+   */
+  suggested?: import('./chat-suggestions').TurnSuggested[];
+  /**
+   * The chat asking for what is missing, one question at a time, as it stood
+   * once this reply was made: the questions of the run, which one is open,
+   * and how many were suggested and skipped (`chat-ask.ts`). Kept on the
+   * reply, so a reload or another device carries on the same run. Absent on
+   * a reply that is no part of one.
+   */
+  asking?: import('./chat-ask').ChatAsking;
 }
 
 export type ChatProposalKind =
@@ -2364,6 +2402,12 @@ export type ChatProposalKind =
   | 'run_valuation'
   | 'run_screen'
   | 'patch_project'
+  /**
+   * A change to a row already on a register, said in the chat: a finding
+   * graded again or closed, an action closed, a risk mitigated or accepted.
+   * It waits on the row's register until a person accepts it there.
+   */
+  | 'patch_record'
   | 'patch_asset'
   | 'change_stage'
   | 'open_connector'
@@ -2449,6 +2493,10 @@ export interface ChatProposal {
   createdAt: string;
   createdBy: string;
   committedRecordId?: string;
+  /** The chat message that raised it, where one did. */
+  chat?: ChatTag;
+  /** The person's own words it rests on, where it was said in the chat and read off no paper. */
+  said?: ChatSaid;
 }
 
 /**
